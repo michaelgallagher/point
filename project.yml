@@ -1,0 +1,40 @@
+# XcodeGen spec. Run `xcodegen` to (re)create Imprint.xcodeproj, which is not checked in.
+name: Imprint
+options:
+  bundleIdPrefix: org.mikegallagher
+  deploymentTarget:
+    macOS: "13.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1"
+    CURRENT_PROJECT_VERSION: "1"
+packages:
+  VaultKit:
+    path: Packages/VaultKit
+targets:
+  Imprint-Mac:
+    type: application
+    platform: macOS
+    sources:
+      - Apps/Mac
+    dependencies:
+      - package: VaultKit
+    entitlements:
+      path: Apps/Mac/Imprint.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-write: true
+        com.apple.security.files.bookmarks.app-scope: true
+    settings:
+      base:
+        PRODUCT_NAME: Imprint
+        PRODUCT_BUNDLE_IDENTIFIER: org.mikegallagher.imprint
+        # Ad-hoc signing ("Sign to Run Locally") until there is a paid developer account.
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        ENABLE_HARDENED_RUNTIME: YES
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Imprint
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
