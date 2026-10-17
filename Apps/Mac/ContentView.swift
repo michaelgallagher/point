@@ -14,7 +14,7 @@ struct ContentView: View {
                         .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 400)
                 } detail: {
                     if let note = model.selectedNote {
-                        NotePreview(note: note)
+                        NoteEditor(note: note)
                     } else {
                         Text("No Note Selected")
                             .font(.title3)

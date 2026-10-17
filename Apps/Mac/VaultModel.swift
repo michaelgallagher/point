@@ -62,6 +62,12 @@ final class VaultModel: ObservableObject {
     }
 
     private func restoreVault() {
+        #if DEBUG
+        if let path = UserDefaults.standard.string(forKey: "ImprintVault") {
+            open(URL(fileURLWithPath: (path as NSString).expandingTildeInPath))
+            return
+        }
+        #endif
         guard let bookmark = UserDefaults.standard.data(forKey: Keys.bookmark) else { return }
         do {
             let (url, isStale) = try VaultLocation.resolve(bookmark)

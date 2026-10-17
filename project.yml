@@ -13,6 +13,8 @@ settings:
 packages:
   VaultKit:
     path: Packages/VaultKit
+  EditorKit:
+    path: Packages/EditorKit
 targets:
   Imprint-Mac:
     type: application
@@ -21,12 +23,7 @@ targets:
       - Apps/Mac
     dependencies:
       - package: VaultKit
-    entitlements:
-      path: Apps/Mac/Imprint.entitlements
-      properties:
-        com.apple.security.app-sandbox: true
-        com.apple.security.files.user-selected.read-write: true
-        com.apple.security.files.bookmarks.app-scope: true
+      - package: EditorKit
     settings:
       base:
         PRODUCT_NAME: Imprint
@@ -38,3 +35,10 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Imprint
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+        # Sandboxed, with access only to the folder the user picks.
+        CODE_SIGN_ENTITLEMENTS: Apps/Mac/Imprint.entitlements
+      configs:
+        # Debug builds run unsandboxed so a test vault can be opened by path
+        # (`-ImprintVault <path>`) without the folder picker.
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: Apps/Mac/Imprint-Debug.entitlements

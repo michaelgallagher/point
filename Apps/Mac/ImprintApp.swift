@@ -11,6 +11,7 @@ struct ImprintApp: App {
                 .environmentObject(model)
         }
         .commands {
+            FormatCommands()
             CommandGroup(after: .newItem) {
                 Button("Open Vault…") { model.chooseVault() }
                     .keyboardShortcut("o")

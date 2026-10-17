@@ -118,7 +118,7 @@ Imprint.xcodeproj
 
 - **UI:** SwiftUI shell (split view on Mac, navigation stack on iPhone) with the editor wrapped from AppKit or UIKit.
 - **macOS 13 support:** SwiftUI is limited to macOS 13 APIs, using `ObservableObject` instead of `@Observable`. Newer features are gated with `#available`.
-- **Text engine:** TextKit 1 vs TextKit 2 is decided in milestone 1. TextKit 1 is the default candidate because it is mature on macOS 13.
+- **Text engine:** TextKit 1 (decided in M1). It is mature on macOS 13, and its glyph-generation hook hides Markdown markers cleanly while the text stays exactly as on disk. Still to confirm on the 2017 Mac.
 - **Parser:** our own. Off-the-shelf parsers don't round-trip losslessly or know Obsidian syntax, and the editor needs exact ranges for every token.
 
 ## Milestones

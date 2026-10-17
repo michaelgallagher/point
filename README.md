@@ -10,11 +10,29 @@ Requires Xcode and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew inst
 xcodegen && open Imprint.xcodeproj
 ```
 
-Run the `Imprint-Mac` scheme. Tests for the shared code:
+Run the `Imprint-Mac` scheme. Debug builds aren't sandboxed, so they can open a vault by path, skipping the folder picker. Add `-ImprintVault ~/path/to/vault` to the scheme's launch arguments.
+
+Tests for the shared code (run each from its package folder):
 
 ```bash
 cd Packages/VaultKit && swift test
 ```
+
+```bash
+cd Packages/MarkdownKit && swift test
+```
+
+```bash
+cd Packages/EditorKit && swift test
+```
+
+EditorKit also has two opt-in checks. The round-trip check opens every note in a vault in the editor and confirms nothing changes. It only reads files and never writes:
+
+```bash
+cd Packages/EditorKit && IMPRINT_ROUNDTRIP_VAULT=~/path/to/vault swift test -c release --filter VaultRoundTripTests
+```
+
+`IMPRINT_SNAPSHOT_DIR` and `IMPRINT_SNAPSHOT_NOTE` render a note to light and dark PNGs (`SnapshotTests`).
 
 ### A build for another Mac
 
@@ -27,5 +45,7 @@ This writes a universal (Apple Silicon and Intel) app that runs on macOS 13 or l
 ## Layout
 
 - `Apps/Mac` — the Mac app (SwiftUI, deployment target macOS 13)
-- `Packages/VaultKit` — vault access: finding notes, reading them, remembering the vault folder
+- `Packages/VaultKit` — vault access: finding, reading and safely writing notes, and remembering the vault folder
+- `Packages/MarkdownKit` — the Markdown parser (CommonMark, GFM and Obsidian syntax), with exact positions for every token
+- `Packages/EditorKit` — the editor: a TextKit 1 text view that hides Markdown markers and draws lists, quotes and code
 - `scripts` — build helpers
