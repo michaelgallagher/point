@@ -205,6 +205,9 @@ private struct NoteList: View {
                 List(results, selection: $model.selection) { result in
                     SearchResultRow(result: result)
                 }
+                // On the sidebar's material, not white, in both layouts.
+                .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
                 .overlay {
                     if results.isEmpty {
                         Text("No Results")
