@@ -146,9 +146,9 @@ struct MarkdownStyler {
                 .backgroundColor: NSColor.textColor.withAlphaComponent(0.07),
             ], range: range)
         case .link, .image, .wikiLink, .embed, .url:
-            storage.addAttribute(.foregroundColor, value: NSColor.linkColor, range: range)
+            storage.addAttributes([.foregroundColor: NSColor.linkColor, .cursor: NSCursor.pointingHand], range: range)
         case .tag:
-            storage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: range)
+            storage.addAttributes([.foregroundColor: NSColor.controlAccentColor, .cursor: NSCursor.pointingHand], range: range)
         case .footnoteReference:
             storage.addAttributes([
                 .font: NSFont.systemFont(ofSize: theme.bodySize * 0.75),

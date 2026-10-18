@@ -19,7 +19,9 @@ final class ImprintLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
 
     // MARK: Hiding markers
 
-    /// Hidden characters become null glyphs: still in the text, but with no width and never drawn.
+    /// Hidden characters become zero-width control glyphs: still in the text, never drawn,
+    /// and (unlike null glyphs) still placed on their own line, so cursor movement and
+    /// hit-testing stay on the right line.
     func layoutManager(
         _ layoutManager: NSLayoutManager,
         shouldGenerateGlyphs glyphs: UnsafePointer<CGGlyph>,
@@ -42,13 +44,55 @@ final class ImprintLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
             if modified == nil {
                 modified = Array(UnsafeBufferPointer(start: properties, count: glyphRange.length))
             }
-            modified![i] = .null
+            modified![i] = .controlCharacter
         }
         guard let modified else { return 0 }
         modified.withUnsafeBufferPointer {
             layoutManager.setGlyphs(glyphs, properties: $0.baseAddress!, characterIndexes: characterIndexes, font: font, forGlyphRange: glyphRange)
         }
         return glyphRange.length
+    }
+
+    func layoutManager(
+        _ layoutManager: NSLayoutManager,
+        shouldUse action: NSLayoutManager.ControlCharacterAction,
+        forControlCharacterAt charIndex: Int
+    ) -> NSLayoutManager.ControlCharacterAction {
+        if layoutManager.textStorage?.attribute(.imprintHidden, at: charIndex, effectiveRange: nil) != nil {
+            return .zeroAdvancement
+        }
+        return action
+    }
+
+    /// Adds the theme's extra line height half above and half below the text, so
+    /// selections and backgrounds sit evenly around it.
+    func layoutManager(
+        _ layoutManager: NSLayoutManager,
+        shouldSetLineFragmentRect lineFragmentRect: UnsafeMutablePointer<NSRect>,
+        lineFragmentUsedRect: UnsafeMutablePointer<NSRect>,
+        baselineOffset: UnsafeMutablePointer<CGFloat>,
+        in textContainer: NSTextContainer,
+        forGlyphRange glyphRange: NSRange
+    ) -> Bool {
+        guard let storage = layoutManager.textStorage, glyphRange.length > 0 else { return false }
+        let characters = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+        guard characters.location < storage.length else { return false }
+        if let style = storage.attribute(.paragraphStyle, at: characters.location, effectiveRange: nil) as? NSParagraphStyle,
+           style.maximumLineHeight > 0 {
+            return false // A collapsed line, such as a code fence, keeps its sliver of height.
+        }
+        let multiple = storage.attribute(.imprintLineHeight, at: characters.location, effectiveRange: nil) as? CGFloat
+            ?? theme.lineHeightMultiple
+        var tallest: CGFloat = 0
+        storage.enumerateAttribute(.font, in: characters) { value, _, _ in
+            if let font = value as? NSFont { tallest = max(tallest, font.ascender - font.descender) }
+        }
+        let extra = (tallest * (multiple - 1)).rounded()
+        guard extra > 0 else { return false }
+        lineFragmentRect.pointee.size.height += extra
+        lineFragmentUsedRect.pointee.size.height += extra
+        baselineOffset.pointee += extra / 2
+        return true
     }
 
     // MARK: Drawing
@@ -143,11 +187,10 @@ final class ImprintLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
             NSBezierPath(roundedRect: NSRect(x: rect.minX + 2, y: rect.minY + 2, width: 3, height: rect.height - 4), xRadius: 1.5, yRadius: 1.5).fill()
             // With no title of its own, a callout is titled by its type, as in Obsidian.
             if firstVisibleCharacter(onLineOf: range.location, storage: storage) == nil {
-                let line = lineRect(containing: range.location, storage: storage)
                 let font = NSFont.systemFont(ofSize: theme.bodySize, weight: .bold)
                 let label = type.prefix(1).uppercased() + type.dropFirst()
-                let baseline = line.minY + (line.height - theme.paragraphSpacing + font.ascender - font.descender) / 2 - font.descender
-                (label as NSString).draw(at: NSPoint(x: rect.minX + 16, y: rect.minY + (baseline - font.ascender - line.minY)),
+                let baseline = rect.minY + location(forGlyphAt: glyphIndexForCharacter(at: range.location)).y
+                (label as NSString).draw(at: NSPoint(x: rect.minX + 16, y: baseline - font.ascender),
                                          withAttributes: [.font: font, .foregroundColor: color])
             }
         case .code:
@@ -163,8 +206,8 @@ final class ImprintLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         if let visible = firstVisibleCharacter(onLineOf: index, storage: storage) {
             baseline = origin.y + line.minY + location(forGlyphAt: glyphIndexForCharacter(at: visible)).y
         } else {
-            // An empty item: centre the marker in its line.
-            baseline = origin.y + line.minY + (line.height - theme.paragraphSpacing + font.ascender - font.descender) / 2 - font.descender + font.descender
+            // An empty item: its hidden marker glyphs still sit on the baseline.
+            baseline = origin.y + line.minY + location(forGlyphAt: glyphIndexForCharacter(at: index)).y
         }
         let x = origin.x + container.lineFragmentPadding + theme.indentPerLevel * CGFloat(decoration.level)
 

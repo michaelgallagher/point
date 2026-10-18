@@ -7,8 +7,11 @@ let package = Package(
     products: [
         .library(name: "VaultKit", targets: ["VaultKit"]),
     ],
+    dependencies: [
+        .package(path: "../MarkdownKit"),
+    ],
     targets: [
-        .target(name: "VaultKit"),
+        .target(name: "VaultKit", dependencies: ["MarkdownKit"]),
         .testTarget(name: "VaultKitTests", dependencies: ["VaultKit"]),
     ]
 )

@@ -325,6 +325,7 @@ extension MarkdownTextView {
 
     public override func mouseDown(with event: NSEvent) {
         if toggleCheckbox(at: convert(event.locationInWindow, from: nil)) { return }
+        if openLink(for: event) { return } // ⌥-click places the cursor in a link instead.
         super.mouseDown(with: event)
     }
 

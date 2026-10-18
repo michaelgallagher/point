@@ -12,6 +12,6 @@ let package = Package(
     ],
     targets: [
         .target(name: "EditorKit", dependencies: ["MarkdownKit"]),
-        .testTarget(name: "EditorKitTests", dependencies: ["EditorKit", "MarkdownKit"]),
+        .testTarget(name: "EditorKitTests", dependencies: ["EditorKit", "MarkdownKit"], resources: [.copy("FormattingTour.md")]),
     ]
 )

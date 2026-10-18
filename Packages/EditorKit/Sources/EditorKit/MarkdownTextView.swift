@@ -11,6 +11,10 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     public private(set) var tokens: [MarkdownToken] = []
     /// Called after every change the user makes to the text.
     public var onTextChange: ((MarkdownTextView) -> Void)?
+    /// Called when a link is clicked.
+    public var onOpenLink: ((LinkTarget) -> Void)?
+    /// Note titles to suggest while a `[[wikilink]]` is typed, best first.
+    public var completeNoteTitle: ((String) -> [String])?
 
     let styler = MarkdownStyler()
     /// The text view doesn't own a custom text system, so it is kept alive here.
@@ -80,6 +84,33 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         setSelectedRange(NSRange(location: 0, length: 0))
         isAdjustingSelection = false
         scrollToBeginningOfDocument(nil)
+    }
+
+    /// Swaps in a newer version of the text (for example, edited in Obsidian), replacing only
+    /// what differs so the cursor and scroll position stay where they were. Clears undo,
+    /// whose positions refer to the old text.
+    public func reload(_ markdown: String) {
+        guard let storage = textStorage, markdown != string else { return }
+        let old = string as NSString, new = markdown as NSString
+        var prefix = 0
+        while prefix < old.length, prefix < new.length, old.character(at: prefix) == new.character(at: prefix) { prefix += 1 }
+        var suffix = 0
+        while suffix < old.length - prefix, suffix < new.length - prefix,
+              old.character(at: old.length - 1 - suffix) == new.character(at: new.length - 1 - suffix) { suffix += 1 }
+        let changed = NSRange(location: prefix, length: old.length - prefix - suffix)
+        let replacement = new.substring(with: NSRange(location: prefix, length: new.length - prefix - suffix))
+        let delta = (replacement as NSString).length - changed.length
+
+        func map(_ index: Int) -> Int {
+            if index <= changed.location { return index }
+            if index >= NSMaxRange(changed) { return index + delta }
+            return changed.location + (replacement as NSString).length
+        }
+        let selection = selectedRange()
+        storage.replaceCharacters(in: changed, with: replacement)
+        let start = map(selection.location), end = map(NSMaxRange(selection))
+        setSelectionDirectly(NSRange(location: start, length: end - start))
+        undoManager?.removeAllActions()
     }
 
     public override func didChangeText() {
@@ -183,22 +214,28 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
 
     func snappedLocation(_ location: Int, forward: Bool) -> Int {
         let text = string as NSString
-        if forward, let run = hiddenRun(at: location) {
-            if hidesWholeLine(run) {
-                return min(NSMaxRange(text.lineRange(for: run)), text.length)
+        // The hidden run the location is at the start of, inside, or at the end of.
+        guard let run = hiddenRun(at: location) ?? hiddenRun(at: location - 1) else { return location }
+
+        // A fully hidden line (a code fence) is skipped over entirely.
+        if hidesWholeLine(run) {
+            if forward { return min(NSMaxRange(text.lineRange(for: run)), text.length) }
+            return run.location > 0 ? run.location - 1 : min(NSMaxRange(text.lineRange(for: run)), text.length)
+        }
+
+        // Markers that start a line (`- `, `# `, `> `): the cursor belongs after them. Left
+        // from there goes straight to the previous line rather than to an invisible stop.
+        if run.location == lineStart(of: run.location) {
+            let previous = selectedRange().location
+            if !forward, previous == NSMaxRange(run), location < previous, run.location > 0 {
+                return run.location - 1
             }
             return NSMaxRange(run)
         }
-        if !forward, let run = hiddenRun(at: location - 1) ?? (isHidden(location) && isHidden(location - 1) ? hiddenRun(at: location) : nil) {
-            if hidesWholeLine(run) {
-                return max(run.location - 1, 0)
-            }
-            return run.location
-        }
-        // Moving forward onto the end of a run from inside it is fine; landing inside one is not.
-        if let run = hiddenRun(at: location), run.location < location {
-            return forward ? NSMaxRange(run) : run.location
-        }
+
+        // Inline markers (`**`, `[[`): never stop inside them, so every press visibly moves.
+        if forward, isHidden(location) { return NSMaxRange(run) }
+        if !forward, isHidden(location - 1) { return run.location }
         return location
     }
 
@@ -250,6 +287,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
             expandSelectionToWholeTokens()
         }
         super.insertText(string, replacementRange: replacementRange)
+        suggestCompletionsIfInWikiLink()
     }
 
     public override func cut(_ sender: Any?) {

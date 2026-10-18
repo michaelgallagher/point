@@ -15,6 +15,7 @@ struct ContentView: View {
                 } detail: {
                     if let note = model.selectedNote {
                         NoteEditor(note: note)
+                            .id(note.id)
                     } else {
                         Text("No Note Selected")
                             .font(.title3)
@@ -26,9 +27,8 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 600, minHeight: 400)
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            // Pick up changes made elsewhere, such as in Obsidian. Live file watching comes in M2.
-            Task { await model.reload() }
+        .sheet(item: $model.renaming) { note in
+            RenameSheet(note: note)
         }
     }
 }
@@ -72,6 +72,13 @@ private struct NoteList: View {
                 }
             }
             .help(note.id)
+            .contextMenu {
+                Button("Rename…") { model.renaming = note }
+                Button("Move to Trash") { model.moveToTrash(note) }
+            }
+        }
+        .onDeleteCommand {
+            model.selectedNote.map(model.moveToTrash)
         }
         .overlay {
             if let message = model.errorMessage {
@@ -81,5 +88,40 @@ private struct NoteList: View {
                     .padding()
             }
         }
+    }
+}
+
+private struct RenameSheet: View {
+    @EnvironmentObject private var model: VaultModel
+    @Environment(\.dismiss) private var dismiss
+    let note: Note
+    @State private var title = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Rename Note")
+                .font(.headline)
+            TextField("Name", text: $title)
+                .frame(width: 320)
+                .onSubmit(rename)
+            Text("Links to this note in other notes will be updated.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Rename", action: rename)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(20)
+        .onAppear { title = note.title }
+    }
+
+    private func rename() {
+        model.rename(note, to: title)
+        dismiss()
     }
 }

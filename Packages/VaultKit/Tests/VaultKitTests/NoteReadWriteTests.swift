@@ -47,4 +47,11 @@ struct NoteReadWriteTests {
         #expect(try String(contentsOf: copy, encoding: .utf8) == "my edit")
         #expect(copy.lastPathComponent.contains("(conflict "))
     }
+
+    @Test func canReportAChangeInsteadOfWriting() throws {
+        let url = try file(Data("theirs".utf8))
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(try NoteWriter.write("mine", to: url, expecting: "original", ifChanged: .report) == .changedOnDisk("theirs"))
+        #expect(try String(contentsOf: url, encoding: .utf8) == "theirs")
+    }
 }

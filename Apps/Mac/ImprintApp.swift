@@ -12,9 +12,17 @@ struct ImprintApp: App {
         }
         .commands {
             FormatCommands()
-            CommandGroup(after: .newItem) {
+            CommandGroup(replacing: .newItem) {
+                Button("New Note") { model.createNote() }
+                    .keyboardShortcut("n")
+                    .disabled(model.root == nil)
                 Button("Open Vault…") { model.chooseVault() }
                     .keyboardShortcut("o")
+                Divider()
+                Button("Rename Note…") { model.renaming = model.selectedNote }
+                    .disabled(model.selectedNote == nil)
+                Button("Move to Trash") { model.selectedNote.map(model.moveToTrash) }
+                    .disabled(model.selectedNote == nil)
             }
             CommandGroup(after: .toolbar) {
                 Picker("Sort By", selection: $model.sort) {

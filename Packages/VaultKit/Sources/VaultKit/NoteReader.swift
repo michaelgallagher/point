@@ -18,7 +18,8 @@ public enum NoteReader {
     /// Reads a note's text. If iCloud has evicted it, starts a download and throws
     /// `ReadError.notDownloaded`; scan again once the download finishes.
     public static func read(_ note: Note) throws -> String {
-        guard note.isDownloaded else {
+        // Check the disk rather than `note.isDownloaded`, which may be from an older scan.
+        guard FileManager.default.fileExists(atPath: note.url.path) else {
             try? FileManager.default.startDownloadingUbiquitousItem(at: note.url)
             throw ReadError.notDownloaded
         }
