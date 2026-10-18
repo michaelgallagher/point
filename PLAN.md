@@ -239,6 +239,18 @@ Features:
    - **How two columns is built:** the tree and the notes sit side by side inside one sidebar, with a draggable divider. SwiftUI's three-column split view on the Mac wouldn't hide both side columns from code, so swiping and ⌘S hid the wrong thing. Hiding narrows the window by exactly the sidebar's measured width, and showing widens it back first.
 5. **Two-column view, pins:** pinned folders and tags stay at the top of the left column, above the tree.
 
+**F. More file views and editor polish** (Mike's review, 18 October 2026)
+
+1. **The Folders/Tags toggle:** full width of the left column, with rounder ends.
+2. **Two-column left column, a setting:** by default it shows folders and tags stacked, like the single column. Switching between them with the toggle becomes a choice in Settings.
+3. **Two notes side by side** (see open questions).
+4. **Reorder properties by dragging** in the properties strip. Only the moved property's lines change.
+5. **Top level of the single-column list:** only notes in the vault's top folder, not all notes. This is already how it works; the test vault really has about 1,250 notes at its top level. To confirm with Mike.
+6. **Sorting options** for the two-column left column and for the single column (see open questions).
+7. **Quotes:** text in the normal colour, and the bar black (white in dark mode).
+8. **Command palette:** a white background (the page colour in dark mode).
+9. **Browsing files from the command palette (a bigger project):** navigate folders, tags and notes inside the palette, without opening the sidebar. Reached by an "Explorer" command or ⇧⌘E. See open questions.
+
 ### M4 — iPhone
 Buy the developer account first.
 - Folder access through Files, list and editor.
