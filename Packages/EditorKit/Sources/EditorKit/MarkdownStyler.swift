@@ -10,8 +10,9 @@ struct MarkdownStyler {
     var theme = EditorTheme()
 
     var baseParagraphStyle: NSParagraphStyle {
+        // Line height is added by the layout manager, centred on the text, not here:
+        // the paragraph style would put all the extra space above the text.
         let style = NSMutableParagraphStyle()
-        style.lineHeightMultiple = theme.lineHeightMultiple
         style.paragraphSpacing = theme.paragraphSpacing
         return style
     }
@@ -60,7 +61,7 @@ struct MarkdownStyler {
 
         case .heading(let level):
             let font = theme.headingFont(level: level)
-            let style = paragraphStyle { $0.paragraphSpacingBefore = font.pointSize * 0.5 }
+            let style = paragraphStyle { $0.paragraphSpacingBefore = level <= 3 ? font.pointSize * 0.5 : 0 }
             storage.addAttributes([.font: font, .paragraphStyle: style], range: range)
 
         case .blockquote, .callout:
@@ -109,10 +110,10 @@ struct MarkdownStyler {
                 $0.firstLineHeadIndent = 12
                 $0.headIndent = 12
                 $0.tailIndent = -12
-                $0.lineHeightMultiple = 1.1
                 $0.paragraphSpacing = 0
             }
-            storage.addAttributes([.font: theme.mono, .paragraphStyle: style, .imprintBlock: BlockDecoration.code], range: range)
+            storage.addAttributes([.font: theme.mono, .paragraphStyle: style, .imprintBlock: BlockDecoration.code,
+                                   .imprintLineHeight: CGFloat(1.15)], range: range)
             for fence in token.syntax {
                 collapseLine(fence, storage: storage, text: text)
             }

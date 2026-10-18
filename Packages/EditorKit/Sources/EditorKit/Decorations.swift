@@ -11,6 +11,8 @@ extension NSAttributedString.Key {
     static let imprintListMarker = NSAttributedString.Key("imprint.listMarker")
     /// A horizontal rule drawn in place of the hidden `---`.
     static let imprintRule = NSAttributedString.Key("imprint.rule")
+    /// A line-height multiple (CGFloat) overriding the theme's, for example in code blocks.
+    static let imprintLineHeight = NSAttributedString.Key("imprint.lineHeight")
 }
 
 enum BlockDecoration: Hashable {
@@ -27,8 +29,9 @@ struct ListMarkerDecoration: Hashable {
 /// Sizes and colours for the editor. Apple Notes is the reference for the feel.
 struct EditorTheme {
     var bodySize: CGFloat = 15
-    var lineHeightMultiple: CGFloat = 1.2
-    var paragraphSpacing: CGFloat = 4
+    /// Extra line height, split evenly above and below the text by the layout manager.
+    var lineHeightMultiple: CGFloat = 1.3
+    var paragraphSpacing: CGFloat = 0
     var indentPerLevel: CGFloat = 22
     var markerWidth: CGFloat = 22
     var maxTextWidth: CGFloat = 720
@@ -37,8 +40,9 @@ struct EditorTheme {
     var mono: NSFont { .monospacedSystemFont(ofSize: bodySize - 2, weight: .regular) }
 
     func headingFont(level: Int) -> NSFont {
-        let sizes: [CGFloat] = [26, 21, 18, 16, bodySize, bodySize]
-        return .systemFont(ofSize: sizes[min(max(level, 1), 6) - 1], weight: level <= 2 ? .bold : .semibold)
+        // H4 to H6 are body text in bold.
+        let sizes: [CGFloat] = [26, 21, 18, bodySize, bodySize, bodySize]
+        return .systemFont(ofSize: sizes[min(max(level, 1), 6) - 1], weight: level == 3 ? .semibold : .bold)
     }
 
     func calloutColor(_ type: String) -> NSColor {
