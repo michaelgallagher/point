@@ -15,9 +15,13 @@ final class SwipeToToggleNoteList {
     /// - Parameters:
     ///   - isNoteListShowing: whether the list is showing now, so only the useful way works.
     ///   - onSwipe: called with true for a swipe to the left.
-    init(isNoteListShowing: @escaping () -> Bool, onSwipe: @escaping (_ toTheLeft: Bool) -> Void) {
+    ///   - isNoteWindow: whether a window is the note window to act on, so swipes over
+    ///     Settings (or any other window) do nothing.
+    init(isNoteWindow: @escaping (NSWindow?) -> Bool, isNoteListShowing: @escaping () -> Bool, onSwipe: @escaping (_ toTheLeft: Bool) -> Void) {
         monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            self?.handle(event, isNoteListShowing: isNoteListShowing, onSwipe: onSwipe)
+            if isNoteWindow(event.window) {
+                self?.handle(event, isNoteListShowing: isNoteListShowing, onSwipe: onSwipe)
+            }
             return event // Never swallow scrolling.
         }
     }
@@ -74,14 +78,10 @@ final class SwipeToToggleNoteList {
 /// keeps its width and slides over rather than stretching.
 @MainActor
 enum NoteListWindowResizing {
-    /// The key window's width.
-    static var windowWidth: CGFloat {
-        (NSApp.keyWindow ?? NSApp.mainWindow)?.frame.width ?? 0
-    }
-
-    /// Widens (positive) or narrows (negative) the window by `change` points.
-    static func resize(by change: CGFloat) {
-        guard abs(change) > 1, let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+    /// Widens (positive) or narrows (negative) a note window by `change` points. (Always a
+    /// particular window: the key window might be Settings.)
+    static func resize(_ window: NSWindow?, by change: CGFloat) {
+        guard abs(change) > 1, let window else { return }
         var frame = window.frame
         frame.size.width = max(frame.width + change, window.minSize.width)
         if let screen = window.screen?.visibleFrame, frame.maxX > screen.maxX {

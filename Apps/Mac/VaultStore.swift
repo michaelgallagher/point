@@ -530,6 +530,7 @@ final class VaultStore: ObservableObject {
 
     /// Two-finger swipes: left hides the front window's note list, right shows it.
     private lazy var swipe = SwipeToToggleNoteList(
+        isNoteWindow: { [weak self] window in window != nil && window === self?.activeWindow?.window },
         isNoteListShowing: { [weak self] in self?.activeWindow?.showsNoteList ?? true },
         onSwipe: { [weak self] toTheLeft in
             guard let window = self?.activeWindow, !window.isFocused, window.showsNoteList == toTheLeft else { return }

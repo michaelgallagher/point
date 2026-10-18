@@ -261,6 +261,14 @@ Features:
 - **Explorer (⇧⌘E, or "Explorer" in the palette):** the vault's level shows its folders, then Tags, then its notes. ← at the start of the filter (or ⌫ with nothing typed) goes up and highlights where you came from; → at the end of the filter goes in. A breadcrumb shows where you are.
 - **Side by side:** ⌥⌘-click a note in the list or a link, or right-click > Open to the Side. The side note has a small bar with its title, "Open Here Instead" and Close (also Go > Close Side Note and in the palette; no shortcut, since ⌥⌘W is Close All Windows). Links clicked in the side note open there. The divider position is remembered. The window widens first if the notes would be narrower than 760 points together, and narrows back on close. The same note can't be open on both sides, and choosing the side note on the left closes the side.
 
+**Follow-up from Mike's check (18 October 2026), built:**
+- **List focus:** picking a note in the list keeps the keyboard in the list (blue highlight, arrows keep moving through notes); Return or Tab moves into the note. Before, the editor took the keyboard, so the list blinked grey and the tree's highlight stayed blue.
+- **Split view, equal notes:** both notes have the same title bar with a close button; the window title shows the vault's name. Closing the left note leaves the right one as the window's note. Menu commands (rename, move, templates…) still act on the left note; acting on whichever note has the cursor is a possible later step.
+- **Dragging properties:** an open hand over a property's name, and while dragging, a lifted copy of the property follows the pointer, with a line where it will land.
+- **Swipes and Settings:** swipes only act on the note window they happen in, and the window resizing acts on that window (it used to resize whichever window was in front, such as Settings).
+- **Settings:** wider (560 points), in sections (Sidebar, Sorting, Note list, Text), each label above its options. The note list's date (edited or created) is now there too.
+- **New Note button** in the toolbar, beside the button that hides the sidebar.
+
 ### M4 — iPhone
 Buy the developer account first.
 - Folder access through Files, list and editor.

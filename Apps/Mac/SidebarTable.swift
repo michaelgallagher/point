@@ -1,4 +1,5 @@
 import AppKit
+import EditorKit
 import SwiftUI
 import VaultKit
 
@@ -46,7 +47,7 @@ struct SidebarTable: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let table = NSTableView()
+        let table = SidebarTableView()
         table.headerView = nil
         table.style = .sourceList
         table.backgroundColor = .clear
@@ -203,7 +204,7 @@ struct SidebarTable: NSViewRepresentable {
 
         func tableViewSelectionDidChange(_ notification: Notification) {
             guard !isSyncingSelection, let table, table.selectedRow >= 0, case .note(let id) = rows[table.selectedRow] else { return }
-            if model.selection != id { model.selection = id }
+            model.selectFromList(id)
         }
 
         @objc func clicked(_ sender: NSTableView) {
@@ -302,6 +303,29 @@ final class ClosureMenuItem: NSMenuItem {
 /// Shows a SwiftUI view but lets every click through to the table underneath, so the table
 /// handles selection, right-click menus and dragging. (A plain hosting view keeps right-clicks
 /// for itself, which stopped the table's menu appearing.)
+/// The note list's table. Return or Tab moves the keyboard into the open note.
+final class SidebarTableView: NSTableView {
+    override func keyDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        if modifiers.isEmpty, event.keyCode == 36 || event.keyCode == 48 || event.keyCode == 76, // Return, Tab, Enter
+           let editor = window.flatMap({ Self.firstTextView(in: $0.contentView) }) {
+            window?.makeFirstResponder(editor)
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    /// The first note editor in the window (the main one, left of any side note).
+    private static func firstTextView(in view: NSView?) -> NSTextView? {
+        guard let view else { return nil }
+        if let textView = view as? MarkdownTextView { return textView }
+        for subview in view.subviews {
+            if let found = firstTextView(in: subview) { return found }
+        }
+        return nil
+    }
+}
+
 final class PassthroughHostingView<Content: View>: NSHostingView<Content> {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

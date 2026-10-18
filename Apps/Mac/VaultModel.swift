@@ -93,6 +93,25 @@ final class VaultModel: ObservableObject {
             if selection != nil, selection == sideNote { sideNote = nil }
         }
     }
+    /// The window (or tab) this model shows in.
+    weak var window: NSWindow?
+
+    /// Set when a note is picked in the list, so its editor leaves the keyboard there.
+    private var keepsListFocus = false
+
+    /// Opens a note picked in the list, leaving the keyboard in the list.
+    func selectFromList(_ id: Note.ID) {
+        guard selection != id else { return }
+        keepsListFocus = true
+        selection = id
+    }
+
+    /// Whether the editor opening now should leave the keyboard in the list (asked once).
+    func consumeListFocus() -> Bool {
+        defer { keepsListFocus = false }
+        return keepsListFocus
+    }
+
     /// A second note shown beside the first, in the same window.
     @Published var sideNote: Note.ID? {
         didSet {
@@ -111,6 +130,13 @@ final class VaultModel: ObservableObject {
     }
 
     func closeSideNote() { sideNote = nil }
+
+    /// Closes the left of two notes: the right one takes the whole window.
+    func closeMainNote() {
+        guard let side = sideNote else { return }
+        sideNote = nil
+        selection = side
+    }
     /// Notes visited before and after the current one, for ⌘[ and ⌘].
     @Published private(set) var backStack: [Note.ID] = []
     @Published private(set) var forwardStack: [Note.ID] = []

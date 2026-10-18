@@ -50,7 +50,10 @@ struct WindowRoot: View {
             .environmentObject(model)
             .environmentObject(store)
             .focusedSceneObject(model)
-            .background(WindowTabbing { [weak store, weak model] in store?.activeWindow = model })
+            .background(WindowTabbing(
+                onAttach: { [weak model] window in model?.window = window },
+                onBecomeKey: { [weak store, weak model] in store?.activeWindow = model }
+            ))
             .onAppear {
                 model.openTab = { noteID in openWindow(id: "main", value: TabRequest(noteID: noteID)) }
                 if let noteID = request.noteID, model.selection == nil { model.selection = noteID }
@@ -60,19 +63,23 @@ struct WindowRoot: View {
 
 /// Makes the window join others as tabs, and reports when it comes to the front.
 private struct WindowTabbing: NSViewRepresentable {
+    let onAttach: (NSWindow) -> Void
     let onBecomeKey: () -> Void
 
     func makeNSView(context: Context) -> TabbingView {
         let view = TabbingView()
+        view.onAttach = onAttach
         view.onBecomeKey = onBecomeKey
         return view
     }
 
     func updateNSView(_ view: TabbingView, context: Context) {
+        view.onAttach = onAttach
         view.onBecomeKey = onBecomeKey
     }
 
     final class TabbingView: NSView {
+        var onAttach: ((NSWindow) -> Void)?
         var onBecomeKey: (() -> Void)?
         private var observer: NSObjectProtocol?
         /// The Imprint window last in front, which new windows join as tabs.
@@ -81,6 +88,7 @@ private struct WindowTabbing: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             guard let window else { return }
+            onAttach?(window)
             window.tabbingMode = .preferred
             window.tabbingIdentifier = "Imprint"
             // A new window joins the front window's tabs, as in Finder and Safari. (Setting the

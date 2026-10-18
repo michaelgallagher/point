@@ -33,6 +33,7 @@ struct ContentView: View {
                 }
                 .navigationSplitViewColumnWidth(min: 360, ideal: 470, max: 760)
                 .background(widthReader { sidebarWidth = $0 })
+                .toolbar { newNoteButton }
             } detail: {
                 detail
             }
@@ -41,6 +42,7 @@ struct ContentView: View {
                 NoteList()
                     .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 400)
                     .background(widthReader { sidebarWidth = $0 })
+                    .toolbar { newNoteButton }
             } detail: {
                 detail
             }
@@ -50,10 +52,16 @@ struct ContentView: View {
     private var detail: some View {
         Group {
             if showsSide, let side = model.sideNoteValue {
+                // Two equal notes, each with its title above it, so neither is
+                // the window's "real" note.
                 SideBySide {
-                    mainEditor
+                    if let main = model.selectedNote {
+                        NotePane(note: main, isSide: false)
+                    } else {
+                        mainEditor
+                    }
                 } side: {
-                    SideNotePane(note: side)
+                    NotePane(note: side, isSide: true)
                 }
             } else {
                 mainEditor
@@ -63,14 +71,14 @@ struct ContentView: View {
             if isSplit {
                 // The notes get what the sidebar (if showing) leaves.
                 let listWidth = columns == .detailOnly ? 0 : sidebarWidth
-                widenedForSide = max(0, listWidth + sideBySideWidth - NoteListWindowResizing.windowWidth)
-                NoteListWindowResizing.resize(by: widenedForSide)
+                widenedForSide = max(0, listWidth + sideBySideWidth - (model.window?.frame.width ?? 0))
+                NoteListWindowResizing.resize(model.window, by: widenedForSide)
                 DispatchQueue.main.asyncAfter(deadline: .now() + (widenedForSide > 1 ? 0.17 : 0)) {
                     showsSide = model.sideNote != nil
                 }
             } else {
                 showsSide = false
-                NoteListWindowResizing.resize(by: -widenedForSide)
+                NoteListWindowResizing.resize(model.window, by: -widenedForSide)
                 widenedForSide = 0
             }
         }
@@ -103,13 +111,29 @@ struct ContentView: View {
         withAnimation(.easeOut(duration: 0.15)) { columns = visible ? .all : .detailOnly }
     }
 
+    /// In the sidebar's part of the toolbar, beside the button that hides it.
+    private var newNoteButton: some ToolbarContent {
+        ToolbarItem {
+            Button { model.createNote() } label: {
+                Label("New Note", systemImage: "square.and.pencil")
+            }
+            .help("New Note (⌘N)")
+        }
+    }
+
+    /// The note's title, or with two notes open (each titled above itself), the vault's name.
+    private var windowTitle: String {
+        if showsSide, model.sideNote != nil { return model.root?.lastPathComponent ?? "Imprint" }
+        return model.selectedNote?.title ?? model.root?.lastPathComponent ?? "Imprint"
+    }
+
     var body: some View {
         Group {
             if model.root == nil {
                 OpenVaultView()
             } else {
                 splitView
-                .navigationTitle(model.selectedNote?.title ?? model.root?.lastPathComponent ?? "Imprint")
+                .navigationTitle(windowTitle)
                 .toolbar(model.isFocused ? .hidden : .visible, for: .windowToolbar)
                 .overlay(alignment: .topLeading) {
                     if model.isFocused {
@@ -137,14 +161,14 @@ struct ContentView: View {
                     if showing {
                         // Widen first, by what was taken away, then bring the list back into
                         // the space. (In a narrow window the list would cover the note instead.)
-                        NoteListWindowResizing.resize(by: narrowedBy)
+                        NoteListWindowResizing.resize(model.window, by: narrowedBy)
                         narrowedBy = 0
                         updateColumns()
                     } else {
                         // Narrow by exactly the sidebar's width as it slides away.
                         narrowedBy = sidebarWidth
                         updateColumns()
-                        NoteListWindowResizing.resize(by: -sidebarWidth)
+                        NoteListWindowResizing.resize(model.window, by: -sidebarWidth)
                     }
                 }
 
@@ -354,39 +378,35 @@ private struct SideBySide<Main: View, Side: View>: View {
     }
 }
 
-/// The note open beside the main one, with its title and a button to close it.
-private struct SideNotePane: View {
+/// One of two notes side by side: its title, a button to close it, and the note.
+/// Closing either leaves the other as the window's only note.
+private struct NotePane: View {
     @EnvironmentObject private var model: VaultModel
     let note: Note
+    let isSide: Bool
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
                 Text(note.title)
-                    .font(.callout.weight(.medium))
+                    .font(.headline)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer()
                 Button {
-                    model.selection = note.id
-                } label: {
-                    Image(systemName: "arrow.left.square")
-                }
-                .help("Open Here Instead")
-                Button {
-                    model.closeSideNote()
+                    if isSide { model.closeSideNote() } else { model.closeMainNote() }
                 } label: {
                     Image(systemName: "xmark")
                 }
-                .help("Close")
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("Close This Note")
             }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 12)
-            .frame(height: 28)
+            .padding(.horizontal, 16)
+            .frame(height: 30)
             Divider()
-            NoteEditor(note: note, model: model, isSide: true)
-                .id("side:" + note.id)
+            NoteEditor(note: note, model: model, isSide: isSide)
+                .id((isSide ? "side:" : "") + note.id)
         }
     }
 }

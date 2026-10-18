@@ -91,7 +91,7 @@ private struct EditorView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let (scrollView, textView) = MarkdownTextView.makeScrollable()
-        session.attach(textView)
+        session.attach(textView, takesFocus: !model.consumeListFocus())
         let noteID = session.note.id
         textView.onOpenLink = { [weak model, isSide] link in model?.open(link, from: noteID, in: isSide ? .side : .here) }
         textView.onOpenLinkInNewTab = { [weak model] link in model?.open(link, from: noteID, in: .newTab) }

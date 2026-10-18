@@ -76,11 +76,15 @@ final class EditorSession: NSObject, ObservableObject {
         return try await Task.detached { try NoteReader.read(note) }.value
     }
 
-    func attach(_ textView: MarkdownTextView) {
+    /// Shows the note in a text view, which takes the keyboard unless the note was picked
+    /// in the list (which keeps it, so the arrow keys go on moving through notes).
+    func attach(_ textView: MarkdownTextView, takesFocus: Bool = true) {
         self.textView = textView
         textView.load(initialText)
         textView.onTextChange = { [weak self] _ in self?.textDidChange() }
-        DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) }
+        if takesFocus {
+            DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) }
+        }
     }
 
     // MARK: Saving

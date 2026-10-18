@@ -40,6 +40,10 @@ struct PropertiesStrip: View {
                                 .gridColumnAlignment(.trailing)
                                 .contentShape(Rectangle())
                                 .gesture(reorderGesture(for: property.key))
+                                .onHover { hovering in
+                                    guard dragging == nil else { return }
+                                    if hovering { NSCursor.openHand.push() } else { NSCursor.pop() }
+                                }
                                 .help("Drag to reorder")
                             PropertyField(property: property, session: session)
                         }
@@ -62,6 +66,7 @@ struct PropertiesStrip: View {
                 .coordinateSpace(name: Self.space)
                 .onPreferenceChange(RowFrames.self) { rowFrames = $0 }
                 .overlay(alignment: .topLeading) { dropIndicator }
+                .overlay(alignment: .topLeading) { draggedRow }
                 .padding(.leading, 18)
             }
         }
@@ -79,10 +84,12 @@ struct PropertiesStrip: View {
     private func reorderGesture(for key: String) -> some Gesture {
         DragGesture(minimumDistance: 3, coordinateSpace: .named(Self.space))
             .onChanged { value in
+                if dragging == nil { NSCursor.closedHand.push() }
                 dragging = key
                 dragY = value.location.y
             }
             .onEnded { _ in
+                NSCursor.pop()
                 if let destination = dropDestination, let dragging {
                     withAnimation(.easeOut(duration: 0.15)) { session.moveProperty(dragging, to: destination) }
                 }
@@ -96,6 +103,26 @@ struct PropertiesStrip: View {
         guard let dragging, let source = frontmatter.properties.firstIndex(where: { $0.key == dragging }) else { return nil }
         let destination = frontmatter.properties.firstIndex { (rowFrames[$0.key]?.midY ?? .infinity) > dragY } ?? frontmatter.properties.count
         return destination == source || destination == source + 1 ? nil : destination
+    }
+
+    /// A copy of the property being dragged, lifted and following the pointer.
+    @ViewBuilder private var draggedRow: some View {
+        if let dragging, let property = frontmatter.properties.first(where: { $0.key == dragging }) {
+            let height = rowFrames[dragging]?.height ?? 22
+            HStack(spacing: 12) {
+                Text(property.key)
+                    .foregroundStyle(.secondary)
+                Text(property.values.isEmpty ? "Empty" : property.values.joined(separator: ", "))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: height + 8)
+            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
+            .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
+            .offset(x: -10, y: dragY - (height + 8) / 2)
+            .allowsHitTesting(false)
+        }
     }
 
     /// A line between the rows where the dragged property would land.
