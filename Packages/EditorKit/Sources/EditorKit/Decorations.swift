@@ -5,12 +5,18 @@ import MarkdownKit
 extension NSAttributedString.Key {
     /// Marker characters (`**`, `[[`, `# `) that are in the file but not shown.
     static let imprintHidden = NSAttributedString.Key("imprint.hidden")
+    /// A line squeezed to a sliver, such as a code fence or frontmatter. The cursor skips it.
+    static let imprintCollapsed = NSAttributedString.Key("imprint.collapsed")
     /// A block drawn behind its text: a quote bar, callout or code background.
     static let imprintBlock = NSAttributedString.Key("imprint.block")
     /// A list marker drawn in place of the hidden `- `, `1. ` or `- [ ] `.
     static let imprintListMarker = NSAttributedString.Key("imprint.listMarker")
     /// A horizontal rule drawn in place of the hidden `---`.
     static let imprintRule = NSAttributedString.Key("imprint.rule")
+    /// A `#tag`, drawn as a pill.
+    static let imprintTag = NSAttributedString.Key("imprint.tag")
+    /// The last letter of a link to a website, followed by the arrow symbol drawn after it.
+    static let imprintWebLink = NSAttributedString.Key("imprint.webLink")
     /// A line-height multiple (CGFloat) overriding the theme's, for example in code blocks.
     static let imprintLineHeight = NSAttributedString.Key("imprint.lineHeight")
 }
@@ -36,13 +42,28 @@ struct EditorTheme {
     var markerWidth: CGFloat = 22
     var maxTextWidth: CGFloat = 720
 
+    /// The size of the arrow symbol after web links, and the space made for it.
+    func webLinkSymbolSize(for font: NSFont) -> CGFloat { (font.pointSize * 0.8).rounded() }
+    func webLinkSpace(for font: NSFont) -> CGFloat { webLinkSymbolSize(for: font) + 4 }
+
     var body: NSFont { .systemFont(ofSize: bodySize) }
     var mono: NSFont { .monospacedSystemFont(ofSize: bodySize - 2, weight: .regular) }
 
+    /// H1 26pt bold, H2 18pt semibold, H3 body-size bold, H4 to H6 body-size italic.
     func headingFont(level: Int) -> NSFont {
-        // H4 to H6 are body text in bold.
-        let sizes: [CGFloat] = [26, 21, 18, bodySize, bodySize, bodySize]
-        return .systemFont(ofSize: sizes[min(max(level, 1), 6) - 1], weight: level == 3 ? .semibold : .bold)
+        switch level {
+        case 1: return .systemFont(ofSize: 26, weight: .bold)
+        case 2: return .systemFont(ofSize: 18, weight: .semibold)
+        case 3: return .systemFont(ofSize: bodySize, weight: .bold)
+        default:
+            let regular = NSFont.systemFont(ofSize: bodySize)
+            return NSFont(descriptor: regular.fontDescriptor.withSymbolicTraits(.italic), size: bodySize) ?? regular
+        }
+    }
+
+    /// Space above a heading: H1 and H2 stand apart, smaller headings sit like body text.
+    func spaceBeforeHeading(level: Int) -> CGFloat {
+        level <= 2 ? headingFont(level: level).pointSize * 0.5 : 0
     }
 
     func calloutColor(_ type: String) -> NSColor {

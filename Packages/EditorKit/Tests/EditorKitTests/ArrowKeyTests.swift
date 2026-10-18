@@ -87,12 +87,8 @@ struct ArrowKeySweepTests {
         while glyph < layout.numberOfGlyphs {
             var range = NSRange()
             let rect = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: &range)
-            // Lines whose text is all hidden (a callout's `[!warning]` line) have nowhere to type.
-            let characters = layout.characterRange(forGlyphRange: range, actualGlyphRange: nil)
-            let text = view.string as NSString
-            let allHidden = (characters.location..<NSMaxRange(characters)).allSatisfy { view.isHidden($0) || text.character(at: $0) == 10 }
-                && (characters.location..<NSMaxRange(characters)).contains { view.isHidden($0) }
-            if rect.height > 8, !allHidden, tops.last != rect.minY { tops.append(rect.minY) }
+            // Collapsed lines (code fences, frontmatter) are a sliver high and never visited.
+            if rect.height > 8, tops.last != rect.minY { tops.append(rect.minY) }
             glyph = NSMaxRange(range)
         }
         if layout.extraLineFragmentRect.height > 0 { tops.append(layout.extraLineFragmentRect.minY) }

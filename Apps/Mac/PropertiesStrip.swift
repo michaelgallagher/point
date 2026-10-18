@@ -35,6 +35,16 @@ struct PropertiesStrip: View {
                             PropertyField(property: property, session: session)
                         }
                     }
+                    GridRow {
+                        Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                        Button {
+                            NotificationCenter.default.post(name: .imprintAddProperty, object: nil)
+                        } label: {
+                            Label("Add Property", systemImage: "plus")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                    }
                 }
                 .padding(.leading, 18)
             }
@@ -68,11 +78,30 @@ private struct PropertyField: View {
     private var isEditable: Bool { property.isList || property.values.count <= 1 && !isNested }
     private var isNested: Bool { !property.isList && property.values.isEmpty && property.range.length > property.key.count + 3 }
 
+    /// The value as a date, if it is one (or the property is named like one and is empty).
+    private var date: PropertyDate.Value? {
+        guard !property.isList, property.values.count <= 1 else { return nil }
+        if let value = property.values.first { return PropertyDate.parse(value) }
+        return PropertyDate.names.contains(property.key.lowercased()) ? PropertyDate.Value(date: Date(), hasTime: false, separator: "T", hasSeconds: false) : nil
+    }
+
     var body: some View {
         Group {
             if isNested {
                 Text("Edit in Markdown")
                     .foregroundStyle(.tertiary)
+            } else if let date {
+                DatePicker("", selection: Binding(
+                    get: { date.date },
+                    set: { newDate in
+                        let style = property.values.isEmpty ? nil : date
+                        session.setProperty(property.key, to: [PropertyDate.format(newDate, like: style)], isList: false)
+                    }
+                ), displayedComponents: date.hasTime ? [.date, .hourAndMinute] : [.date])
+                .labelsHidden()
+                .datePickerStyle(.compact)
+                .fixedSize()
+                .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 TextField("Empty", text: $text)
                     .textFieldStyle(.plain)

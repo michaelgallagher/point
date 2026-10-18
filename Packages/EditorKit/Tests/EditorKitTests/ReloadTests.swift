@@ -70,3 +70,45 @@ struct ShowMarkdownTests {
         #expect(view.string == "---\na: 1\n---\n# **Bold** [[Link]]")
     }
 }
+
+@MainActor
+struct HeadingStyleTests {
+    private func font(_ markdown: String) -> NSFont {
+        let view = EditorTestSupport.makeEditor(markdown, height: 300)
+        let index = (markdown as NSString).length - 1 // The heading's last letter.
+        return view.textStorage!.attribute(.font, at: index, effectiveRange: nil) as! NSFont
+    }
+
+    private func traits(_ font: NSFont) -> NSFontDescriptor.SymbolicTraits { font.fontDescriptor.symbolicTraits }
+
+    @Test func headingLevels() {
+        #expect(font("# A").pointSize == 26 && traits(font("# A")).contains(.bold))
+        #expect(font("## A").pointSize == 18)
+        #expect(font("### A").pointSize == 15 && traits(font("### A")).contains(.bold))
+        let h4 = font("#### A")
+        #expect(h4.pointSize == 15 && traits(h4).contains(.italic) && !traits(h4).contains(.bold))
+    }
+}
+
+@MainActor
+struct LinkAndTagStyleTests {
+    @Test func webLinksMakeRoomForTheirSymbol() {
+        let text = "[site](https://a.com) [[Note]] https://b.org"
+        let view = EditorTestSupport.makeEditor(text, height: 300)
+        let storage = view.textStorage!
+        let ns = text as NSString
+        let siteEnd = ns.range(of: "site").location + 3
+        #expect(storage.attribute(.imprintWebLink, at: siteEnd, effectiveRange: nil) != nil)
+        #expect((storage.attribute(.kern, at: siteEnd, effectiveRange: nil) as? CGFloat ?? 0) > 0)
+        #expect(storage.attribute(.imprintWebLink, at: ns.length - 1, effectiveRange: nil) != nil)
+        // Wikilinks don't get the symbol.
+        let noteEnd = ns.range(of: "Note").location + 3
+        #expect(storage.attribute(.imprintWebLink, at: noteEnd, effectiveRange: nil) == nil)
+    }
+
+    @Test func tagsAreMarkedForPills() {
+        let view = EditorTestSupport.makeEditor("a #tag b", height: 300)
+        #expect(view.textStorage!.attribute(.imprintTag, at: 3, effectiveRange: nil) != nil)
+        #expect(view.textStorage!.attribute(.imprintTag, at: 7, effectiveRange: nil) == nil)
+    }
+}

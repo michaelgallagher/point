@@ -217,6 +217,7 @@ struct PaletteCommand {
         if let note = model.selectedNote {
             commands += [
                 PaletteCommand(name: "Insert Template…", shortcut: "⌥⌘T") { model.isChoosingTemplate = true },
+                PaletteCommand(name: "Add Property…", shortcut: nil) { NotificationCenter.default.post(name: .imprintAddProperty, object: nil) },
                 PaletteCommand(name: "Rename Note…", shortcut: nil) { model.renaming = note },
                 PaletteCommand(name: "Move Note to Trash", shortcut: nil) { model.moveToTrash(note) },
                 PaletteCommand(name: "Find in Note", shortcut: "⌥⌘F") { FindInNote.show() },

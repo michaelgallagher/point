@@ -21,10 +21,12 @@ struct FormatCommands: Commands {
             Divider()
             item("Bulleted List", #selector(MarkdownTextView.toggleBulletList(_:)), "l")
             item("Checklist", #selector(MarkdownTextView.toggleChecklist(_:)), "l", [.command, .shift])
-            item("Indent", #selector(MarkdownTextView.indentLines(_:)), .rightArrow)
-            item("Outdent", #selector(MarkdownTextView.outdentLines(_:)), .leftArrow)
+            // ⌘← and ⌘→ stay as the system's start and end of line.
+            item("Indent", #selector(MarkdownTextView.indentLines(_:)), .rightArrow, [.command, .option])
+            item("Outdent", #selector(MarkdownTextView.outdentLines(_:)), .leftArrow, [.command, .option])
             Divider()
             item("Add Link…", #selector(MarkdownTextView.addLink(_:)), "k")
+            Button("Add Property…") { NotificationCenter.default.post(name: .imprintAddProperty, object: nil) }
         }
     }
 

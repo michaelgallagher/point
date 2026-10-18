@@ -48,6 +48,7 @@ final class EditorSession: NSObject, ObservableObject {
         center.addObserver(self, selector: #selector(releaseFile(_:)), name: .imprintReleaseFile, object: nil)
         center.addObserver(self, selector: #selector(appWillResignActive), name: .imprintSaveNow, object: nil)
         center.addObserver(self, selector: #selector(insertText(_:)), name: .imprintInsertText, object: nil)
+        center.addObserver(self, selector: #selector(setPropertyFromNotification(_:)), name: .imprintSetProperty, object: nil)
     }
 
     // MARK: Loading
@@ -195,6 +196,12 @@ final class EditorSession: NSObject, ObservableObject {
         let edit = frontmatter?.edit(setting: key, to: values, isList: isList)
             ?? Frontmatter.edit(adding: key, values: values, isList: isList)
         textView.applyEdit(replacing: edit.0, with: edit.1)
+    }
+
+    @objc private func setPropertyFromNotification(_ notification: Notification) {
+        guard !isReleased, let info = notification.userInfo, let key = info["key"] as? String,
+              let values = info["values"] as? [String], let isList = info["isList"] as? Bool else { return }
+        setProperty(key, to: values, isList: isList)
     }
 
     func removeProperty(_ key: String) {

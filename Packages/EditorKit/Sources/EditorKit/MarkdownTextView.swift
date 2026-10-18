@@ -216,34 +216,39 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         return run
     }
 
-    /// Whether `run` hides a whole line, as for a code fence.
-    func hidesWholeLine(_ run: NSRange) -> Bool {
+    /// The line holding `index`, as a range without its line break, if it is collapsed: a
+    /// code fence or frontmatter line, which the cursor never stops on. (An empty list item is
+    /// also all hidden, but it is a real line to type on, so it isn't collapsed.)
+    func collapsedLine(containing index: Int) -> NSRange? {
+        guard let storage = textStorage, index >= 0, index <= storage.length else { return nil }
         let text = string as NSString
-        var start = 0, contentsEnd = 0, end = 0
-        text.getLineStart(&start, end: &end, contentsEnd: &contentsEnd, for: run)
-        return run.location == start && NSMaxRange(run) == contentsEnd
+        var start = 0, end = 0, contentsEnd = 0
+        text.getLineStart(&start, end: &end, contentsEnd: &contentsEnd, for: NSRange(location: index, length: 0))
+        guard start < text.length, storage.attribute(.imprintCollapsed, at: start, effectiveRange: nil) != nil else { return nil }
+        return NSRange(location: start, length: contentsEnd - start)
     }
 
     func snappedLocation(_ location: Int, forward: Bool) -> Int {
         let text = string as NSString
+        // Collapsed lines (code fences, frontmatter) are skipped entirely, however many.
+        guard var line = collapsedLine(containing: location) else {
+            return snappedToMarkers(location, forward: forward)
+        }
+        var forward = forward
+        while true {
+            if !forward, line.location == 0 { forward = true } // Nothing visible above: go down.
+            let next = forward ? min(NSMaxRange(text.lineRange(for: line)), text.length) : line.location - 1
+            guard let following = collapsedLine(containing: next), following != line else {
+                return snappedToMarkers(next, forward: forward)
+            }
+            line = following
+        }
+    }
+
+    /// Keeps the cursor out of hidden markers on an ordinary line.
+    private func snappedToMarkers(_ location: Int, forward: Bool) -> Int {
         // The hidden run the location is at the start of, inside, or at the end of.
         guard let run = hiddenRun(at: location) ?? hiddenRun(at: location - 1) else { return location }
-
-        // Fully hidden lines (code fences, frontmatter) are skipped over entirely, however many.
-        if hidesWholeLine(run) {
-            var run = run
-            var forward = forward
-            while true {
-                if !forward, run.location == 0 { forward = true } // Nothing visible above: go down.
-                let next = forward ? min(NSMaxRange(text.lineRange(for: run)), text.length) : run.location - 1
-                guard let following = hiddenRun(at: next) ?? (forward ? nil : hiddenRun(at: next - 1)), following != run else {
-                    return next
-                }
-                // Landed on a line that starts with a marker (`# `): apply the rules below there.
-                guard hidesWholeLine(following) else { return snappedLocation(next, forward: forward) }
-                run = following
-            }
-        }
 
         // Markers that start a line (`- `, `# `, `> `): the cursor belongs after them. Left
         // from there goes straight to the previous line rather than to an invisible stop.
@@ -274,7 +279,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         guard location > 0 else { return super.deleteBackward(sender) }
 
         if let run = hiddenRun(at: location - 1) {
-            if run.location == lineStart(of: run.location), !hidesWholeLine(run) {
+            if run.location == lineStart(of: run.location), collapsedLine(containing: run.location) == nil {
                 // Backspace at the start of a heading, list item or quote removes its formatting.
                 replace(run, with: "")
                 return
@@ -283,7 +288,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
             setSelectionDirectly(NSRange(location: run.location, length: 0))
             if run.location == 0 { return }
         } else if (string as NSString).character(at: location - 1) == 10, location >= 2,
-                  let run = hiddenRun(at: location - 2), hidesWholeLine(run) {
+                  collapsedLine(containing: location - 2) != nil {
             // Never merge a line into a hidden code fence.
             return
         }
@@ -298,7 +303,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
             return
         }
         if let run = hiddenRun(at: selection.location) {
-            if hidesWholeLine(run) { return }
+            if collapsedLine(containing: run.location) != nil { return }
             setSelectionDirectly(NSRange(location: NSMaxRange(run), length: 0))
         }
         super.deleteForward(sender)

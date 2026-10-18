@@ -117,6 +117,16 @@ final class ImprintLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
             draw(decoration, at: range.location, storage: storage, container: container, origin: origin)
         }
 
+        storage.enumerateAttribute(.imprintTag, in: characters) { value, range, _ in
+            guard value != nil else { return }
+            drawTagPill(for: range, storage: storage, container: container, origin: origin)
+        }
+
+        storage.enumerateAttribute(.imprintWebLink, in: characters) { value, range, _ in
+            guard value != nil else { return }
+            drawWebLinkSymbol(after: range.location, storage: storage, container: container, origin: origin)
+        }
+
         storage.enumerateAttribute(.imprintRule, in: characters) { value, range, _ in
             guard value != nil else { return }
             let line = lineRect(containing: range.location, storage: storage)
@@ -129,6 +139,46 @@ final class ImprintLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
             path.lineWidth = 1
             path.stroke()
         }
+    }
+
+    /// A tag's background: fully rounded, in the system highlight colour.
+    private func drawTagPill(for range: NSRange, storage: NSTextStorage, container: NSTextContainer, origin: NSPoint) {
+        let glyphs = glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+        guard glyphs.length > 0 else { return }
+        let font = storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont ?? theme.body
+        // A tag has no spaces, so it never wraps: one line, one pill.
+        let line = lineFragmentRect(forGlyphAt: glyphs.location, effectiveRange: nil)
+        let bounds = boundingRect(forGlyphRange: glyphs, in: container)
+        let baseline = origin.y + line.minY + location(forGlyphAt: glyphs.location).y
+        let height = (font.ascender - font.descender + 2).rounded()
+        // The glyphs' bounds include the space added after the tag's last letter; leave it out.
+        let trailing = storage.attribute(.kern, at: NSMaxRange(range) - 1, effectiveRange: nil) as? CGFloat ?? 0
+        let rect = NSRect(x: origin.x + bounds.minX - 4, y: baseline - font.ascender - 1, width: bounds.width - trailing + 8, height: height)
+        // The highlight colour, a quarter of the way towards the page colour, so pills stay light.
+        let fill = NSColor.selectedTextBackgroundColor.blended(withFraction: 0.25, of: .textBackgroundColor) ?? .selectedTextBackgroundColor
+        fill.setFill()
+        NSBezierPath(roundedRect: rect, xRadius: height / 2, yRadius: height / 2).fill()
+    }
+
+    /// The `arrow.up.right.circle` symbol in the space made after a web link's last letter.
+    private func drawWebLinkSymbol(after index: Int, storage: NSTextStorage, container: NSTextContainer, origin: NSPoint) {
+        let glyph = glyphIndexForCharacter(at: index)
+        let font = storage.attribute(.font, at: index, effectiveRange: nil) as? NSFont ?? theme.body
+        let line = lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        let letter = boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container)
+        // The symbol sits at the end of the letter's advance, which includes the added space.
+        var end = letter.maxX
+        if glyph + 1 < numberOfGlyphs, lineFragmentRect(forGlyphAt: glyph + 1, effectiveRange: nil).minY == line.minY {
+            end = line.minX + location(forGlyphAt: glyph + 1).x
+        }
+        let size = theme.webLinkSymbolSize(for: font)
+        let baseline = origin.y + line.minY + location(forGlyphAt: glyph).y
+        let rect = NSRect(x: origin.x + end - size - 1, y: baseline - font.capHeight / 2 - size / 2, width: size, height: size)
+        let configuration = NSImage.SymbolConfiguration(pointSize: size, weight: .regular)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [.linkColor]))
+        NSImage(systemSymbolName: "arrow.up.right.circle", accessibilityDescription: "Web link")?
+            .withSymbolConfiguration(configuration)?
+            .draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
     }
 
     /// The line fragment holding the character at `index`.

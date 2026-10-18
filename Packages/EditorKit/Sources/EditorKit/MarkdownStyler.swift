@@ -71,7 +71,7 @@ struct MarkdownStyler {
 
         case .heading(let level):
             let font = theme.headingFont(level: level)
-            let style = paragraphStyle { $0.paragraphSpacingBefore = level <= 3 ? font.pointSize * 0.5 : 0 }
+            let style = paragraphStyle { $0.paragraphSpacingBefore = theme.spaceBeforeHeading(level: level) }
             storage.addAttributes([.font: font, .paragraphStyle: style], range: range)
 
         case .blockquote, .callout:
@@ -155,10 +155,23 @@ struct MarkdownStyler {
                 .font: NSFont.monospacedSystemFont(ofSize: size * 0.88, weight: .regular),
                 .backgroundColor: NSColor.textColor.withAlphaComponent(0.07),
             ], range: range)
-        case .link, .image, .wikiLink, .embed, .url:
+        case .link(let destination), .image(let destination):
+            storage.addAttributes([.foregroundColor: NSColor.linkColor, .cursor: NSCursor.pointingHand], range: range)
+            if Self.isWebAddress(destination), let close = token.syntax.last, close.location > range.location {
+                markWebLink(at: close.location - 1, storage: storage) // The last letter of the link text.
+            }
+        case .url:
+            storage.addAttributes([.foregroundColor: NSColor.linkColor, .cursor: NSCursor.pointingHand], range: range)
+            markWebLink(at: NSMaxRange(range) - 1, storage: storage)
+        case .wikiLink, .embed:
             storage.addAttributes([.foregroundColor: NSColor.linkColor, .cursor: NSCursor.pointingHand], range: range)
         case .tag:
-            storage.addAttributes([.foregroundColor: NSColor.controlAccentColor, .cursor: NSCursor.pointingHand], range: range)
+            // Drawn as a pill by the layout manager, with a little room on each side for it.
+            storage.addAttributes([.imprintTag: true, .cursor: NSCursor.pointingHand], range: range)
+            if range.location > 0, text.character(at: range.location - 1) != 10 {
+                storage.addAttribute(.kern, value: CGFloat(3), range: NSRange(location: range.location - 1, length: 1))
+            }
+            storage.addAttribute(.kern, value: CGFloat(3), range: NSRange(location: NSMaxRange(range) - 1, length: 1))
         case .footnoteReference:
             storage.addAttributes([
                 .font: NSFont.systemFont(ofSize: theme.bodySize * 0.75),
@@ -172,6 +185,18 @@ struct MarkdownStyler {
         for marker in token.syntax {
             storage.addAttribute(.imprintHidden, value: true, range: marker)
         }
+    }
+
+    static func isWebAddress(_ destination: String) -> Bool {
+        guard let scheme = URL(string: destination)?.scheme?.lowercased() else { return false }
+        return ["http", "https", "mailto"].contains(scheme)
+    }
+
+    /// Makes room after a link's last letter for the arrow symbol, which the layout manager draws.
+    private func markWebLink(at index: Int, storage: NSTextStorage) {
+        guard index >= 0, index < storage.length else { return }
+        let font = storage.attribute(.font, at: index, effectiveRange: nil) as? NSFont ?? theme.body
+        storage.addAttributes([.imprintWebLink: true, .kern: theme.webLinkSpace(for: font)], range: NSRange(location: index, length: 1))
     }
 
     private func paragraphStyle(_ configure: (NSMutableParagraphStyle) -> Void) -> NSParagraphStyle {
@@ -190,7 +215,7 @@ struct MarkdownStyler {
             $0.paragraphSpacing = 0
             $0.paragraphSpacingBefore = 0
         }
-        storage.addAttributes([.font: NSFont.systemFont(ofSize: 1), .paragraphStyle: style], range: full)
+        storage.addAttributes([.font: NSFont.systemFont(ofSize: 1), .paragraphStyle: style, .imprintCollapsed: true], range: full)
         storage.addAttribute(.imprintHidden, value: true, range: line)
     }
 

@@ -5,6 +5,7 @@ import VaultKit
 struct ContentView: View {
     @EnvironmentObject private var model: VaultModel
     @State private var columns = NavigationSplitViewVisibility.all
+    @State private var isAddingProperty = false
 
     var body: some View {
         Group {
@@ -70,6 +71,12 @@ struct ContentView: View {
         }
         .sheet(isPresented: $model.isChoosingTemplate) {
             TemplatePicker()
+        }
+        .sheet(isPresented: $isAddingProperty) {
+            AddPropertySheet()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .imprintAddProperty)) { _ in
+            if model.selectedNote != nil { isAddingProperty = true }
         }
     }
 }
