@@ -74,10 +74,10 @@ final class SwipeToToggleNoteList {
 /// keeps its width and slides over rather than stretching.
 @MainActor
 enum NoteListWindowResizing {
-    static func resize(showing: Bool, listWidth: CGFloat) {
-        guard listWidth > 0, let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+    /// Widens (positive) or narrows (negative) the window by `change` points.
+    static func resize(by change: CGFloat) {
+        guard abs(change) > 1, let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
         var frame = window.frame
-        let change = showing ? listWidth : -listWidth
         frame.size.width = max(frame.width + change, window.minSize.width)
         if let screen = window.screen?.visibleFrame, frame.maxX > screen.maxX {
             frame.origin.x = max(screen.minX, screen.maxX - frame.width) // Stay on screen when widening.

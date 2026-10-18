@@ -228,7 +228,8 @@ Features:
    - **Shortcuts:** ⌘T becomes New Tab, so Today's Note moves to ⇧⌘T.
    - **Prerequisite:** the app model must be split first. A shared vault part (notes, index, watcher, settings) and a per-window part (selection, sidebar place, search, history, focus).
 4. **Order:** the Settings window and the two-column view first, then the model split, then tabs.
-   - Status, 18 October 2026: the Settings window (⌘,) and the two-column view are built and compile (`SettingsView.swift`, `PlaceTreeColumn.swift`, the two-column `splitView` in `ContentView.swift`). The Settings window opens; the two-column view hasn't been checked in the app yet. The model split and tabs are not started.
+   - Status, 18 October 2026: the Settings window (⌘,) and the two-column view are built and checked in the app. The model split and tabs are not started.
+   - **How two columns is built:** the tree and the notes sit side by side inside one sidebar, with a draggable divider. SwiftUI's three-column split view on the Mac wouldn't hide both side columns from code, so swiping and ⌘S hid the wrong thing. Hiding narrows the window by exactly the sidebar's measured width, and showing widens it back first.
 5. **Two-column view, pins:** pinned folders and tags stay at the top of the left column, above the tree.
 
 ### M4 — iPhone

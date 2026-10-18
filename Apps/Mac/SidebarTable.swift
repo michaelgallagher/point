@@ -294,6 +294,10 @@ final class HostingCell: NSTableCellView {
             hosting.rootView = view
         } else {
             let hosting = PassthroughHostingView(rootView: view)
+            // Fill the row, whatever its height: without this the hosting view pins itself to
+            // the height its content had when first made, so a row that later grows (when its
+            // tags arrive) keeps a one-line view and the tags line is cut off.
+            hosting.sizingOptions = []
             hosting.translatesAutoresizingMaskIntoConstraints = false
             addSubview(hosting)
             NSLayoutConstraint.activate([
@@ -310,7 +314,9 @@ final class HostingCell: NSTableCellView {
 /// What one sidebar row looks like.
 struct SidebarRowView: View {
     let row: SidebarRow
-    let model: VaultModel
+    /// Observed, so a row redraws when tags or dates change. (Handing the cell a new view
+    /// with the same plain reference wouldn't: SwiftUI sees nothing different and skips it.)
+    @ObservedObject var model: VaultModel
     let tagsExpanded: Bool
 
     var body: some View {
@@ -366,7 +372,7 @@ struct SidebarRowView: View {
 /// A note in the sidebar: its name, and optionally its date and tags.
 struct SidebarNoteRow: View {
     let note: Note
-    let model: VaultModel
+    @ObservedObject var model: VaultModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {

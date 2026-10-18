@@ -6,25 +6,26 @@ struct ContentView: View {
     @EnvironmentObject private var model: VaultModel
     @State private var columns = NavigationSplitViewVisibility.all
     @State private var isAddingProperty = false
-    @State private var noteListWidth: CGFloat = 0
-    @State private var treeWidth: CGFloat = 0
-
-    /// How much narrower the window gets when the note list (and tree) hide.
-    private var hiddenWidth: CGFloat {
-        model.browsingStyle == .twoColumns ? treeWidth + noteListWidth : noteListWidth
-    }
+    /// The sidebar's width (note list, or tree and notes together), which hiding removes.
+    @State private var sidebarWidth: CGFloat = 0
+    /// How much the window narrowed when the list last hid, to widen it back by.
+    @State private var narrowedBy: CGFloat = 0
 
     /// One column (folders, tags and notes together) or two (folders and tags beside notes).
     @ViewBuilder private var splitView: some View {
         if model.browsingStyle == .twoColumns {
+            // Tree and notes side by side inside one sidebar, so hiding, swiping and resizing
+            // work exactly as in the single column. (SwiftUI's three-column split view on the
+            // Mac won't hide both side columns from code.)
             NavigationSplitView(columnVisibility: $columns) {
-                PlaceTreeColumn()
-                    .navigationSplitViewColumnWidth(min: 160, ideal: 210, max: 320)
-                    .background(widthReader { treeWidth = $0 })
-            } content: {
-                NoteList(includesPlaces: false)
-                    .navigationSplitViewColumnWidth(min: 200, ideal: 260, max: 420)
-                    .background(widthReader { noteListWidth = $0 })
+                HSplitView {
+                    PlaceTreeColumn()
+                        .frame(minWidth: 150, idealWidth: 200, maxWidth: 320)
+                    NoteList(includesPlaces: false)
+                        .frame(minWidth: 200, idealWidth: 260)
+                }
+                .navigationSplitViewColumnWidth(min: 360, ideal: 470, max: 760)
+                .background(widthReader { sidebarWidth = $0 })
             } detail: {
                 detail
             }
@@ -32,22 +33,24 @@ struct ContentView: View {
             NavigationSplitView(columnVisibility: $columns) {
                 NoteList()
                     .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 400)
-                    .background(widthReader { noteListWidth = $0 })
+                    .background(widthReader { sidebarWidth = $0 })
             } detail: {
                 detail
             }
         }
     }
 
-    @ViewBuilder private var detail: some View {
-        if let note = model.selectedNote {
-            NoteEditor(note: note, model: model)
-                .id(note.id)
-        } else {
-            Text("No Note Selected")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+    private var detail: some View {
+        Group {
+            if let note = model.selectedNote {
+                NoteEditor(note: note, model: model)
+                    .id(note.id)
+            } else {
+                Text("No Note Selected")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
     }
 
@@ -93,9 +96,20 @@ struct ContentView: View {
                 }
                 .onChange(of: model.isFocused) { _ in updateColumns() }
                 .onChange(of: model.showsNoteList) { showing in
-                    updateColumns()
+                    guard !model.isFocused else { return updateColumns() }
                     // The text keeps its width: the window narrows or widens instead.
-                    if !model.isFocused { NoteListWindowResizing.resize(showing: showing, listWidth: hiddenWidth) }
+                    if showing {
+                        // Widen first, by what was taken away, then bring the list back into
+                        // the space. (In a narrow window the list would cover the note instead.)
+                        NoteListWindowResizing.resize(by: narrowedBy)
+                        narrowedBy = 0
+                        updateColumns()
+                    } else {
+                        // Narrow by exactly the sidebar's width as it slides away.
+                        narrowedBy = sidebarWidth
+                        updateColumns()
+                        NoteListWindowResizing.resize(by: -sidebarWidth)
+                    }
                 }
 
                 .onChange(of: columns) { visibility in

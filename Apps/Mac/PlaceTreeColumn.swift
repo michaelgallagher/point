@@ -30,6 +30,10 @@ struct PlaceTreeColumn: View {
                     }
                 }
             }
+            // Sidebar style, without a background of its own, so it sits on the same sidebar
+            // material as the note list beside it rather than on white.
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
 
             if model.treeKind == .tags {
                 Divider()
