@@ -215,6 +215,22 @@ Features:
 11. A two-finger swipe left closes the note list. Done: it uses Apple's swipe tracking (`trackSwipeEvent`), because macOS gives a sideways two-finger swipe to its "swipe between pages" gesture and an app otherwise sees only the first event. It fires a tenth of the way into the swipe, and the list and window animate in 0.15 s. Mike confirmed it feels fast enough.
 12. When the note list closes, the window keeps the text panel's width and gets narrower, so the text panel slides over rather than growing to fill the window. (That's the reading of "the text panel should just slide over"; confirm when trying it.)
 
+**E. File views, settings and tabs** (Mike's review, 18 October 2026)
+
+1. **Two ways to browse, chosen in Settings:**
+   - **Single column** (the default, as now): folders, tags and the current folder's notes in one list. Clicking a folder or tag moves in one level.
+   - **Two columns:**
+     - **Left column:** folders and tags only, no notes. Folders form a tree you can expand and collapse. A toggle switches the left column to tags, which also nest like folders. Tags sort alphabetically by default, or by date modified (the most recently edited note with that tag).
+     - **Right column:** the notes in whatever is selected on the left.
+2. **A Settings window (⌘,):** it starts with the browsing choice. Other settings move there over time (text size, list details, sort order).
+3. **Tabs:** several notes open at once, as native macOS window tabs (decided 18 October 2026). They work like Finder and Safari: a tab bar in the title bar, and a tab can be dragged out into its own window. Each tab has its own note, folder, search and history.
+   - **Opening a note in a new tab:** ⌘-click a note or link, right-click > Open in New Tab, or ⌘Return in the ⌘E palette.
+   - **Shortcuts:** ⌘T becomes New Tab, so Today's Note moves to ⇧⌘T.
+   - **Prerequisite:** the app model must be split first. A shared vault part (notes, index, watcher, settings) and a per-window part (selection, sidebar place, search, history, focus).
+4. **Order:** the Settings window and the two-column view first, then the model split, then tabs.
+   - Status, 18 October 2026: the Settings window (⌘,) and the two-column view are built and compile (`SettingsView.swift`, `PlaceTreeColumn.swift`, the two-column `splitView` in `ContentView.swift`). The Settings window opens; the two-column view hasn't been checked in the app yet. The model split and tabs are not started.
+5. **Two-column view, pins:** pinned folders and tags stay at the top of the left column, above the tree.
+
 ### M4 — iPhone
 Buy the developer account first.
 - Folder access through Files, list and editor.
@@ -256,3 +272,4 @@ Today, each meeting gets its own note, because finding things inside daily notes
 1. **Templater:** do you use the Templater community plugin (`<% %>` syntax), or only Obsidian's core Templates? Templater scripts can't be run outside Obsidian. We'd preserve them, but they wouldn't expand.
 2. **Focus mode icons:** which icons stay visible besides the note-list button.
 (Questions 3–7, about the sidebar, were answered in October 2026; see "Sidebar navigation".)
+(Questions 8 and 9, about tabs and pins in the two-column view, were answered on 18 October 2026; see Part E.)
