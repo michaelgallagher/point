@@ -4,6 +4,26 @@ import VaultKit
 /// The two-column view's left column: pinned items, then folders (or tags) as a tree.
 struct PlaceTreeColumn: View {
     @EnvironmentObject private var model: VaultModel
+    /// Whether the current place was chosen from Pinned rather than the tree. A pinned item
+    /// is in both lists; this says which copy to highlight, so only one ever is.
+    @State private var pickedFromPins = false
+
+    /// Pinned and tree rows get different identities ("pin:…", "tree:…"), even for the
+    /// same folder or tag, so the list never treats them as one selection.
+    private var selection: Binding<String?> {
+        Binding(
+            get: {
+                let fromPins = pickedFromPins && model.pins.contains(model.place)
+                return (fromPins ? "pin:" : "tree:") + model.place.key
+            },
+            set: { id in
+                guard let id, let colon = id.firstIndex(of: ":"),
+                      let place = SidebarPlace(key: String(id[id.index(after: colon)...])) else { return }
+                pickedFromPins = id.hasPrefix("pin:")
+                model.browse(place)
+            }
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -16,17 +36,17 @@ struct PlaceTreeColumn: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
 
-            List(selection: Binding(get: { model.place }, set: { if let place = $0 { model.browse(place) } })) {
+            List(selection: selection) {
                 if !model.pins.isEmpty {
                     Section("Pinned") {
                         ForEach(model.pins, id: \.self) { place in
-                            PlaceLabel(place: place, name: place.title).tag(place)
+                            PlaceLabel(place: place, name: place.title).tag("pin:" + place.key)
                         }
                     }
                 }
                 Section(model.treeKind == .folders ? "Folders" : "Tags") {
                     OutlineGroup(model.treeKind == .folders ? model.folderNodes : model.tagNodes, children: \.children) { node in
-                        PlaceLabel(place: node.place, name: node.name).tag(node.place)
+                        PlaceLabel(place: node.place, name: node.name).tag("tree:" + node.place.key)
                     }
                 }
             }

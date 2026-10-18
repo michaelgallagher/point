@@ -520,6 +520,7 @@ final class VaultModel: ObservableObject {
 
     func browse(_ place: SidebarPlace) {
         Trace.mark("browse \(place.key)")
+        if place.isTag { lastTagPlace = place } else { lastFolderPlace = place }
         searchText = ""
         self.place = place
     }
@@ -646,8 +647,21 @@ final class VaultModel: ObservableObject {
     }
     /// What the two-column view's left column shows.
     @Published var treeKind = TreeKind(rawValue: UserDefaults.standard.string(forKey: "treeKind") ?? "") ?? .folders {
-        didSet { UserDefaults.standard.set(treeKind.rawValue, forKey: "treeKind") }
+        didSet {
+            UserDefaults.standard.set(treeKind.rawValue, forKey: "treeKind")
+            guard treeKind != oldValue else { return }
+            // Show what was last chosen in this tree, so the highlight and the notes match.
+            switch treeKind {
+            case .folders:
+                if place.isTag { browse(lastFolderPlace) }
+            case .tags:
+                if !place.isTag { browse(lastTagPlace ?? tagTree.entries.first.map { .tag($0.tag) } ?? .allNotes) }
+            }
+        }
     }
+    /// The folder (or top level) and tag last browsed, to return to when switching trees.
+    private var lastFolderPlace: SidebarPlace = .allNotes
+    private var lastTagPlace: SidebarPlace?
     @Published var tagOrder = TagOrder(rawValue: UserDefaults.standard.string(forKey: "tagOrder") ?? "") ?? .name {
         didSet { UserDefaults.standard.set(tagOrder.rawValue, forKey: "tagOrder") }
     }
