@@ -7,9 +7,11 @@ import VaultKit
 struct NoteEditor: View {
     @EnvironmentObject private var model: VaultModel
     @StateObject private var session: EditorSession
+    @StateObject private var connections: Connections
 
-    init(note: Note) {
+    init(note: Note, model: VaultModel) {
         _session = StateObject(wrappedValue: EditorSession(note: note))
+        _connections = StateObject(wrappedValue: Connections(note: note, model: model))
     }
 
     var body: some View {
@@ -31,8 +33,12 @@ struct NoteEditor: View {
             } else {
                 Color.clear
             }
+            ConnectionsBar(connections: connections)
         }
-        .task { await session.load() }
+        .task {
+            await session.load()
+            connections.refresh()
+        }
         .onDisappear { session.save(leaving: true) }
     }
 }

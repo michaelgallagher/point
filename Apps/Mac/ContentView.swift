@@ -1,3 +1,4 @@
+import IndexKit
 import SwiftUI
 import VaultKit
 
@@ -15,7 +16,7 @@ struct ContentView: View {
                         .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 400)
                 } detail: {
                     if let note = model.selectedNote {
-                        NoteEditor(note: note)
+                        NoteEditor(note: note, model: model)
                             .id(note.id)
                     } else {
                         Text("No Note Selected")
@@ -42,12 +43,28 @@ struct ContentView: View {
                         .padding(.top, 2)
                     }
                 }
+                .onChange(of: model.searchFocusRequest) { _ in
+                    withAnimation(.easeInOut(duration: 0.2)) { columns = .all } // Search needs the list.
+                }
                 .onChange(of: model.isFocused) { focused in
                     withAnimation(.easeInOut(duration: 0.2)) { columns = focused ? .detailOnly : .all }
                 }
             }
         }
         .frame(minWidth: 600, minHeight: 400)
+        .overlay(alignment: .top) {
+            if model.isPaletteShown {
+                ZStack(alignment: .top) {
+                    // Clicking outside the palette closes it.
+                    Color.black.opacity(0.08)
+                        .ignoresSafeArea()
+                        .onTapGesture { model.isPaletteShown = false }
+                    CommandPalette()
+                        .padding(.top, 80)
+                }
+                .transition(.opacity)
+            }
+        }
         .sheet(item: $model.renaming) { note in
             RenameSheet(note: note)
         }
@@ -82,19 +99,41 @@ private struct OpenVaultView: View {
 
 private struct NoteList: View {
     @EnvironmentObject private var model: VaultModel
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
-        List(model.notes, selection: $model.selection) { note in
-            NoteRow(note: note)
-                .help(note.id)
-            .contextMenu {
-                Button("Rename…") { model.renaming = note }
-                Button("Move to Trash") { model.moveToTrash(note) }
+        VStack(spacing: 0) {
+            SearchField(text: $model.searchText, isFocused: $searchFocused) {
+                // Return opens the top result.
+                if let first = model.searchResults?.first { model.selection = first.id }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            if let results = model.searchResults {
+                List(results, selection: $model.selection) { result in
+                    SearchResultRow(result: result)
+                }
+                .overlay {
+                    if results.isEmpty {
+                        Text("No Results")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                List(model.notes, selection: $model.selection) { note in
+                    NoteRow(note: note)
+                        .help(note.id)
+                        .contextMenu {
+                            Button("Rename…") { model.renaming = note }
+                            Button("Move to Trash") { model.moveToTrash(note) }
+                        }
+                }
+                .onDeleteCommand {
+                    model.selectedNote.map(model.moveToTrash)
+                }
             }
         }
-        .onDeleteCommand {
-            model.selectedNote.map(model.moveToTrash)
-        }
+        .onChange(of: model.searchFocusRequest) { _ in searchFocused = true }
         .overlay {
             if let message = model.errorMessage {
                 Text(message)
@@ -103,6 +142,81 @@ private struct NoteList: View {
                     .padding()
             }
         }
+    }
+}
+
+/// The search field above the note list.
+private struct SearchField: View {
+    @Binding var text: String
+    var isFocused: FocusState<Bool>.Binding
+    let onSubmit: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Search", text: $text)
+                .textFieldStyle(.plain)
+                .focused(isFocused)
+                .onSubmit(onSubmit)
+                .onExitCommand { text = "" }
+            if !text.isEmpty {
+                Button { text = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.tertiary)
+                .help("Clear Search")
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary.opacity(0.6)))
+    }
+}
+
+/// A search result: the note's name and, if its text matched, a snippet with the match marked.
+private struct SearchResultRow: View {
+    let result: SearchResult
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(result.title)
+                .lineLimit(1)
+            if let snippet = result.snippet {
+                Text(Self.highlighted(snippet))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// The snippet with matches in bold, from the index's start and end marks.
+    static func highlighted(_ snippet: String) -> AttributedString {
+        var result = AttributedString()
+        var isMatch = false
+        var current = ""
+        func flush() {
+            var piece = AttributedString(current.replacingOccurrences(of: "\n", with: " "))
+            if isMatch {
+                piece.inlinePresentationIntent = .stronglyEmphasized
+                piece.foregroundColor = .primary
+            }
+            result += piece
+            current = ""
+        }
+        for character in snippet {
+            if character == SearchResult.matchStart || character == SearchResult.matchEnd {
+                flush()
+                isMatch = character == SearchResult.matchStart
+            } else {
+                current.append(character)
+            }
+        }
+        flush()
+        return result
     }
 }
 

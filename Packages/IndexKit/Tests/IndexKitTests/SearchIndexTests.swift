@@ -1,0 +1,171 @@
+import Foundation
+import Testing
+@testable import IndexKit
+@testable import VaultKit
+
+/// A throwaway vault on disk, its notes, and an index of it.
+private struct Fixture {
+    let root: URL
+    var notes: [Note] = []
+    let index: SearchIndex
+
+    init(_ files: [String: String], indexURL: URL? = nil) async throws {
+        root = FileManager.default.temporaryDirectory.appendingPathComponent("IndexKit-\(UUID().uuidString)")
+        for (path, text) in files {
+            let url = root.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(text.utf8).write(to: url)
+        }
+        notes = try VaultScanner.scan(root)
+        index = try SearchIndex(url: indexURL)
+        try await index.update(notes: notes)
+    }
+
+    func titles(_ query: String) async throws -> [String] {
+        try await index.search(query).map(\.title)
+    }
+
+    func cleanUp() { try? FileManager.default.removeItem(at: root) }
+}
+
+struct SearchTests {
+    let files = [
+        "Weekly meeting.md": "# Weekly meeting\nAgenda for the team. #work",
+        "Running log.md": "Ran 5k today. Running is getting easier; I run three times a week.",
+        "Projects/Imprint.md": "---\ntags: [work/imprint, ideas]\n---\nA text editor project with **excellent** search.",
+        "Garden.md": "Planted tomatoes. Need a meeting with the allotment committee.",
+        "Recipes.md": "Chocolate cake with café crème.",
+    ]
+
+    @Test func findsWholeAndPartialWords() async throws {
+        let vault = try await Fixture(files)
+        defer { vault.cleanUp() }
+        #expect(try await vault.titles("tomatoes") == ["Garden"])
+        #expect(try await vault.titles("tomat") == ["Garden"])
+        #expect(try await vault.titles("ject") == ["Imprint"]) // Inside "project".
+    }
+
+    @Test func titlesComeFirst() async throws {
+        let vault = try await Fixture(files)
+        defer { vault.cleanUp() }
+        #expect(try await vault.titles("meeting") == ["Weekly meeting", "Garden"])
+    }
+
+    @Test func forgivesTypos() async throws {
+        let vault = try await Fixture(files)
+        defer { vault.cleanUp() }
+        let typo = try await vault.titles("meetng")
+        #expect(typo == ["Weekly meeting", "Garden"])
+        #expect(try await vault.titles("chocolat cake").first == "Recipes")
+        #expect(try await vault.titles("tomatos") == ["Garden"])
+    }
+
+    @Test func matchesWordForms() async throws {
+        let vault = try await Fixture(files)
+        defer { vault.cleanUp() }
+        #expect(try await vault.titles("runs") == ["Running log"])
+        #expect(try await vault.titles("planting") == ["Garden"])
+    }
+
+    @Test func ignoresAccentsAndCase() async throws {
+        let vault = try await Fixture(files)
+        defer { vault.cleanUp() }
+        #expect(try await vault.titles("CAFE creme") == ["Recipes"])
+    }
+
+    @Test func wordsCanComeInAnyOrder() async throws {
+        let vault = try await Fixture(files)
+        defer { vault.cleanUp() }
+        #expect(try await vault.titles("search excellent editor") == ["Imprint"])
+    }
+
+    @Test func filtersByTagIncludingNestedTags() async throws {
+        let vault = try await Fixture(files)
+        defer { vault.cleanUp() }
+        #expect(Set(try await vault.titles("#work")) == ["Weekly meeting", "Imprint"])
+        #expect(try await vault.titles("#work/imprint") == ["Imprint"])
+        #expect(try await vault.titles("#work agenda") == ["Weekly meeting"])
+        #expect(try await vault.titles("#missing").isEmpty)
+    }
+
+    @Test func snippetsMarkTheMatchWithoutMarkdown() async throws {
+        let vault = try await Fixture(files)
+        defer { vault.cleanUp() }
+        let result = try #require(try await vault.index.search("excellent").first)
+        #expect(result.snippet?.contains("\u{2}excellent\u{3} search") == true)
+        #expect(result.snippet?.contains("**") == false)
+    }
+
+    @Test func listsTags() async throws {
+        let vault = try await Fixture(files)
+        defer { vault.cleanUp() }
+        let tags = try await vault.index.allTags()
+        #expect(tags.map(\.tag).sorted() == ["ideas", "work", "work/imprint"])
+    }
+
+    @Test func keepsUpWithChangesAndDeletions() async throws {
+        var vault = try await Fixture(files)
+        defer { vault.cleanUp() }
+        let garden = vault.root.appendingPathComponent("Garden.md")
+        try Data("Planted potatoes instead.".utf8).write(to: garden)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(60)], ofItemAtPath: garden.path)
+        try FileManager.default.removeItem(at: vault.root.appendingPathComponent("Recipes.md"))
+        vault.notes = try VaultScanner.scan(vault.root)
+        #expect(try await vault.index.update(notes: vault.notes) == 1)
+        #expect(try await vault.titles("potatoes") == ["Garden"])
+        #expect(try await vault.titles("tomatoes").isEmpty)
+        #expect(try await vault.titles("chocolate").isEmpty)
+    }
+
+    @Test func persistsBetweenLaunches() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("index-\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let vault = try await Fixture(files, indexURL: file)
+        defer { vault.cleanUp() }
+        let reopened = try SearchIndex(url: file)
+        #expect(try await reopened.update(notes: vault.notes) == 0) // Nothing to redo.
+        #expect(try await reopened.search("tomatoes").map(\.title) == ["Garden"])
+    }
+}
+
+struct LinkIndexTests {
+    let files = [
+        "Imprint.md": "The editor.",
+        "Plan.md": "See [[Imprint]] for details.\nAlso [[imprint#Goals|the goals]].",
+        "Notes.md": "Imprint should be fast. I like imprint a lot.\nBut `Imprint` in code and [[Imprint]] are not mentions.\nImprinted is a different word.",
+        "Other.md": "Nothing here.",
+    ]
+
+    @Test func findsBacklinks() async throws {
+        let vault = try await Fixture(files)
+        defer { vault.cleanUp() }
+        let target = try #require(vault.notes.first { $0.title == "Imprint" })
+        let backlinks = try await vault.index.backlinks(to: target, notes: vault.notes)
+        #expect(backlinks.map(\.title) == ["Notes", "Plan"])
+        #expect(backlinks.last?.context == "See Imprint for details.")
+    }
+
+    @Test func findsUnlinkedMentions() async throws {
+        let vault = try await Fixture(files)
+        defer { vault.cleanUp() }
+        let target = try #require(vault.notes.first { $0.title == "Imprint" })
+        let mentions = try await vault.index.unlinkedMentions(of: target, notes: vault.notes)
+        #expect(mentions.map(\.matched) == ["Imprint", "imprint"])
+        #expect(mentions.allSatisfy { $0.title == "Notes" })
+    }
+
+    @Test func linkingAMentionKeepsItsWording() throws {
+        let text = "I like imprint a lot."
+        let mention = try #require(SearchIndex.mentions(of: "Imprint", in: text, noteID: "Notes.md", noteTitle: "Notes").first)
+        #expect(mention.linking(in: text, to: "Imprint") == "I like [[Imprint|imprint]] a lot.")
+        #expect(mention.linking(in: "Changed since.", to: "Imprint") == nil)
+    }
+}
+
+struct FuzzyTests {
+    @Test func editDistance() {
+        #expect(Fuzzy.editDistance("meetng", "meeting", limit: 1) == 1)
+        #expect(Fuzzy.editDistance("teh", "the", limit: 1) == 1) // Swapped letters.
+        #expect(Fuzzy.editDistance("garden", "kitchen", limit: 2) == nil)
+    }
+}

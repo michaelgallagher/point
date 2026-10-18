@@ -18,4 +18,9 @@ struct PlainTextTests {
         #expect(PlainText.firstLine(of: "\n  \n") == nil)
         #expect(PlainText.firstLine(of: "---\na: b\n---\n") == nil)
     }
+
+    @Test func stripsMarkersForSearch() {
+        let text = "---\ntags: [a]\n---\n# Title with **bold**\n- [ ] Task [[Note|alias]] and [site](https://x.com)"
+        #expect(PlainText.strippingMarkers(from: text) == "tags: [a]\nTitle with bold\nTask alias and site")
+    }
 }

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VaultKit
 
@@ -12,6 +13,17 @@ struct ImprintApp: App {
         }
         .commands {
             FormatCommands()
+            CommandGroup(after: .textEditing) {
+                Divider()
+                Button("Command Palette") { model.isPaletteShown.toggle() }
+                    .keyboardShortcut("e")
+                    .disabled(model.root == nil)
+                Button("Search Notes") { model.focusSearch() }
+                    .keyboardShortcut("f")
+                    .disabled(model.root == nil)
+                Button("Find in Note") { FindInNote.show() }
+                    .keyboardShortcut("f", modifiers: [.command, .option])
+            }
             CommandMenu("Go") {
                 Button("Back") { model.goBack() }
                     .keyboardShortcut("[")
@@ -64,5 +76,14 @@ struct ImprintApp: App {
                 Divider()
             }
         }
+    }
+}
+
+/// Opens the find bar in the note being edited.
+enum FindInNote {
+    @MainActor static func show() {
+        let item = NSMenuItem()
+        item.tag = NSTextFinder.Action.showFindInterface.rawValue
+        NSApp.sendAction(#selector(NSResponder.performTextFinderAction(_:)), to: nil, from: item)
     }
 }

@@ -17,6 +17,8 @@ packages:
     path: Packages/EditorKit
   MarkdownKit:
     path: Packages/MarkdownKit
+  IndexKit:
+    path: Packages/IndexKit
 targets:
   Imprint-Mac:
     type: application
@@ -27,6 +29,7 @@ targets:
       - package: VaultKit
       - package: EditorKit
       - package: MarkdownKit
+      - package: IndexKit
     settings:
       base:
         PRODUCT_NAME: Imprint

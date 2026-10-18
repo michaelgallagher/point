@@ -1,5 +1,7 @@
 import AppKit
+import CryptoKit
 import EditorKit
+import IndexKit
 import MarkdownKit
 import VaultKit
 
@@ -81,6 +83,7 @@ final class VaultModel: ObservableObject {
             notes = scanned.sorted(by: sort)
             errorMessage = nil
             refreshTags()
+            updateIndex()
             if let selection, !notes.contains(where: { $0.id == selection }) {
                 self.selection = nil
             }
@@ -117,6 +120,8 @@ final class VaultModel: ObservableObject {
         notes = []
         selection = nil
         settings = ObsidianSettings.load(vault: url)
+        searchText = ""
+        openIndex(for: url)
         watcher = VaultWatcher(root: url) { [weak self] urls in
             Task { @MainActor in self?.filesChanged(urls) }
         }
@@ -240,8 +245,8 @@ final class VaultModel: ObservableObject {
             }
         case .web(let url):
             NSWorkspace.shared.open(url)
-        case .tag:
-            NSSound.beep() // Tag search arrives with search, in M3.
+        case .tag(let tag):
+            search(tag: tag)
         }
     }
 
@@ -382,6 +387,67 @@ final class VaultModel: ObservableObject {
                 tagsByNote[note.id] = tags
                 tagsReadAt[note.id] = note.modified
             }
+        }
+    }
+
+    // MARK: Search
+
+    /// What's typed in the search field. Searching starts as soon as it changes.
+    @Published var searchText = "" {
+        didSet { scheduleSearch() }
+    }
+    /// Results for `searchText`, or nil when not searching.
+    @Published private(set) var searchResults: [SearchResult]?
+    /// Whether the ⌘E command palette is showing.
+    @Published var isPaletteShown = false
+    /// Incremented to ask the search field to take focus.
+    @Published private(set) var searchFocusRequest = 0
+    private var searchTask: Task<Void, Never>?
+    private(set) var index: SearchIndex?
+
+    func focusSearch() {
+        isFocused = false
+        searchFocusRequest += 1
+    }
+
+    /// Searches for a tag, for example after a tag is clicked in a note.
+    func search(tag: String) {
+        searchText = "#" + tag
+        focusSearch()
+    }
+
+    private func scheduleSearch() {
+        searchTask?.cancel()
+        let query = searchText.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else {
+            searchResults = nil
+            return
+        }
+        searchTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 80_000_000) // Let a burst of typing settle.
+            guard !Task.isCancelled, let index = self?.index else { return }
+            let results = (try? await index.search(query)) ?? []
+            guard !Task.isCancelled else { return }
+            self?.searchResults = results
+        }
+    }
+
+    /// Opens (creating if needed) the search index for the vault at `url`. It lives in the
+    /// app's own storage, never in the vault, named by a hash of the vault's path.
+    private func openIndex(for url: URL) {
+        let digest = SHA256.hash(data: Data(url.resolvingSymlinksInPath().path.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
+        let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Imprint/Index", isDirectory: true)
+        index = try? SearchIndex(url: folder.appendingPathComponent("\(digest).sqlite"))
+    }
+
+    /// Brings the index up to date after a scan, then refreshes any search showing.
+    private func updateIndex() {
+        guard let index else { return }
+        let notes = notes
+        Task {
+            let changed = (try? await index.update(notes: notes)) ?? 0
+            if changed > 0 { scheduleSearch() }
         }
     }
 }
