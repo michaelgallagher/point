@@ -10,7 +10,7 @@ struct ContentView: View {
 
     private func updateColumns() {
         let visible = model.showsNoteList && !model.isFocused
-        withAnimation(.easeInOut(duration: 0.2)) { columns = visible ? .all : .detailOnly }
+        withAnimation(.easeOut(duration: 0.15)) { columns = visible ? .all : .detailOnly }
     }
 
     var body: some View {
@@ -71,6 +71,7 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 600, minHeight: 400)
+        .onAppear { model.startSwipeTracking() }
         .overlay(alignment: .top) {
             if model.isPaletteShown {
                 ZStack(alignment: .top) {

@@ -212,7 +212,7 @@ Features:
 8. Dividers between the folders, tags and notes sections.
 9. ⌘+ / ⌘− make note text bigger or smaller.
 10. ⌘S hides and shows the note list.
-11. A two-finger swipe left closes the note list.
+11. A two-finger swipe left closes the note list. Done: it uses Apple's swipe tracking (`trackSwipeEvent`), because macOS gives a sideways two-finger swipe to its "swipe between pages" gesture and an app otherwise sees only the first event. It fires a tenth of the way into the swipe, and the list and window animate in 0.15 s. Mike confirmed it feels fast enough.
 12. When the note list closes, the window keeps the text panel's width and gets narrower, so the text panel slides over rather than growing to fill the window. (That's the reading of "the text panel should just slide over"; confirm when trying it.)
 
 ### M4 — iPhone

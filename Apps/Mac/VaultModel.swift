@@ -49,7 +49,6 @@ final class VaultModel: ObservableObject {
     init() {
         sort = UserDefaults.standard.string(forKey: Keys.sort).flatMap(NoteSort.init) ?? .modified
         restoreVault()
-        startSwipeTracking()
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 if let selection = self?.selection { self?.finishUntitledNote(selection) }
@@ -583,13 +582,20 @@ final class VaultModel: ObservableObject {
     @Published var showsNoteList = true
 
     /// Two-finger swipes: left hides the note list, right shows it. Lives as long as the app.
-    private lazy var swipe = SwipeToToggleNoteList { [weak self] toTheLeft in
-        guard let self, !self.isFocused, self.showsNoteList == toTheLeft else { return }
-        self.showsNoteList = !toTheLeft
-    }
+    private lazy var swipe = SwipeToToggleNoteList(
+        isNoteListShowing: { [weak self] in self?.showsNoteList ?? true },
+        onSwipe: { [weak self] toTheLeft in
+            guard let self, !self.isFocused, self.showsNoteList == toTheLeft else { return }
+            self.showsNoteList = !toTheLeft
+        }
+    )
 
-    /// Starts listening for swipes; called once at launch.
-    func startSwipeTracking() { _ = swipe }
+    /// Starts listening for swipes. Called when the window appears: AppKit doesn't deliver
+    /// events to monitors added while the app is still starting up.
+    func startSwipeTracking() {
+        _ = swipe
+        Trace.mark("swipe monitor installed")
+    }
     /// Note text size relative to normal, kept between launches (⌘+ / ⌘−).
     @Published var textScale: Double = UserDefaults.standard.object(forKey: "textScale") as? Double ?? 1 {
         didSet { UserDefaults.standard.set(textScale, forKey: "textScale") }
