@@ -7,6 +7,57 @@ struct ContentView: View {
     @State private var columns = NavigationSplitViewVisibility.all
     @State private var isAddingProperty = false
     @State private var noteListWidth: CGFloat = 0
+    @State private var treeWidth: CGFloat = 0
+
+    /// How much narrower the window gets when the note list (and tree) hide.
+    private var hiddenWidth: CGFloat {
+        model.browsingStyle == .twoColumns ? treeWidth + noteListWidth : noteListWidth
+    }
+
+    /// One column (folders, tags and notes together) or two (folders and tags beside notes).
+    @ViewBuilder private var splitView: some View {
+        if model.browsingStyle == .twoColumns {
+            NavigationSplitView(columnVisibility: $columns) {
+                PlaceTreeColumn()
+                    .navigationSplitViewColumnWidth(min: 160, ideal: 210, max: 320)
+                    .background(widthReader { treeWidth = $0 })
+            } content: {
+                NoteList(includesPlaces: false)
+                    .navigationSplitViewColumnWidth(min: 200, ideal: 260, max: 420)
+                    .background(widthReader { noteListWidth = $0 })
+            } detail: {
+                detail
+            }
+        } else {
+            NavigationSplitView(columnVisibility: $columns) {
+                NoteList()
+                    .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 400)
+                    .background(widthReader { noteListWidth = $0 })
+            } detail: {
+                detail
+            }
+        }
+    }
+
+    @ViewBuilder private var detail: some View {
+        if let note = model.selectedNote {
+            NoteEditor(note: note, model: model)
+                .id(note.id)
+        } else {
+            Text("No Note Selected")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func widthReader(_ update: @escaping (CGFloat) -> Void) -> some View {
+        GeometryReader { geometry in
+            Color.clear
+                .onAppear { update(geometry.size.width) }
+                .onChange(of: geometry.size.width) { width in if width > 0 { update(width) } }
+        }
+    }
 
     private func updateColumns() {
         let visible = model.showsNoteList && !model.isFocused
@@ -18,24 +69,7 @@ struct ContentView: View {
             if model.root == nil {
                 OpenVaultView()
             } else {
-                NavigationSplitView(columnVisibility: $columns) {
-                    NoteList()
-                        .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 400)
-                        .background(GeometryReader { geometry in
-                            Color.clear.onAppear { noteListWidth = geometry.size.width }
-                                .onChange(of: geometry.size.width) { width in if width > 0 { noteListWidth = width } }
-                        })
-                } detail: {
-                    if let note = model.selectedNote {
-                        NoteEditor(note: note, model: model)
-                            .id(note.id)
-                    } else {
-                        Text("No Note Selected")
-                            .font(.title3)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                }
+                splitView
                 .navigationTitle(model.selectedNote?.title ?? model.root?.lastPathComponent ?? "Imprint")
                 .toolbar(model.isFocused ? .hidden : .visible, for: .windowToolbar)
                 .overlay(alignment: .topLeading) {
@@ -61,7 +95,7 @@ struct ContentView: View {
                 .onChange(of: model.showsNoteList) { showing in
                     updateColumns()
                     // The text keeps its width: the window narrows or widens instead.
-                    if !model.isFocused { NoteListWindowResizing.resize(showing: showing, listWidth: noteListWidth) }
+                    if !model.isFocused { NoteListWindowResizing.resize(showing: showing, listWidth: hiddenWidth) }
                 }
 
                 .onChange(of: columns) { visibility in
@@ -132,11 +166,20 @@ private struct OpenVaultView: View {
 private struct NoteList: View {
     @EnvironmentObject private var model: VaultModel
     @FocusState private var searchFocused: Bool
+    /// False in the two-column view, where folders and tags have their own column.
+    var includesPlaces = true
 
     var body: some View {
         VStack(spacing: 0) {
-            if model.place != .allNotes, model.searchResults == nil {
+            if includesPlaces, model.place != .allNotes, model.searchResults == nil {
                 PlaceHeader()
+            } else if !includesPlaces, model.searchResults == nil {
+                Text(model.place == .allNotes ? (model.root?.lastPathComponent ?? "Notes") : model.place.title)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 6)
             }
             SearchField(text: $model.searchText, isFocused: $searchFocused) {
                 // Return opens the top result.
@@ -171,9 +214,9 @@ private struct NoteList: View {
 
     /// Pins, folders (or nested tags), tags and notes for the current place.
     private var browser: some View {
-        SidebarTable(model: model)
+        SidebarTable(model: model, includesPlaces: includesPlaces)
             .overlay {
-                if model.notes(in: model.place).isEmpty, model.subplaces(of: model.place).isEmpty, model.place != .allNotes {
+                if model.notes(in: model.place).isEmpty, !includesPlaces || model.subplaces(of: model.place).isEmpty, model.place != .allNotes {
                     Text(model.place.isTag ? "No notes have this tag." : "This folder has no notes.")
                         .foregroundStyle(.secondary)
                 }

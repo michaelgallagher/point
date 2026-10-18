@@ -101,6 +101,10 @@ struct ImprintApp: App {
                 Divider()
             }
         }
+        Settings {
+            SettingsView()
+                .environmentObject(model)
+        }
     }
 }
 

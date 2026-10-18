@@ -629,4 +629,73 @@ final class VaultModel: ObservableObject {
         guard ids.indices.contains(next) else { return NSSound.beep() }
         selection = ids[next]
     }
+
+    // MARK: Browsing styles
+
+    /// One list you move through, or folders and tags beside a list of notes.
+    enum BrowsingStyle: String, CaseIterable, Identifiable {
+        case singleColumn, twoColumns
+        var id: String { rawValue }
+    }
+
+    enum TreeKind: String { case folders, tags }
+    enum TagOrder: String { case name, modified }
+
+    @Published var browsingStyle = BrowsingStyle(rawValue: UserDefaults.standard.string(forKey: "browsingStyle") ?? "") ?? .singleColumn {
+        didSet { UserDefaults.standard.set(browsingStyle.rawValue, forKey: "browsingStyle") }
+    }
+    /// What the two-column view's left column shows.
+    @Published var treeKind = TreeKind(rawValue: UserDefaults.standard.string(forKey: "treeKind") ?? "") ?? .folders {
+        didSet { UserDefaults.standard.set(treeKind.rawValue, forKey: "treeKind") }
+    }
+    @Published var tagOrder = TagOrder(rawValue: UserDefaults.standard.string(forKey: "tagOrder") ?? "") ?? .name {
+        didSet { UserDefaults.standard.set(tagOrder.rawValue, forKey: "tagOrder") }
+    }
+
+    /// A folder or tag in the two-column view's tree.
+    struct PlaceNode: Identifiable, Hashable {
+        let place: SidebarPlace
+        let name: String
+        /// Nil for a leaf, so the tree shows no disclosure triangle.
+        var children: [PlaceNode]?
+        var id: SidebarPlace { place }
+    }
+
+    /// The vault's top level, then its folders as a tree.
+    var folderNodes: [PlaceNode] {
+        func nodes(in path: String) -> [PlaceNode]? {
+            let subfolders = folderTree.subfolders(of: path)
+            guard !subfolders.isEmpty else { return nil }
+            return subfolders.map { PlaceNode(place: .folder($0), name: FolderTree.name(of: $0), children: nodes(in: $0)) }
+        }
+        let rootName = root?.lastPathComponent ?? "Vault"
+        return [PlaceNode(place: .allNotes, name: rootName, children: nil)] + (nodes(in: "") ?? [])
+    }
+
+    /// Tags as a tree, by name or by when a note with the tag was last edited.
+    var tagNodes: [PlaceNode] {
+        var latest: [String: Date] = [:]
+        if tagOrder == .modified {
+            for note in notes {
+                for tag in listTags(for: note.id) {
+                    // A note counts for its tag and every parent above it.
+                    var parts = tag.lowercased().split(separator: "/").map(String.init)
+                    while !parts.isEmpty {
+                        let key = parts.joined(separator: "/")
+                        latest[key] = max(latest[key] ?? .distantPast, note.modified)
+                        parts.removeLast()
+                    }
+                }
+            }
+        }
+        func nodes(under parent: String?) -> [PlaceNode]? {
+            let entries = parent.map { tagTree.children(of: $0) } ?? tagTree.entries.filter { $0.depth == 0 }
+            guard !entries.isEmpty else { return nil }
+            let sorted = tagOrder == .name
+                ? entries.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+                : entries.sorted { (latest[$0.id] ?? .distantPast) > (latest[$1.id] ?? .distantPast) }
+            return sorted.map { PlaceNode(place: .tag($0.tag), name: "#" + $0.name, children: nodes(under: $0.tag)) }
+        }
+        return nodes(under: nil) ?? []
+    }
 }

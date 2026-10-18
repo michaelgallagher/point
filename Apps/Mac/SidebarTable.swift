@@ -13,7 +13,8 @@ enum SidebarRow: Hashable {
 
 extension VaultModel {
     /// The rows to show for the current place, in order.
-    func sidebarRows(tagsExpanded: Bool) -> [SidebarRow] {
+    func sidebarRows(tagsExpanded: Bool, includesPlaces: Bool = true) -> [SidebarRow] {
+        guard includesPlaces else { return notes(in: place).map { .note($0.id) } }
         var sections: [[SidebarRow]] = []
         let subplaces = subplaces(of: place)
         if place == .allNotes {
@@ -38,6 +39,8 @@ extension VaultModel {
 /// height before it's drawn, and moving between folders can slide.
 struct SidebarTable: NSViewRepresentable {
     @ObservedObject var model: VaultModel
+    /// False in the two-column view, where folders and tags have their own column.
+    var includesPlaces = true
     @AppStorage("tagsSectionExpanded") var tagsExpanded = true
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -97,7 +100,7 @@ struct SidebarTable: NSViewRepresentable {
         /// going deeper, from the left when going back up.
         func update(animated: Bool) {
             guard let table else { return }
-            let newRows = model.sidebarRows(tagsExpanded: parent.tagsExpanded)
+            let newRows = model.sidebarRows(tagsExpanded: parent.tagsExpanded, includesPlaces: parent.includesPlaces)
             let place = model.place
             let placeChanged = shownPlace != nil && shownPlace != place
             if !placeChanged, newRows == rows {
@@ -119,7 +122,8 @@ struct SidebarTable: NSViewRepresentable {
                 return
             }
             do {
-                if animated, placeChanged, let layer = table.enclosingScrollView?.layer {
+                // Slide only when moving in or out of a level, not when picking from a tree.
+                if animated, placeChanged, parent.includesPlaces, let layer = table.enclosingScrollView?.layer {
                     let transition = CATransition()
                     transition.type = .push
                     transition.subtype = Self.isDeeper(place, than: shownPlace!) ? .fromRight : .fromLeft
