@@ -103,6 +103,14 @@ struct SearchTests {
         #expect(tags.map(\.tag).sorted() == ["ideas", "work", "work/imprint"])
     }
 
+    @Test func givesEachNotesTags() async throws {
+        let vault = try await Fixture(files)
+        defer { vault.cleanUp() }
+        let tags = try await vault.index.tagsByNote()
+        #expect(Set(tags["Projects/Imprint.md"] ?? []) == ["work/imprint", "ideas"])
+        #expect(tags["Garden.md"] == nil)
+    }
+
     @Test func keepsUpWithChangesAndDeletions() async throws {
         var vault = try await Fixture(files)
         defer { vault.cleanUp() }
@@ -152,6 +160,18 @@ struct LinkIndexTests {
         let mentions = try await vault.index.unlinkedMentions(of: target, notes: vault.notes)
         #expect(mentions.map(\.matched) == ["Imprint", "imprint"])
         #expect(mentions.allSatisfy { $0.title == "Notes" })
+    }
+
+    @Test func mentionsAreCapped() async throws {
+        let busy = (0..<20).reduce(into: [String: String]()) { files, n in
+            files["Note \(n).md"] = Array(repeating: "Imprint again.", count: 10).joined(separator: " ")
+        }.merging(["Imprint.md": "The editor."]) { a, _ in a }
+        let vault = try await Fixture(busy)
+        defer { vault.cleanUp() }
+        let target = try #require(vault.notes.first { $0.title == "Imprint" })
+        let mentions = try await vault.index.unlinkedMentions(of: target, notes: vault.notes, perNote: 3, limit: 50)
+        #expect(mentions.count == 50)
+        #expect(Dictionary(grouping: mentions, by: \.noteID).values.allSatisfy { $0.count <= 3 })
     }
 
     @Test func linkingAMentionKeepsItsWording() throws {

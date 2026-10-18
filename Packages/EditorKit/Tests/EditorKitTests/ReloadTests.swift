@@ -112,3 +112,15 @@ struct LinkAndTagStyleTests {
         #expect(view.textStorage!.attribute(.imprintTag, at: 7, effectiveRange: nil) == nil)
     }
 }
+
+@MainActor
+struct TextScaleTests {
+    @Test func scalesBodyAndHeadings() {
+        let view = EditorTestSupport.makeEditor("# Big\nbody", height: 300)
+        view.textScale = 1.2
+        let storage = view.textStorage!
+        #expect((storage.attribute(.font, at: 7, effectiveRange: nil) as! NSFont).pointSize == 18)
+        #expect((storage.attribute(.font, at: 3, effectiveRange: nil) as! NSFont).pointSize == 31)
+        #expect(view.string == "# Big\nbody")
+    }
+}

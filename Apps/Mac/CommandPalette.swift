@@ -203,6 +203,9 @@ struct PaletteCommand {
             PaletteCommand(name: "New Note", shortcut: "⌘N", isSuggested: true) { model.createNote() },
             PaletteCommand(name: "Today's Note", shortcut: "⌘T", isSuggested: true) { model.openTodaysNote() },
             PaletteCommand(name: "Search Notes", shortcut: "⌘F") { model.focusSearch() },
+            PaletteCommand(name: model.showsNoteList ? "Hide Note List" : "Show Note List", shortcut: "⌘S") { model.showsNoteList.toggle() },
+            PaletteCommand(name: "Bigger Text", shortcut: "⌘=") { model.makeTextBigger() },
+            PaletteCommand(name: "Smaller Text", shortcut: "⌘−") { model.makeTextSmaller() },
             PaletteCommand(name: model.isFocused ? "Leave Focus" : "Focus", shortcut: "⇧⌘\\") { model.isFocused.toggle() },
             PaletteCommand(name: model.showsMarkdown ? "Hide Markdown" : "Show Markdown", shortcut: "⇧⌘M") { model.showsMarkdown.toggle() },
             PaletteCommand(name: model.showsDateInList ? "Hide Dates in List" : "Show Dates in List", shortcut: nil) { model.showsDateInList.toggle() },
@@ -213,12 +216,17 @@ struct PaletteCommand {
             PaletteCommand(name: "Back", shortcut: "⌘[") { model.goBack() },
             PaletteCommand(name: "Forward", shortcut: "⌘]") { model.goForward() },
             PaletteCommand(name: "Open Vault…", shortcut: "⌘O") { model.chooseVault() },
+            PaletteCommand(name: "All Notes", shortcut: nil) { model.browse(.allNotes) },
+            PaletteCommand(name: "Enclosing Folder", shortcut: "⌘↑") { model.goUp() },
         ]
         if let note = model.selectedNote {
             commands += [
                 PaletteCommand(name: "Insert Template…", shortcut: "⌥⌘T") { model.isChoosingTemplate = true },
                 PaletteCommand(name: "Add Property…", shortcut: nil) { NotificationCenter.default.post(name: .imprintAddProperty, object: nil) },
                 PaletteCommand(name: "Rename Note…", shortcut: nil) { model.renaming = note },
+                PaletteCommand(name: "Move to Folder…", shortcut: nil) { model.moving = note },
+                PaletteCommand(name: "Add Tag…", shortcut: nil) { model.tagging = note },
+                PaletteCommand(name: "Show in Finder", shortcut: "⌥⌘R") { model.showInFinder(note) },
                 PaletteCommand(name: "Move Note to Trash", shortcut: nil) { model.moveToTrash(note) },
                 PaletteCommand(name: "Find in Note", shortcut: "⌥⌘F") { FindInNote.show() },
             ]

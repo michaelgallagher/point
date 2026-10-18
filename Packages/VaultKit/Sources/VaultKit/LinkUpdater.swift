@@ -77,4 +77,120 @@ public enum LinkUpdater {
         let encoded = bracketed ? newTitle : (newTitle.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? newTitle)
         return (folder.isEmpty ? "" : folder + "/") + encoded + ".md" + fragment
     }
+
+    // MARK: Moving notes
+
+    /// Updates links after `moved` (identified by its old ID) moves to `newID`: links in other
+    /// notes that spell out a path, and the moved note's own relative links. `notes` is the
+    /// vault as it was before the move; `root` is the vault folder.
+    public static func updateLinks(afterMoving moved: Note, to newID: String, notes: [Note], root: URL) -> Result {
+        let resolver = LinkResolver(notes: notes)
+        var result = Result()
+        let needle = moved.title.lowercased()
+        let encodedNeedle = (moved.title.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? moved.title).lowercased()
+        for note in notes where note.id != moved.id {
+            guard let text = try? NoteReader.read(contentsOf: note.url) else { continue }
+            let lowered = text.lowercased()
+            guard lowered.contains(needle) || lowered.contains(encodedNeedle),
+                  let rewritten = rewrite(text, in: note.id, moved: moved, newID: newID, resolver: resolver) else { continue }
+            switch try? NoteWriter.write(rewritten, to: note.url, expecting: text, ifChanged: .report) {
+            case .saved?: result.updatedNotes.append(note.id)
+            default: result.skippedNotes.append(note.id)
+            }
+        }
+        let movedURL = root.appendingPathComponent(newID)
+        if let text = try? NoteReader.read(contentsOf: movedURL),
+           let rewritten = rewriteOwnLinks(text, from: moved.id, to: newID, root: root) {
+            switch try? NoteWriter.write(rewritten, to: movedURL, expecting: text, ifChanged: .report) {
+            case .saved?: result.updatedNotes.append(newID)
+            default: result.skippedNotes.append(newID)
+            }
+        }
+        return result
+    }
+
+    /// `text` (from the note `sourceID`) with links to `moved` pointing at its new place, or nil
+    /// if no link needed changing. Wikilinks by name alone still work, so they're left alone.
+    public static func rewrite(_ text: String, in sourceID: String, moved: Note, newID: String, resolver: LinkResolver) -> String? {
+        let ns = text as NSString
+        let newPath = LinkResolver.pathWithoutExtension(newID)
+        var replacements: [(NSRange, String)] = []
+        for token in MarkdownParser.parse(text) {
+            switch token.kind {
+            case .wikiLink(let target), .embed(let target):
+                let name = LinkResolver.stripSubpath(target)
+                guard name.contains("/"), resolver.resolve(wikiTarget: target, from: sourceID)?.id == moved.id else { continue }
+                let hadExtension = name.lowercased().hasSuffix(".md")
+                let replacement = (name.hasPrefix("/") ? "/" : "") + newPath + (hadExtension ? ".md" : "")
+                replacements.append((NSRange(location: NSMaxRange(token.syntax[0]), length: (name as NSString).length), replacement))
+            case .link(let destination), .image(let destination):
+                guard resolver.resolve(markdownDestination: destination, from: sourceID)?.id == moved.id else { continue }
+                let range = ns.range(of: destination, options: [], range: token.range)
+                guard range.location != NSNotFound else { continue }
+                let bracketed = range.location > 0 && ns.character(at: range.location - 1) == 60
+                let decoded = destination.removingPercentEncoding ?? destination
+                let fragment = decoded.firstIndex(of: "#").map { String(decoded[$0...]) } ?? ""
+                // Keep the link's style: relative to the linking note, or from the vault root.
+                let sourceFolder = LinkResolver.folder(of: sourceID)
+                let relativeTarget = LinkResolver.normalise(sourceFolder.isEmpty ? LinkResolver.stripSubpath(decoded) : sourceFolder + "/" + LinkResolver.stripSubpath(decoded))
+                let wasRelative = relativeTarget.lowercased() == moved.id.lowercased()
+                let path = wasRelative ? relativePath(from: sourceFolder, to: newID) : newID
+                replacements.append((range, encode(path, bracketed: bracketed) + fragment))
+            default:
+                continue
+            }
+        }
+        return apply(replacements, to: text)
+    }
+
+    /// The moved note's own relative links (to images, or other files by path), recalculated
+    /// from its new folder. Only links that pointed at a file that exists are changed.
+    public static func rewriteOwnLinks(_ text: String, from oldID: String, to newID: String, root: URL) -> String? {
+        let ns = text as NSString
+        let oldFolder = LinkResolver.folder(of: oldID), newFolder = LinkResolver.folder(of: newID)
+        guard oldFolder != newFolder else { return nil }
+        var replacements: [(NSRange, String)] = []
+        for token in MarkdownParser.parse(text) {
+            let destination: String
+            switch token.kind {
+            case .link(let link), .image(let link): destination = link
+            default: continue
+            }
+            let decoded = destination.removingPercentEncoding ?? destination
+            // Web addresses, vault-root paths and in-note anchors don't depend on the folder.
+            guard !decoded.contains(":"), !decoded.hasPrefix("/"), !decoded.hasPrefix("#") else { continue }
+            let fragmentIndex = decoded.firstIndex(of: "#")
+            let path = fragmentIndex.map { String(decoded[..<$0]) } ?? decoded
+            let fragment = fragmentIndex.map { String(decoded[$0...]) } ?? ""
+            let target = LinkResolver.normalise(oldFolder.isEmpty ? path : oldFolder + "/" + path)
+            // Leave links that didn't point at a real file this way (Obsidian may resolve them by name).
+            guard FileManager.default.fileExists(atPath: root.appendingPathComponent(target).path) else { continue }
+            let range = ns.range(of: destination, options: [], range: token.range)
+            guard range.location != NSNotFound else { continue }
+            let bracketed = range.location > 0 && ns.character(at: range.location - 1) == 60 // "<"
+            replacements.append((range, encode(relativePath(from: newFolder, to: target), bracketed: bracketed) + fragment))
+        }
+        return apply(replacements, to: text)
+    }
+
+    /// The path to `target` (from the vault root) as seen from `folder`, using `../` as needed.
+    public static func relativePath(from folder: String, to target: String) -> String {
+        let from = folder.split(separator: "/"), to = target.split(separator: "/")
+        var common = 0
+        while common < from.count, common < to.count - 1, from[common] == to[common] { common += 1 }
+        return (Array(repeating: "..", count: from.count - common) + to[common...].map(String.init)).joined(separator: "/")
+    }
+
+    private static func encode(_ path: String, bracketed: Bool) -> String {
+        bracketed ? path : (path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path)
+    }
+
+    private static func apply(_ replacements: [(NSRange, String)], to text: String) -> String? {
+        guard !replacements.isEmpty else { return nil }
+        let result = NSMutableString(string: text)
+        for (range, replacement) in replacements.sorted(by: { $0.0.location > $1.0.location }) {
+            result.replaceCharacters(in: range, with: replacement)
+        }
+        return result as String == text ? nil : result as String
+    }
 }

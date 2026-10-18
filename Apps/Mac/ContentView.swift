@@ -6,6 +6,12 @@ struct ContentView: View {
     @EnvironmentObject private var model: VaultModel
     @State private var columns = NavigationSplitViewVisibility.all
     @State private var isAddingProperty = false
+    @State private var noteListWidth: CGFloat = 0
+
+    private func updateColumns() {
+        let visible = model.showsNoteList && !model.isFocused
+        withAnimation(.easeInOut(duration: 0.2)) { columns = visible ? .all : .detailOnly }
+    }
 
     var body: some View {
         Group {
@@ -15,6 +21,10 @@ struct ContentView: View {
                 NavigationSplitView(columnVisibility: $columns) {
                     NoteList()
                         .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 400)
+                        .background(GeometryReader { geometry in
+                            Color.clear.onAppear { noteListWidth = geometry.size.width }
+                                .onChange(of: geometry.size.width) { width in if width > 0 { noteListWidth = width } }
+                        })
                 } detail: {
                     if let note = model.selectedNote {
                         NoteEditor(note: note, model: model)
@@ -47,8 +57,16 @@ struct ContentView: View {
                 .onChange(of: model.searchFocusRequest) { _ in
                     withAnimation(.easeInOut(duration: 0.2)) { columns = .all } // Search needs the list.
                 }
-                .onChange(of: model.isFocused) { focused in
-                    withAnimation(.easeInOut(duration: 0.2)) { columns = focused ? .detailOnly : .all }
+                .onChange(of: model.isFocused) { _ in updateColumns() }
+                .onChange(of: model.showsNoteList) { showing in
+                    updateColumns()
+                    // The text keeps its width: the window narrows or widens instead.
+                    if !model.isFocused { NoteListWindowResizing.resize(showing: showing, listWidth: noteListWidth) }
+                }
+
+                .onChange(of: columns) { visibility in
+                    // The toolbar's sidebar button changes the columns directly; keep ⌘S in step.
+                    if !model.isFocused { model.showsNoteList = visibility != .detailOnly }
                 }
             }
         }
@@ -71,6 +89,12 @@ struct ContentView: View {
         }
         .sheet(isPresented: $model.isChoosingTemplate) {
             TemplatePicker()
+        }
+        .sheet(item: $model.moving) { note in
+            MoveSheet(note: note)
+        }
+        .sheet(item: $model.tagging) { note in
+            AddTagSheet(note: note)
         }
         .sheet(isPresented: $isAddingProperty) {
             AddPropertySheet()
@@ -110,6 +134,9 @@ private struct NoteList: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if model.place != .allNotes, model.searchResults == nil {
+                PlaceHeader()
+            }
             SearchField(text: $model.searchText, isFocused: $searchFocused) {
                 // Return opens the top result.
                 if let first = model.searchResults?.first { model.selection = first.id }
@@ -127,17 +154,7 @@ private struct NoteList: View {
                     }
                 }
             } else {
-                List(model.notes, selection: $model.selection) { note in
-                    NoteRow(note: note)
-                        .help(note.id)
-                        .contextMenu {
-                            Button("Rename…") { model.renaming = note }
-                            Button("Move to Trash") { model.moveToTrash(note) }
-                        }
-                }
-                .onDeleteCommand {
-                    model.selectedNote.map(model.moveToTrash)
-                }
+                browser
             }
         }
         .onChange(of: model.searchFocusRequest) { _ in searchFocused = true }
@@ -148,6 +165,71 @@ private struct NoteList: View {
                     .multilineTextAlignment(.center)
                     .padding()
             }
+        }
+    }
+
+    /// Pins, folders (or nested tags), tags and notes for the current place.
+    private var browser: some View {
+        SidebarTable(model: model)
+            .overlay {
+                if model.notes(in: model.place).isEmpty, model.subplaces(of: model.place).isEmpty, model.place != .allNotes {
+                    Text(model.place.isTag ? "No notes have this tag." : "This folder has no notes.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+    }
+}
+
+/// The folder or tag being browsed, with a way back up.
+private struct PlaceHeader: View {
+    @EnvironmentObject private var model: VaultModel
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button { model.goUp() } label: {
+                Image(systemName: "chevron.left")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Back (⌘↑)")
+            Text(model.place.title)
+                .font(.headline)
+                .lineLimit(1)
+            Spacer()
+            Button { model.togglePin(model.place) } label: {
+                Image(systemName: model.isPinned(model.place) ? "pin.fill" : "pin")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help(model.isPinned(model.place) ? "Unpin" : "Pin to the top of the sidebar")
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 4)
+    }
+}
+
+extension SidebarPlace {
+    var isTag: Bool {
+        if case .tag = self { return true }
+        return false
+    }
+
+    /// "NHS", "Projects" or "#work/imprint".
+    var title: String {
+        switch self {
+        case .allNotes: "All Notes"
+        case .folder(let path): FolderTree.name(of: path)
+        case .tag(let tag): "#" + tag
+        }
+    }
+
+    /// The last part only: "imprint" for #work/imprint, under its parent in the tag list.
+    var shortName: String {
+        switch self {
+        case .tag(let tag): tag.split(separator: "/").last.map(String.init) ?? tag
+        default: title
         }
     }
 }
@@ -304,47 +386,47 @@ private struct TemplatePicker: View {
     }
 }
 
-/// A note in the list: its name, and optionally its date and tags.
-private struct NoteRow: View {
-    @EnvironmentObject private var model: VaultModel
-    let note: Note
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                Text(note.title)
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                if !note.isDownloaded {
-                    Image(systemName: "icloud.and.arrow.down")
-                        .foregroundStyle(.secondary)
-                        .help("In iCloud, not yet downloaded")
-                }
-                if model.showsDateInList {
-                    Text(Self.label(for: model.listDate == .edited ? note.modified : note.created))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-            }
-            if model.showsTagsInList, let tags = model.tagsByNote[note.id], !tags.isEmpty {
-                Text(tags.map { "#\($0)" }.joined(separator: " "))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-        }
+/// Chooses a folder to move a note into.
+private struct MoveSheet: View {
+    @EnvironmentObject private var model: VaultModel
+    @Environment(\.dismiss) private var dismiss
+    let note: Note
+    @State private var filter = ""
+    @State private var selection: String?
+
+    /// Every folder ("" is the vault root), filtered as you type, except the note's own.
+    private var folders: [String] {
+        let all = [""] + model.folderTree.noteCounts.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        let current = FolderTree.folder(of: note.id)
+        return all.filter { $0 != current && (filter.isEmpty || $0.localizedCaseInsensitiveContains(filter)) }
     }
 
-    /// Today's notes show the time, this week's the weekday, older ones the date.
-    static func label(for date: Date) -> String {
-        let calendar = Calendar.current
-        if calendar.isDateInToday(date) {
-            return date.formatted(date: .omitted, time: .shortened)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Move “\(note.title)”")
+                .font(.headline)
+            TextField("Filter folders", text: $filter)
+            List(folders, id: \.self, selection: $selection) { folder in
+                Label(folder.isEmpty ? "Vault (top level)" : folder, systemImage: "folder")
+            }
+            .frame(width: 360, height: 260)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Move", action: move)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(selection == nil)
+            }
         }
-        if let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: Date())).day, days < 7 {
-            return date.formatted(.dateTime.weekday(.wide))
-        }
-        return date.formatted(date: .numeric, time: .omitted)
+        .padding(20)
+        .onChange(of: filter) { _ in selection = folders.first }
+    }
+
+    private func move() {
+        guard let selection else { return }
+        dismiss()
+        model.move(noteID: note.id, toFolder: selection)
     }
 }

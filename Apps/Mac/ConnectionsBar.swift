@@ -80,7 +80,8 @@ struct ConnectionsBar: View {
 
                 if isExpanded {
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 4) {
+                        // Lazy, so a note with many connections doesn't draw them all at once.
+                        LazyVStack(alignment: .leading, spacing: 4) {
                             if !connections.backlinks.isEmpty {
                                 section("Links to this note")
                                 ForEach(connections.backlinks) { backlink in
@@ -114,7 +115,11 @@ struct ConnectionsBar: View {
         let links = connections.backlinks.count
         if links > 0 { parts.append("\(links) \(links == 1 ? "link" : "links") here") }
         let mentions = connections.mentions.count
-        if mentions > 0 { parts.append("\(mentions) unlinked \(mentions == 1 ? "mention" : "mentions")") }
+        if mentions > 0 {
+            // The index stops at 50; say so rather than implying that's all.
+            let count = mentions >= 50 ? "50+" : "\(mentions)"
+            parts.append("\(count) unlinked \(mentions == 1 ? "mention" : "mentions")")
+        }
         return parts.joined(separator: " · ")
     }
 

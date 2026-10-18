@@ -49,6 +49,7 @@ final class EditorSession: NSObject, ObservableObject {
         center.addObserver(self, selector: #selector(appWillResignActive), name: .imprintSaveNow, object: nil)
         center.addObserver(self, selector: #selector(insertText(_:)), name: .imprintInsertText, object: nil)
         center.addObserver(self, selector: #selector(setPropertyFromNotification(_:)), name: .imprintSetProperty, object: nil)
+        center.addObserver(self, selector: #selector(addTagFromNotification(_:)), name: .imprintAddTag, object: nil)
     }
 
     // MARK: Loading
@@ -202,6 +203,15 @@ final class EditorSession: NSObject, ObservableObject {
         guard !isReleased, let info = notification.userInfo, let key = info["key"] as? String,
               let values = info["values"] as? [String], let isList = info["isList"] as? Bool else { return }
         setProperty(key, to: values, isList: isList)
+    }
+
+    /// Adds a tag to the note's `tags` property (creating it if needed), unless it's there.
+    @objc private func addTagFromNotification(_ notification: Notification) {
+        guard !isReleased, let tag = notification.userInfo?["tag"] as? String,
+              notification.userInfo?["noteID"] as? String == note.id else { return }
+        let existing = frontmatter?.properties.first { $0.key == "tags" }?.values ?? []
+        guard !existing.contains(where: { $0.lowercased() == tag.lowercased() }) else { return }
+        setProperty("tags", to: existing + [tag], isList: true)
     }
 
     func removeProperty(_ key: String) {

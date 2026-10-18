@@ -29,7 +29,7 @@ A simple, fast, native Markdown notes app for Mac and iPhone that feels like App
 
 - **Location:** the existing Obsidian vault moves into iCloud Drive. Turn off Obsidian Sync for it, because two sync engines on one folder cause conflicts.
 - **Access:** the user picks the vault folder once, and the app keeps a security-scoped bookmark to it. On iPhone the folder is picked through the Files app. This needs no iCloud entitlement.
-- **Folders:** real folders on disk, shared with Obsidian. Revised in October 2026: one flat list won't scale, so the sidebar will browse folders (see "Sidebar navigation"). Until then, every note shows in one flat list and new notes go to the vault root.
+- **Folders:** real folders on disk, shared with Obsidian. The sidebar browses them (see "Sidebar navigation"). New notes go to the folder you're in, or the vault root.
 - **Dot-folders:** `.obsidian/` and other dot-folders are ignored, except for the Obsidian settings we read (below).
 - **Attachments:** follow Obsidian's configured attachment folder (`.obsidian/app.json`).
 - **Daily notes:** compatible with Obsidian. Read the folder, date format and template from `.obsidian/daily-notes.json`.
@@ -55,13 +55,19 @@ A simple, fast, native Markdown notes app for Mac and iPhone that feels like App
 - **Tags:** read from both inline `#tags` and the frontmatter `tags:` property, and treated as one set. New tags go inline.
 - **Pasting links:** pasting a URL over selected text makes that text a link.
 
-### Sidebar navigation (proposed, October 2026)
+### Sidebar navigation (decided October 2026)
 
-A single flat list of notes won't scale. Proposal, to be confirmed (see open questions):
+A single flat list of notes won't scale, so the sidebar browses folders and tags.
 
-- **One list at a time:** the sidebar stays one column. Folders are listed at the top, above the notes in the current folder. Clicking a folder moves into it, and a back arrow and the folder's name at the top move back up.
-- **Tags as a list:** all tags can be shown as a list, with nested tags (`work/imprint`) indented under their parent so the hierarchy is clear. Choosing a tag lists its notes.
-- **Pinned areas:** some folders or tags matter more than others, like Mike's top-level NHS, Sources and Personal folders in Obsidian. These can be pinned to the top of the sidebar as the first way into the vault.
+- **One list at a time:** the sidebar stays one column.
+- **Start view, the vault's top level:** pinned folders and tags first, then the top-level folders, then a collapsible Tags section, then only the notes that aren't in a folder. Changed 18 October 2026: the top level used to list every note. Thin dividers separate folders, tags and notes.
+- **Inside a folder:** its subfolders, then the notes directly in it. A back arrow and the folder's name at the top go back up (also ⌘↑).
+- **Inside a tag:** its nested tags, then every note with that tag or a tag under it.
+- **Tags:** nested tags (`work/imprint`) are indented under their parent, so the hierarchy is clear. A parent appears even if only its children are used.
+- **Pins:** folders and tags can be pinned (right-click), such as the NHS, Sources and Personal folders. Pins are stored in Imprint's settings, per vault, never in the vault.
+- **New notes:** ⌘N inside a folder creates the note there. Elsewhere, it goes to the vault root.
+- **Moving notes:** drag a note onto a folder, or use "Move to Folder…". Links that spell out a path are updated, and so are the moved note's own relative links.
+- **Search** always covers the whole vault, wherever you are in the sidebar.
 
 ### Note list
 
@@ -106,6 +112,10 @@ A single flat list of notes won't scale. Proposal, to be confirmed (see open que
 | ⌥⌘→ / ⌥⌘← | Indent / outdent. (⌘→ / ⌘← are back to the system default: end and start of line.) |
 | Tab / ⇧Tab | Indent / outdent in lists |
 | ⌘[ / ⌘] | Back / forward through visited notes |
+| ⌘↑ | Up to the enclosing folder or parent tag |
+| ⌥⌘↑ / ⌥⌘↓ | Previous / next note in the list |
+| ⌘+ / ⌘− | Bigger / smaller note text |
+| ⌘S | Hide or show the note list |
 
 All shortcuts will be remappable.
 
@@ -176,11 +186,34 @@ Mike's review after using M3, done before the iPhone app. In three parts, not al
 - Frontmatter: "Add Property" for notes without frontmatter, and a date picker for dates.
 - Follow-up: Obsidian users sometimes write dates as links (`created: [[2026-10-18]]`). These don't get the date picker yet.
 
-**B. Sidebar navigation** (the big one, which needs decisions first)
+**B. Sidebar navigation** (the big one, which needs decisions first). Done 18 October 2026.
 - Folders, tags as a hierarchy, and pinned areas, as described under "Sidebar navigation".
 
 **C. Investigation: daily notes as the home for meetings**
-- See "Topics for investigation".
+- See "Topics for investigation". Not started.
+
+**D. Sidebar and window polish** (Mike's review, 18 October 2026). Built 18 October 2026: all twelve items. To confirm by hand: item 1 (the delay), the swipe (item 11, needs a trackpad), and the reading of item 12.
+
+Bugs:
+1. **Details under note names appear about a second late after opening a folder or tag.** Still unfixed after two attempts.
+   - Tried: removing the list's animation, caching the folder tree, reserving a fixed tags line, and setting the list's row height up front.
+   - Finding: a debug trace (`-ImprintTrace <file>`) shows the rows, with their tags and dates, are built 0.2 s after the click, so the data isn't late. The delay is in how SwiftUI's `List` lays out and draws rows. It can't be seen from Claude's tools.
+   - Done: the sidebar is now an AppKit table (`SidebarTable.swift`). Mike confirmed details appear straight away when moving between folders.
+   - At launch, tags now come from the search index, which keeps them between launches, so they're ready in about 0.1 s rather than after every file is read (5.6 s on the 5,000-note test vault). Rows that gain or lose a tags line animate their height.
+   - Earlier plan: replace the sidebar's SwiftUI `List` with an AppKit table (`NSTableView`). That gives exact row heights straight away, slide animations between folders, and keyboard control. It also fixes item 2 and helps with items 3 and 6.
+2. **The note list is too spaced out.** This was caused by reserving a tags line in every row while trying to fix item 1. Rows without tags should be one line high.
+
+Features:
+3. Moving into or out of a folder or tag animates: the list slides in from the right going in, and from the left coming back.
+4. Command palette: "Move to Folder…" (it exists as "Move Note to Folder…" when a note is open; make it easy to find) and "Add Tag…".
+5. "Show in Finder" in the note list's right-click menu.
+6. ⌥⌘↑ / ⌥⌘↓ move to the previous or next note in the list.
+7. At the top level, list only the notes that aren't in a folder (see "Sidebar navigation").
+8. Dividers between the folders, tags and notes sections.
+9. ⌘+ / ⌘− make note text bigger or smaller.
+10. ⌘S hides and shows the note list.
+11. A two-finger swipe left closes the note list.
+12. When the note list closes, the window keeps the text panel's width and gets narrower, so the text panel slides over rather than growing to fill the window. (That's the reading of "the text panel should just slide over"; confirm when trying it.)
 
 ### M4 — iPhone
 Buy the developer account first.
@@ -222,8 +255,4 @@ Today, each meeting gets its own note, because finding things inside daily notes
 
 1. **Templater:** do you use the Templater community plugin (`<% %>` syntax), or only Obsidian's core Templates? Templater scripts can't be run outside Obsidian. We'd preserve them, but they wouldn't expand.
 2. **Focus mode icons:** which icons stay visible besides the note-list button.
-3. **Sidebar: a flat "All Notes" view.** Should "All Notes" (every note, newest first) remain as the starting view, with folders browsable alongside? Suggestion: yes.
-4. **Sidebar: new notes.** When you're inside a folder, should ⌘N create the note in that folder? Suggestion: yes. The root otherwise.
-5. **Sidebar: pinning.** Pin both folders and tags? Pins would be stored in Imprint's own settings, not in the vault.
-6. **Sidebar: moving notes.** Should notes be movable between folders by dragging?
-7. **Sidebar: where tags live.** Should tags be a section of the sidebar, or a separate view you switch to?
+(Questions 3–7, about the sidebar, were answered in October 2026; see "Sidebar navigation".)

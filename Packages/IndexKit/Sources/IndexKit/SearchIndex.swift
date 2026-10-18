@@ -282,6 +282,15 @@ public actor SearchIndex {
             .map { ($0[0] as! String, $0[1] as! Int) }
     }
 
+    /// Every note's tags, as written, for notes that have any.
+    public func tagsByNote() throws -> [Note.ID: [String]] {
+        var result: [Note.ID: [String]] = [:]
+        for row in try db.query("SELECT n.id, t.tag FROM tags t JOIN notes n ON n.row = t.note") {
+            result[row[0] as! String, default: []].append(row[1] as! String)
+        }
+        return result
+    }
+
     // MARK: Links between notes
 
     /// The notes linking to `note`, each with the line the link is on.
@@ -308,8 +317,10 @@ public actor SearchIndex {
         }.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
 
-    /// Places where other notes mention `note` by name without linking to it.
-    public func unlinkedMentions(of note: Note, notes: [Note]) throws -> [Mention] {
+    /// Places where other notes mention `note` by name without linking to it: at most
+    /// `perNote` from each note and `limit` in all, because a note named after a common word
+    /// ("Meeting") can be mentioned thousands of times.
+    public func unlinkedMentions(of note: Note, notes: [Note], perNote: Int = 3, limit: Int = 50) throws -> [Mention] {
         let titleWords = Fuzzy.words(note.title)
         guard !titleWords.isEmpty else { return [] }
         let phrase = "\"" + titleWords.joined(separator: " ") + "\""
@@ -318,10 +329,11 @@ public actor SearchIndex {
         let byID = Dictionary(notes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         var mentions: [Mention] = []
         for id in candidates where id != note.id {
+            guard mentions.count < limit else { break }
             guard let source = byID[id], let text = try? NoteReader.read(contentsOf: source.url) else { continue }
-            mentions += Self.mentions(of: note.title, in: text, noteID: id, noteTitle: source.title)
+            mentions += Self.mentions(of: note.title, in: text, noteID: id, noteTitle: source.title).prefix(perNote)
         }
-        return mentions
+        return Array(mentions.prefix(limit))
     }
 
     /// Whole-word, any-case occurrences of `title` in `text` that aren't already part of a

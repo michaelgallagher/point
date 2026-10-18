@@ -18,6 +18,21 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
 
     var styler = MarkdownStyler()
 
+    /// How big the text is, relative to the normal 15pt (⌘+ / ⌘−).
+    public var textScale: CGFloat {
+        get { styler.theme.bodySize / 15 }
+        set {
+            let size = (15 * min(max(newValue, 0.6), 2.5)).rounded()
+            guard size != styler.theme.bodySize, let storage = textStorage else { return }
+            styler.theme.bodySize = size
+            imprintLayoutManager?.theme = styler.theme
+            typingAttributes = styler.baseAttributes
+            storage.beginEditing()
+            styler.style(storage, range: NSRange(location: 0, length: storage.length), tokens: tokens)
+            storage.endEditing()
+        }
+    }
+
     /// Shows the raw Markdown instead of formatted text, for fixing anything odd.
     public var showsMarkdown: Bool {
         get { styler.showsMarkdown }

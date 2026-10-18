@@ -25,6 +25,16 @@ struct ImprintApp: App {
                     .keyboardShortcut("f", modifiers: [.command, .option])
             }
             CommandMenu("Go") {
+                Button("Enclosing Folder") { model.goUp() }
+                    .keyboardShortcut(.upArrow)
+                    .disabled(model.place == .allNotes)
+                Button("Top Level") { model.browse(.allNotes) }
+                Divider()
+                Button("Previous Note") { model.selectAdjacentNote(-1) }
+                    .keyboardShortcut(.upArrow, modifiers: [.command, .option])
+                Button("Next Note") { model.selectAdjacentNote(1) }
+                    .keyboardShortcut(.downArrow, modifiers: [.command, .option])
+                Divider()
                 Button("Back") { model.goBack() }
                     .keyboardShortcut("[")
                     .disabled(model.backStack.isEmpty)
@@ -47,6 +57,13 @@ struct ImprintApp: App {
                 Divider()
                 Button("Rename Note…") { model.renaming = model.selectedNote }
                     .disabled(model.selectedNote == nil)
+                Button("Move to Folder…") { model.moving = model.selectedNote }
+                    .disabled(model.selectedNote == nil)
+                Button("Add Tag…") { model.tagging = model.selectedNote }
+                    .disabled(model.selectedNote == nil)
+                Button("Show in Finder") { model.selectedNote.map(model.showInFinder) }
+                    .keyboardShortcut("r", modifiers: [.command, .option])
+                    .disabled(model.selectedNote == nil)
                 Button("Move to Trash") { model.selectedNote.map(model.moveToTrash) }
                     .disabled(model.selectedNote == nil)
             }
@@ -64,6 +81,14 @@ struct ImprintApp: App {
                 }
                 .disabled(!model.showsDateInList)
                 Toggle("Show Tags in List", isOn: $model.showsTagsInList)
+                Divider()
+                Button(model.showsNoteList ? "Hide Note List" : "Show Note List") { model.showsNoteList.toggle() }
+                    .keyboardShortcut("s")
+                Button("Bigger Text") { model.makeTextBigger() }
+                    .keyboardShortcut("=") // The ⌘+ key, without Shift.
+                Button("Smaller Text") { model.makeTextSmaller() }
+                    .keyboardShortcut("-")
+                Button("Actual Size") { model.textScale = 1 }
                 Divider()
                 Toggle("Show Markdown", isOn: $model.showsMarkdown)
                     .keyboardShortcut("m", modifiers: [.command, .shift])

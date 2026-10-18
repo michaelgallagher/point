@@ -78,6 +78,24 @@ public enum NoteFiles {
         return destination
     }
 
+    /// Moves a note into another folder (keeping its name, or adding a number if it's taken)
+    /// and returns its new URL. Links to it are updated separately.
+    public static func move(_ url: URL, toFolder folder: URL) throws -> URL {
+        let destination = availableURL(for: url.deletingPathExtension().lastPathComponent, in: folder)
+        var coordinationError: NSError?
+        var moveError: Error?
+        NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: url, options: .forMoving, writingItemAt: destination, options: .forReplacing, error: &coordinationError) { from, to in
+            do {
+                try FileManager.default.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try FileManager.default.moveItem(at: from, to: to)
+            } catch {
+                moveError = error
+            }
+        }
+        if let error = coordinationError ?? moveError { throw error }
+        return destination
+    }
+
     /// Moves a note to the trash Obsidian is set to use.
     public static func trash(_ url: URL, vault root: URL, option: ObsidianSettings.TrashOption) throws {
         switch option {

@@ -52,8 +52,9 @@ struct EditorTheme {
     /// H1 26pt bold, H2 18pt semibold, H3 body-size bold, H4 to H6 body-size italic.
     func headingFont(level: Int) -> NSFont {
         switch level {
-        case 1: return .systemFont(ofSize: 26, weight: .bold)
-        case 2: return .systemFont(ofSize: 18, weight: .semibold)
+        // Sizes are for 15pt body text and scale with it (⌘+ / ⌘−).
+        case 1: return .systemFont(ofSize: (26 * bodySize / 15).rounded(), weight: .bold)
+        case 2: return .systemFont(ofSize: (18 * bodySize / 15).rounded(), weight: .semibold)
         case 3: return .systemFont(ofSize: bodySize, weight: .bold)
         default:
             let regular = NSFont.systemFont(ofSize: bodySize)

@@ -9,7 +9,9 @@ import VaultKit
 @MainActor
 final class VaultModel: ObservableObject {
     @Published private(set) var root: URL?
-    @Published private(set) var notes: [Note] = []
+    @Published private(set) var notes: [Note] = [] {
+        didSet { folderTree = FolderTree(notes: notes) }
+    }
     @Published private(set) var errorMessage: String?
     @Published var selection: Note.ID? {
         didSet {
@@ -47,6 +49,7 @@ final class VaultModel: ObservableObject {
     init() {
         sort = UserDefaults.standard.string(forKey: Keys.sort).flatMap(NoteSort.init) ?? .modified
         restoreVault()
+        startSwipeTracking()
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 if let selection = self?.selection { self?.finishUntitledNote(selection) }
@@ -121,6 +124,10 @@ final class VaultModel: ObservableObject {
         selection = nil
         settings = ObsidianSettings.load(vault: url)
         searchText = ""
+        place = .allNotes
+        indexedTags = [:]
+        tagTree = TagTree(tagsByNote: [])
+        pins = (UserDefaults.standard.stringArray(forKey: "pins." + Self.vaultKey(url)) ?? []).compactMap(SidebarPlace.init(key:))
         openIndex(for: url)
         watcher = VaultWatcher(root: url) { [weak self] urls in
             Task { @MainActor in self?.filesChanged(urls) }
@@ -136,13 +143,17 @@ final class VaultModel: ObservableObject {
 
     // MARK: Creating, renaming and deleting
 
-    /// Creates an untitled note in the vault root and opens it.
+    /// Creates an untitled note in the folder being browsed (or the vault root) and opens it.
     func createNote(text: String = "") {
         guard let root else { return }
+        var folder = ""
+        if case .folder(let path) = place { folder = path }
         do {
-            let url = try NoteFiles.create(title: NoteFiles.untitledName(), text: text, in: root)
+            let url = try NoteFiles.create(title: NoteFiles.untitledName(), text: text,
+                                           in: folder.isEmpty ? root : root.appendingPathComponent(folder))
             let now = Date()
-            let note = Note(id: url.lastPathComponent, url: url, title: url.deletingPathExtension().lastPathComponent,
+            let id = folder.isEmpty ? url.lastPathComponent : folder + "/" + url.lastPathComponent
+            let note = Note(id: id, url: url, title: url.deletingPathExtension().lastPathComponent,
                             modified: now, created: now, isDownloaded: true)
             notes = (notes + [note]).sorted(by: sort)
             untitled.insert(note.id)
@@ -376,6 +387,7 @@ final class VaultModel: ObservableObject {
 
     /// Reads tags for notes that are new or changed since they were last read.
     func refreshTags() {
+        Trace.mark("refreshTags called")
         guard showsTagsInList else { return }
         let stale = notes.filter { $0.isDownloaded && tagsReadAt[$0.id] != $0.modified }
         guard !stale.isEmpty else { return }
@@ -387,6 +399,7 @@ final class VaultModel: ObservableObject {
                 tagsByNote[note.id] = tags
                 tagsReadAt[note.id] = note.modified
             }
+            Trace.mark("tagsByNote updated: \(read.count) notes read")
         }
     }
 
@@ -435,10 +448,14 @@ final class VaultModel: ObservableObject {
     /// Opens (creating if needed) the search index for the vault at `url`. It lives in the
     /// app's own storage, never in the vault, named by a hash of the vault's path.
     private func openIndex(for url: URL) {
-        let digest = SHA256.hash(data: Data(url.resolvingSymlinksInPath().path.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
         let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Imprint/Index", isDirectory: true)
-        index = try? SearchIndex(url: folder.appendingPathComponent("\(digest).sqlite"))
+        index = try? SearchIndex(url: folder.appendingPathComponent("\(Self.vaultKey(url)).sqlite"))
+    }
+
+    /// A short, stable name for a vault, from a hash of its path.
+    static func vaultKey(_ url: URL) -> String {
+        SHA256.hash(data: Data(url.resolvingSymlinksInPath().path.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Brings the index up to date after a scan, then refreshes any search showing.
@@ -448,6 +465,162 @@ final class VaultModel: ObservableObject {
         Task {
             let changed = (try? await index.update(notes: notes)) ?? 0
             if changed > 0 { scheduleSearch() }
+            if changed > 0 || tagTree.entries.isEmpty {
+                let tags = (try? await index.tagsByNote()) ?? [:]
+                indexedTags = tags
+                tagTree = TagTree(tagsByNote: Array(tags.values))
+                Trace.mark("index tags ready: \(tags.count) notes")
+            }
         }
+    }
+
+    // MARK: Browsing folders and tags
+
+    /// Where the sidebar is: All Notes, a folder or a tag.
+    @Published var place: SidebarPlace = .allNotes
+    /// Every note's tags, from the search index.
+    @Published private(set) var indexedTags: [Note.ID: [String]] = [:]
+    @Published private(set) var tagTree = TagTree(tagsByNote: [])
+    /// Folders and tags pinned to the top of the sidebar, in the order they were pinned.
+    @Published private(set) var pins: [SidebarPlace] = []
+
+    /// Worked out once per change to the notes, not every time the sidebar draws.
+    @Published private(set) var folderTree = FolderTree(notes: [])
+
+    /// The notes listed in a place: all of them, those directly in a folder, or those with a
+    /// tag (or a tag under it).
+    func notes(in place: SidebarPlace) -> [Note] {
+        switch place {
+        case .allNotes:
+            // The top level lists only notes that aren't in a folder.
+            return notes.filter { !$0.id.contains("/") }
+        case .folder(let path):
+            return notes.filter { FolderTree.folder(of: $0.id) == path }
+        case .tag(let tag):
+            return notes.filter { TagTree.tags(indexedTags[$0.id] ?? [], include: tag) }
+        }
+    }
+
+    /// The folders or tags to show above the notes in a place.
+    func subplaces(of place: SidebarPlace) -> [SidebarPlace] {
+        switch place {
+        case .allNotes: folderTree.subfolders(of: "").map(SidebarPlace.folder)
+        case .folder(let path): folderTree.subfolders(of: path).map(SidebarPlace.folder)
+        case .tag(let tag): tagTree.children(of: tag).map { .tag($0.tag) }
+        }
+    }
+
+    /// How many notes a folder or tag holds, including in its subfolders or nested tags.
+    func noteCount(of place: SidebarPlace) -> Int {
+        switch place {
+        case .allNotes: notes.count
+        case .folder(let path): folderTree.noteCounts[path] ?? 0
+        case .tag(let tag): tagTree.entries.first { $0.id == tag.lowercased() }?.count ?? 0
+        }
+    }
+
+    func browse(_ place: SidebarPlace) {
+        Trace.mark("browse \(place.key)")
+        searchText = ""
+        self.place = place
+    }
+
+    /// Back up to the enclosing folder or parent tag.
+    func goUp() {
+        guard place != .allNotes else { return NSSound.beep() }
+        browse(place.parent)
+    }
+
+    // MARK: Moving notes
+
+    /// The note being moved, while the Move to Folder sheet is showing.
+    @Published var moving: Note?
+
+    /// Moves a note into a folder ("" is the vault root), keeping links to it working.
+    func move(noteID: Note.ID, toFolder folder: String) {
+        guard let root, let note = notes.first(where: { $0.id == noteID }),
+              FolderTree.folder(of: note.id) != folder else { return }
+        releaseFile(note.url)
+        let vaultBeforeMove = notes
+        do {
+            let url = try NoteFiles.move(note.url, toFolder: folder.isEmpty ? root : root.appendingPathComponent(folder))
+            let newID = folder.isEmpty ? url.lastPathComponent : folder + "/" + url.lastPathComponent
+            if let index = notes.firstIndex(where: { $0.id == note.id }) {
+                notes[index] = Note(id: newID, url: url, title: url.deletingPathExtension().lastPathComponent,
+                                    modified: note.modified, created: note.created, isDownloaded: true)
+            }
+            if untitled.remove(note.id) != nil { untitled.insert(newID) }
+            backStack = backStack.map { $0 == note.id ? newID : $0 }
+            forwardStack = forwardStack.map { $0 == note.id ? newID : $0 }
+            if selection == note.id {
+                isMovingThroughHistory = true // Same note, new place: not a visit.
+                selection = newID
+                isMovingThroughHistory = false
+            }
+            NotificationCenter.default.post(name: .imprintSaveNow, object: self)
+            Task.detached(priority: .userInitiated) {
+                let result = LinkUpdater.updateLinks(afterMoving: note, to: newID, notes: vaultBeforeMove, root: root)
+                if !result.skippedNotes.isEmpty {
+                    NSLog("Imprint: links not updated in \(result.skippedNotes) (changed while updating)")
+                }
+            }
+            Task { await reload() }
+        } catch {
+            errorMessage = "Couldn't move “\(note.title)”: \(error.localizedDescription)"
+        }
+    }
+
+    func isPinned(_ place: SidebarPlace) -> Bool { pins.contains(place) }
+
+    func togglePin(_ place: SidebarPlace) {
+        if let index = pins.firstIndex(of: place) { pins.remove(at: index) } else { pins.append(place) }
+        if let root { UserDefaults.standard.set(pins.map(\.key), forKey: "pins." + Self.vaultKey(root)) }
+    }
+
+    // MARK: Window and text
+
+    /// Whether the note list is showing (⌘S, or a two-finger swipe, hides and shows it).
+    @Published var showsNoteList = true
+
+    /// Two-finger swipes: left hides the note list, right shows it. Lives as long as the app.
+    private lazy var swipe = SwipeToToggleNoteList { [weak self] toTheLeft in
+        guard let self, !self.isFocused, self.showsNoteList == toTheLeft else { return }
+        self.showsNoteList = !toTheLeft
+    }
+
+    /// Starts listening for swipes; called once at launch.
+    func startSwipeTracking() { _ = swipe }
+    /// Note text size relative to normal, kept between launches (⌘+ / ⌘−).
+    @Published var textScale: Double = UserDefaults.standard.object(forKey: "textScale") as? Double ?? 1 {
+        didSet { UserDefaults.standard.set(textScale, forKey: "textScale") }
+    }
+
+    func makeTextBigger() { textScale = min(textScale + 0.1, 2.5) }
+    func makeTextSmaller() { textScale = max(textScale - 0.1, 0.6) }
+
+    func showInFinder(_ note: Note) {
+        NSWorkspace.shared.activateFileViewerSelecting([note.url])
+    }
+
+    /// The note being tagged, while the Add Tag sheet is showing.
+    @Published var tagging: Note?
+
+    /// Opens the previous (-1) or next (+1) note in the list showing (⌥⌘↑ / ⌥⌘↓).
+    /// A note's tags for the list: read from its file, or (until that's done, as at launch)
+    /// from the search index, which keeps them between launches.
+    func listTags(for id: Note.ID) -> [String] {
+        tagsByNote[id] ?? indexedTags[id] ?? []
+    }
+
+    func selectAdjacentNote(_ offset: Int) {
+        let ids = searchResults?.map(\.id) ?? notes(in: place).map(\.id)
+        guard !ids.isEmpty else { return NSSound.beep() }
+        guard let current = selection, let index = ids.firstIndex(of: current) else {
+            selection = offset > 0 ? ids.first : ids.last
+            return
+        }
+        let next = index + offset
+        guard ids.indices.contains(next) else { return NSSound.beep() }
+        selection = ids[next]
     }
 }

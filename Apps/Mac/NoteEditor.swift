@@ -29,7 +29,7 @@ struct NoteEditor: View {
                     .padding()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if session.isLoaded {
-                EditorView(session: session, model: model, showsMarkdown: model.showsMarkdown)
+                EditorView(session: session, model: model, showsMarkdown: model.showsMarkdown, textScale: model.textScale)
             } else {
                 Color.clear
             }
@@ -83,6 +83,7 @@ private struct EditorView: NSViewRepresentable {
     let model: VaultModel
     /// Passed as a value, not read from the model, so SwiftUI updates the view when it changes.
     let showsMarkdown: Bool
+    let textScale: Double
 
     func makeNSView(context: Context) -> NSScrollView {
         let (scrollView, textView) = MarkdownTextView.makeScrollable()
@@ -94,7 +95,9 @@ private struct EditorView: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        (scrollView.documentView as? MarkdownTextView)?.showsMarkdown = showsMarkdown
+        guard let textView = scrollView.documentView as? MarkdownTextView else { return }
+        textView.showsMarkdown = showsMarkdown
+        textView.textScale = textScale
     }
 
     static func dismantleNSView(_ scrollView: NSScrollView, coordinator: ()) {}
