@@ -6,7 +6,7 @@ A simple, fast, native Markdown notes app for Mac and iPhone that feels like App
 
 1. **The file is the truth.** Notes are plain `.md` files in a folder that is also an Obsidian vault. Every unchanged byte stays unchanged, including frontmatter key order, whitespace, and syntax we don't render.
 2. **Never see Markdown.** Editing feels like rich text. Markdown decides what formatting is possible. A raw-source toggle exists for emergencies.
-3. **No filing.** Notes appear as one flat list, organised by links and tags. Search does the finding.
+3. **Little filing.** Search, links and tags do most of the finding. Folders exist for the few broad areas that need them (as in Obsidian), but filing is never required.
 4. **Capture is instant.** One press on the iPhone gets you to a blank note with the keyboard up.
 5. **Native and fast.** Use platform conventions, open instantly, and stay responsive with 10,000 notes.
 
@@ -29,7 +29,7 @@ A simple, fast, native Markdown notes app for Mac and iPhone that feels like App
 
 - **Location:** the existing Obsidian vault moves into iCloud Drive. Turn off Obsidian Sync for it, because two sync engines on one folder cause conflicts.
 - **Access:** the user picks the vault folder once, and the app keeps a security-scoped bookmark to it. On iPhone the folder is picked through the Files app. This needs no iCloud entitlement.
-- **Folders:** existing folders are read recursively and shown as one flat list. Files stay where they are on disk. New notes go to the vault root.
+- **Folders:** real folders on disk, shared with Obsidian. Revised in October 2026: one flat list won't scale, so the sidebar will browse folders (see "Sidebar navigation"). Until then, every note shows in one flat list and new notes go to the vault root.
 - **Dot-folders:** `.obsidian/` and other dot-folders are ignored, except for the Obsidian settings we read (below).
 - **Attachments:** follow Obsidian's configured attachment folder (`.obsidian/app.json`).
 - **Daily notes:** compatible with Obsidian. Read the folder, date format and template from `.obsidian/daily-notes.json`.
@@ -47,8 +47,21 @@ A simple, fast, native Markdown notes app for Mac and iPhone that feels like App
 - **Rich editing in v1:** headings, bold, italic, highlight, links, wiki links, tags, lists, checklists, quotes, images, code blocks, callouts.
 - **Rendered but read-only in v1:** tables, `![[embeds]]` and footnotes. You change these through the raw toggle. Their contents are always preserved.
 - **Frontmatter:** a collapsed strip under the title, such as `3 properties · #work #ideas`, that expands into a key/value editor. Unknown keys and their formatting are preserved.
+  - **Adding properties:** a note without frontmatter needs a visible way to add one ("Add Property"). Typing YAML into the note doesn't create frontmatter, because `---` on its own line is a horizontal rule until the closing `---` exists.
+  - **Dates:** date properties get a date picker, so dates never have to be typed.
+- **Headings:** H1 26pt bold. H2 18pt semibold. H3 body size, bold. H4 body size, italic, not bold. H5 and H6 match H4.
+- **Links:** wikilinks look as they do now. Web links get a small `arrow.up.right.circle` symbol after them, so the two are easy to tell apart. The symbol takes up space in the line, which slightly changes how text flows.
+- **Tags:** shown as pills: a background tinted with the system highlight colour, with fully rounded ends.
 - **Tags:** read from both inline `#tags` and the frontmatter `tags:` property, and treated as one set. New tags go inline.
 - **Pasting links:** pasting a URL over selected text makes that text a link.
+
+### Sidebar navigation (proposed, October 2026)
+
+A single flat list of notes won't scale. Proposal, to be confirmed (see open questions):
+
+- **One list at a time:** the sidebar stays one column. Folders are listed at the top, above the notes in the current folder. Clicking a folder moves into it, and a back arrow and the folder's name at the top move back up.
+- **Tags as a list:** all tags can be shown as a list, with nested tags (`work/imprint`) indented under their parent so the hierarchy is clear. Choosing a tag lists its notes.
+- **Pinned areas:** some folders or tags matter more than others, like Mike's top-level NHS, Sources and Personal folders in Obsidian. These can be pinned to the top of the sidebar as the first way into the vault.
 
 ### Note list
 
@@ -90,7 +103,7 @@ A simple, fast, native Markdown notes app for Mac and iPhone that feels like App
 | ⌘1 … ⌘6 | Heading level |
 | ⌘K | Link selected text |
 | ⌘L | List |
-| ⌘→ / ⌘← | Indent / outdent (replaces line start and end; Ctrl-A and Ctrl-E still work) |
+| ⌥⌘→ / ⌥⌘← | Indent / outdent. (⌘→ / ⌘← are back to the system default: end and start of line.) |
 | Tab / ⇧Tab | Indent / outdent in lists |
 | ⌘[ / ⌘] | Back / forward through visited notes |
 
@@ -152,6 +165,23 @@ Each milestone ends with a build for Mike to try and review.
 - ⌘E palette with tags and commands.
 - Backlinks and unlinked mentions.
 
+### M3.5 — Mac refinements (October 2026)
+Mike's review after using M3, done before the iPhone app. In three parts, not all at once.
+
+**A. Editor fixes and polish** (small, well-defined). Done 18 October 2026.
+- Bug: you can't type on a new, empty list item. The cursor jumps to the next line. Cause found: an empty item (`- `) is a line whose text is all hidden, so the cursor skips it as if it were a code fence. Fix: only skip lines that are actually collapsed.
+- Shortcuts: ⌘←/→ back to the system default, and ⌥⌘←/→ to indent and outdent.
+- Heading sizes and styles, as listed under Editor.
+- Tag pills, and the symbol after web links.
+- Frontmatter: "Add Property" for notes without frontmatter, and a date picker for dates.
+- Follow-up: Obsidian users sometimes write dates as links (`created: [[2026-10-18]]`). These don't get the date picker yet.
+
+**B. Sidebar navigation** (the big one, which needs decisions first)
+- Folders, tags as a hierarchy, and pinned areas, as described under "Sidebar navigation".
+
+**C. Investigation: daily notes as the home for meetings**
+- See "Topics for investigation".
+
 ### M4 — iPhone
 Buy the developer account first.
 - Folder access through Files, list and editor.
@@ -177,7 +207,23 @@ Buy the developer account first.
 5. **On-device model quality.** Foundation Models is small, so digests may be shallow. Mitigation: keep prompts narrow, and lean on embeddings and statistics for topics and clusters.
 6. **Digests depend on the M3.** They're only generated when the M3 is awake and running the app. Mitigation: generate on launch for any missed weeks.
 
+## Topics for investigation
+
+### Daily notes as a meeting log
+Today, each meeting gets its own note, because finding things inside daily notes in Obsidian is hard. The goal is one note per day holding all that day's meetings (for example seven), which only works if any one meeting's minutes are easy to find later. To investigate:
+
+- **Search that knows about sections:** results that point to the heading a match is under, and open the note scrolled to that heading.
+- **Section links:** linking to one meeting, as in `[[2026-10-18#Team sync]]`, with backlinks shown per section.
+- **A meetings view:** every meeting heading across all daily notes as one list, filterable by person, tag or date. This could come straight from the search index.
+- **Marking a meeting:** decide how a section counts as a meeting. Options are a heading level, a `#meeting` tag under the heading, or a template.
+- **Quick entry:** a "New Meeting" command that adds a meeting section to today's note from a template, including the time.
+
 ## Open questions
 
 1. **Templater:** do you use the Templater community plugin (`<% %>` syntax), or only Obsidian's core Templates? Templater scripts can't be run outside Obsidian. We'd preserve them, but they wouldn't expand.
 2. **Focus mode icons:** which icons stay visible besides the note-list button.
+3. **Sidebar: a flat "All Notes" view.** Should "All Notes" (every note, newest first) remain as the starting view, with folders browsable alongside? Suggestion: yes.
+4. **Sidebar: new notes.** When you're inside a folder, should ⌘N create the note in that folder? Suggestion: yes. The root otherwise.
+5. **Sidebar: pinning.** Pin both folders and tags? Pins would be stored in Imprint's own settings, not in the vault.
+6. **Sidebar: moving notes.** Should notes be movable between folders by dragging?
+7. **Sidebar: where tags live.** Should tags be a section of the sidebar, or a separate view you switch to?
