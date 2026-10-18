@@ -9,6 +9,8 @@ extension Notification.Name {
     static let imprintReleaseFile = Notification.Name("ImprintReleaseFile")
     /// Asks every open note to save its edits now.
     static let imprintSaveNow = Notification.Name("ImprintSaveNow")
+    /// Asks the open note to insert `userInfo["text"]` at its cursor.
+    static let imprintInsertText = Notification.Name("ImprintInsertText")
 }
 
 /// One open note: loading it, saving edits, and keeping it in step with changes made
@@ -25,6 +27,8 @@ final class EditorSession: NSObject, ObservableObject {
     @Published private(set) var conflict: Conflict?
     @Published private(set) var message: String?
     @Published private(set) var isLoaded = false
+    /// The note's properties, kept up to date as it changes.
+    @Published private(set) var frontmatter: Frontmatter?
 
     private(set) var note: Note
     private var initialText = ""
@@ -43,6 +47,7 @@ final class EditorSession: NSObject, ObservableObject {
         center.addObserver(self, selector: #selector(filesChanged(_:)), name: .imprintFilesChanged, object: nil)
         center.addObserver(self, selector: #selector(releaseFile(_:)), name: .imprintReleaseFile, object: nil)
         center.addObserver(self, selector: #selector(appWillResignActive), name: .imprintSaveNow, object: nil)
+        center.addObserver(self, selector: #selector(insertText(_:)), name: .imprintInsertText, object: nil)
     }
 
     // MARK: Loading
@@ -55,6 +60,7 @@ final class EditorSession: NSObject, ObservableObject {
             message = nil
             isLoaded = true
             textView?.load(text)
+            frontmatter = Frontmatter.parse(text)
             checkICloudConflicts()
         } catch NoteReader.ReadError.notDownloaded {
             message = "Downloading from iCloud…" // The watcher reports the file when it arrives.
@@ -88,6 +94,7 @@ final class EditorSession: NSObject, ObservableObject {
     }()
 
     private func textDidChange() {
+        refreshFrontmatter()
         pendingSave?.cancel()
         pendingSave = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(Self.saveDelay * 1_000_000_000))
@@ -146,6 +153,7 @@ final class EditorSession: NSObject, ObservableObject {
             // No unsaved edits here: just take the new version.
             textView.reload(theirs)
             onDisk = theirs
+            refreshFrontmatter()
         } else {
             pendingSave?.cancel()
             conflict = .changedElsewhere(theirs: theirs)
@@ -164,6 +172,34 @@ final class EditorSession: NSObject, ObservableObject {
         textView?.reload(theirs)
         onDisk = theirs
         conflict = nil
+        refreshFrontmatter()
+    }
+
+    @objc private func insertText(_ notification: Notification) {
+        guard !isReleased, let text = notification.userInfo?["text"] as? String, let textView else { return }
+        textView.insertText(text, replacementRange: textView.selectedRange())
+        textView.window?.makeFirstResponder(textView)
+    }
+
+    // MARK: Properties
+
+    private func refreshFrontmatter() {
+        guard let textView else { return }
+        let parsed = Frontmatter.parse(textView.string)
+        if parsed != frontmatter { frontmatter = parsed }
+    }
+
+    /// Sets a property, as an undoable edit to the note's text.
+    func setProperty(_ key: String, to values: [String], isList: Bool) {
+        guard let textView else { return }
+        let edit = frontmatter?.edit(setting: key, to: values, isList: isList)
+            ?? Frontmatter.edit(adding: key, values: values, isList: isList)
+        textView.applyEdit(replacing: edit.0, with: edit.1)
+    }
+
+    func removeProperty(_ key: String) {
+        guard let textView, let edit = frontmatter?.edit(removing: key) else { return }
+        textView.applyEdit(replacing: edit.0, with: edit.1)
     }
 
     // MARK: iCloud conflicts
@@ -186,6 +222,7 @@ final class EditorSession: NSObject, ObservableObject {
                 guard let text = try? await read() else { return }
                 textView?.reload(text)
                 onDisk = text
+                refreshFrontmatter()
             }
         } catch {
             message = "Couldn't use the other version: \(error.localizedDescription)"

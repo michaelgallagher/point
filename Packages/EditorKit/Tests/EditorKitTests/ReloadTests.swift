@@ -33,3 +33,40 @@ struct ReloadTests {
         #expect(view.isHidden(0))
     }
 }
+
+@MainActor
+struct FrontmatterEditorTests {
+    @Test func frontmatterIsHiddenAndSkipped() {
+        let view = EditorTestSupport.makeEditor("---\ntags: [a]\n---\nBody", height: 300)
+        #expect((0..<16).filter { (view.string as NSString).character(at: $0) != 10 }.allSatisfy(view.isHidden))
+        view.setSelectedRange(NSRange(location: 2, length: 0))
+        #expect(view.selectedRange().location == 18) // Lands on the body.
+    }
+
+    @Test func openingANoteStartsAfterItsFrontmatter() {
+        let view = EditorTestSupport.makeEditor("---\ntags: [a]\n---\n# Title", height: 300)
+        #expect(view.selectedRange().location == 20) // After the hidden "# ".
+    }
+
+    @Test func outsideEditsKeepTheSelectionAndUndo() {
+        let view = EditorTestSupport.makeEditor("---\na: 1\n---\nBody text", height: 300)
+        view.setSelectionDirectly(NSRange(location: 18, length: 4)) // "text"
+        view.applyEdit(replacing: NSRange(location: 4, length: 5), with: "a: 22\nb: 3\n")
+        #expect(view.string == "---\na: 22\nb: 3\n---\nBody text")
+        #expect((view.string as NSString).substring(with: view.selectedRange()) == "text")
+        view.undoManager?.undo()
+        #expect(view.string == "---\na: 1\n---\nBody text")
+    }
+}
+
+@MainActor
+struct ShowMarkdownTests {
+    @Test func revealsEveryMarkerAndHidesThemAgain() {
+        let view = EditorTestSupport.makeEditor("---\na: 1\n---\n# **Bold** [[Link]]", height: 300)
+        view.showsMarkdown = true
+        #expect((0..<(view.string as NSString).length).allSatisfy { !view.isHidden($0) })
+        view.showsMarkdown = false
+        #expect(view.isHidden(0) && view.isHidden(14))
+        #expect(view.string == "---\na: 1\n---\n# **Bold** [[Link]]")
+    }
+}

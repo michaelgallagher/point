@@ -16,7 +16,20 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     /// Note titles to suggest while a `[[wikilink]]` is typed, best first.
     public var completeNoteTitle: ((String) -> [String])?
 
-    let styler = MarkdownStyler()
+    var styler = MarkdownStyler()
+
+    /// Shows the raw Markdown instead of formatted text, for fixing anything odd.
+    public var showsMarkdown: Bool {
+        get { styler.showsMarkdown }
+        set {
+            guard newValue != styler.showsMarkdown, let storage = textStorage else { return }
+            styler.showsMarkdown = newValue
+            storage.beginEditing()
+            styler.style(storage, range: NSRange(location: 0, length: storage.length), tokens: tokens)
+            storage.endEditing()
+            setSelectionDirectly(selectedRange())
+        }
+    }
     /// The text view doesn't own a custom text system, so it is kept alive here.
     private var ownedStorage: NSTextStorage?
     private var isAdjustingSelection = false
@@ -80,9 +93,8 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         guard let storage = textStorage else { return }
         storage.setAttributedString(NSAttributedString(string: markdown, attributes: styler.baseAttributes))
         undoManager?.removeAllActions()
-        isAdjustingSelection = true
-        setSelectedRange(NSRange(location: 0, length: 0))
-        isAdjustingSelection = false
+        // Start at the first visible text, never inside hidden frontmatter or markers.
+        setSelectionDirectly(NSRange(location: snappedLocation(0, forward: true), length: 0))
         scrollToBeginningOfDocument(nil)
     }
 
@@ -217,10 +229,20 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         // The hidden run the location is at the start of, inside, or at the end of.
         guard let run = hiddenRun(at: location) ?? hiddenRun(at: location - 1) else { return location }
 
-        // A fully hidden line (a code fence) is skipped over entirely.
+        // Fully hidden lines (code fences, frontmatter) are skipped over entirely, however many.
         if hidesWholeLine(run) {
-            if forward { return min(NSMaxRange(text.lineRange(for: run)), text.length) }
-            return run.location > 0 ? run.location - 1 : min(NSMaxRange(text.lineRange(for: run)), text.length)
+            var run = run
+            var forward = forward
+            while true {
+                if !forward, run.location == 0 { forward = true } // Nothing visible above: go down.
+                let next = forward ? min(NSMaxRange(text.lineRange(for: run)), text.length) : run.location - 1
+                guard let following = hiddenRun(at: next) ?? (forward ? nil : hiddenRun(at: next - 1)), following != run else {
+                    return next
+                }
+                // Landed on a line that starts with a marker (`# `): apply the rules below there.
+                guard hidesWholeLine(following) else { return snappedLocation(next, forward: forward) }
+                run = following
+            }
         }
 
         // Markers that start a line (`- `, `# `, `> `): the cursor belongs after them. Left
@@ -321,6 +343,19 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
 
     func lineStart(of index: Int) -> Int {
         (string as NSString).lineRange(for: NSRange(location: index, length: 0)).location
+    }
+
+    /// Replaces a range as one undoable edit, keeping the selection on the same text.
+    /// For edits made outside the text, such as from a properties panel.
+    public func applyEdit(replacing range: NSRange, with replacement: String) {
+        let delta = (replacement as NSString).length - range.length
+        func map(_ index: Int) -> Int {
+            if index <= range.location { return index }
+            return index >= NSMaxRange(range) ? index + delta : range.location
+        }
+        let selection = selectedRange()
+        let start = map(selection.location), end = map(NSMaxRange(selection))
+        replace(range, with: replacement, select: NSRange(location: start, length: end - start))
     }
 
     /// Replaces text as an undoable user edit.

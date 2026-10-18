@@ -1,4 +1,5 @@
 import AppKit
+import EditorKit
 import MarkdownKit
 import VaultKit
 
@@ -10,9 +11,18 @@ final class VaultModel: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published var selection: Note.ID? {
         didSet {
-            if let oldValue, oldValue != selection { finishUntitledNote(oldValue) }
+            guard let oldValue, oldValue != selection else { return }
+            if !isMovingThroughHistory {
+                backStack.append(oldValue)
+                forwardStack.removeAll()
+            }
+            finishUntitledNote(oldValue)
         }
     }
+    /// Notes visited before and after the current one, for ⌘[ and ⌘].
+    @Published private(set) var backStack: [Note.ID] = []
+    @Published private(set) var forwardStack: [Note.ID] = []
+    private var isMovingThroughHistory = false
     /// The note being renamed, while the rename dialog is showing.
     @Published var renaming: Note?
     @Published var sort: NoteSort {
@@ -70,6 +80,7 @@ final class VaultModel: ObservableObject {
             }.value
             notes = scanned.sorted(by: sort)
             errorMessage = nil
+            refreshTags()
             if let selection, !notes.contains(where: { $0.id == selection }) {
                 self.selection = nil
             }
@@ -168,6 +179,8 @@ final class VaultModel: ObservableObject {
                 notes[index] = Note(id: newID, url: url, title: url.deletingPathExtension().lastPathComponent,
                                     modified: note.modified, created: note.created, isDownloaded: true)
             }
+            backStack = backStack.map { $0 == note.id ? newID : $0 }
+            forwardStack = forwardStack.map { $0 == note.id ? newID : $0 }
             if wasSelected { selection = newID }
             Task { await reload() }
         } catch {
@@ -204,5 +217,171 @@ final class VaultModel: ObservableObject {
     /// Asks the editor showing this file to save now and stop writing to it.
     private func releaseFile(_ url: URL) {
         NotificationCenter.default.post(name: .imprintReleaseFile, object: self, userInfo: ["url": url])
+    }
+
+    // MARK: Links and history
+
+    /// Follows a clicked link: notes open here (missing ones are created, as in Obsidian),
+    /// web addresses open in the browser.
+    func open(_ link: LinkTarget, from sourceID: Note.ID) {
+        let resolver = LinkResolver(notes: notes)
+        switch link {
+        case .note(let target):
+            if let note = resolver.resolve(wikiTarget: target, from: sourceID) {
+                selection = note.id
+            } else {
+                createLinkedNote(named: target)
+            }
+        case .file(let destination):
+            if let note = resolver.resolve(markdownDestination: destination, from: sourceID) {
+                selection = note.id
+            } else {
+                NSSound.beep()
+            }
+        case .web(let url):
+            NSWorkspace.shared.open(url)
+        case .tag:
+            NSSound.beep() // Tag search arrives with search, in M3.
+        }
+    }
+
+    /// Creates the note a link points to but which doesn't exist yet.
+    private func createLinkedNote(named target: String) {
+        guard let root else { return }
+        let name = target.split(separator: "#").first.map(String.init) ?? target
+        let title = NoteFiles.sanitizedTitle((name as NSString).lastPathComponent)
+        guard !title.isEmpty, let url = try? NoteFiles.create(title: title, in: root) else { return NSSound.beep() }
+        let now = Date()
+        let note = Note(id: url.lastPathComponent, url: url, title: url.deletingPathExtension().lastPathComponent,
+                        modified: now, created: now, isDownloaded: true)
+        notes = (notes + [note]).sorted(by: sort)
+        selection = note.id
+    }
+
+    /// Note titles for completing a `[[wikilink]]`: names starting with the typed text first,
+    /// then names with a word starting with it, then names containing it anywhere.
+    func titleSuggestions(for partial: String) -> [String] {
+        let query = partial.lowercased().trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else {
+            return Array(notes.sorted(by: .modified).prefix(20).map(\.title))
+        }
+        func rank(_ title: String) -> Int? {
+            let lowered = title.lowercased()
+            if lowered.hasPrefix(query) { return 0 }
+            if lowered.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).contains(where: { $0.hasPrefix(query) }) { return 1 }
+            if lowered.contains(query) { return 2 }
+            return nil
+        }
+        var ranked: [(title: String, rank: Int)] = []
+        for note in notes {
+            if let rank = rank(note.title) { ranked.append((note.title, rank)) }
+        }
+        ranked.sort { $0.rank != $1.rank ? $0.rank < $1.rank : $0.title.count < $1.title.count }
+        var seen = Set<String>()
+        var titles: [String] = []
+        for entry in ranked where titles.count < 20 && seen.insert(entry.title.lowercased()).inserted {
+            titles.append(entry.title)
+        }
+        return titles
+    }
+
+    func goBack() {
+        move(from: &backStack, to: &forwardStack)
+    }
+
+    func goForward() {
+        move(from: &forwardStack, to: &backStack)
+    }
+
+    private func move(from source: inout [Note.ID], to destination: inout [Note.ID]) {
+        // Skip notes deleted since they were visited.
+        while let id = source.popLast() {
+            guard notes.contains(where: { $0.id == id }) else { continue }
+            if let selection { destination.append(selection) }
+            isMovingThroughHistory = true
+            selection = id
+            isMovingThroughHistory = false
+            return
+        }
+        NSSound.beep()
+    }
+
+    // MARK: Daily notes and templates
+
+    /// Opens today's daily note, creating it (from its template, if one is set) if needed.
+    func openTodaysNote() {
+        guard let root else { return }
+        let url = Templates.dailyNoteURL(in: root, settings: settings)
+        if let existing = notes.first(where: { $0.url.resolvingSymlinksInPath().path == url.resolvingSymlinksInPath().path }) {
+            selection = existing.id
+            return
+        }
+        do {
+            let title = url.deletingPathExtension().lastPathComponent
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let text = Templates.dailyNoteText(title: title, in: root, settings: settings)
+            try Data(text.utf8).write(to: url, options: .withoutOverwriting)
+            let id = String(url.resolvingSymlinksInPath().path.dropFirst(root.resolvingSymlinksInPath().path.count + 1))
+            let now = Date()
+            notes = (notes + [Note(id: id, url: url, title: title, modified: now, created: now, isDownloaded: true)]).sorted(by: sort)
+            selection = id
+        } catch {
+            errorMessage = "Couldn't create today's note: \(error.localizedDescription)"
+        }
+    }
+
+    /// The templates in the vault's templates folder, for Insert Template.
+    var templates: [(name: String, url: URL)] {
+        root.map { Templates.available(in: $0, settings: settings) } ?? []
+    }
+
+    /// Inserts a template, filled in, at the cursor in the open note.
+    func insertTemplate(at url: URL) {
+        guard let template = try? NoteReader.read(contentsOf: url) else { return NSSound.beep() }
+        let text = Templates.render(template, title: selectedNote?.title ?? "", settings: settings)
+        NotificationCenter.default.post(name: .imprintInsertText, object: self, userInfo: ["text": text])
+    }
+
+    /// Whether the Insert Template picker is showing.
+    @Published var isChoosingTemplate = false
+
+    // MARK: Display options
+
+    enum ListDate: String { case edited, created }
+
+    @Published var showsDateInList = UserDefaults.standard.bool(forKey: "showsDateInList") {
+        didSet { UserDefaults.standard.set(showsDateInList, forKey: "showsDateInList") }
+    }
+    @Published var listDate = ListDate(rawValue: UserDefaults.standard.string(forKey: "listDate") ?? "") ?? .edited {
+        didSet { UserDefaults.standard.set(listDate.rawValue, forKey: "listDate") }
+    }
+    @Published var showsTagsInList = UserDefaults.standard.bool(forKey: "showsTagsInList") {
+        didSet {
+            UserDefaults.standard.set(showsTagsInList, forKey: "showsTagsInList")
+            if showsTagsInList { refreshTags() }
+        }
+    }
+    @Published var showsMarkdown = false
+    /// Focus mode: just the text, with all other interface hidden.
+    @Published var isFocused = false
+
+    /// Each note's tags, read in the background while tags are shown in the list.
+    @Published private(set) var tagsByNote: [Note.ID: [String]] = [:]
+    private var tagsReadAt: [Note.ID: Date] = [:]
+
+    /// Reads tags for notes that are new or changed since they were last read.
+    func refreshTags() {
+        guard showsTagsInList else { return }
+        let stale = notes.filter { $0.isDownloaded && tagsReadAt[$0.id] != $0.modified }
+        guard !stale.isEmpty else { return }
+        Task {
+            let read = await Task.detached(priority: .utility) {
+                stale.map { note in (note, (try? NoteReader.read(contentsOf: note.url)).map(NoteTags.tags(in:)) ?? []) }
+            }.value
+            for (note, tags) in read {
+                tagsByNote[note.id] = tags
+                tagsReadAt[note.id] = note.modified
+            }
+        }
     }
 }

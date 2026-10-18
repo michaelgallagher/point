@@ -8,6 +8,8 @@ import MarkdownKit
 /// what is on disk.
 struct MarkdownStyler {
     var theme = EditorTheme()
+    /// Shows the raw Markdown, every marker visible, in a monospaced font.
+    var showsMarkdown = false
 
     var baseParagraphStyle: NSParagraphStyle {
         // Line height is added by the layout manager, centred on the text, not here:
@@ -37,6 +39,11 @@ struct MarkdownStyler {
             range = widened
         }
 
+        if showsMarkdown {
+            storage.setAttributes([.font: theme.mono, .foregroundColor: NSColor.textColor,
+                                   .paragraphStyle: baseParagraphStyle], range: range)
+            return range
+        }
         storage.setAttributes(baseAttributes, range: range)
         for token in tokens where intersects(token.range, range) {
             apply(token, to: storage, text: text)
@@ -52,11 +59,14 @@ struct MarkdownStyler {
         let range = token.range
         switch token.kind {
         case .frontmatter:
-            // Shown small and quiet for now. M2 replaces it with the collapsed properties strip.
-            storage.addAttributes([
-                .font: NSFont.monospacedSystemFont(ofSize: theme.bodySize - 3, weight: .regular),
-                .foregroundColor: NSColor.tertiaryLabelColor,
-            ], range: range)
+            // Hidden: the app shows properties in a strip above the text instead.
+            var location = range.location
+            while location < NSMaxRange(range) {
+                var start = 0, end = 0, contentsEnd = 0
+                text.getLineStart(&start, end: &end, contentsEnd: &contentsEnd, for: NSRange(location: location, length: 0))
+                collapseLine(NSRange(location: start, length: contentsEnd - start), storage: storage, text: text, height: 0.1)
+                location = end
+            }
             return
 
         case .heading(let level):
@@ -171,11 +181,11 @@ struct MarkdownStyler {
     }
 
     /// Hides a whole line, such as a code fence, leaving only a sliver of space.
-    private func collapseLine(_ line: NSRange, storage: NSTextStorage, text: NSString) {
+    private func collapseLine(_ line: NSRange, storage: NSTextStorage, text: NSString, height: CGFloat = 6) {
         let full = text.lineRange(for: line) // Includes the line break, which sets the line's height.
         let style = paragraphStyle {
-            $0.minimumLineHeight = 6
-            $0.maximumLineHeight = 6
+            $0.minimumLineHeight = height
+            $0.maximumLineHeight = height
             $0.lineHeightMultiple = 1
             $0.paragraphSpacing = 0
             $0.paragraphSpacingBefore = 0

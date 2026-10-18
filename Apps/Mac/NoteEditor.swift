@@ -5,6 +5,7 @@ import VaultKit
 
 /// Shows and edits one note. The session behind it does the loading and saving.
 struct NoteEditor: View {
+    @EnvironmentObject private var model: VaultModel
     @StateObject private var session: EditorSession
 
     init(note: Note) {
@@ -16,6 +17,9 @@ struct NoteEditor: View {
             if session.conflict != nil {
                 ConflictBanner(session: session)
             }
+            if let frontmatter = session.frontmatter {
+                PropertiesStrip(frontmatter: frontmatter, session: session)
+            }
             if let message = session.message {
                 Text(message)
                     .foregroundStyle(.secondary)
@@ -23,7 +27,7 @@ struct NoteEditor: View {
                     .padding()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if session.isLoaded {
-                EditorView(session: session)
+                EditorView(session: session, model: model, showsMarkdown: model.showsMarkdown)
             } else {
                 Color.clear
             }
@@ -70,14 +74,22 @@ private struct ConflictBanner: View {
 
 private struct EditorView: NSViewRepresentable {
     let session: EditorSession
+    let model: VaultModel
+    /// Passed as a value, not read from the model, so SwiftUI updates the view when it changes.
+    let showsMarkdown: Bool
 
     func makeNSView(context: Context) -> NSScrollView {
         let (scrollView, textView) = MarkdownTextView.makeScrollable()
         session.attach(textView)
+        let noteID = session.note.id
+        textView.onOpenLink = { [weak model] link in model?.open(link, from: noteID) }
+        textView.completeNoteTitle = { [weak model] partial in model?.titleSuggestions(for: partial) ?? [] }
         return scrollView
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {}
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        (scrollView.documentView as? MarkdownTextView)?.showsMarkdown = showsMarkdown
+    }
 
     static func dismantleNSView(_ scrollView: NSScrollView, coordinator: ()) {}
 }
