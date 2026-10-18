@@ -243,13 +243,16 @@ Features:
 
 1. **The Folders/Tags toggle:** full width of the left column, with rounder ends.
 2. **Two-column left column, a setting:** by default it shows folders and tags stacked, like the single column. Switching between them with the toggle becomes a choice in Settings.
-3. **Two notes side by side** (see open questions).
+3. **Two notes side by side:** the note area splits into two editors with a divider, each with its own note. Open a note on the right with ⌥⌘-click or right-click > Open to the Side, and close the split to go back to one. (Decided 18 October 2026.)
 4. **Reorder properties by dragging** in the properties strip. Only the moved property's lines change.
 5. **Top level of the single-column list:** only notes in the vault's top folder, not all notes. This is already how it works; the test vault really has about 1,250 notes at its top level. To confirm with Mike.
-6. **Sorting options** for the two-column left column and for the single column (see open questions).
+6. **Sorting:** folders and tags sort by name or by date modified (the most recently edited note inside first), in both layouts. Notes keep their own sort order.
 7. **Quotes:** text in the normal colour, and the bar black (white in dark mode).
 8. **Command palette:** a white background (the page colour in dark mode).
-9. **Browsing files from the command palette (a bigger project):** navigate folders, tags and notes inside the palette, without opening the sidebar. Reached by an "Explorer" command or ⇧⌘E. See open questions.
+9. **Browsing files from the command palette (a bigger project):** navigate folders, tags and notes inside the palette, without opening the sidebar. Reached by an "Explorer" command or ⇧⌘E.
+   - **Keys:** ↑↓ move, → or Return goes into a folder or tag, ← goes up, Return opens a note (⌘Return in a new tab). Typing filters what's at the current level.
+   - **Start place:** where you last were in the palette.
+10. **Order of work:** the small polish (items 1, 2, 6, 7, 8) first, then reordering properties, then the palette browser, then the split view.
 
 ### M4 — iPhone
 Buy the developer account first.
