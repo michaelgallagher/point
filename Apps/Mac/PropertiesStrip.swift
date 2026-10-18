@@ -3,6 +3,7 @@ import VaultKit
 
 /// A note's frontmatter, shown as a one-line summary that expands into editable properties.
 struct PropertiesStrip: View {
+    @EnvironmentObject private var model: VaultModel
     let frontmatter: Frontmatter
     @ObservedObject var session: EditorSession
     @AppStorage("propertiesExpanded") private var isExpanded = false
@@ -38,7 +39,7 @@ struct PropertiesStrip: View {
                     GridRow {
                         Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
                         Button {
-                            NotificationCenter.default.post(name: .imprintAddProperty, object: nil)
+                            NotificationCenter.default.post(name: .imprintAddProperty, object: model)
                         } label: {
                             Label("Add Property", systemImage: "plus")
                         }

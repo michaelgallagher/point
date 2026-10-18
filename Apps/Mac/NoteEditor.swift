@@ -90,6 +90,7 @@ private struct EditorView: NSViewRepresentable {
         session.attach(textView)
         let noteID = session.note.id
         textView.onOpenLink = { [weak model] link in model?.open(link, from: noteID) }
+        textView.onOpenLinkInNewTab = { [weak model] link in model?.open(link, from: noteID, inNewTab: true) }
         textView.completeNoteTitle = { [weak model] partial in model?.titleSuggestions(for: partial) ?? [] }
         return scrollView
     }

@@ -177,8 +177,13 @@ struct SidebarTable: NSViewRepresentable {
         }
 
         func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
-            if case .note = rows[row] { return true }
-            return false
+            guard case .note(let id) = rows[row] else { return false }
+            // ⌘-click opens the note in a new tab and leaves this window as it is.
+            if NSApp.currentEvent?.modifierFlags.contains(.command) == true, let openTab = model.openTab {
+                openTab(id)
+                return false
+            }
+            return true
         }
 
         func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool { false }
@@ -235,6 +240,8 @@ struct SidebarTable: NSViewRepresentable {
             switch rows[table.clickedRow] {
             case .note(let id):
                 guard let note = model.notes.first(where: { $0.id == id }) else { return }
+                menu.addItem(item("Open in New Tab") { $0.openTab?(note.id) })
+                menu.addItem(.separator())
                 menu.addItem(item("Rename…") { $0.renaming = note })
                 menu.addItem(item("Move to Folder…") { $0.moving = note })
                 menu.addItem(item("Add Tag…") { $0.tagging = note })

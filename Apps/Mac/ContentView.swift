@@ -148,8 +148,10 @@ struct ContentView: View {
         .sheet(isPresented: $isAddingProperty) {
             AddPropertySheet()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .imprintAddProperty)) { _ in
-            if model.selectedNote != nil { isAddingProperty = true }
+        .onReceive(NotificationCenter.default.publisher(for: .imprintAddProperty)) { notification in
+            // Only the window that asked.
+            guard notification.object as AnyObject? === model, model.selectedNote != nil else { return }
+            isAddingProperty = true
         }
     }
 }

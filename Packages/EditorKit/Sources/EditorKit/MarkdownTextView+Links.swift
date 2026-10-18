@@ -49,13 +49,20 @@ extension MarkdownTextView {
         return layoutManager.characterIndexForGlyph(at: glyph)
     }
 
-    /// Opens the link under a plain click. Returns false to let the click place the cursor.
+    /// Opens the link under a plain click (or in a new tab, with ⌘). Returns false to let
+    /// the click place the cursor, as ⌥-click does.
     func openLink(for event: NSEvent) -> Bool {
-        guard event.clickCount == 1,
-              event.modifierFlags.intersection([.option, .shift, .command, .control]).isEmpty,
+        let modifiers = event.modifierFlags.intersection([.option, .shift, .command, .control])
+        guard event.clickCount == 1, modifiers.isEmpty || modifiers == [.command],
               let index = characterIndex(exactlyAt: convert(event.locationInWindow, from: nil)),
-              let target = link(at: index), let onOpenLink else { return false }
-        onOpenLink(target)
+              let target = link(at: index) else { return false }
+        if modifiers == [.command] {
+            guard let onOpenLinkInNewTab else { return false }
+            onOpenLinkInNewTab(target)
+        } else {
+            guard let onOpenLink else { return false }
+            onOpenLink(target)
+        }
         return true
     }
 

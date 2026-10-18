@@ -10,6 +10,7 @@ extension Notification.Name {
 
 /// Adds a property to the open note, creating its frontmatter if it has none.
 struct AddPropertySheet: View {
+    @EnvironmentObject private var model: VaultModel
     enum Kind: String, CaseIterable, Identifiable {
         case text = "Text", list = "List", tags = "Tags", date = "Date"
         var id: String { rawValue }
@@ -74,7 +75,8 @@ struct AddPropertySheet: View {
         case .text: values = [text.trimmingCharacters(in: .whitespaces)]
         }
         NotificationCenter.default.post(name: .imprintSetProperty, object: nil,
-                                        userInfo: ["key": key, "values": values, "isList": kind == .list || kind == .tags])
+                                        userInfo: ["key": key, "values": values, "isList": kind == .list || kind == .tags,
+                                                   "noteID": model.selection ?? ""])
         dismiss()
     }
 }

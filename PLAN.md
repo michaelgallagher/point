@@ -116,6 +116,10 @@ A single flat list of notes won't scale, so the sidebar browses folders and tags
 | ⌥⌘↑ / ⌥⌘↓ | Previous / next note in the list |
 | ⌘+ / ⌘− | Bigger / smaller note text |
 | ⌘S | Hide or show the note list |
+| ⌘T | New tab |
+| ⇧⌘T | Today's note |
+| ⌘-click | Open a note or link in a new tab |
+| ⌘, | Settings |
 
 All shortcuts will be remappable.
 
@@ -228,7 +232,10 @@ Features:
    - **Shortcuts:** ⌘T becomes New Tab, so Today's Note moves to ⇧⌘T.
    - **Prerequisite:** the app model must be split first. A shared vault part (notes, index, watcher, settings) and a per-window part (selection, sidebar place, search, history, focus).
 4. **Order:** the Settings window and the two-column view first, then the model split, then tabs.
-   - Status, 18 October 2026: the Settings window (⌘,) and the two-column view are built and checked in the app. The model split and tabs are not started.
+   - Status, 18 October 2026: all built and checked in the app.
+     - **The split:** `VaultStore` (shared: vault, notes, index, tags, pins, file operations, display settings) and `VaultModel` (one per window or tab: note, folder, search, history, sheets). It passes the store through, so views kept their API. Menus act on the front window (`@FocusedObject`).
+     - **Tabs:** native tabs. New windows join the front window's tab group, and each tab is independent. ⌘T is New Tab, and Today's Note moved to ⇧⌘T.
+     - **Not tested yet:** ⌘-click (on a note or link), right-click > Open in New Tab and ⌘Return in the palette are built, but untested, since they need real clicks and keystrokes.
    - **How two columns is built:** the tree and the notes sit side by side inside one sidebar, with a draggable divider. SwiftUI's three-column split view on the Mac wouldn't hide both side columns from code, so swiping and ⌘S hid the wrong thing. Hiding narrows the window by exactly the sidebar's measured width, and showing widens it back first.
 5. **Two-column view, pins:** pinned folders and tags stay at the top of the left column, above the tree.
 

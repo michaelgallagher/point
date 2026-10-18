@@ -178,7 +178,8 @@ final class EditorSession: NSObject, ObservableObject {
     }
 
     @objc private func insertText(_ notification: Notification) {
-        guard !isReleased, let text = notification.userInfo?["text"] as? String, let textView else { return }
+        guard !isReleased, let text = notification.userInfo?["text"] as? String, let textView,
+              notification.userInfo?["noteID"] as? String == note.id else { return }
         textView.insertText(text, replacementRange: textView.selectedRange())
         textView.window?.makeFirstResponder(textView)
     }
@@ -200,7 +201,7 @@ final class EditorSession: NSObject, ObservableObject {
     }
 
     @objc private func setPropertyFromNotification(_ notification: Notification) {
-        guard !isReleased, let info = notification.userInfo, let key = info["key"] as? String,
+        guard !isReleased, let info = notification.userInfo, info["noteID"] as? String == note.id, let key = info["key"] as? String,
               let values = info["values"] as? [String], let isList = info["isList"] as? Bool else { return }
         setProperty(key, to: values, isList: isList)
     }

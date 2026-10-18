@@ -4,6 +4,9 @@ import SwiftUI
 
 /// The Format menu. Each item sends its command to the editor that has focus.
 struct FormatCommands: Commands {
+    /// The front window, which Add Property applies to.
+    @FocusedObject private var model: VaultModel?
+
     var body: some Commands {
         CommandMenu("Format") {
             item("Bold", #selector(MarkdownTextView.toggleBold(_:)), "b")
@@ -26,7 +29,8 @@ struct FormatCommands: Commands {
             item("Outdent", #selector(MarkdownTextView.outdentLines(_:)), .leftArrow, [.command, .option])
             Divider()
             item("Add Link…", #selector(MarkdownTextView.addLink(_:)), "k")
-            Button("Add Property…") { NotificationCenter.default.post(name: .imprintAddProperty, object: nil) }
+            Button("Add Property…") { NotificationCenter.default.post(name: .imprintAddProperty, object: model) }
+                .disabled(model?.selectedNote == nil)
         }
     }
 

@@ -106,9 +106,11 @@ struct CommandPalette: View {
     private func run() {
         guard items.indices.contains(highlighted) else { return }
         let item = items[highlighted]
+        let inNewTab = NSApp.currentEvent?.modifierFlags.contains(.command) == true
         close()
         switch item {
-        case .note(let id, _, _): model.selection = id
+        case .note(let id, _, _):
+            if inNewTab, let openTab = model.openTab { openTab(id) } else { model.selection = id }
         case .tag(let tag, _): model.search(tag: tag)
         case .command(let command): command.action()
         }
@@ -222,7 +224,7 @@ struct PaletteCommand {
         if let note = model.selectedNote {
             commands += [
                 PaletteCommand(name: "Insert Template…", shortcut: "⌥⌘T") { model.isChoosingTemplate = true },
-                PaletteCommand(name: "Add Property…", shortcut: nil) { NotificationCenter.default.post(name: .imprintAddProperty, object: nil) },
+                PaletteCommand(name: "Add Property…", shortcut: nil) { NotificationCenter.default.post(name: .imprintAddProperty, object: model) },
                 PaletteCommand(name: "Rename Note…", shortcut: nil) { model.renaming = note },
                 PaletteCommand(name: "Move to Folder…", shortcut: nil) { model.moving = note },
                 PaletteCommand(name: "Add Tag…", shortcut: nil) { model.tagging = note },
@@ -277,6 +279,8 @@ private struct PaletteField: NSViewRepresentable {
             case #selector(NSResponder.moveUp(_:)): parent.onMove(-1)
             case #selector(NSResponder.moveDown(_:)): parent.onMove(1)
             case #selector(NSResponder.insertNewline(_:)): parent.onSubmit()
+            // ⌘Return reaches a text field as "noop:"; it opens the note in a new tab.
+            case NSSelectorFromString("noop:") where NSApp.currentEvent?.keyCode == 36: parent.onSubmit()
             case #selector(NSResponder.cancelOperation(_:)): parent.onCancel()
             default: return false
             }

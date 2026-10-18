@@ -13,6 +13,8 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     public var onTextChange: ((MarkdownTextView) -> Void)?
     /// Called when a link is clicked.
     public var onOpenLink: ((LinkTarget) -> Void)?
+    /// Called when a link is ⌘-clicked, to open it in a new tab.
+    public var onOpenLinkInNewTab: ((LinkTarget) -> Void)?
     /// Note titles to suggest while a `[[wikilink]]` is typed, best first.
     public var completeNoteTitle: ((String) -> [String])?
 

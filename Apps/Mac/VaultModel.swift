@@ -1,18 +1,83 @@
 import AppKit
-import CryptoKit
+import Combine
 import EditorKit
 import IndexKit
-import MarkdownKit
 import VaultKit
 
-/// The open vault and its notes.
+/// One window's (or tab's) view of the vault: the note it shows, the folder it's browsing, its
+/// search, history and sheets. Everything about the vault itself (notes, index, tags, file
+/// operations, display settings) lives in the shared `VaultStore`; this model passes it through,
+/// so views use one object.
 @MainActor
 final class VaultModel: ObservableObject {
-    @Published private(set) var root: URL?
-    @Published private(set) var notes: [Note] = [] {
-        didSet { folderTree = FolderTree(notes: notes) }
+    let store: VaultStore
+    private var storeChanges: AnyCancellable?
+    private var indexChanges: AnyCancellable?
+
+    init(store: VaultStore) {
+        self.store = store
+        // Redraw this window's views whenever the shared vault changes.
+        storeChanges = store.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
+        indexChanges = store.$indexGeneration.dropFirst().sink { [weak self] _ in
+            Task { @MainActor in self?.scheduleSearch() }
+        }
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(noteMoved(_:)), name: .imprintNoteMoved, object: nil)
+        center.addObserver(self, selector: #selector(vaultOpened), name: .imprintVaultOpened, object: nil)
+        center.addObserver(self, selector: #selector(appWillTerminate), name: NSApplication.willTerminateNotification, object: nil)
     }
-    @Published private(set) var errorMessage: String?
+
+    // MARK: The vault, shared
+
+    var root: URL? { store.root }
+    var notes: [Note] { store.notes }
+    var errorMessage: String? { store.errorMessage }
+    var settings: ObsidianSettings { store.settings }
+    var index: SearchIndex? { store.index }
+    var tagsByNote: [Note.ID: [String]] { store.tagsByNote }
+    var indexedTags: [Note.ID: [String]] { store.indexedTags }
+    var tagTree: TagTree { store.tagTree }
+    var pins: [SidebarPlace] { store.pins }
+    var folderTree: FolderTree { store.folderTree }
+    var folderNodes: [PlaceNode] { store.folderNodes }
+    var tagNodes: [PlaceNode] { store.tagNodes }
+    var templates: [(name: String, url: URL)] { store.templates }
+
+    var sort: NoteSort { get { store.sort } set { store.sort = newValue } }
+    var showsDateInList: Bool { get { store.showsDateInList } set { store.showsDateInList = newValue } }
+    var listDate: ListDate { get { store.listDate } set { store.listDate = newValue } }
+    var showsTagsInList: Bool { get { store.showsTagsInList } set { store.showsTagsInList = newValue } }
+    var showsMarkdown: Bool { get { store.showsMarkdown } set { store.showsMarkdown = newValue } }
+    var textScale: Double { get { store.textScale } set { store.textScale = newValue } }
+    var browsingStyle: BrowsingStyle { get { store.browsingStyle } set { store.browsingStyle = newValue } }
+    var tagOrder: TagOrder { get { store.tagOrder } set { store.tagOrder = newValue } }
+
+    func chooseVault() { store.chooseVault() }
+    func reload() async { await store.reload() }
+    func refreshTags() { store.refreshTags() }
+    func listTags(for id: Note.ID) -> [String] { store.listTags(for: id) }
+    func notes(in place: SidebarPlace) -> [Note] { store.notes(in: place) }
+    func subplaces(of place: SidebarPlace) -> [SidebarPlace] { store.subplaces(of: place) }
+    func noteCount(of place: SidebarPlace) -> Int { store.noteCount(of: place) }
+    func isPinned(_ place: SidebarPlace) -> Bool { store.isPinned(place) }
+    func togglePin(_ place: SidebarPlace) { store.togglePin(place) }
+    func titleSuggestions(for partial: String) -> [String] { store.titleSuggestions(for: partial) }
+    func makeTextBigger() { store.makeTextBigger() }
+    func makeTextSmaller() { store.makeTextSmaller() }
+    func rename(_ note: Note, to title: String) { store.rename(note, to: title) }
+    func move(noteID: Note.ID, toFolder folder: String) { store.move(noteID: noteID, toFolder: folder) }
+
+    func moveToTrash(_ note: Note) {
+        store.moveToTrash(note)
+        if selection == note.id { selection = nil }
+    }
+
+    func showInFinder(_ note: Note) {
+        NSWorkspace.shared.activateFileViewerSelecting([note.url])
+    }
+
+    // MARK: This window's note and history
+
     @Published var selection: Note.ID? {
         didSet {
             guard let oldValue, oldValue != selection else { return }
@@ -20,236 +85,102 @@ final class VaultModel: ObservableObject {
                 backStack.append(oldValue)
                 forwardStack.removeAll()
             }
-            finishUntitledNote(oldValue)
+            store.finishUntitledNote(oldValue)
         }
     }
     /// Notes visited before and after the current one, for ⌘[ and ⌘].
     @Published private(set) var backStack: [Note.ID] = []
     @Published private(set) var forwardStack: [Note.ID] = []
     private var isMovingThroughHistory = false
-    /// The note being renamed, while the rename dialog is showing.
-    @Published var renaming: Note?
-    @Published var sort: NoteSort {
-        didSet {
-            UserDefaults.standard.set(sort.rawValue, forKey: Keys.sort)
-            notes = notes.sorted(by: sort)
-        }
-    }
-
-    private var watcher: VaultWatcher?
-    private(set) var settings = ObsidianSettings()
-    /// Notes created untitled in this session, to be named by their first line when left.
-    private var untitled: Set<Note.ID> = []
-
-    private enum Keys {
-        static let bookmark = "vaultBookmark"
-        static let sort = "noteSort"
-    }
-
-    init() {
-        sort = UserDefaults.standard.string(forKey: Keys.sort).flatMap(NoteSort.init) ?? .modified
-        restoreVault()
-        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                if let selection = self?.selection { self?.finishUntitledNote(selection) }
-            }
-        }
-    }
 
     var selectedNote: Note? {
         notes.first { $0.id == selection }
     }
 
-    func chooseVault() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Open Vault"
-        panel.message = "Choose the folder that holds your notes. It can be an existing Obsidian vault."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            UserDefaults.standard.set(try VaultLocation.bookmark(for: url), forKey: Keys.bookmark)
-        } catch {
-            errorMessage = "Imprint couldn't remember this folder: \(error.localizedDescription)"
-        }
-        open(url)
+    /// Changes the note shown without counting it as a visit (the same note, moved).
+    private func follow(to id: Note.ID?) {
+        isMovingThroughHistory = true
+        selection = id
+        isMovingThroughHistory = false
     }
 
-    func reload() async {
-        guard let root else { return }
-        do {
-            let scanned = try await Task.detached(priority: .userInitiated) {
-                try VaultScanner.scan(root)
-            }.value
-            notes = scanned.sorted(by: sort)
-            errorMessage = nil
-            refreshTags()
-            updateIndex()
-            if let selection, !notes.contains(where: { $0.id == selection }) {
-                self.selection = nil
-            }
-        } catch {
-            errorMessage = "Imprint couldn't read the vault: \(error.localizedDescription)"
-        }
+    /// A note moved or was renamed (perhaps from another window): keep showing it.
+    @objc private func noteMoved(_ notification: Notification) {
+        guard let old = notification.userInfo?["old"] as? String, let new = notification.userInfo?["new"] as? String else { return }
+        backStack = backStack.map { $0 == old ? new : $0 }
+        forwardStack = forwardStack.map { $0 == old ? new : $0 }
+        if selection == old { follow(to: new) }
     }
 
-    private func restoreVault() {
-        #if DEBUG
-        if let path = UserDefaults.standard.string(forKey: "ImprintVault") {
-            open(URL(fileURLWithPath: (path as NSString).expandingTildeInPath))
-            return
-        }
-        #endif
-        guard let bookmark = UserDefaults.standard.data(forKey: Keys.bookmark) else { return }
-        do {
-            let (url, isStale) = try VaultLocation.resolve(bookmark)
-            open(url)
-            if isStale, let fresh = try? VaultLocation.bookmark(for: url) {
-                UserDefaults.standard.set(fresh, forKey: Keys.bookmark)
-            }
-        } catch {
-            UserDefaults.standard.removeObject(forKey: Keys.bookmark)
-            errorMessage = "Imprint lost access to your vault. Open it again."
-        }
-    }
-
-    private func open(_ url: URL) {
-        watcher?.stop()
-        root?.stopAccessingSecurityScopedResource()
-        _ = url.startAccessingSecurityScopedResource()
-        root = url
-        notes = []
-        selection = nil
-        settings = ObsidianSettings.load(vault: url)
+    @objc private func vaultOpened() {
+        follow(to: nil)
+        backStack = []
+        forwardStack = []
         searchText = ""
         place = .allNotes
-        indexedTags = [:]
-        tagTree = TagTree(tagsByNote: [])
-        pins = (UserDefaults.standard.stringArray(forKey: "pins." + Self.vaultKey(url)) ?? []).compactMap(SidebarPlace.init(key:))
-        openIndex(for: url)
-        watcher = VaultWatcher(root: url) { [weak self] urls in
-            Task { @MainActor in self?.filesChanged(urls) }
+    }
+
+    @objc private func appWillTerminate() {
+        if let selection { store.finishUntitledNote(selection) }
+    }
+
+    func goBack() { move(from: &backStack, to: &forwardStack) }
+    func goForward() { move(from: &forwardStack, to: &backStack) }
+
+    private func move(from source: inout [Note.ID], to destination: inout [Note.ID]) {
+        // Skip notes deleted since they were visited.
+        while let id = source.popLast() {
+            guard notes.contains(where: { $0.id == id }) else { continue }
+            if let selection { destination.append(selection) }
+            follow(to: id)
+            return
         }
-        Task { await reload() }
+        NSSound.beep()
     }
-
-    /// Something in the vault changed, here or elsewhere: rescan, and tell open notes.
-    private func filesChanged(_ urls: [URL]) {
-        NotificationCenter.default.post(name: .imprintFilesChanged, object: self, userInfo: ["urls": urls])
-        Task { await reload() }
-    }
-
-    // MARK: Creating, renaming and deleting
 
     /// Creates an untitled note in the folder being browsed (or the vault root) and opens it.
     func createNote(text: String = "") {
-        guard let root else { return }
         var folder = ""
         if case .folder(let path) = place { folder = path }
-        do {
-            let url = try NoteFiles.create(title: NoteFiles.untitledName(), text: text,
-                                           in: folder.isEmpty ? root : root.appendingPathComponent(folder))
-            let now = Date()
-            let id = folder.isEmpty ? url.lastPathComponent : folder + "/" + url.lastPathComponent
-            let note = Note(id: id, url: url, title: url.deletingPathExtension().lastPathComponent,
-                            modified: now, created: now, isDownloaded: true)
-            notes = (notes + [note]).sorted(by: sort)
-            untitled.insert(note.id)
-            selection = note.id
-        } catch {
-            errorMessage = "Couldn't create a note: \(error.localizedDescription)"
-        }
+        if let id = store.createNote(text: text, inFolder: folder) { selection = id }
     }
 
-    /// Names a note created untitled after its first line, or removes it if it stayed empty.
-    private func finishUntitledNote(_ id: Note.ID) {
-        guard untitled.remove(id) != nil, let note = notes.first(where: { $0.id == id }) else { return }
-        releaseFile(note.url)
-        let text = (try? NoteReader.read(contentsOf: note.url)) ?? ""
-        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            try? FileManager.default.removeItem(at: note.url) // Empty, and created by us moments ago.
-            notes.removeAll { $0.id == id }
-            return
-        }
-        guard let line = PlainText.firstLine(of: text) else { return }
-        let title = NoteFiles.sanitizedTitle(line)
-        guard !title.isEmpty, title != note.title else { return }
-        let available = NoteFiles.availableURL(for: title, in: note.url.deletingLastPathComponent())
-        _ = try? NoteFiles.rename(note.url, to: available.deletingPathExtension().lastPathComponent)
-        Task { await reload() }
+    /// Opens today's daily note, creating it if needed.
+    func openTodaysNote() {
+        if let id = store.todaysNote() { selection = id }
     }
 
-    func rename(_ note: Note, to title: String) {
-        do {
-            releaseFile(note.url)
-            untitled.remove(note.id)
-            let vaultBeforeRename = notes
-            let url = try NoteFiles.rename(note.url, to: title)
-            updateLinks(to: note, newTitle: url.deletingPathExtension().lastPathComponent, vault: vaultBeforeRename)
-            let folders = note.id.split(separator: "/").dropLast().joined(separator: "/")
-            let newID = folders.isEmpty ? url.lastPathComponent : "\(folders)/\(url.lastPathComponent)"
-            let wasSelected = selection == note.id
-            if let index = notes.firstIndex(where: { $0.id == note.id }) {
-                notes[index] = Note(id: newID, url: url, title: url.deletingPathExtension().lastPathComponent,
-                                    modified: note.modified, created: note.created, isDownloaded: true)
-            }
-            backStack = backStack.map { $0 == note.id ? newID : $0 }
-            forwardStack = forwardStack.map { $0 == note.id ? newID : $0 }
-            if wasSelected { selection = newID }
-            Task { await reload() }
-        } catch {
-            errorMessage = error.localizedDescription
-            NSSound.beep()
-        }
+    /// Inserts a template, filled in, at the cursor in this window's note.
+    func insertTemplate(at url: URL) {
+        guard let note = selectedNote, let template = try? NoteReader.read(contentsOf: url) else { return NSSound.beep() }
+        let text = Templates.render(template, title: note.title, settings: settings)
+        NotificationCenter.default.post(name: .imprintInsertText, object: self, userInfo: ["text": text, "noteID": note.id])
     }
 
-    func moveToTrash(_ note: Note) {
-        guard let root else { return }
-        releaseFile(note.url)
-        untitled.remove(note.id)
-        do {
-            try NoteFiles.trash(note.url, vault: root, option: settings.trashOption)
-            notes.removeAll { $0.id == note.id }
-            if selection == note.id { selection = nil }
-        } catch {
-            errorMessage = "Couldn't move “\(note.title)” to the trash: \(error.localizedDescription)"
-        }
-    }
+    // MARK: Links and tabs
 
-    /// Points every link to `note` at its new title, in the background. Open notes save
-    /// first, and pick up the rewritten links through the vault watcher.
-    private func updateLinks(to note: Note, newTitle: String, vault: [Note]) {
-        NotificationCenter.default.post(name: .imprintSaveNow, object: self)
-        Task.detached(priority: .userInitiated) {
-            let result = LinkUpdater.updateLinks(to: note, newTitle: newTitle, notes: vault)
-            if !result.skippedNotes.isEmpty {
-                NSLog("Imprint: links not updated in \(result.skippedNotes) (changed while updating)")
-            }
-        }
-    }
-
-    /// Asks the editor showing this file to save now and stop writing to it.
-    private func releaseFile(_ url: URL) {
-        NotificationCenter.default.post(name: .imprintReleaseFile, object: self, userInfo: ["url": url])
-    }
-
-    // MARK: Links and history
+    /// Opens a note in a new tab of this window. Set by the window, which can open tabs.
+    var openTab: ((Note.ID?) -> Void)?
 
     /// Follows a clicked link: notes open here (missing ones are created, as in Obsidian),
-    /// web addresses open in the browser.
-    func open(_ link: LinkTarget, from sourceID: Note.ID) {
+    /// or in a new tab when asked; web addresses open in the browser.
+    func open(_ link: LinkTarget, from sourceID: Note.ID, inNewTab: Bool = false) {
         let resolver = LinkResolver(notes: notes)
+        func show(_ id: Note.ID) {
+            if inNewTab, let openTab { openTab(id) } else { selection = id }
+        }
         switch link {
         case .note(let target):
             if let note = resolver.resolve(wikiTarget: target, from: sourceID) {
-                selection = note.id
+                show(note.id)
+            } else if let id = store.createLinkedNote(named: target) {
+                show(id)
             } else {
-                createLinkedNote(named: target)
+                NSSound.beep()
             }
         case .file(let destination):
             if let note = resolver.resolve(markdownDestination: destination, from: sourceID) {
-                selection = note.id
+                show(note.id)
             } else {
                 NSSound.beep()
             }
@@ -260,147 +191,23 @@ final class VaultModel: ObservableObject {
         }
     }
 
-    /// Creates the note a link points to but which doesn't exist yet.
-    private func createLinkedNote(named target: String) {
-        guard let root else { return }
-        let name = target.split(separator: "#").first.map(String.init) ?? target
-        let title = NoteFiles.sanitizedTitle((name as NSString).lastPathComponent)
-        guard !title.isEmpty, let url = try? NoteFiles.create(title: title, in: root) else { return NSSound.beep() }
-        let now = Date()
-        let note = Note(id: url.lastPathComponent, url: url, title: url.deletingPathExtension().lastPathComponent,
-                        modified: now, created: now, isDownloaded: true)
-        notes = (notes + [note]).sorted(by: sort)
-        selection = note.id
-    }
+    // MARK: Sheets
 
-    /// Note titles for completing a `[[wikilink]]`: names starting with the typed text first,
-    /// then names with a word starting with it, then names containing it anywhere.
-    func titleSuggestions(for partial: String) -> [String] {
-        let query = partial.lowercased().trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty else {
-            return Array(notes.sorted(by: .modified).prefix(20).map(\.title))
-        }
-        func rank(_ title: String) -> Int? {
-            let lowered = title.lowercased()
-            if lowered.hasPrefix(query) { return 0 }
-            if lowered.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).contains(where: { $0.hasPrefix(query) }) { return 1 }
-            if lowered.contains(query) { return 2 }
-            return nil
-        }
-        var ranked: [(title: String, rank: Int)] = []
-        for note in notes {
-            if let rank = rank(note.title) { ranked.append((note.title, rank)) }
-        }
-        ranked.sort { $0.rank != $1.rank ? $0.rank < $1.rank : $0.title.count < $1.title.count }
-        var seen = Set<String>()
-        var titles: [String] = []
-        for entry in ranked where titles.count < 20 && seen.insert(entry.title.lowercased()).inserted {
-            titles.append(entry.title)
-        }
-        return titles
-    }
-
-    func goBack() {
-        move(from: &backStack, to: &forwardStack)
-    }
-
-    func goForward() {
-        move(from: &forwardStack, to: &backStack)
-    }
-
-    private func move(from source: inout [Note.ID], to destination: inout [Note.ID]) {
-        // Skip notes deleted since they were visited.
-        while let id = source.popLast() {
-            guard notes.contains(where: { $0.id == id }) else { continue }
-            if let selection { destination.append(selection) }
-            isMovingThroughHistory = true
-            selection = id
-            isMovingThroughHistory = false
-            return
-        }
-        NSSound.beep()
-    }
-
-    // MARK: Daily notes and templates
-
-    /// Opens today's daily note, creating it (from its template, if one is set) if needed.
-    func openTodaysNote() {
-        guard let root else { return }
-        let url = Templates.dailyNoteURL(in: root, settings: settings)
-        if let existing = notes.first(where: { $0.url.resolvingSymlinksInPath().path == url.resolvingSymlinksInPath().path }) {
-            selection = existing.id
-            return
-        }
-        do {
-            let title = url.deletingPathExtension().lastPathComponent
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let text = Templates.dailyNoteText(title: title, in: root, settings: settings)
-            try Data(text.utf8).write(to: url, options: .withoutOverwriting)
-            let id = String(url.resolvingSymlinksInPath().path.dropFirst(root.resolvingSymlinksInPath().path.count + 1))
-            let now = Date()
-            notes = (notes + [Note(id: id, url: url, title: title, modified: now, created: now, isDownloaded: true)]).sorted(by: sort)
-            selection = id
-        } catch {
-            errorMessage = "Couldn't create today's note: \(error.localizedDescription)"
-        }
-    }
-
-    /// The templates in the vault's templates folder, for Insert Template.
-    var templates: [(name: String, url: URL)] {
-        root.map { Templates.available(in: $0, settings: settings) } ?? []
-    }
-
-    /// Inserts a template, filled in, at the cursor in the open note.
-    func insertTemplate(at url: URL) {
-        guard let template = try? NoteReader.read(contentsOf: url) else { return NSSound.beep() }
-        let text = Templates.render(template, title: selectedNote?.title ?? "", settings: settings)
-        NotificationCenter.default.post(name: .imprintInsertText, object: self, userInfo: ["text": text])
-    }
-
+    /// The note being renamed, moved or tagged, while that sheet is showing.
+    @Published var renaming: Note?
+    @Published var moving: Note?
+    @Published var tagging: Note?
     /// Whether the Insert Template picker is showing.
     @Published var isChoosingTemplate = false
 
-    // MARK: Display options
+    // MARK: Window
 
-    enum ListDate: String { case edited, created }
-
-    @Published var showsDateInList = UserDefaults.standard.bool(forKey: "showsDateInList") {
-        didSet { UserDefaults.standard.set(showsDateInList, forKey: "showsDateInList") }
-    }
-    @Published var listDate = ListDate(rawValue: UserDefaults.standard.string(forKey: "listDate") ?? "") ?? .edited {
-        didSet { UserDefaults.standard.set(listDate.rawValue, forKey: "listDate") }
-    }
-    @Published var showsTagsInList = UserDefaults.standard.bool(forKey: "showsTagsInList") {
-        didSet {
-            UserDefaults.standard.set(showsTagsInList, forKey: "showsTagsInList")
-            if showsTagsInList { refreshTags() }
-        }
-    }
-    @Published var showsMarkdown = false
     /// Focus mode: just the text, with all other interface hidden.
     @Published var isFocused = false
+    /// Whether the note list is showing (⌘S, or a two-finger swipe, hides and shows it).
+    @Published var showsNoteList = true
 
-    /// Each note's tags, read in the background while tags are shown in the list.
-    @Published private(set) var tagsByNote: [Note.ID: [String]] = [:]
-    private var tagsReadAt: [Note.ID: Date] = [:]
-
-    /// Reads tags for notes that are new or changed since they were last read.
-    func refreshTags() {
-        Trace.mark("refreshTags called")
-        guard showsTagsInList else { return }
-        let stale = notes.filter { $0.isDownloaded && tagsReadAt[$0.id] != $0.modified }
-        guard !stale.isEmpty else { return }
-        Task {
-            let read = await Task.detached(priority: .utility) {
-                stale.map { note in (note, (try? NoteReader.read(contentsOf: note.url)).map(NoteTags.tags(in:)) ?? []) }
-            }.value
-            for (note, tags) in read {
-                tagsByNote[note.id] = tags
-                tagsReadAt[note.id] = note.modified
-            }
-            Trace.mark("tagsByNote updated: \(read.count) notes read")
-        }
-    }
+    func startSwipeTracking() { store.startSwipeTracking() }
 
     // MARK: Search
 
@@ -415,7 +222,6 @@ final class VaultModel: ObservableObject {
     /// Incremented to ask the search field to take focus.
     @Published private(set) var searchFocusRequest = 0
     private var searchTask: Task<Void, Never>?
-    private(set) var index: SearchIndex?
 
     func focusSearch() {
         isFocused = false
@@ -444,79 +250,10 @@ final class VaultModel: ObservableObject {
         }
     }
 
-    /// Opens (creating if needed) the search index for the vault at `url`. It lives in the
-    /// app's own storage, never in the vault, named by a hash of the vault's path.
-    private func openIndex(for url: URL) {
-        let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Imprint/Index", isDirectory: true)
-        index = try? SearchIndex(url: folder.appendingPathComponent("\(Self.vaultKey(url)).sqlite"))
-    }
-
-    /// A short, stable name for a vault, from a hash of its path.
-    static func vaultKey(_ url: URL) -> String {
-        SHA256.hash(data: Data(url.resolvingSymlinksInPath().path.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
-    }
-
-    /// Brings the index up to date after a scan, then refreshes any search showing.
-    private func updateIndex() {
-        guard let index else { return }
-        let notes = notes
-        Task {
-            let changed = (try? await index.update(notes: notes)) ?? 0
-            if changed > 0 { scheduleSearch() }
-            if changed > 0 || tagTree.entries.isEmpty {
-                let tags = (try? await index.tagsByNote()) ?? [:]
-                indexedTags = tags
-                tagTree = TagTree(tagsByNote: Array(tags.values))
-                Trace.mark("index tags ready: \(tags.count) notes")
-            }
-        }
-    }
-
     // MARK: Browsing folders and tags
 
-    /// Where the sidebar is: All Notes, a folder or a tag.
+    /// Where the sidebar is: the top level, a folder or a tag.
     @Published var place: SidebarPlace = .allNotes
-    /// Every note's tags, from the search index.
-    @Published private(set) var indexedTags: [Note.ID: [String]] = [:]
-    @Published private(set) var tagTree = TagTree(tagsByNote: [])
-    /// Folders and tags pinned to the top of the sidebar, in the order they were pinned.
-    @Published private(set) var pins: [SidebarPlace] = []
-
-    /// Worked out once per change to the notes, not every time the sidebar draws.
-    @Published private(set) var folderTree = FolderTree(notes: [])
-
-    /// The notes listed in a place: all of them, those directly in a folder, or those with a
-    /// tag (or a tag under it).
-    func notes(in place: SidebarPlace) -> [Note] {
-        switch place {
-        case .allNotes:
-            // The top level lists only notes that aren't in a folder.
-            return notes.filter { !$0.id.contains("/") }
-        case .folder(let path):
-            return notes.filter { FolderTree.folder(of: $0.id) == path }
-        case .tag(let tag):
-            return notes.filter { TagTree.tags(indexedTags[$0.id] ?? [], include: tag) }
-        }
-    }
-
-    /// The folders or tags to show above the notes in a place.
-    func subplaces(of place: SidebarPlace) -> [SidebarPlace] {
-        switch place {
-        case .allNotes: folderTree.subfolders(of: "").map(SidebarPlace.folder)
-        case .folder(let path): folderTree.subfolders(of: path).map(SidebarPlace.folder)
-        case .tag(let tag): tagTree.children(of: tag).map { .tag($0.tag) }
-        }
-    }
-
-    /// How many notes a folder or tag holds, including in its subfolders or nested tags.
-    func noteCount(of place: SidebarPlace) -> Int {
-        switch place {
-        case .allNotes: notes.count
-        case .folder(let path): folderTree.noteCounts[path] ?? 0
-        case .tag(let tag): tagTree.entries.first { $0.id == tag.lowercased() }?.count ?? 0
-        }
-    }
 
     func browse(_ place: SidebarPlace) {
         Trace.mark("browse \(place.key)")
@@ -531,94 +268,7 @@ final class VaultModel: ObservableObject {
         browse(place.parent)
     }
 
-    // MARK: Moving notes
-
-    /// The note being moved, while the Move to Folder sheet is showing.
-    @Published var moving: Note?
-
-    /// Moves a note into a folder ("" is the vault root), keeping links to it working.
-    func move(noteID: Note.ID, toFolder folder: String) {
-        guard let root, let note = notes.first(where: { $0.id == noteID }),
-              FolderTree.folder(of: note.id) != folder else { return }
-        releaseFile(note.url)
-        let vaultBeforeMove = notes
-        do {
-            let url = try NoteFiles.move(note.url, toFolder: folder.isEmpty ? root : root.appendingPathComponent(folder))
-            let newID = folder.isEmpty ? url.lastPathComponent : folder + "/" + url.lastPathComponent
-            if let index = notes.firstIndex(where: { $0.id == note.id }) {
-                notes[index] = Note(id: newID, url: url, title: url.deletingPathExtension().lastPathComponent,
-                                    modified: note.modified, created: note.created, isDownloaded: true)
-            }
-            if untitled.remove(note.id) != nil { untitled.insert(newID) }
-            backStack = backStack.map { $0 == note.id ? newID : $0 }
-            forwardStack = forwardStack.map { $0 == note.id ? newID : $0 }
-            if selection == note.id {
-                isMovingThroughHistory = true // Same note, new place: not a visit.
-                selection = newID
-                isMovingThroughHistory = false
-            }
-            NotificationCenter.default.post(name: .imprintSaveNow, object: self)
-            Task.detached(priority: .userInitiated) {
-                let result = LinkUpdater.updateLinks(afterMoving: note, to: newID, notes: vaultBeforeMove, root: root)
-                if !result.skippedNotes.isEmpty {
-                    NSLog("Imprint: links not updated in \(result.skippedNotes) (changed while updating)")
-                }
-            }
-            Task { await reload() }
-        } catch {
-            errorMessage = "Couldn't move “\(note.title)”: \(error.localizedDescription)"
-        }
-    }
-
-    func isPinned(_ place: SidebarPlace) -> Bool { pins.contains(place) }
-
-    func togglePin(_ place: SidebarPlace) {
-        if let index = pins.firstIndex(of: place) { pins.remove(at: index) } else { pins.append(place) }
-        if let root { UserDefaults.standard.set(pins.map(\.key), forKey: "pins." + Self.vaultKey(root)) }
-    }
-
-    // MARK: Window and text
-
-    /// Whether the note list is showing (⌘S, or a two-finger swipe, hides and shows it).
-    @Published var showsNoteList = true
-
-    /// Two-finger swipes: left hides the note list, right shows it. Lives as long as the app.
-    private lazy var swipe = SwipeToToggleNoteList(
-        isNoteListShowing: { [weak self] in self?.showsNoteList ?? true },
-        onSwipe: { [weak self] toTheLeft in
-            guard let self, !self.isFocused, self.showsNoteList == toTheLeft else { return }
-            self.showsNoteList = !toTheLeft
-        }
-    )
-
-    /// Starts listening for swipes. Called when the window appears: AppKit doesn't deliver
-    /// events to monitors added while the app is still starting up.
-    func startSwipeTracking() {
-        _ = swipe
-        Trace.mark("swipe monitor installed")
-    }
-    /// Note text size relative to normal, kept between launches (⌘+ / ⌘−).
-    @Published var textScale: Double = UserDefaults.standard.object(forKey: "textScale") as? Double ?? 1 {
-        didSet { UserDefaults.standard.set(textScale, forKey: "textScale") }
-    }
-
-    func makeTextBigger() { textScale = min(textScale + 0.1, 2.5) }
-    func makeTextSmaller() { textScale = max(textScale - 0.1, 0.6) }
-
-    func showInFinder(_ note: Note) {
-        NSWorkspace.shared.activateFileViewerSelecting([note.url])
-    }
-
-    /// The note being tagged, while the Add Tag sheet is showing.
-    @Published var tagging: Note?
-
     /// Opens the previous (-1) or next (+1) note in the list showing (⌥⌘↑ / ⌥⌘↓).
-    /// A note's tags for the list: read from its file, or (until that's done, as at launch)
-    /// from the search index, which keeps them between launches.
-    func listTags(for id: Note.ID) -> [String] {
-        tagsByNote[id] ?? indexedTags[id] ?? []
-    }
-
     func selectAdjacentNote(_ offset: Int) {
         let ids = searchResults?.map(\.id) ?? notes(in: place).map(\.id)
         guard !ids.isEmpty else { return NSSound.beep() }
@@ -633,6 +283,8 @@ final class VaultModel: ObservableObject {
 
     // MARK: Browsing styles
 
+    enum ListDate: String { case edited, created }
+
     /// One list you move through, or folders and tags beside a list of notes.
     enum BrowsingStyle: String, CaseIterable, Identifiable {
         case singleColumn, twoColumns
@@ -642,13 +294,10 @@ final class VaultModel: ObservableObject {
     enum TreeKind: String { case folders, tags }
     enum TagOrder: String { case name, modified }
 
-    @Published var browsingStyle = BrowsingStyle(rawValue: UserDefaults.standard.string(forKey: "browsingStyle") ?? "") ?? .singleColumn {
-        didSet { UserDefaults.standard.set(browsingStyle.rawValue, forKey: "browsingStyle") }
-    }
-    /// What the two-column view's left column shows.
+    /// What the two-column view's left column shows, in this window.
     @Published var treeKind = TreeKind(rawValue: UserDefaults.standard.string(forKey: "treeKind") ?? "") ?? .folders {
         didSet {
-            UserDefaults.standard.set(treeKind.rawValue, forKey: "treeKind")
+            UserDefaults.standard.set(treeKind.rawValue, forKey: "treeKind") // The default for new windows.
             guard treeKind != oldValue else { return }
             // Show what was last chosen in this tree, so the highlight and the notes match.
             switch treeKind {
@@ -662,9 +311,6 @@ final class VaultModel: ObservableObject {
     /// The folder (or top level) and tag last browsed, to return to when switching trees.
     private var lastFolderPlace: SidebarPlace = .allNotes
     private var lastTagPlace: SidebarPlace?
-    @Published var tagOrder = TagOrder(rawValue: UserDefaults.standard.string(forKey: "tagOrder") ?? "") ?? .name {
-        didSet { UserDefaults.standard.set(tagOrder.rawValue, forKey: "tagOrder") }
-    }
 
     /// A folder or tag in the two-column view's tree.
     struct PlaceNode: Identifiable, Hashable {
@@ -673,43 +319,5 @@ final class VaultModel: ObservableObject {
         /// Nil for a leaf, so the tree shows no disclosure triangle.
         var children: [PlaceNode]?
         var id: SidebarPlace { place }
-    }
-
-    /// The vault's top level, then its folders as a tree.
-    var folderNodes: [PlaceNode] {
-        func nodes(in path: String) -> [PlaceNode]? {
-            let subfolders = folderTree.subfolders(of: path)
-            guard !subfolders.isEmpty else { return nil }
-            return subfolders.map { PlaceNode(place: .folder($0), name: FolderTree.name(of: $0), children: nodes(in: $0)) }
-        }
-        let rootName = root?.lastPathComponent ?? "Vault"
-        return [PlaceNode(place: .allNotes, name: rootName, children: nil)] + (nodes(in: "") ?? [])
-    }
-
-    /// Tags as a tree, by name or by when a note with the tag was last edited.
-    var tagNodes: [PlaceNode] {
-        var latest: [String: Date] = [:]
-        if tagOrder == .modified {
-            for note in notes {
-                for tag in listTags(for: note.id) {
-                    // A note counts for its tag and every parent above it.
-                    var parts = tag.lowercased().split(separator: "/").map(String.init)
-                    while !parts.isEmpty {
-                        let key = parts.joined(separator: "/")
-                        latest[key] = max(latest[key] ?? .distantPast, note.modified)
-                        parts.removeLast()
-                    }
-                }
-            }
-        }
-        func nodes(under parent: String?) -> [PlaceNode]? {
-            let entries = parent.map { tagTree.children(of: $0) } ?? tagTree.entries.filter { $0.depth == 0 }
-            guard !entries.isEmpty else { return nil }
-            let sorted = tagOrder == .name
-                ? entries.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-                : entries.sorted { (latest[$0.id] ?? .distantPast) > (latest[$1.id] ?? .distantPast) }
-            return sorted.map { PlaceNode(place: .tag($0.tag), name: "#" + $0.name, children: nodes(under: $0.tag)) }
-        }
-        return nodes(under: nil) ?? []
     }
 }
