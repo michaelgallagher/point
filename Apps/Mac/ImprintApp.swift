@@ -146,8 +146,11 @@ struct AppCommands: Commands {
         }
         CommandGroup(after: .textEditing) {
             Divider()
-            Button("Command Palette") { model?.isPaletteShown.toggle() }
+            Button("Command Palette") { model?.togglePalette(.search) }
                 .keyboardShortcut("e")
+                .disabled(model == nil || store.root == nil)
+            Button("Explorer") { model?.togglePalette(.explorer) }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
                 .disabled(model == nil || store.root == nil)
             Button("Search Notes") { model?.focusSearch() }
                 .keyboardShortcut("f")
@@ -169,6 +172,9 @@ struct AppCommands: Commands {
                 .keyboardShortcut(.downArrow, modifiers: [.command, .option])
                 .disabled(model == nil)
             Divider()
+            Button("Close Side Note") { model?.closeSideNote() }
+                .disabled(model?.sideNote == nil)
+            Divider()
             Button("Back") { model?.goBack() }
                 .keyboardShortcut("[")
                 .disabled(model?.backStack.isEmpty ?? true)
@@ -177,10 +183,14 @@ struct AppCommands: Commands {
                 .disabled(model?.forwardStack.isEmpty ?? true)
         }
         CommandGroup(after: .toolbar) {
-            Picker("Sort By", selection: $store.sort) {
+            Picker("Sort Notes By", selection: $store.sort) {
                 Text("Date Edited").tag(NoteSort.modified)
                 Text("Date Created").tag(NoteSort.created)
                 Text("Title").tag(NoteSort.title)
+            }
+            Picker("Sort Folders and Tags By", selection: $store.tagOrder) {
+                Text("Name").tag(VaultModel.TagOrder.name)
+                Text("Date Modified").tag(VaultModel.TagOrder.modified)
             }
             Divider()
             Toggle("Show Dates in List", isOn: $store.showsDateInList)

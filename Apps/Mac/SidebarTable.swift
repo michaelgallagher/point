@@ -21,7 +21,7 @@ extension VaultModel {
             if !pins.isEmpty { sections.append([.header("Pinned")] + pins.map { .place($0, depth: 0) }) }
             if !subplaces.isEmpty { sections.append([.header("Folders")] + subplaces.map { .place($0, depth: 0) }) }
             if !tagTree.entries.isEmpty {
-                sections.append([.tagsHeader] + (tagsExpanded ? tagTree.entries.map { .place(.tag($0.tag), depth: $0.depth) } : []))
+                sections.append([.tagsHeader] + (tagsExpanded ? sortedTagEntries.map { .place(.tag($0.tag), depth: $0.depth) } : []))
             }
         } else if !subplaces.isEmpty {
             sections.append(subplaces.map { .place($0, depth: 0) })
@@ -178,8 +178,13 @@ struct SidebarTable: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
             guard case .note(let id) = rows[row] else { return false }
-            // ⌘-click opens the note in a new tab and leaves this window as it is.
-            if NSApp.currentEvent?.modifierFlags.contains(.command) == true, let openTab = model.openTab {
+            // ⌥⌘-click opens the note beside this one; ⌘-click opens it in a new tab.
+            let modifiers = NSApp.currentEvent?.modifierFlags.intersection([.command, .option, .shift, .control]) ?? []
+            if modifiers == [.command, .option] {
+                model.openToTheSide(id)
+                return false
+            }
+            if modifiers.contains(.command), let openTab = model.openTab {
                 openTab(id)
                 return false
             }
@@ -241,6 +246,7 @@ struct SidebarTable: NSViewRepresentable {
             case .note(let id):
                 guard let note = model.notes.first(where: { $0.id == id }) else { return }
                 menu.addItem(item("Open in New Tab") { $0.openTab?(note.id) })
+                menu.addItem(item("Open to the Side") { $0.openToTheSide(note.id) })
                 menu.addItem(.separator())
                 menu.addItem(item("Rename…") { $0.renaming = note })
                 menu.addItem(item("Move to Folder…") { $0.moving = note })
@@ -248,6 +254,14 @@ struct SidebarTable: NSViewRepresentable {
                 menu.addItem(item("Show in Finder") { $0.showInFinder(note) })
                 menu.addItem(.separator())
                 menu.addItem(item("Move to Trash") { $0.moveToTrash(note) })
+            case .header, .tagsHeader:
+                // Right-click a section label to choose how folders and tags are sorted.
+                let byName = item("Sort Folders and Tags by Name") { $0.tagOrder = .name }
+                byName.state = model.tagOrder == .name ? .on : .off
+                let byDate = item("Sort Folders and Tags by Date Modified") { $0.tagOrder = .modified }
+                byDate.state = model.tagOrder == .modified ? .on : .off
+                menu.addItem(byName)
+                menu.addItem(byDate)
             case .place(let place, _):
                 menu.addItem(item(model.isPinned(place) ? "Unpin" : "Pin to Sidebar") { $0.togglePin(place) })
                 if case .folder(let path) = place, let root = model.root {

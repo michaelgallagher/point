@@ -227,7 +227,7 @@ final class ImprintLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         guard rect.height > 0 else { return }
         switch block {
         case .quote:
-            NSColor.tertiaryLabelColor.setFill()
+            NSColor.labelColor.setFill() // Black, or white in dark mode.
             NSBezierPath(roundedRect: NSRect(x: rect.minX + 2, y: rect.minY, width: 3, height: rect.height), xRadius: 1.5, yRadius: 1.5).fill()
         case .callout(let type):
             let color = theme.calloutColor(type)

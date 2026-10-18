@@ -7,6 +7,11 @@ struct PropertiesStrip: View {
     let frontmatter: Frontmatter
     @ObservedObject var session: EditorSession
     @AppStorage("propertiesExpanded") private var isExpanded = false
+    /// The property being dragged to a new place, and where the pointer is.
+    @State private var dragging: String?
+    @State private var dragY: CGFloat = 0
+    /// Where each property's row is, to work out where a dragged one would land.
+    @State private var rowFrames: [String: CGRect] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -33,8 +38,15 @@ struct PropertiesStrip: View {
                             Text(property.key)
                                 .foregroundStyle(.secondary)
                                 .gridColumnAlignment(.trailing)
+                                .contentShape(Rectangle())
+                                .gesture(reorderGesture(for: property.key))
+                                .help("Drag to reorder")
                             PropertyField(property: property, session: session)
                         }
+                        .opacity(dragging == property.key ? 0.4 : 1)
+                        .background(GeometryReader { proxy in
+                            Color.clear.preference(key: RowFrames.self, value: [property.key: proxy.frame(in: .named(Self.space))])
+                        })
                     }
                     GridRow {
                         Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
@@ -47,6 +59,9 @@ struct PropertiesStrip: View {
                         .foregroundStyle(.secondary)
                     }
                 }
+                .coordinateSpace(name: Self.space)
+                .onPreferenceChange(RowFrames.self) { rowFrames = $0 }
+                .overlay(alignment: .topLeading) { dropIndicator }
                 .padding(.leading, 18)
             }
         }
@@ -58,6 +73,46 @@ struct PropertiesStrip: View {
         .overlay(alignment: .bottom) { Divider().opacity(0.5) }
     }
 
+    private static let space = "properties"
+
+    /// Drags a property, by its name, to a new place among the others.
+    private func reorderGesture(for key: String) -> some Gesture {
+        DragGesture(minimumDistance: 3, coordinateSpace: .named(Self.space))
+            .onChanged { value in
+                dragging = key
+                dragY = value.location.y
+            }
+            .onEnded { _ in
+                if let destination = dropDestination, let dragging {
+                    withAnimation(.easeOut(duration: 0.15)) { session.moveProperty(dragging, to: destination) }
+                }
+                dragging = nil
+            }
+    }
+
+    /// Where the dragged property would go, as an index before the move; nil if it
+    /// would stay where it is.
+    private var dropDestination: Int? {
+        guard let dragging, let source = frontmatter.properties.firstIndex(where: { $0.key == dragging }) else { return nil }
+        let destination = frontmatter.properties.firstIndex { (rowFrames[$0.key]?.midY ?? .infinity) > dragY } ?? frontmatter.properties.count
+        return destination == source || destination == source + 1 ? nil : destination
+    }
+
+    /// A line between the rows where the dragged property would land.
+    @ViewBuilder private var dropIndicator: some View {
+        if let destination = dropDestination {
+            let properties = frontmatter.properties
+            let y = destination < properties.count
+                ? (rowFrames[properties[destination].key]?.minY ?? 0) - 3
+                : (rowFrames[properties[properties.count - 1].key]?.maxY ?? 0) + 3
+            Capsule()
+                .fill(Color.accentColor)
+                .frame(height: 2)
+                .offset(y: y - 1)
+                .allowsHitTesting(false)
+        }
+    }
+
     /// "3 properties · #imprint #idea"
     private var summary: String {
         let count = frontmatter.properties.count
@@ -65,6 +120,14 @@ struct PropertiesStrip: View {
         let tags = frontmatter.tags
         if !tags.isEmpty { parts.append(tags.map { "#\($0)" }.joined(separator: " ")) }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// The frames of the property rows, by key.
+private struct RowFrames: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { $1 }
     }
 }
 

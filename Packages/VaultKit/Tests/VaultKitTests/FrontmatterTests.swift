@@ -54,6 +54,26 @@ struct FrontmatterTests {
         #expect(edited.contains("aliases:\n  - Only one\n# a comment"))
     }
 
+    @Test func movingAPropertyKeepsEveryLine() throws {
+        let frontmatter = try #require(Frontmatter.parse(note))
+        // Up: the list goes first, comment and nested value untouched.
+        let up = apply(try #require(frontmatter.edit(moving: "aliases", to: 0, in: note)), to: note)
+        #expect(up.hasPrefix("---\naliases:\n  - Imprint app\n  - The editor\ntags: [imprint, \"big idea\"]\ncreated: 2026-10-17\n# a comment"))
+        #expect(try #require(Frontmatter.parse(up)).properties.map(\.key) == ["aliases", "tags", "created", "nested"])
+        // Down to the end: the comment stays where it was, between the others.
+        let down = apply(try #require(frontmatter.edit(moving: "tags", to: 4, in: note)), to: note)
+        #expect(try #require(Frontmatter.parse(down)).properties.map(\.key) == ["created", "aliases", "nested", "tags"])
+        #expect(down.contains("deep: value\ntags: [imprint, \"big idea\"]\n---\n# Body"))
+        // Moving one place down.
+        let swap = apply(try #require(frontmatter.edit(moving: "tags", to: 2, in: note)), to: note)
+        #expect(swap.hasPrefix("---\ncreated: 2026-10-17\ntags:"))
+        // No move: nothing to do.
+        #expect(frontmatter.edit(moving: "tags", to: 0, in: note) == nil)
+        #expect(frontmatter.edit(moving: "tags", to: 1, in: note) == nil)
+        // Same lines, different order.
+        #expect(up.split(separator: "\n").sorted() == note.split(separator: "\n").sorted())
+    }
+
     @Test func addingAndRemoving() throws {
         let frontmatter = try #require(Frontmatter.parse(note))
         let added = apply(frontmatter.edit(setting: "status", to: ["draft"]), to: note)

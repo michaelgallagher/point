@@ -10,6 +10,13 @@ struct ContentView: View {
     @State private var sidebarWidth: CGFloat = 0
     /// How much the window narrowed when the list last hid, to widen it back by.
     @State private var narrowedBy: CGFloat = 0
+    /// How much the window widened to fit a side note.
+    @State private var widenedForSide: CGFloat = 0
+    /// Whether the side note shows. It follows the model's side note, but only once the
+    /// window has widened, so the split never squeezes the sidebar.
+    @State private var showsSide = false
+    /// Narrower than this, two notes side by side are too cramped, so the window widens.
+    private let sideBySideWidth: CGFloat = 760
 
     /// One column (folders, tags and notes together) or two (folders and tags beside notes).
     @ViewBuilder private var splitView: some View {
@@ -41,6 +48,35 @@ struct ContentView: View {
     }
 
     private var detail: some View {
+        Group {
+            if showsSide, let side = model.sideNoteValue {
+                SideBySide {
+                    mainEditor
+                } side: {
+                    SideNotePane(note: side)
+                }
+            } else {
+                mainEditor
+            }
+        }
+        .onChange(of: model.sideNote != nil) { isSplit in
+            if isSplit {
+                // The notes get what the sidebar (if showing) leaves.
+                let listWidth = columns == .detailOnly ? 0 : sidebarWidth
+                widenedForSide = max(0, listWidth + sideBySideWidth - NoteListWindowResizing.windowWidth)
+                NoteListWindowResizing.resize(by: widenedForSide)
+                DispatchQueue.main.asyncAfter(deadline: .now() + (widenedForSide > 1 ? 0.17 : 0)) {
+                    showsSide = model.sideNote != nil
+                }
+            } else {
+                showsSide = false
+                NoteListWindowResizing.resize(by: -widenedForSide)
+                widenedForSide = 0
+            }
+        }
+    }
+
+    @ViewBuilder private var mainEditor: some View {
         Group {
             if let note = model.selectedNote {
                 NoteEditor(note: note, model: model)
@@ -270,6 +306,88 @@ private struct PlaceHeader: View {
         }
         .padding(.horizontal, 10)
         .padding(.top, 4)
+    }
+}
+
+/// Two views side by side with a divider to drag between them. Unlike HSplitView, it
+/// takes only the width it's offered, so it never squeezes the sidebar.
+private struct SideBySide<Main: View, Side: View>: View {
+    @ViewBuilder let main: Main
+    @ViewBuilder let side: Side
+    /// How much of the width the main note gets.
+    @AppStorage("sideBySideFraction") private var fraction = 0.5
+    @State private var isHoveringDivider = false
+    private let minimumWidth: CGFloat = 240
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let mainWidth = clamp(width * fraction, in: width)
+            HStack(spacing: 0) {
+                main
+                    .frame(width: mainWidth)
+                Divider()
+                    .overlay {
+                        // A wider grip than the line itself.
+                        Color.clear
+                            .frame(width: 9)
+                            .contentShape(Rectangle())
+                            .onHover { hovering in
+                                if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                            }
+                            .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .named("sideBySide"))
+                                .onChanged { value in
+                                    guard width > 0 else { return }
+                                    fraction = clamp(value.location.x, in: width) / width
+                                })
+                    }
+                side
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .coordinateSpace(name: "sideBySide")
+    }
+
+    private func clamp(_ x: CGFloat, in width: CGFloat) -> CGFloat {
+        guard width > minimumWidth * 2 else { return width / 2 }
+        return min(max(x, minimumWidth), width - minimumWidth)
+    }
+}
+
+/// The note open beside the main one, with its title and a button to close it.
+private struct SideNotePane: View {
+    @EnvironmentObject private var model: VaultModel
+    let note: Note
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Text(note.title)
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Button {
+                    model.selection = note.id
+                } label: {
+                    Image(systemName: "arrow.left.square")
+                }
+                .help("Open Here Instead")
+                Button {
+                    model.closeSideNote()
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .help("Close")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .frame(height: 28)
+            Divider()
+            NoteEditor(note: note, model: model, isSide: true)
+                .id("side:" + note.id)
+        }
     }
 }
 

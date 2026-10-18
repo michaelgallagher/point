@@ -89,8 +89,6 @@ struct MarkdownStyler {
                     let titleRange = NSRange(location: titleStart, length: max(0, min(lineEnd, NSMaxRange(range)) - titleStart))
                     addTrait(.bold, in: titleRange, storage: storage)
                 }
-            } else {
-                storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: range)
             }
             storage.addAttributes([.paragraphStyle: style, .imprintBlock: block], range: range)
 

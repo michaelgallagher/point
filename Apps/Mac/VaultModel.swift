@@ -51,6 +51,8 @@ final class VaultModel: ObservableObject {
     var textScale: Double { get { store.textScale } set { store.textScale = newValue } }
     var browsingStyle: BrowsingStyle { get { store.browsingStyle } set { store.browsingStyle = newValue } }
     var tagOrder: TagOrder { get { store.tagOrder } set { store.tagOrder = newValue } }
+    var treeLayout: TreeLayout { get { store.treeLayout } set { store.treeLayout = newValue } }
+    var sortedTagEntries: [TagTree.Entry] { store.sortedTagEntries }
 
     func chooseVault() { store.chooseVault() }
     func reload() async { await store.reload() }
@@ -70,6 +72,7 @@ final class VaultModel: ObservableObject {
     func moveToTrash(_ note: Note) {
         store.moveToTrash(note)
         if selection == note.id { selection = nil }
+        if sideNote == note.id { sideNote = nil }
     }
 
     func showInFinder(_ note: Note) {
@@ -86,8 +89,28 @@ final class VaultModel: ObservableObject {
                 forwardStack.removeAll()
             }
             store.finishUntitledNote(oldValue)
+            // One editor per note: choosing the side note here closes the side.
+            if selection != nil, selection == sideNote { sideNote = nil }
         }
     }
+    /// A second note shown beside the first, in the same window.
+    @Published var sideNote: Note.ID? {
+        didSet {
+            if let oldValue, oldValue != sideNote { store.finishUntitledNote(oldValue) }
+        }
+    }
+
+    var sideNoteValue: Note? {
+        sideNote.flatMap { id in notes.first { $0.id == id } }
+    }
+
+    /// Shows a note beside the one open here (or swaps the side note for it).
+    func openToTheSide(_ id: Note.ID) {
+        guard id != selection else { return NSSound.beep() }
+        sideNote = id
+    }
+
+    func closeSideNote() { sideNote = nil }
     /// Notes visited before and after the current one, for ⌘[ and ⌘].
     @Published private(set) var backStack: [Note.ID] = []
     @Published private(set) var forwardStack: [Note.ID] = []
@@ -110,10 +133,12 @@ final class VaultModel: ObservableObject {
         backStack = backStack.map { $0 == old ? new : $0 }
         forwardStack = forwardStack.map { $0 == old ? new : $0 }
         if selection == old { follow(to: new) }
+        if sideNote == old { sideNote = new }
     }
 
     @objc private func vaultOpened() {
         follow(to: nil)
+        sideNote = nil
         backStack = []
         forwardStack = []
         searchText = ""
@@ -162,12 +187,19 @@ final class VaultModel: ObservableObject {
     /// Opens a note in a new tab of this window. Set by the window, which can open tabs.
     var openTab: ((Note.ID?) -> Void)?
 
+    /// Where a followed link opens.
+    enum LinkDestination { case here, newTab, side }
+
     /// Follows a clicked link: notes open here (missing ones are created, as in Obsidian),
     /// or in a new tab when asked; web addresses open in the browser.
-    func open(_ link: LinkTarget, from sourceID: Note.ID, inNewTab: Bool = false) {
+    func open(_ link: LinkTarget, from sourceID: Note.ID, in destination: LinkDestination = .here) {
         let resolver = LinkResolver(notes: notes)
         func show(_ id: Note.ID) {
-            if inNewTab, let openTab { openTab(id) } else { selection = id }
+            switch destination {
+            case .here: selection = id
+            case .newTab: if let openTab { openTab(id) } else { selection = id }
+            case .side: id == selection ? NSSound.beep() : (sideNote = id)
+            }
         }
         switch link {
         case .note(let target):
@@ -219,6 +251,22 @@ final class VaultModel: ObservableObject {
     @Published private(set) var searchResults: [SearchResult]?
     /// Whether the ⌘E command palette is showing.
     @Published var isPaletteShown = false
+    /// Whether the palette searches (⌘E) or browses folders and tags (⇧⌘E).
+    @Published var paletteMode = PaletteMode.search
+    /// Where the palette's explorer was left, to start there next time.
+    var explorerLevel = ExplorerLevel.place(.allNotes)
+
+    enum PaletteMode { case search, explorer }
+
+    /// Shows the palette in a mode, or hides it if it's already showing that.
+    func togglePalette(_ mode: PaletteMode) {
+        if isPaletteShown && paletteMode == mode {
+            isPaletteShown = false
+        } else {
+            paletteMode = mode
+            isPaletteShown = true
+        }
+    }
     /// Incremented to ask the search field to take focus.
     @Published private(set) var searchFocusRequest = 0
     private var searchTask: Task<Void, Never>?
@@ -293,19 +341,27 @@ final class VaultModel: ObservableObject {
 
     enum TreeKind: String { case folders, tags }
     enum TagOrder: String { case name, modified }
+    /// The two-column view's left column: folders and tags stacked, or one at a time.
+    enum TreeLayout: String { case stacked, toggle }
 
     /// What the two-column view's left column shows, in this window.
     @Published var treeKind = TreeKind(rawValue: UserDefaults.standard.string(forKey: "treeKind") ?? "") ?? .folders {
         didSet {
             UserDefaults.standard.set(treeKind.rawValue, forKey: "treeKind") // The default for new windows.
             guard treeKind != oldValue else { return }
-            // Show what was last chosen in this tree, so the highlight and the notes match.
-            switch treeKind {
-            case .folders:
-                if place.isTag { browse(lastFolderPlace) }
-            case .tags:
-                if !place.isTag { browse(lastTagPlace ?? tagTree.entries.first.map { .tag($0.tag) } ?? .allNotes) }
-            }
+            matchPlaceToTree()
+        }
+    }
+
+    /// With one tree showing at a time, shows what was last chosen in that tree, so the
+    /// highlight and the notes match. (Stacked, both trees show, so anything goes.)
+    func matchPlaceToTree() {
+        guard browsingStyle == .twoColumns, treeLayout == .toggle else { return }
+        switch treeKind {
+        case .folders:
+            if place.isTag { browse(lastFolderPlace) }
+        case .tags:
+            if !place.isTag { browse(lastTagPlace ?? tagTree.entries.first.map { .tag($0.tag) } ?? .allNotes) }
         }
     }
     /// The folder (or top level) and tag last browsed, to return to when switching trees.

@@ -130,6 +130,28 @@ public struct Frontmatter: Equatable, Sendable {
         properties.first { $0.key == key }.map { ($0.range, "") }
     }
 
+    /// The edit that moves a property to a new place among the others: the range to
+    /// replace and its new text. `destination` is an index into `properties` before the
+    /// move, as in SwiftUI's `onMove` (the property goes in front of the one there, or last).
+    /// Only the lines between the old and new places are rewritten, each exactly as it was.
+    public func edit(moving key: String, to destination: Int, in text: String) -> (NSRange, String)? {
+        guard let source = properties.firstIndex(where: { $0.key == key }),
+              (0...properties.count).contains(destination),
+              destination != source, destination != source + 1 else { return nil }
+        let ns = text as NSString
+        let moved = properties[source].range
+        let movedText = ns.substring(with: moved)
+        if destination < source {
+            let start = properties[destination].range.location
+            let between = ns.substring(with: NSRange(location: start, length: moved.location - start))
+            return (NSRange(location: start, length: NSMaxRange(moved) - start), movedText + between)
+        } else {
+            let end = NSMaxRange(properties[destination - 1].range)
+            let between = ns.substring(with: NSRange(location: NSMaxRange(moved), length: end - NSMaxRange(moved)))
+            return (NSRange(location: moved.location, length: end - moved.location), between + movedText)
+        }
+    }
+
     /// Where the closing `---` line starts.
     var closingFenceLocation: Int {
         NSMaxRange(range) - 3

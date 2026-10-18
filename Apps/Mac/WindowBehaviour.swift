@@ -74,6 +74,11 @@ final class SwipeToToggleNoteList {
 /// keeps its width and slides over rather than stretching.
 @MainActor
 enum NoteListWindowResizing {
+    /// The key window's width.
+    static var windowWidth: CGFloat {
+        (NSApp.keyWindow ?? NSApp.mainWindow)?.frame.width ?? 0
+    }
+
     /// Widens (positive) or narrows (negative) the window by `change` points.
     static func resize(by change: CGFloat) {
         guard abs(change) > 1, let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }

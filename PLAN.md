@@ -254,6 +254,13 @@ Features:
    - **Start place:** where you last were in the palette.
 10. **Order of work:** the small polish (items 1, 2, 6, 7, 8) first, then reordering properties, then the palette browser, then the split view.
 
+**Status (18 October 2026):** items 1–4 and 6–9 are built and checked in the app; all tests and the MG notes round trip pass. Item 5 waits for Mike to confirm. How they were built:
+- **Toggle and setting:** Settings > "Two-column folders and tags": Together (the default) or One at a time, with a switch. Switching to one at a time shows what was last chosen in that tree.
+- **Sorting:** a "Sort by" menu under the tree, Settings, View > Sort Folders and Tags By, and the right-click menu on the single column's headers.
+- **Reordering properties:** drag a property by its name. Only the lines between its old and new place are rewritten, each exactly as it was; comments and nested values stay put. It's an ordinary edit, so ⌘Z undoes it. (A drag gesture, not drag and drop, which wouldn't deliver a drop inside the strip.)
+- **Explorer (⇧⌘E, or "Explorer" in the palette):** the vault's level shows its folders, then Tags, then its notes. ← at the start of the filter (or ⌫ with nothing typed) goes up and highlights where you came from; → at the end of the filter goes in. A breadcrumb shows where you are.
+- **Side by side:** ⌥⌘-click a note in the list or a link, or right-click > Open to the Side. The side note has a small bar with its title, "Open Here Instead" and Close (also Go > Close Side Note and in the palette; no shortcut, since ⌥⌘W is Close All Windows). Links clicked in the side note open there. The divider position is remembered. The window widens first if the notes would be narrower than 760 points together, and narrows back on close. The same note can't be open on both sides, and choosing the side note on the left closes the side.
+
 ### M4 — iPhone
 Buy the developer account first.
 - Folder access through Files, list and editor.

@@ -215,6 +215,12 @@ final class EditorSession: NSObject, ObservableObject {
         setProperty("tags", to: existing + [tag], isList: true)
     }
 
+    /// Moves a property to a new place among the others (an index before the move).
+    func moveProperty(_ key: String, to destination: Int) {
+        guard let textView, let edit = frontmatter?.edit(moving: key, to: destination, in: textView.string) else { return }
+        textView.applyEdit(replacing: edit.0, with: edit.1)
+    }
+
     func removeProperty(_ key: String) {
         guard let textView, let edit = frontmatter?.edit(removing: key) else { return }
         textView.applyEdit(replacing: edit.0, with: edit.1)

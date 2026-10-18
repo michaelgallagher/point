@@ -8,8 +8,11 @@ struct NoteEditor: View {
     @EnvironmentObject private var model: VaultModel
     @StateObject private var session: EditorSession
     @StateObject private var connections: Connections
+    /// Whether this is the note beside the main one, where followed links stay.
+    var isSide = false
 
-    init(note: Note, model: VaultModel) {
+    init(note: Note, model: VaultModel, isSide: Bool = false) {
+        self.isSide = isSide
         _session = StateObject(wrappedValue: EditorSession(note: note))
         _connections = StateObject(wrappedValue: Connections(note: note, model: model))
     }
@@ -29,7 +32,7 @@ struct NoteEditor: View {
                     .padding()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if session.isLoaded {
-                EditorView(session: session, model: model, showsMarkdown: model.showsMarkdown, textScale: model.textScale)
+                EditorView(session: session, model: model, isSide: isSide, showsMarkdown: model.showsMarkdown, textScale: model.textScale)
             } else {
                 Color.clear
             }
@@ -81,6 +84,7 @@ private struct ConflictBanner: View {
 private struct EditorView: NSViewRepresentable {
     let session: EditorSession
     let model: VaultModel
+    let isSide: Bool
     /// Passed as a value, not read from the model, so SwiftUI updates the view when it changes.
     let showsMarkdown: Bool
     let textScale: Double
@@ -89,8 +93,9 @@ private struct EditorView: NSViewRepresentable {
         let (scrollView, textView) = MarkdownTextView.makeScrollable()
         session.attach(textView)
         let noteID = session.note.id
-        textView.onOpenLink = { [weak model] link in model?.open(link, from: noteID) }
-        textView.onOpenLinkInNewTab = { [weak model] link in model?.open(link, from: noteID, inNewTab: true) }
+        textView.onOpenLink = { [weak model, isSide] link in model?.open(link, from: noteID, in: isSide ? .side : .here) }
+        textView.onOpenLinkInNewTab = { [weak model] link in model?.open(link, from: noteID, in: .newTab) }
+        textView.onOpenLinkToSide = { [weak model] link in model?.open(link, from: noteID, in: .side) }
         textView.completeNoteTitle = { [weak model] partial in model?.titleSuggestions(for: partial) ?? [] }
         return scrollView
     }

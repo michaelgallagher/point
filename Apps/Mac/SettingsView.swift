@@ -13,6 +13,19 @@ struct SettingsView: View {
             }
             .pickerStyle(.radioGroup)
 
+            Picker("Two-column folders and tags:", selection: $store.treeLayout) {
+                Text("Together, folders above tags").tag(VaultModel.TreeLayout.stacked)
+                Text("One at a time, with a switch").tag(VaultModel.TreeLayout.toggle)
+            }
+            .pickerStyle(.radioGroup)
+            .disabled(store.browsingStyle != .twoColumns)
+
+            Picker("Sort folders and tags by:", selection: $store.tagOrder) {
+                Text("Name").tag(VaultModel.TagOrder.name)
+                Text("Date Modified").tag(VaultModel.TagOrder.modified)
+            }
+            .fixedSize()
+
             Divider()
 
             Picker("Sort notes by:", selection: $store.sort) {

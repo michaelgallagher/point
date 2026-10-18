@@ -333,8 +333,13 @@ final class VaultStore: ObservableObject {
     @Published var browsingStyle = VaultModel.BrowsingStyle(rawValue: UserDefaults.standard.string(forKey: "browsingStyle") ?? "") ?? .singleColumn {
         didSet { UserDefaults.standard.set(browsingStyle.rawValue, forKey: "browsingStyle") }
     }
+    /// How folders and tags are sorted, in both layouts.
     @Published var tagOrder = VaultModel.TagOrder(rawValue: UserDefaults.standard.string(forKey: "tagOrder") ?? "") ?? .name {
         didSet { UserDefaults.standard.set(tagOrder.rawValue, forKey: "tagOrder") }
+    }
+    /// The two-column view's left column: folders and tags together, or one at a time.
+    @Published var treeLayout = VaultModel.TreeLayout(rawValue: UserDefaults.standard.string(forKey: "treeLayout") ?? "") ?? .stacked {
+        didSet { UserDefaults.standard.set(treeLayout.rawValue, forKey: "treeLayout") }
     }
 
     func makeTextBigger() { textScale = min(textScale + 0.1, 2.5) }
@@ -425,13 +430,60 @@ final class VaultStore: ObservableObject {
         }
     }
 
-    /// The folders or tags to show above the notes in a place.
+    /// The folders or tags to show above the notes in a place, in the chosen order.
     func subplaces(of place: SidebarPlace) -> [SidebarPlace] {
         switch place {
-        case .allNotes: folderTree.subfolders(of: "").map(SidebarPlace.folder)
-        case .folder(let path): folderTree.subfolders(of: path).map(SidebarPlace.folder)
-        case .tag(let tag): tagTree.children(of: tag).map { .tag($0.tag) }
+        case .allNotes: sortedFolders(folderTree.subfolders(of: "")).map(SidebarPlace.folder)
+        case .folder(let path): sortedFolders(folderTree.subfolders(of: path)).map(SidebarPlace.folder)
+        case .tag(let tag): sortedTags(tagTree.children(of: tag)).map { .tag($0.tag) }
         }
+    }
+
+    /// When each folder, and each tag, last had a note in it edited (counting subfolders
+    /// and nested tags), for sorting by date modified. Worked out once per change.
+    private var latestEdits: (folders: [String: Date], tags: [String: Date]) {
+        if let cached = latestEditsCache, cached.notes == notes.count, cached.generation == indexGeneration { return cached.value }
+        var folders: [String: Date] = [:], tags: [String: Date] = [:]
+        for note in notes {
+            var folder = FolderTree.folder(of: note.id)
+            while !folder.isEmpty {
+                folders[folder] = max(folders[folder] ?? .distantPast, note.modified)
+                folder = FolderTree.parent(of: folder)
+            }
+            for tag in listTags(for: note.id) {
+                var parts = tag.lowercased().split(separator: "/").map(String.init)
+                while !parts.isEmpty {
+                    let key = parts.joined(separator: "/")
+                    tags[key] = max(tags[key] ?? .distantPast, note.modified)
+                    parts.removeLast()
+                }
+            }
+        }
+        latestEditsCache = (notes.count, indexGeneration, (folders, tags))
+        return (folders, tags)
+    }
+    private var latestEditsCache: (notes: Int, generation: Int, value: (folders: [String: Date], tags: [String: Date]))?
+
+    func sortedFolders(_ paths: [String]) -> [String] {
+        guard tagOrder == .modified else { return paths } // Already in Finder order.
+        let latest = latestEdits.folders
+        return paths.sorted { (latest[$0] ?? .distantPast) > (latest[$1] ?? .distantPast) }
+    }
+
+    func sortedTags(_ entries: [TagTree.Entry]) -> [TagTree.Entry] {
+        if tagOrder == .name {
+            return entries.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        }
+        let latest = latestEdits.tags
+        return entries.sorted { (latest[$0.id] ?? .distantPast) > (latest[$1.id] ?? .distantPast) }
+    }
+
+    /// Every tag in tree order (each parent followed by its children), in the chosen order.
+    var sortedTagEntries: [TagTree.Entry] {
+        func walk(_ entries: [TagTree.Entry]) -> [TagTree.Entry] {
+            sortedTags(entries).flatMap { [$0] + walk(tagTree.children(of: $0.tag)) }
+        }
+        return walk(tagTree.entries.filter { $0.depth == 0 })
     }
 
     /// How many notes a folder or tag holds, including in its subfolders or nested tags.
@@ -453,7 +505,7 @@ final class VaultStore: ObservableObject {
     /// The vault's top level, then its folders as a tree.
     var folderNodes: [VaultModel.PlaceNode] {
         func nodes(in path: String) -> [VaultModel.PlaceNode]? {
-            let subfolders = folderTree.subfolders(of: path)
+            let subfolders = sortedFolders(folderTree.subfolders(of: path))
             guard !subfolders.isEmpty else { return nil }
             return subfolders.map { VaultModel.PlaceNode(place: .folder($0), name: FolderTree.name(of: $0), children: nodes(in: $0)) }
         }
@@ -461,29 +513,12 @@ final class VaultStore: ObservableObject {
         return [VaultModel.PlaceNode(place: .allNotes, name: rootName, children: nil)] + (nodes(in: "") ?? [])
     }
 
-    /// Tags as a tree, by name or by when a note with the tag was last edited.
+    /// Tags as a tree, in the chosen order.
     var tagNodes: [VaultModel.PlaceNode] {
-        var latest: [String: Date] = [:]
-        if tagOrder == .modified {
-            for note in notes {
-                for tag in listTags(for: note.id) {
-                    // A note counts for its tag and every parent above it.
-                    var parts = tag.lowercased().split(separator: "/").map(String.init)
-                    while !parts.isEmpty {
-                        let key = parts.joined(separator: "/")
-                        latest[key] = max(latest[key] ?? .distantPast, note.modified)
-                        parts.removeLast()
-                    }
-                }
-            }
-        }
         func nodes(under parent: String?) -> [VaultModel.PlaceNode]? {
             let entries = parent.map { tagTree.children(of: $0) } ?? tagTree.entries.filter { $0.depth == 0 }
             guard !entries.isEmpty else { return nil }
-            let sorted = tagOrder == .name
-                ? entries.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-                : entries.sorted { (latest[$0.id] ?? .distantPast) > (latest[$1.id] ?? .distantPast) }
-            return sorted.map { VaultModel.PlaceNode(place: .tag($0.tag), name: "#" + $0.name, children: nodes(under: $0.tag)) }
+            return sortedTags(entries).map { VaultModel.PlaceNode(place: .tag($0.tag), name: "#" + $0.name, children: nodes(under: $0.tag)) }
         }
         return nodes(under: nil) ?? []
     }
