@@ -263,7 +263,6 @@ private struct PaletteChrome: ViewModifier {
             content
                 .frame(maxWidth: 540) // The same width searching and exploring.
                 .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.separator))
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 // One shadow for the whole panel, not one per row.
                 .compositingGroup()
