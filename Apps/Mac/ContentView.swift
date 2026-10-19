@@ -24,7 +24,6 @@ struct ContentView: View {
                     }
                 }
                 .ignoresSafeArea(.container, edges: .top)
-                .modifier(RemovesSidebarToggle())
                 .navigationSplitViewColumnWidth(min: 360, ideal: 470, max: 760)
             } detail: {
                 detail
@@ -36,7 +35,6 @@ struct ContentView: View {
                     NoteList()
                 }
                 .ignoresSafeArea(.container, edges: .top)
-                .modifier(RemovesSidebarToggle())
                 .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 400)
             } detail: {
                 detail
@@ -80,10 +78,11 @@ struct ContentView: View {
                     splitView
                 }
                 .navigationTitle(windowTitle)
-                // An empty toolbar, so the window's top row has the system's standard height
-                // (with the window buttons centred in it). The sidebar and each side of a
-                // split draw their own bars in that row.
-                .modifier(RemovesSidebarToggle())
+                // A toolbar with nothing but the system's sidebar button, so the window's top
+                // row has the standard height (window buttons centred in it) and the sidebar
+                // button sits where macOS puts it: at the sidebar's edge, or past the window
+                // buttons while it's hidden. The sidebar and each side of a split draw their
+                // own bars in that row.
                 .toolbar {
                     if #available(macOS 26, *) {
                         // Without its glass backing, or it shows as a sliver.
@@ -118,6 +117,8 @@ struct ContentView: View {
                 .onChange(of: model.showsNoteList) { _ in updateColumns() }
 
                 .onChange(of: columns) { visibility in
+                    // Showing the sidebar (with the system's button) leaves focus mode.
+                    if model.isFocused, visibility != .detailOnly { model.isFocused = false }
                     // The toolbar's sidebar button changes the columns directly; keep ⌘S in step.
                     if !model.isFocused { model.showsNoteList = visibility != .detailOnly }
                 }
@@ -289,17 +290,6 @@ private struct ToolbarSpacerView: View {
     var body: some View {
         Color.clear.frame(width: 1, height: 1)
             .accessibilityHidden(true)
-    }
-}
-
-/// Takes away the split view's own sidebar button (the top bars have one).
-private struct RemovesSidebarToggle: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(macOS 14, *) {
-            content.toolbar(removing: .sidebarToggle)
-        } else {
-            content
-        }
     }
 }
 

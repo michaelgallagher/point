@@ -19,6 +19,9 @@ enum TopBar {
         return (button.convert(button.bounds, to: nil).maxX + 16).rounded()
     }
 
+    /// The system's sidebar button, just past the window buttons while the sidebar is hidden.
+    static let sidebarButtonWidth: CGFloat = 48
+
     /// The top bar's background, in every layout: the page's own colour.
     static let barColor = Color(nsColor: .textBackgroundColor)
     /// The selected tab: a little darker than the bar.
@@ -26,33 +29,16 @@ enum TopBar {
 
 }
 
-/// The sidebar's top bar: the Hide Sidebar button, at its trailing edge.
+/// The sidebar's top bar: room for the window buttons and the system's sidebar button,
+/// which sits at its trailing edge. Its empty space drags the window.
 struct SidebarTopBar: View {
     @EnvironmentObject private var model: VaultModel
 
     var body: some View {
-        HStack(spacing: 2) {
-            Spacer()
-            SidebarButtons()
-        }
-        .padding(.leading, model.windowButtonsInset)
-        .padding(.trailing, 8)
-        .frame(height: model.topBarHeight)
-        .background(WindowDragArea())
-    }
-}
-
-/// The button that hides and shows the sidebar. (New notes come from ⌘N or the palette.)
-struct SidebarButtons: View {
-    @EnvironmentObject private var model: VaultModel
-
-    var body: some View {
-        HStack(spacing: 10) {
-            BarButton(model.showsNoteList ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.left",
-                      help: model.showsNoteList ? "Hide Sidebar (⌘S)" : "Show Sidebar (⌘S)") {
-                if model.isFocused { model.isFocused = false } else { model.showsNoteList.toggle() }
-            }
-        }
+        Color.clear
+            .frame(height: model.topBarHeight)
+            .frame(maxWidth: .infinity)
+            .background(WindowDragArea())
     }
 }
 
@@ -62,16 +48,13 @@ struct PaneTopBar: View {
     let pane: VaultModel.NotePane
     let paneIndex: Int
 
-    /// The first side holds the sidebar's buttons while the sidebar is hidden, just past the
-    /// window buttons.
-    private var holdsSidebarButtons: Bool { paneIndex == 0 && !model.showsNoteList }
+    /// With the sidebar hidden, the first side starts past the window buttons and the
+    /// system's sidebar button.
+    private var startsAtWindowEdge: Bool { paneIndex == 0 && (!model.showsNoteList || model.isFocused) }
     private var isActive: Bool { paneIndex == model.activePane }
 
     var body: some View {
         HStack(spacing: 8) {
-            if holdsSidebarButtons {
-                SidebarButtons()
-            }
             if pane.tabs.count > 1 {
                 NoteTabs(pane: pane, paneIndex: paneIndex)
             } else {
@@ -87,7 +70,7 @@ struct PaneTopBar: View {
                 BarButton("Split", systemImage: "rectangle.split.2x1", help: "Split (⇧⌘S)") { model.toggleSplit() }
             }
         }
-        .padding(.leading, holdsSidebarButtons ? model.windowButtonsInset : 16)
+        .padding(.leading, startsAtWindowEdge ? model.windowButtonsInset + TopBar.sidebarButtonWidth : 16)
         .padding(.trailing, 8)
         .frame(height: model.topBarHeight)
         .background(WindowDragArea())
