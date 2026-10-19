@@ -10,6 +10,7 @@ struct SettingsView: View {
             SettingsSection("Sidebar") {
                 Setting("Layout") {
                     Picker("Layout", selection: $store.browsingStyle) {
+                        Text("Minimal: no sidebar; tabs down the side, and ⌘T to search and browse").tag(VaultModel.BrowsingStyle.minimal)
                         Text("One column: folders, tags and notes in one list").tag(VaultModel.BrowsingStyle.singleColumn)
                         Text("Two columns: folders and tags beside the notes").tag(VaultModel.BrowsingStyle.twoColumns)
                     }

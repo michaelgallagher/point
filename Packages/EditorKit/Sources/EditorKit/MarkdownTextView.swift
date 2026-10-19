@@ -17,6 +17,14 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     public var onOpenLinkInNewTab: ((LinkTarget) -> Void)?
     /// Called when a link is ⌥⌘-clicked, to open it beside this note.
     public var onOpenLinkToSide: ((LinkTarget) -> Void)?
+    /// Called when the view takes the keyboard (clicked into, or tabbed to).
+    public var onFocus: (() -> Void)?
+
+    public override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { onFocus?() }
+        return accepted
+    }
     /// Note titles to suggest while a `[[wikilink]]` is typed, best first.
     public var completeNoteTitle: ((String) -> [String])?
 

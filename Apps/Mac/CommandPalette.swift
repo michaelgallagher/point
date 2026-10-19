@@ -5,6 +5,7 @@ import VaultKit
 
 /// ⌘E: one place to open notes, search tags and run commands, all from the keyboard.
 /// ⇧⌘E: the same palette, browsing folders and tags like a column of Finder.
+/// In the Minimal layout, an empty tab shows it as a page: the start page.
 struct CommandPalette: View {
     @EnvironmentObject private var model: VaultModel
     @State private var query = ""
@@ -14,20 +15,23 @@ struct CommandPalette: View {
     @State private var searchTask: Task<Void, Never>?
     /// Where the explorer is.
     @State private var level = ExplorerLevel.place(.allNotes)
+    /// Shown as a tab's start page rather than over the window. It browses while nothing is
+    /// typed, and searches everything once something is.
+    var isPage = false
 
-    private var isExploring: Bool { model.paletteMode == .explorer }
+    private var isExploring: Bool { isPage ? query.isEmpty : model.paletteMode == .explorer }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: isExploring ? "folder" : "magnifyingglass")
+                Image(systemName: isExploring && !isPage ? "folder" : "magnifyingglass")
                     .foregroundStyle(.secondary)
                     .frame(width: 20)
-                PaletteField(text: $query, placeholder: placeholder,
-                             onMove: move, onSubmit: run, onCancel: close,
+                PaletteField(text: $query, placeholder: placeholder, fontSize: isPage ? 22 : 18,
+                             onMove: move, onSubmit: run, onCancel: cancel,
                              onLeft: isExploring ? { goUp() } : nil, onRight: isExploring ? { enter() } : nil)
             }
-            .font(.title3)
+            .font(isPage ? .title2 : .title3)
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
 
@@ -52,31 +56,51 @@ struct CommandPalette: View {
                         }
                         .padding(6)
                     }
-                    .frame(height: min(CGFloat(items.count) * 34 + 12, 360)) // Fits short lists.
+                    // Fits short lists; as a page, it fills the tab.
+                    .frame(height: isPage ? nil : min(CGFloat(items.count) * 34 + 12, 360))
+                    .frame(maxHeight: isPage ? .infinity : nil)
                     .onChange(of: highlighted) { offset in
                         if items.indices.contains(offset) { scroller.scrollTo(items[offset].id) }
                     }
                 }
             }
         }
-        .frame(width: 560)
-        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
-        .shadow(color: .black.opacity(0.25), radius: 24, y: 10)
+        .modifier(PaletteChrome(isPage: isPage))
         .task {
             level = model.explorerLevel
+            if !isPage, let seed = model.paletteSeed {
+                query = seed
+                model.paletteSeed = nil
+            }
             tags = (try? await model.index?.allTags()) ?? []
             refresh()
         }
         .onChange(of: query) { _ in refresh() }
         .onChange(of: model.paletteMode) { _ in
+            guard !isPage else { return }
             query = ""
             refresh()
         }
     }
 
     private var placeholder: String {
-        isExploring ? "Filter \(levelTitle)" : "Search notes, #tags or >commands"
+        if isPage { return "Search or browse \(levelTitle)" }
+        return isExploring ? "Filter \(levelTitle)" : "Search notes, #tags or >commands"
+    }
+
+    /// Escape closes the palette, or on a start page, clears what's typed.
+    private func cancel() {
+        if isPage { query = "" } else { close() }
+    }
+
+    /// A start page's list while nothing is typed: recent notes (at the top level), then
+    /// the folders, Tags and notes where it's browsing.
+    private func pageItems() -> [PaletteItem] {
+        var recent: [PaletteItem] = []
+        if level == .place(.allNotes) {
+            recent = model.notes.sorted(by: .modified).prefix(6).map { PaletteItem.recent($0.id, $0.title) }
+        }
+        return recent + explorerItems()
     }
 
     // MARK: Explorer
@@ -148,7 +172,7 @@ struct CommandPalette: View {
         self.level = level
         model.explorerLevel = level
         query = ""
-        items = explorerItems()
+        items = isPage ? pageItems() : explorerItems()
         highlighted = 0
     }
 
@@ -179,6 +203,11 @@ struct CommandPalette: View {
     private func refresh() {
         searchTask?.cancel()
         let query = query
+        if isPage, query.trimmingCharacters(in: .whitespaces).isEmpty {
+            items = pageItems()
+            highlighted = 0
+            return
+        }
         if isExploring {
             items = explorerItems()
             highlighted = 0
@@ -233,10 +262,11 @@ struct CommandPalette: View {
         case .place, .tags: return enter()
         default: break
         }
-        close()
+        if !isPage { close() }
         switch item {
-        case .note(let id, _, _):
-            if inNewTab, let openTab = model.openTab { openTab(id) } else { model.selection = id }
+        case .note(let id, _, _), .recent(let id, _):
+            // A start page opens the note in its own tab, which is the active one.
+            if inNewTab { model.newTab(noteID: id) } else { model.selection = id }
         case .tag(let tag, _): model.search(tag: tag)
         case .command(let command): command.action()
         case .place, .tags: break
@@ -262,6 +292,8 @@ enum PaletteItem: Identifiable {
     case place(SidebarPlace, Int)
     /// The explorer's way into the tags, with how many top-level tags there are.
     case tags(Int)
+    /// A recently edited note, on a start page.
+    case recent(Note.ID, String)
 
     var id: String {
         switch self {
@@ -270,6 +302,7 @@ enum PaletteItem: Identifiable {
         case .command(let command): "command:\(command.name)"
         case .place(let place, _): "place:" + place.key
         case .tags: "tags"
+        case .recent(let id, _): "recent:\(id)"
         }
     }
 
@@ -281,6 +314,29 @@ enum PaletteItem: Identifiable {
         case .command(let command): command.name
         case .place(let place, _): place.shortName
         case .tags: "Tags"
+        case .recent(_, let title): title
+        }
+    }
+}
+
+/// The palette's frame: a floating panel over the window, or as a page, a centred column
+/// on the tab's own background.
+private struct PaletteChrome: ViewModifier {
+    let isPage: Bool
+
+    func body(content: Content) -> some View {
+        if isPage {
+            content
+                .frame(maxWidth: 640)
+                .padding(.top, 48)
+                .padding(.horizontal, 24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        } else {
+            content
+                .frame(width: 560)
+                .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
+                .shadow(color: .black.opacity(0.25), radius: 24, y: 10)
         }
     }
 }
@@ -324,6 +380,7 @@ private struct PaletteRow: View {
         case .command: "command"
         case .place(let place, _): place.isTag ? "number" : "folder"
         case .tags: "tag"
+        case .recent: "clock"
         }
     }
 
@@ -334,6 +391,7 @@ private struct PaletteRow: View {
         case .command(let command): command.name
         case .place(let place, _): place.shortName
         case .tags: "Tags"
+        case .recent(_, let title): title
         }
     }
 
@@ -344,6 +402,7 @@ private struct PaletteRow: View {
         case .command(let command): command.shortcut
         case .place(_, let count): "\(count)  ›"
         case .tags(let count): "\(count)  ›"
+        case .recent: "Recent"
         }
     }
 }
@@ -378,8 +437,20 @@ struct PaletteCommand {
             PaletteCommand(name: "All Notes", shortcut: nil) { model.browse(.allNotes) },
             PaletteCommand(name: "Enclosing Folder", shortcut: "⌘↑") { model.goUp() },
         ]
-        if model.sideNote != nil {
-            commands.append(PaletteCommand(name: "Close Side Note", shortcut: nil) { model.closeSideNote() })
+        commands += [
+            PaletteCommand(name: "New Tab", shortcut: "⌘T") { model.newTab() },
+            PaletteCommand(name: "Close Tab", shortcut: "⌘W") { model.closeTab() },
+        ]
+        if !model.isMinimal {
+            commands += [
+                PaletteCommand(name: model.isSplit ? "Merge Split into Tabs" : "Split", shortcut: "⇧⌘S") { model.toggleSplit() },
+                PaletteCommand(name: model.isSplit ? "Move Tab to Other Side" : "Move Tab to New Split", shortcut: nil) { model.moveTabToOtherSide() },
+            ]
+        }
+        for (style, name) in [(VaultModel.BrowsingStyle.minimal, "Use Minimal Layout"),
+                              (.singleColumn, "Use One Column Layout"), (.twoColumns, "Use Two Column Layout")]
+            where model.browsingStyle != style {
+            commands.append(PaletteCommand(name: name, shortcut: nil) { model.browsingStyle = style })
         }
         if let note = model.selectedNote {
             commands += [
@@ -402,6 +473,7 @@ struct PaletteCommand {
 private struct PaletteField: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
+    var fontSize: CGFloat = 18
     let onMove: (Int) -> Void
     let onSubmit: () -> Void
     let onCancel: () -> Void
@@ -416,7 +488,7 @@ private struct PaletteField: NSViewRepresentable {
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.font = .systemFont(ofSize: 18)
+        field.font = .systemFont(ofSize: fontSize)
         field.delegate = context.coordinator
         DispatchQueue.main.async { field.window?.makeFirstResponder(field) }
         return field

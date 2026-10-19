@@ -7,13 +7,19 @@ struct ImprintApp: App {
     /// The vault, shared by every window and tab.
     @StateObject private var store = VaultStore()
 
+    init() {
+        // Imprint has its own tabs, inside each side of a window; no window tabs.
+        NSWindow.allowsAutomaticWindowTabbing = false
+    }
+
     var body: some Scene {
-        // Each window (or tab) has its own note, folder, search and history.
+        // Each window has its own notes (in panes and tabs), folder, search and history.
         WindowGroup(id: "main", for: TabRequest.self) { $request in
             WindowRoot(store: store, request: request)
         } defaultValue: {
             TabRequest()
         }
+        .windowStyle(.hiddenTitleBar)
         .commands {
             AppCommands(store: store)
             FormatCommands()
@@ -25,14 +31,14 @@ struct ImprintApp: App {
     }
 }
 
-/// What a new window or tab should show. Unique each time, so asking for a note in a new tab
-/// always opens one rather than finding an older tab that once showed it.
+/// What a new window should show. Unique each time, so asking for a note in a new window
+/// always opens one rather than finding an older window that once showed it.
 struct TabRequest: Codable, Hashable {
     var id = UUID()
     var noteID: String?
 }
 
-/// One window or tab: its own model, over the shared store.
+/// One window: its own model, over the shared store.
 struct WindowRoot: View {
     let store: VaultStore
     let request: TabRequest
@@ -55,13 +61,17 @@ struct WindowRoot: View {
                 onBecomeKey: { [weak store, weak model] in store?.activeWindow = model }
             ))
             .onAppear {
-                model.openTab = { noteID in openWindow(id: "main", value: TabRequest(noteID: noteID)) }
+                model.openWindowHandler = { noteID in openWindow(id: "main", value: TabRequest(noteID: noteID)) }
+                #if DEBUG
+                DebugSnapshots.runIfAsked(for: model)
+                #endif
                 if let noteID = request.noteID, model.selection == nil { model.selection = noteID }
             }
     }
 }
 
-/// Makes the window join others as tabs, and reports when it comes to the front.
+/// Reports the window, and when it comes to the front. Imprint keeps its own tabs, inside
+/// each side of a window, so macOS's window tabs are turned off.
 private struct WindowTabbing: NSViewRepresentable {
     let onAttach: (NSWindow) -> Void
     let onBecomeKey: () -> Void
@@ -82,33 +92,19 @@ private struct WindowTabbing: NSViewRepresentable {
         var onAttach: ((NSWindow) -> Void)?
         var onBecomeKey: (() -> Void)?
         private var observer: NSObjectProtocol?
-        /// The Imprint window last in front, which new windows join as tabs.
-        private static weak var frontWindow: NSWindow?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             guard let window else { return }
             onAttach?(window)
-            window.tabbingMode = .preferred
-            window.tabbingIdentifier = "Imprint"
-            // A new window joins the front window's tabs, as in Finder and Safari. (Setting the
-            // tabbing mode alone is too late: SwiftUI has already shown the window.)
-            if let front = Self.frontWindow, front !== window, front.isVisible,
-               front.tabbedWindows?.contains(window) != true {
-                front.addTabbedWindow(window, ordered: .above)
-                window.makeKeyAndOrderFront(nil)
-            }
+            window.tabbingMode = .disallowed
             if let observer { NotificationCenter.default.removeObserver(observer) }
             observer = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self, weak window] _ in
                 MainActor.assumeIsolated {
-                    Self.frontWindow = window
                     self?.onBecomeKey?()
                 }
             }
-            if window.isKeyWindow || Self.frontWindow == nil {
-                Self.frontWindow = window
-                onBecomeKey?()
-            }
+            if window.isKeyWindow { onBecomeKey?() }
         }
     }
 }
@@ -129,8 +125,11 @@ struct AppCommands: Commands {
             Button("New Note") { model?.createNote() }
                 .keyboardShortcut("n")
                 .disabled(model == nil || store.root == nil)
-            Button("New Tab") { openWindow(id: "main", value: TabRequest()) }
+            Button("New Tab") { model?.newTab() }
                 .keyboardShortcut("t")
+                .disabled(model == nil)
+            Button("New Window") { openWindow(id: "main", value: TabRequest()) }
+                .keyboardShortcut("n", modifiers: [.command, .option])
             Button("Today's Note") { model?.openTodaysNote() }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
                 .disabled(model == nil || store.root == nil)
@@ -139,6 +138,10 @@ struct AppCommands: Commands {
                 .disabled(model?.selectedNote == nil)
             Button("Open Vault…") { store.chooseVault() }
                 .keyboardShortcut("o")
+            Divider()
+            Button("Close Tab") { model?.closeTab() }
+                .keyboardShortcut("w")
+                .disabled(model == nil)
             Divider()
             Button("Rename Note…") { model?.renaming = model?.selectedNote }
                 .disabled(model?.selectedNote == nil)
@@ -180,9 +183,6 @@ struct AppCommands: Commands {
                 .keyboardShortcut(.downArrow, modifiers: [.command, .option])
                 .disabled(model == nil)
             Divider()
-            Button("Close Side Note") { model?.closeSideNote() }
-                .disabled(model?.sideNote == nil)
-            Divider()
             Button("Back") { model?.goBack() }
                 .keyboardShortcut("[")
                 .disabled(model?.backStack.isEmpty ?? true)
@@ -217,6 +217,18 @@ struct AppCommands: Commands {
             Button("Smaller Text") { store.makeTextSmaller() }
                 .keyboardShortcut("-")
             Button("Actual Size") { store.textScale = 1 }
+            Divider()
+            Button((model?.isSplit ?? false) ? "Merge Split into Tabs" : "Split") { model?.toggleSplit() }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .disabled(model == nil || model?.isMinimal == true)
+            Button((model?.isSplit ?? false) ? "Move Tab to Other Side" : "Move Tab to New Split") { model?.moveTabToOtherSide() }
+                .disabled(model == nil || model?.isMinimal == true)
+            Button("Show Next Tab") { model?.cycleTab(1) }
+                .keyboardShortcut("]", modifiers: [.command, .shift])
+                .disabled(model == nil)
+            Button("Show Previous Tab") { model?.cycleTab(-1) }
+                .keyboardShortcut("[", modifiers: [.command, .shift])
+                .disabled(model == nil)
             Divider()
             Toggle("Show Markdown", isOn: $store.showsMarkdown)
                 .keyboardShortcut("m", modifiers: [.command, .shift])

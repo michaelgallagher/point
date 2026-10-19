@@ -32,6 +32,8 @@ final class EditorSession: NSObject, ObservableObject {
 
     private(set) var note: Note
     private var initialText = ""
+    /// Whether the note has no text at all (a new note), for offering templates.
+    @Published private(set) var isEmpty = false
     private weak var textView: MarkdownTextView?
     /// The file's contents as last read or written, to tell our edits from other people's.
     private var onDisk: String?
@@ -81,6 +83,7 @@ final class EditorSession: NSObject, ObservableObject {
     func attach(_ textView: MarkdownTextView, takesFocus: Bool = true) {
         self.textView = textView
         textView.load(initialText)
+        isEmpty = initialText.isEmpty
         textView.onTextChange = { [weak self] _ in self?.textDidChange() }
         if takesFocus {
             DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) }
@@ -100,6 +103,7 @@ final class EditorSession: NSObject, ObservableObject {
     }()
 
     private func textDidChange() {
+        if let textView, textView.string.isEmpty != isEmpty { isEmpty = textView.string.isEmpty }
         refreshFrontmatter()
         pendingSave?.cancel()
         pendingSave = Task { [weak self] in

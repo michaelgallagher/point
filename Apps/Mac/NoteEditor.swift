@@ -8,11 +8,14 @@ struct NoteEditor: View {
     @EnvironmentObject private var model: VaultModel
     @StateObject private var session: EditorSession
     @StateObject private var connections: Connections
-    /// Whether this is the note beside the main one, where followed links stay.
-    var isSide = false
+    /// The pane it's in, where links clicked in it open.
+    let paneID: VaultModel.NotePane.ID
+    /// Whether to offer templates while the note is empty (a note just made).
+    var offersTemplates = false
 
-    init(note: Note, model: VaultModel, isSide: Bool = false) {
-        self.isSide = isSide
+    init(note: Note, model: VaultModel, paneID: VaultModel.NotePane.ID, offersTemplates: Bool = false) {
+        self.paneID = paneID
+        self.offersTemplates = offersTemplates
         _session = StateObject(wrappedValue: EditorSession(note: note))
         _connections = StateObject(wrappedValue: Connections(note: note, model: model))
     }
@@ -32,7 +35,10 @@ struct NoteEditor: View {
                     .padding()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if session.isLoaded {
-                EditorView(session: session, model: model, isSide: isSide, showsMarkdown: model.showsMarkdown, textScale: model.textScale)
+                if offersTemplates, session.isEmpty, !model.templates.isEmpty {
+                    TemplateChoices()
+                }
+                EditorView(session: session, model: model, paneID: paneID, showsMarkdown: model.showsMarkdown, textScale: model.textScale)
             } else {
                 Color.clear
             }
@@ -43,6 +49,40 @@ struct NoteEditor: View {
             connections.refresh()
         }
         .onDisappear { session.save(leaving: true) }
+    }
+}
+
+/// Above a new, empty note: start from a template, or just type.
+private struct TemplateChoices: View {
+    @EnvironmentObject private var model: VaultModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("Start from a template:")
+                .foregroundStyle(.secondary)
+            ForEach(model.templates, id: \.url) { template in
+                Button(template.name) { model.insertTemplate(at: template.url) }
+                    .modifier(GlassButtonStyle())
+            }
+            Text("or just type.")
+                .foregroundStyle(.tertiary)
+        }
+        .font(.callout)
+        .padding(.horizontal, 28)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 720, alignment: .leading)
+        .frame(maxWidth: .infinity)
+    }
+}
+
+/// Glass buttons where the system has them, bordered ones before.
+struct GlassButtonStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26, *) {
+            content.buttonStyle(.glass)
+        } else {
+            content.buttonStyle(.bordered)
+        }
     }
 }
 
@@ -84,18 +124,26 @@ private struct ConflictBanner: View {
 private struct EditorView: NSViewRepresentable {
     let session: EditorSession
     let model: VaultModel
-    let isSide: Bool
+    let paneID: VaultModel.NotePane.ID
     /// Passed as a value, not read from the model, so SwiftUI updates the view when it changes.
     let showsMarkdown: Bool
     let textScale: Double
 
     func makeNSView(context: Context) -> NSScrollView {
         let (scrollView, textView) = MarkdownTextView.makeScrollable()
-        session.attach(textView, takesFocus: !model.consumeListFocus())
+        // The keyboard stays in the list after picking a note there, and with two sides it
+        // stays with the side being worked on (an editor on the other side, rebuilt when the
+        // window splits, mustn't take it).
+        let isActivePane = model.paneIndex(paneID) == model.activePane
+        session.attach(textView, takesFocus: !model.consumeListFocus() && isActivePane)
         let noteID = session.note.id
-        textView.onOpenLink = { [weak model, isSide] link in model?.open(link, from: noteID, in: isSide ? .side : .here) }
-        textView.onOpenLinkInNewTab = { [weak model] link in model?.open(link, from: noteID, in: .newTab) }
-        textView.onOpenLinkToSide = { [weak model] link in model?.open(link, from: noteID, in: .side) }
+        textView.onOpenLink = { [weak model, paneID] link in model?.open(link, from: noteID, inPane: paneID) }
+        textView.onOpenLinkInNewTab = { [weak model, paneID] link in model?.open(link, from: noteID, inPane: paneID, as: .newTab) }
+        textView.onOpenLinkToSide = { [weak model, paneID] link in model?.open(link, from: noteID, inPane: paneID, as: .otherSide) }
+        // Typing or clicking in a note makes its pane the one the list and menus act on.
+        textView.onFocus = { [weak model, paneID] in
+            DispatchQueue.main.async { model?.activate(pane: paneID) }
+        }
         textView.completeNoteTitle = { [weak model] partial in model?.titleSuggestions(for: partial) ?? [] }
         return scrollView
     }

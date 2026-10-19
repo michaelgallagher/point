@@ -8,7 +8,11 @@ A simple, fast, native Markdown notes app for Mac and iPhone that feels like App
 2. **Never see Markdown.** Editing feels like rich text. Markdown decides what formatting is possible. A raw-source toggle exists for emergencies.
 3. **Little filing.** Search, links and tags do most of the finding. Folders exist for the few broad areas that need them (as in Obsidian), but filing is never required.
 4. **Capture is instant.** One press on the iPhone gets you to a blank note with the keyboard up.
-5. **Native and fast.** Use platform conventions, open instantly, and stay responsive with 10,000 notes.
+5. **Fast software is good software.** Open instantly, and stay responsive with 10,000 notes. Speed wins over features that would slow things down.
+6. **Native.** Use platform conventions and the system's own controls.
+7. **As minimal as possible, but no more.** Show as little interface as we can, without making common actions hard to do.
+8. **Know what you need to know.** Half of the app's job is managing knowledge: surfacing what matters, connecting related notes and making it easy to find things again, not just storing text.
+9. **The command palette is the main way to do things.** Every action is reachable from it. Menus, buttons and shortcuts are secondary ways to get there.
 
 ## Decisions so far
 
@@ -234,7 +238,7 @@ Features:
 4. **Order:** the Settings window and the two-column view first, then the model split, then tabs.
    - Status, 18 October 2026: all built and checked in the app.
      - **The split:** `VaultStore` (shared: vault, notes, index, tags, pins, file operations, display settings) and `VaultModel` (one per window or tab: note, folder, search, history, sheets). It passes the store through, so views kept their API. Menus act on the front window (`@FocusedObject`).
-     - **Tabs:** native tabs. New windows join the front window's tab group, and each tab is independent. ⌘T is New Tab, and Today's Note moved to ⇧⌘T.
+     - **Tabs:** native tabs at first; replaced on 18 October 2026 by Imprint's own tabs inside each side of a split (see Part F, "Panes and tabs"). ⌘T is New Tab, and Today's Note moved to ⇧⌘T.
      - **Opening a note in a new tab:** ⌘-click (on a note or link), right-click > Open in New Tab and ⌘Return in the palette. Mike confirmed they work.
    - **How two columns is built:** the tree and the notes sit side by side inside one sidebar, with a draggable divider. SwiftUI's three-column split view on the Mac wouldn't hide both side columns from code, so swiping and ⌘S hid the wrong thing. Hiding narrows the window by exactly the sidebar's measured width, and showing widens it back first.
 5. **Two-column view, pins:** pinned folders and tags stay at the top of the left column, above the tree.
@@ -269,6 +273,16 @@ Features:
 - **Settings:** wider (560 points), in sections (Sidebar, Sorting, Note list, Text), each label above its options. The note list's date (edited or created) is now there too.
 - **New Note button** in the toolbar, beside the button that hides the sidebar.
 
+**Panes and tabs (decided 18 October 2026, built and checked in the app):**
+- **Decisions:** the split sits at the top of the note area, and each side has its own tabs (like Xcode or VS Code editor groups). These replace macOS window tabs, which are turned off. The window never resizes itself: hiding the list or splitting gives the space to the notes, whose text column (with its maximum width) recentres. The old approach widened and narrowed the window by remembered amounts, which drifted whenever a resize was cut short (minimum width, screen edge, full screen) and could leave the window wider than the screen.
+- **Model:** a window has one or two panes; a pane has tabs; a tab has a note (or none) and its own back/forward history. The active pane is the one last typed or clicked in; the list, palette, Go menu and note commands act on it. A note is open in at most one tab per window, so opening it again goes to that tab.
+- **Keys and menus:** ⇧⌘S splits, with an empty side that gets the next note picked; pressed again, it merges both sides back into one side's tabs. ⌘T new tab, ⌘W close tab (a side's last tab closes the side; the window's last closes the window), ⇧⌘[ / ⇧⌘] previous and next tab, ⌥⌘N new window. View > Move Tab to Other Side (or to a new split). ⌥⌘-click and Open to the Side open a note on the other side.
+- **Top of the window:** no title bar or toolbar. The sidebar and each side of the split have their own bar along the window's top edge, sized from where macOS puts the close, minimise and zoom buttons so everything sits on one line. The sidebar's bar holds New Note and Hide Sidebar; while the sidebar is hidden, the first side's bar holds them. Empty bar space drags the window and double-click zooms it, like a title bar.
+- **Each side's bar:** the note's title, or with more than one tab, the tabs as the system's segmented control (the current tab a light pill). Then New Tab (+), and Split, or with a split, Close This Side (x). Right-click a tab: Close Tab, Close Other Tabs, Move to Other Side, Merge Both Sides into Tabs. With a split, the other side's title is dimmed.
+- **Height and glass (18 October 2026):** the window keeps an empty toolbar (its one invisible item has no glass backing), so its top row has the system's standard height (52 points on macOS 27) and the bars line up with it; clicks still reach the bars. On macOS 26 and later, tabs are Liquid Glass capsules (the current one solid glass, the others clear glass, a close button on hover) and the bar buttons are round glass buttons. Older systems keep the segmented control and plain buttons.
+- **Keyboard on load:** an editor only takes the keyboard if it's on the active side (and the note wasn't picked in the list), so rebuilding the split never moves the active side.
+- **Later:** a blank tab will show a small file browser. Dragging tabs between sides.
+
 ### M4 — iPhone
 Buy the developer account first.
 - Folder access through Files, list and editor.
@@ -294,6 +308,24 @@ Buy the developer account first.
 5. **On-device model quality.** Foundation Models is small, so digests may be shallow. Mitigation: keep prompts narrow, and lean on embeddings and statistics for topics and clusters.
 6. **Digests depend on the M3.** They're only generated when the M3 is awake and running the app. Mitigation: generate on launch for any missed weeks.
 
+## Exploration: radically minimal (issue #2, branch `minimalist`)
+
+**The question.** Can Imprint drop the usual "explorer on the left, note on the right" layout? The needs: keep a bunch of notes open, find things quickly, show as little interface as possible. Principles 5, 7 and 9 point the same way: fast, minimal, and the command palette as the main way to do things.
+
+**Decisions:**
+1. **A third layout, "Minimal",** beside One column and Two columns (Settings > Sidebar > Layout, or the palette's "Use Minimal Layout"). It's a layout rather than a replacement, so the two can be compared day to day. If Minimal wins, the other two can go later.
+2. **No explorer panel.** The window is one slim note. Finding and browsing happen in two places only: the ⌘E palette, and the start page (below).
+3. **The explorer is a tab, not a panel.** Every new or empty tab is a start page: a large search field, already focused, over the vault. With nothing typed it lists recent notes, then the folders, Tags and notes at the current level, browsed with the arrow keys as in the palette's explorer (→ in, ← out). Typing searches everything, as ⌘E does (#tags, >commands). Return opens the note in that tab; ⌘Return in a new tab. So "where's the explorer?" is always answered by ⌘T, with no panel to hunt for, and a blank tab is never empty.
+4. **Tabs down the side.** A native sidebar list of the window's tabs (title per row), on the left. It appears by itself when there are two or more tabs and stays out of the way with one. ⌘S, the button, or a two-finger swipe hides and shows it. + at the top opens a start page. Vertical tabs suit "a bunch of notes open": titles stay readable, and many fit.
+5. **No splitting.** Two notes side by side means two windows. In Minimal, ⌥⌘-click and Open to the Side open the note in a new window, and ⇧⌘S is unavailable. (Snapping windows together is a possible later step.)
+6. **New note gives a choice without slowing you down.** ⌘N opens a blank note in a new tab with the cursor in it, so typing starts at once. While it's empty, a row of templates sits above the text; picking one fills the note. Typing anything removes the row.
+7. **Search goes through the palette.** With no list to search in, ⌘F and clicking a tag open the palette (with the tag typed in).
+8. **The top row** has only the window buttons, the button for the tab list, and the note's title. Everything else is in the palette, menus and shortcuts.
+
+**Draft status (18 October 2026):** built on branch `minimalist`. Checked from pictures of the window saved by a debug hook (`-ImprintSnapshots <folder>` with `-browsingStyle minimal`), because the screen was locked: the tab list, the start page, the template row and the single-tab window all render as intended. Not yet tried by hand: keyboard use of the start page, opening a second window, and the tab list's highlight (it pictures as a black bar, probably a quirk of how the pictures are made).
+
+**Not in the draft:** windows that snap together; a pinned first "explorer" tab (decided against: ⌘T reaches the start page from anywhere, which is simpler); a slimmer default window size for Minimal.
+
 ## Topics for investigation
 
 ### Daily notes as a meeting log
@@ -304,6 +336,8 @@ Today, each meeting gets its own note, because finding things inside daily notes
 - **A meetings view:** every meeting heading across all daily notes as one list, filterable by person, tag or date. This could come straight from the search index.
 - **Marking a meeting:** decide how a section counts as a meeting. Options are a heading level, a `#meeting` tag under the heading, or a template.
 - **Quick entry:** a "New Meeting" command that adds a meeting section to today's note from a template, including the time.
+
+- **Auto-hide the list in narrow windows:** shrinking a window below a set width hides the note list (filed 18 October 2026, not started).
 
 ## Open questions
 
