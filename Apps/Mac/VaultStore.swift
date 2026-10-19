@@ -347,7 +347,8 @@ final class VaultStore: ObservableObject {
 
     // MARK: Display settings (shared by every window)
 
-    @Published var showsDateInList = UserDefaults.standard.bool(forKey: "showsDateInList") {
+    /// On unless turned off.
+    @Published var showsDateInList = UserDefaults.standard.object(forKey: "showsDateInList") == nil || UserDefaults.standard.bool(forKey: "showsDateInList") {
         didSet { UserDefaults.standard.set(showsDateInList, forKey: "showsDateInList") }
     }
     @Published var listDate = VaultModel.ListDate(rawValue: UserDefaults.standard.string(forKey: "listDate") ?? "") ?? .edited {

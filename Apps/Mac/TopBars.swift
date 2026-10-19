@@ -66,7 +66,8 @@ struct PaneTopBar: View {
                 BarButton("Split", systemImage: "rectangle.split.2x1", help: "Split (⇧⌘S)") { model.toggleSplit() }
             }
         }
-        .padding(.leading, startsAtWindowEdge ? model.windowButtonsInset + TopBar.sidebarButtonWidth : 16)
+        // Less the tab row's own inset (room for the drop marker at its ends).
+        .padding(.leading, (startsAtWindowEdge ? model.windowButtonsInset + TopBar.sidebarButtonWidth : 16) - NoteTabs.inset)
         .padding(.trailing, 8)
         .frame(height: model.topBarHeight)
         .background(WindowDragArea())
@@ -140,36 +141,90 @@ struct NoteTabs: View {
     /// Shows where a tab dropped past the last one would go.
     var isAppendTarget = false
 
+    /// Tab widths: a tab is as wide as its title, between these.
+    static let narrowest: CGFloat = 80
+    static let widest: CGFloat = 240
+    /// When they don't all fit, the others shrink to this (or their own width, if less)
+    /// before the row scrolls.
+    static let squeezed: CGFloat = 120
+    static let spacing: CGFloat = 2
+    /// Room at each end of the row, for the drop marker.
+    static let inset: CGFloat = 4
+
     var body: some View {
-        // Each tab its natural width while they fit; when they don't, equal shares, with
-        // titles truncated.
-        ViewThatFits(in: .horizontal) {
-            row(natural: true)
-            row(natural: false)
+        GeometryReader { geometry in
+            let titles = pane.tabs.map { model.note($0.noteID)?.title ?? "New Tab" }
+            let widths = Self.widths(for: titles, current: pane.current, in: geometry.size.width - Self.inset * 2)
+            let rowWidth = widths.reduce(0, +) + Self.spacing * CGFloat(max(widths.count - 1, 0)) + Self.inset * 2
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Self.spacing) {
+                        ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
+                            NoteTab(
+                                id: tab.id,
+                                title: titles[index],
+                                isCurrent: index == pane.current,
+                                width: widths[index],
+                                select: { model.selectTab(index, inPane: paneIndex) },
+                                close: { model.closeTab(index, inPane: paneIndex) },
+                                menu: { menu(for: index, tab: tab) }
+                            )
+                            // Drag a tab along the bar, to the other side's bar or page, or to
+                            // one half of the page to split the window.
+                            .modifier(TabDropTarget(paneIndex: paneIndex, index: index))
+                            .id(tab.id)
+                        }
+                    }
+                    .overlay(alignment: .trailing) {
+                        if isAppendTarget { DropMarker().offset(x: 2) }
+                    }
+                    .padding(.horizontal, Self.inset)
+                    .frame(height: geometry.size.height)
+                }
+                // Only as wide as the tabs, so the bar's empty space still moves the window.
+                .frame(width: min(rowWidth, geometry.size.width))
+                // The current tab always in view.
+                .onAppear { proxy.scrollTo(pane.tab.id) }
+                .onChange(of: pane.tab.id) { id in
+                    withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id) }
+                }
+                .onChange(of: geometry.size.width) { _ in proxy.scrollTo(pane.tab.id) }
+            }
         }
     }
 
-    private func row(natural: Bool) -> some View {
-        HStack(spacing: 2) {
-            ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
-                let title = model.note(tab.noteID)?.title ?? "New Tab"
-                NoteTab(
-                    id: tab.id,
-                    title: title,
-                    isCurrent: index == pane.current,
-                    natural: natural,
-                    select: { model.selectTab(index, inPane: paneIndex) },
-                    close: { model.closeTab(index, inPane: paneIndex) },
-                    menu: { menu(for: index, tab: tab) }
-                )
-                // Drag a tab along the bar, to the other side's bar or page, or to one half
-                // of the page to split the window.
-                .modifier(TabDropTarget(paneIndex: paneIndex, index: index))
+    /// Each tab as wide as its title, while they all fit. When they don't, the current tab
+    /// keeps its width and the others share what's left, each down to `squeezed`; past that,
+    /// the row scrolls.
+    static func widths(for titles: [String], current: Int, in available: CGFloat) -> [CGFloat] {
+        let natural = titles.map { min(max(titleWidth($0) + chrome, narrowest), widest) }
+        let gaps = spacing * CGFloat(max(titles.count - 1, 0))
+        guard natural.reduce(0, +) + gaps > available, natural.indices.contains(current) else { return natural }
+        var widths = natural
+        var room = available - gaps - natural[current]
+        var sharing = natural.indices.filter { $0 != current }
+        // Tabs narrower than an equal share keep their own width; the rest share equally.
+        while !sharing.isEmpty {
+            let share = room / CGFloat(sharing.count)
+            let fitting = sharing.filter { natural[$0] <= share }
+            if fitting.isEmpty {
+                for i in sharing { widths[i] = max(share, min(natural[i], squeezed)) }
+                break
             }
+            for i in fitting { room -= natural[i] }
+            sharing.removeAll { fitting.contains($0) }
         }
-        .overlay(alignment: .trailing) {
-            if isAppendTarget { DropMarker().offset(x: 2) }
-        }
+        return widths
+    }
+
+    /// The close button, its balance on the other side, and padding.
+    private static let chrome: CGFloat = 6 * 2 + 16 * 2 + 2 * 2
+
+    private static func titleWidth(_ title: String) -> CGFloat {
+        // The current tab's weight, so a tab doesn't change width when picked.
+        let size = NSFont.preferredFont(forTextStyle: .callout).pointSize
+        let font = NSFont.systemFont(ofSize: size, weight: .medium)
+        return ceil((title as NSString).size(withAttributes: [.font: font]).width)
     }
 
     /// The tab's right-click menu.
@@ -198,8 +253,7 @@ private struct NoteTab: View {
     let id: VaultModel.NoteTab.ID
     let title: String
     let isCurrent: Bool
-    /// Its natural width, or an equal share of a crowded row.
-    let natural: Bool
+    let width: CGFloat
     let select: () -> Void
     let close: () -> Void
     let menu: () -> NSMenu
@@ -222,13 +276,12 @@ private struct NoteTab: View {
                 .truncationMode(.middle)
                 .font(.callout.weight(isCurrent ? .medium : .regular))
                 .foregroundStyle(isCurrent ? .primary : .secondary)
-                .frame(maxWidth: natural ? nil : .infinity)
+                .frame(maxWidth: .infinity)
                 .allowsHitTesting(false) // Clicks go to the tab's mouse area, below.
             Color.clear.frame(width: 16, height: 16) // Balances the close button.
         }
         .padding(.horizontal, 6)
-        .frame(minWidth: natural ? nil : 70, maxWidth: natural ? nil : .infinity)
-        .fixedSize(horizontal: natural, vertical: false)
+        .frame(width: width)
         .frame(height: 28)
         .background {
             let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
