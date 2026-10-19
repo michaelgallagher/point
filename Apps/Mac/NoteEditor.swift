@@ -66,7 +66,7 @@ private struct NoteHeader: View {
                     NotePath(note: session.note, vault: model.root?.lastPathComponent ?? "Vault")
                 }
                 Text(session.note.title)
-                    .font(.system(size: 24 * model.textScale, weight: .medium))
+                    .font(.system(size: 24 * model.textScale, weight: .semibold))
                     .lineLimit(2)
                     .textSelection(.enabled)
             }

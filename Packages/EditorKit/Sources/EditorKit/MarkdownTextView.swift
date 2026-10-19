@@ -66,7 +66,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     /// An editor inside a scroll view, ready to put in a window.
     public static func makeScrollable() -> (NSScrollView, MarkdownTextView) {
         let textView = MarkdownTextView(markdown: ())
-        let scrollView = NSScrollView()
+        let scrollView = MarkdownScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
@@ -390,6 +390,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     }
 
     public override func cut(_ sender: Any?) {
+        if cutWholeLine() { return }
         expandSelectionToWholeTokens()
         super.cut(sender)
     }
@@ -472,3 +473,40 @@ extension MarkdownToken {
     }
 }
 #endif
+
+/// The editor's scroll view. Where the window's top bars cover its top (its top content
+/// inset, from the window), it blurs the text scrolling beneath them, with a hairline at the
+/// edge, like the system's hard scroll edge effect. (The system's own effect needs a title
+/// bar that isn't transparent, which takes the top bars' clicks and drops; and a blur from
+/// outside the scroll view doesn't pick up the text.)
+final class MarkdownScrollView: NSScrollView {
+    private let edgeBlur: NSVisualEffectView = {
+        let view = NSVisualEffectView()
+        view.material = .headerView
+        view.blendingMode = .withinWindow
+        view.state = .active
+        return view
+    }()
+    private let edgeLine: NSBox = {
+        let line = NSBox()
+        line.boxType = .separator
+        return line
+    }()
+
+    override func tile() {
+        super.tile()
+        let height = contentInsets.top
+        guard height > 0 else {
+            edgeBlur.removeFromSuperview()
+            edgeLine.removeFromSuperview()
+            return
+        }
+        if edgeBlur.superview == nil {
+            addSubview(edgeBlur, positioned: .above, relativeTo: contentView)
+            addSubview(edgeLine, positioned: .above, relativeTo: edgeBlur)
+        }
+        let top = isFlipped ? 0 : bounds.height - height
+        edgeBlur.frame = NSRect(x: 0, y: top, width: bounds.width, height: height)
+        edgeLine.frame = NSRect(x: 0, y: isFlipped ? height - 1 : top, width: bounds.width, height: 1)
+    }
+}

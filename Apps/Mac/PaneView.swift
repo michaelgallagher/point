@@ -3,9 +3,9 @@ import SwiftUI
 import VaultKit
 
 /// One side of the window: its top bar (title or tabs) above the current tab's note, or
-/// for an empty tab, a start page. From macOS 26 the bar is see-through and the note
-/// scrolls up beneath it, behind the system's hard-edged scroll edge effect, which takes
-/// the place of a line under the bar.
+/// for an empty tab, a start page. From macOS 26 the note scrolls up beneath the bar,
+/// which has no background of its own: the system's hard scroll edge effect blurs what's
+/// under it (see `WindowTabbing`).
 struct PaneView: View {
     @EnvironmentObject private var model: VaultModel
     let paneID: VaultModel.NotePane.ID
@@ -19,8 +19,7 @@ struct PaneView: View {
                 page(pane, index: index, underBar: 0)
             } else if #available(macOS 26, *) {
                 page(pane, index: index, underBar: model.topBarHeight)
-                    .safeAreaBar(edge: .top, spacing: 0) { PaneTopBar(pane: pane, paneIndex: index) }
-                    .scrollEdgeEffectStyle(.hard, for: .top)
+                    .overlay(alignment: .top) { PaneTopBar(pane: pane, paneIndex: index) }
             } else {
                 VStack(spacing: 0) {
                     PaneTopBar(pane: pane, paneIndex: index)

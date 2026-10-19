@@ -85,9 +85,11 @@ struct PaneTopBar: View {
     }
 
     /// Before macOS 26, the page's colour with a hairline under it. From 26, nothing: the
-    /// note scrolls beneath, behind the scroll edge effect.
+    /// system's hard scroll edge effect blurs the note scrolling beneath, with its own edge.
     @ViewBuilder private var barBackground: some View {
-        if #unavailable(macOS 26) {
+        if #available(macOS 26, *) {
+            Color.clear
+        } else {
             TopBar.barColor
                 .overlay(alignment: .bottom) { Divider().opacity(0.5) }
         }

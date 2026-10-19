@@ -35,6 +35,10 @@ enum DebugSnapshots {
             }),
             ("8-split", { model.toggleSplit() }),
             ("9-no-list", { model.showsNoteList = false }),
+            ("9b-tag-in-explorer", {
+                // A tag clicked with the sidebar hidden: its notes, in the explorer.
+                if case .tag(let tag)? = model.tagNodes.first?.place { model.search(tag: tag) }
+            }),
             ("7-note-in-folder", {
                 // The deepest note, to show its path in the top bar.
                 if let note = model.notes.max(by: { $0.id.filter { $0 == "/" }.count < $1.id.filter { $0 == "/" }.count }) {

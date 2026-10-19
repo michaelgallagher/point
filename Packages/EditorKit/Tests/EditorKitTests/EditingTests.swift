@@ -288,6 +288,44 @@ struct LinkTests {
         #expect(view.string == "see pears now")
     }
 
+    @Test func pastingAListItemIntoAListItemDropsItsMarker() {
+        let view = editor("- one\n- |\n- three")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("- two\n", forType: .string) // As a triple-click copies it.
+        view.paste(nil)
+        #expect(view.string == "- one\n- two\n- three")
+    }
+
+    @Test func pastingATaskIntoATaskDropsItsCheckbox() {
+        let view = editor("- [ ] |")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("  - [x] done\n", forType: .string)
+        view.paste(nil)
+        #expect(view.string == "- [ ] done")
+    }
+
+    @Test func pastingAListItemOutsideAListKeepsItsMarker() {
+        let view = editor("text\n|")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("- two\n", forType: .string)
+        view.paste(nil)
+        #expect(view.string == "text\n- two\n")
+    }
+
+    @Test func cuttingWithNothingSelectedCutsTheLine() {
+        let view = editor("- one\n- t|wo\n- three")
+        view.cut(nil)
+        #expect(view.string == "- one\n- three")
+        #expect(NSPasteboard.general.string(forType: .string) == "- two\n")
+    }
+
+    @Test func cuttingTheLastLineLeavesNoEmptyLine() {
+        let view = editor("- one\n- tw|o")
+        view.cut(nil)
+        #expect(view.string == "- one")
+        #expect(NSPasteboard.general.string(forType: .string) == "- two\n")
+    }
+
     @Test func recognisesURLs() {
         #expect(MarkdownTextView.isURL("https://apple.com/x?y=1"))
         #expect(MarkdownTextView.isURL("  mailto:a@b.com\n"))

@@ -171,7 +171,7 @@ struct SidebarTable: NSViewRepresentable {
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             switch rows[row] {
             case .header, .tagsHeader: model.sidebarDensity.headerHeight
-            case .divider: 11
+            case .divider: model.sidebarDensity.dividerHeight
             case .place: model.sidebarDensity.rowHeight
             case .note(let id):
                 // Two lines only for a note that has tags to show.
@@ -390,9 +390,12 @@ struct SidebarRowView: View {
             .padding(.bottom, 3)
             .help(tagsExpanded ? "Hide tags" : "Show tags")
         case .divider:
+            // Low in its row: the room above ends the section before it, which otherwise
+            // looks cramped (most of all a collapsed section, its heading right on the line).
             Divider()
                 .padding(.horizontal, 8)
-                .frame(maxHeight: .infinity)
+                .padding(.bottom, 5)
+                .frame(maxHeight: .infinity, alignment: .bottom)
         case .place(let place, let depth):
             HStack(spacing: 6) {
                 Image(systemName: place.isTag ? "number" : "folder")

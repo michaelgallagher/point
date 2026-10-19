@@ -355,14 +355,65 @@ extension MarkdownTextView {
         return ["http", "https", "mailto", "obsidian"].contains(scheme) && (scheme == "mailto" || url.host != nil || scheme == "obsidian")
     }
 
-    /// Pasting a URL over selected text links the text instead of replacing it.
+    /// Pasting a URL over selected text links the text instead of replacing it. Pasting a
+    /// list item (say, one picked up with a triple-click) into another list item drops its
+    /// own marker, and the line break after it, so it doesn't arrive as "- - item".
     public override func paste(_ sender: Any?) {
         let selection = selectedRange()
-        if selection.length > 0, let clip = NSPasteboard.general.string(forType: .string), Self.isURL(clip) {
+        guard let clip = NSPasteboard.general.string(forType: .string) else { return super.paste(sender) }
+        if selection.length > 0, Self.isURL(clip) {
             link(selection, to: clip.trimmingCharacters(in: .whitespacesAndNewlines))
             return
         }
+        let text = string as NSString
+        let before = text.substring(with: NSRange(location: lineStart(of: selection.location), length: selection.location - lineStart(of: selection.location)))
+        if let merged = Self.withoutListMarker(clip, pastedAfter: before) {
+            insertText(merged, replacementRange: selection)
+            return
+        }
         super.paste(sender)
+    }
+
+    /// A list marker at the start of a line: indent, `-`, `*`, `+` or `1.`, and a checkbox.
+    private static let listMarkerPattern = try! NSRegularExpression(pattern: #"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?"#)
+
+    /// `clip` without the list marker on its first line (and one line break at its end), when
+    /// it's going into a list item after its marker (`before` is the line up to the cursor);
+    /// nil when it should paste as it is.
+    static func withoutListMarker(_ clip: String, pastedAfter before: String) -> String? {
+        func markerLength(_ line: String) -> Int? {
+            let range = NSRange(location: 0, length: (line as NSString).length)
+            return listMarkerPattern.firstMatch(in: line, range: range).map(\.range.length)
+        }
+        guard let target = markerLength(before), (before as NSString).length >= target,
+              let marker = markerLength(clip) else { return nil }
+        var result = (clip as NSString).substring(from: marker)
+        if result.hasSuffix("\r\n") { result.removeLast(1) } else if result.hasSuffix("\n") { result.removeLast() }
+        return result
+    }
+
+    /// ⌘X with nothing selected cuts the whole line (a list item, say), line break and all,
+    /// ready to paste somewhere else. False if there's no line to cut.
+    func cutWholeLine() -> Bool {
+        let selection = selectedRange()
+        let text = string as NSString
+        guard selection.length == 0, text.length > 0 else { return false }
+        let line = text.lineRange(for: NSRange(location: min(selection.location, text.length), length: 0))
+        let lineText = text.substring(with: line)
+        guard !lineText.isEmpty else { return false }
+        var removed = line
+        // The last line has no line break of its own: remove the one before it instead, so
+        // no empty line is left behind.
+        if !lineText.hasSuffix("\n"), line.location > 0 {
+            removed = NSRange(location: line.location - 1, length: line.length + 1)
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(lineText.hasSuffix("\n") ? lineText : lineText + "\n", forType: .string)
+        guard shouldChangeText(in: removed, replacementString: "") else { return true }
+        replaceCharacters(in: removed, with: "")
+        didChangeText()
+        setSelectedRange(NSRange(location: min(removed.location, (string as NSString).length), length: 0))
+        return true
     }
 
     // MARK: Checkboxes

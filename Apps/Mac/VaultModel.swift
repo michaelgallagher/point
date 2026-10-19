@@ -203,6 +203,9 @@ final class VaultModel: ObservableObject {
 
     func paneIndex(_ id: NotePane.ID) -> Int? { panes.firstIndex { $0.id == id } }
 
+    /// The notes open in tabs, side by side and left to right.
+    var openNoteIDs: [Note.ID] { panes.flatMap { $0.tabs.compactMap(\.noteID) } }
+
     /// Opens a note (or a blank tab) in a new tab of a pane, the active one unless given.
     func newTab(noteID: Note.ID? = nil, inPane pane: Int? = nil) {
         if let noteID, let (p, t) = location(of: noteID) {
@@ -632,12 +635,15 @@ final class VaultModel: ObservableObject {
 
     /// Searches for a tag, for example after a tag is clicked in a note.
     func search(tag: String) {
-        // With the sidebar hidden, search in the palette rather than bringing it back.
+        // With the sidebar hidden, show the tag's notes in the explorer rather than bringing
+        // the sidebar back.
         if !showsNoteList || isFocused {
-            paletteSeed = "#" + tag
+            explorerPlace = .tag(tag)
+            explorerInNotes = true
+            explorerNote = nil
             isPaletteShown = false
             DispatchQueue.main.async { [weak self] in
-                self?.paletteMode = .search
+                self?.paletteMode = .explorer
                 self?.isPaletteShown = true
             }
             return
@@ -717,6 +723,8 @@ final class VaultModel: ObservableObject {
         var twoLineHeight: CGFloat { self == .compact ? 38 : 48 }
         /// A section heading ("Folders", "Tags").
         var headerHeight: CGFloat { self == .compact ? 24 : 30 }
+        /// The line between sections, with room above it.
+        var dividerHeight: CGFloat { self == .compact ? 11 : 19 }
     }
 
     /// The two-column view's left column: folders and tags stacked, or one at a time.

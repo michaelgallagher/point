@@ -18,13 +18,16 @@ struct PropertiesStrip: View {
             Button {
                 withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() }
             } label: {
-                HStack(spacing: 6) {
+                HStack(spacing: 4) {
                     Image(systemName: "chevron.right")
                         .font(.caption2.weight(.semibold))
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(width: Self.chevronWidth)
                     Text(summary)
                         .lineLimit(1)
                 }
+                // The chevron hangs in the margin, so the summary lines up with the title.
+                .padding(.leading, -(Self.chevronWidth + 4))
                 .foregroundStyle(.secondary)
                 .contentShape(Rectangle())
             }
@@ -67,7 +70,7 @@ struct PropertiesStrip: View {
                 .onPreferenceChange(RowFrames.self) { rowFrames = $0 }
                 .overlay(alignment: .topLeading) { dropIndicator }
                 .overlay(alignment: .topLeading) { draggedRow }
-                .padding(.leading, 18)
+                .padding(.leading, 2)
             }
             // Only while open: a line, the text's width, between the properties and the text.
             // It fades in as they open.
@@ -81,12 +84,14 @@ struct PropertiesStrip: View {
         .font(.callout)
         .padding(.top, 6)
         .padding(.bottom, 10)
+        .padding(.leading, 5) // Lines up with the title and the text, which are inset a little.
         .frame(maxWidth: 720, alignment: .leading)
         .padding(.horizontal, 28)
         .frame(maxWidth: .infinity)
     }
 
     private static let space = "properties"
+    private static let chevronWidth: CGFloat = 12
 
     /// Drags a property, by its name, to a new place among the others.
     private func reorderGesture(for key: String) -> some Gesture {

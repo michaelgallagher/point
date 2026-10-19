@@ -11,6 +11,8 @@ struct CommandPalette: View {
     @State private var query = ""
     @State private var items: [PaletteItem] = []
     @State private var highlighted = 0
+    /// Notes open in tabs, marked in the list.
+    @State private var openIDs: Set<Note.ID> = []
     @State private var tags: [(tag: String, count: Int)] = []
     @State private var searchTask: Task<Void, Never>?
     @StateObject private var explorer = ExplorerState()
@@ -46,7 +48,7 @@ struct CommandPalette: View {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(Array(items.enumerated()), id: \.element.id) { offset, item in
-                                PaletteRow(item: item, isHighlighted: offset == highlighted)
+                                PaletteRow(item: item, isHighlighted: offset == highlighted, isOpen: openIDs.contains(item.noteID ?? ""))
                                     .contentShape(Rectangle())
                                     .onTapGesture {
                                         highlighted = offset
@@ -142,6 +144,10 @@ struct CommandPalette: View {
             return
         }
         let commands = PaletteCommand.all(for: model)
+        // Notes open in tabs come first, marked as open.
+        let openNotes = model.openNoteIDs.compactMap { model.note($0) }
+        let openSet = Set(openNotes.map(\.id))
+        openIDs = openSet
         searchTask = Task {
             var notes: [PaletteItem] = []
             var tagItems: [PaletteItem] = []
@@ -155,11 +161,19 @@ struct CommandPalette: View {
                 tagItems = tags.filter { tagQuery.isEmpty || $0.tag.lowercased().contains(tagQuery.lowercased()) || Fuzzy.score(query: tagQuery, name: $0.tag) != nil }
                     .prefix(30).map { PaletteItem.tag($0.tag, $0.count) }
             } else if trimmed.isEmpty {
-                notes = model.notes.sorted(by: .modified).prefix(6).map { PaletteItem.note($0.id, $0.title, nil) }
+                let open = openNotes.map { PaletteItem.note($0.id, $0.title, nil) }
+                let recent = model.notes.sorted(by: .modified).lazy.filter { !openSet.contains($0.id) }.prefix(6)
+                notes = open + recent.map { PaletteItem.note($0.id, $0.title, nil) }
                 commandItems = commands.filter(\.isSuggested).map(PaletteItem.command)
             } else {
                 let results = (try? await model.index?.search(trimmed, limit: 8)) ?? []
-                notes = results.map { PaletteItem.note($0.id, $0.title, $0.snippet) }
+                // Open notes that match, by title or in the search, then the rest.
+                let openMatches = Self.rank(openNotes, by: trimmed, name: \.title).map(\.id)
+                let found = results.map { PaletteItem.note($0.id, $0.title, $0.snippet) }
+                let openFirst = openMatches.compactMap { id in
+                    found.first { $0.noteID == id } ?? model.note(id).map { PaletteItem.note($0.id, $0.title, nil) }
+                } + found.filter { item in openSet.contains(item.noteID ?? "") && !openMatches.contains(item.noteID ?? "") }
+                notes = openFirst + found.filter { !openSet.contains($0.noteID ?? "") }
                 tagItems = tags.filter { Fuzzy.score(query: trimmed, name: $0.tag) != nil }.prefix(3).map { PaletteItem.tag($0.tag, $0.count) }
                 commandItems = Self.rank(commands, by: trimmed, name: \.name).prefix(3).map(PaletteItem.command)
             }
@@ -210,6 +224,11 @@ enum PaletteItem: Identifiable {
     case tag(String, Int)
     case command(PaletteCommand)
 
+    var noteID: Note.ID? {
+        if case .note(let id, _, _) = self { return id }
+        return nil
+    }
+
     var id: String {
         switch self {
         case .note(let id, _, _): "note:\(id)"
@@ -259,6 +278,8 @@ private struct PaletteChrome: ViewModifier {
 private struct PaletteRow: View {
     let item: PaletteItem
     let isHighlighted: Bool
+    /// A note open in a tab.
+    var isOpen = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -306,7 +327,7 @@ private struct PaletteRow: View {
 
     private var detail: String? {
         switch item {
-        case .note: nil
+        case .note: isOpen ? "Open" : nil
         case .tag(_, let count): "\(count) \(count == 1 ? "note" : "notes")"
         case .command(let command): command.shortcut
         }
