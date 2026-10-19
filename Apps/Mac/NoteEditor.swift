@@ -24,19 +24,20 @@ struct NoteEditor: View {
             if session.conflict != nil {
                 ConflictBanner(session: session)
             }
-            // The note's title (its file name) above everything: most notes don't start
-            // with a heading, and the top bar's path is too small to be the title.
-            do {
+            // Where the note lives, then its title (its file name), above everything: most
+            // notes don't start with a heading.
+            VStack(alignment: .leading, spacing: 4) {
+                NotePath(note: session.note, vault: model.root?.lastPathComponent ?? "Vault")
                 Text(session.note.title)
-                    .font(.system(size: 24 * model.textScale, weight: .bold))
+                    .font(.system(size: 24 * model.textScale, weight: .medium))
                     .lineLimit(2)
                     .textSelection(.enabled)
-                    .padding(.top, 18)
-                    .padding(.leading, 5) // Lines up with the text, which is inset a little.
-                    .frame(maxWidth: 720, alignment: .leading)
-                    .padding(.horizontal, 28)
-                    .frame(maxWidth: .infinity)
             }
+            .padding(.top, 14)
+            .padding(.leading, 5) // Lines up with the text, which is inset a little.
+            .frame(maxWidth: 720, alignment: .leading)
+            .padding(.horizontal, 28)
+            .frame(maxWidth: .infinity)
             if let frontmatter = session.frontmatter {
                 PropertiesStrip(frontmatter: frontmatter, session: session)
             }

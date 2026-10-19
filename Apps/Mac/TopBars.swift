@@ -42,7 +42,7 @@ struct SidebarTopBar: View {
     }
 }
 
-/// One side's top bar: its note's title, or its tabs, and buttons for tabs and the split.
+/// One side's top bar: its tabs, and a button for the split.
 struct PaneTopBar: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
@@ -51,18 +51,11 @@ struct PaneTopBar: View {
     /// With the sidebar hidden, the first side starts past the window buttons and the
     /// system's sidebar button.
     private var startsAtWindowEdge: Bool { paneIndex == 0 && (!model.showsNoteList || model.isFocused) }
-    private var isActive: Bool { paneIndex == model.activePane }
 
     var body: some View {
         HStack(spacing: 8) {
-            if pane.tabs.count > 1 {
-                NoteTabs(pane: pane, paneIndex: paneIndex)
-            } else {
-                NotePath(note: model.note(pane.tab.noteID))
-                    // With two sides, the one being worked on has the stronger title.
-                    .foregroundStyle(isActive || !model.isSplit ? .primary : .secondary)
-                    .contextMenu { tabMenuItems(for: pane.current) }
-            }
+            // Always tabs, even just one: the note's path is above its title, in the page.
+            NoteTabs(pane: pane, paneIndex: paneIndex)
             Spacer(minLength: 0)
             if model.isSplit {
                 BarButton("Close This Side", systemImage: "xmark", help: "Close This Side") { model.closePane(paneIndex) }
@@ -79,14 +72,6 @@ struct PaneTopBar: View {
         .overlay(alignment: .bottom) { Divider().opacity(0.5) }
     }
 
-    @ViewBuilder private func tabMenuItems(for index: Int) -> some View {
-        Button("Close Tab") { model.closeTab(index, inPane: paneIndex) }
-        Button(model.isSplit ? "Move to Other Side" : "Move to New Split") { model.moveTabToOtherSide(index, inPane: paneIndex) }
-            .disabled(!model.isSplit && pane.tabs.count < 2)
-        if model.isSplit {
-            Button("Merge Both Sides into Tabs") { model.mergeIntoTabs() }
-        }
-    }
 
 }
 
@@ -230,21 +215,20 @@ private struct NoteTab: View {
     }
 }
 
-/// A note's place in the vault, for the top bar: its folders, then its title in bold.
+/// Where a note is in the vault, above its title: the vault, then its folders, in the
+/// properties' size and colour ("MG notes › Projects › Archive").
 struct NotePath: View {
-    let note: Note?
+    let note: Note
+    let vault: String
 
     var body: some View {
-        if let note {
-            let folders = note.id.split(separator: "/").dropLast().map(String.init)
-            (Text(folders.map { $0 + "  ›  " }.joined()).foregroundColor(.secondary)
-                + Text(note.title).fontWeight(.semibold))
-                .lineLimit(1)
-                .truncationMode(.head)
-                .help(note.id)
-        } else {
-            Text("New Tab").fontWeight(.semibold)
-        }
+        let folders = note.id.split(separator: "/").dropLast().map(String.init)
+        Text(([vault] + folders).joined(separator: " › "))
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.head)
+            .help(note.id)
     }
 }
 
