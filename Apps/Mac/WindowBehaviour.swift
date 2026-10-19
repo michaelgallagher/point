@@ -73,25 +73,3 @@ final class SwipeToToggleNoteList {
         }
     }
 }
-
-/// Narrows or widens the window by the note list's width as it hides or shows, so the text
-/// keeps its width and slides over rather than stretching.
-@MainActor
-enum NoteListWindowResizing {
-    /// Widens (positive) or narrows (negative) a note window by `change` points. (Always a
-    /// particular window: the key window might be Settings.)
-    static func resize(_ window: NSWindow?, by change: CGFloat) {
-        guard abs(change) > 1, let window else { return }
-        var frame = window.frame
-        frame.size.width = max(frame.width + change, window.minSize.width)
-        if let screen = window.screen?.visibleFrame, frame.maxX > screen.maxX {
-            frame.origin.x = max(screen.minX, screen.maxX - frame.width) // Stay on screen when widening.
-        }
-        // Quick, and in step with the note list's own animation.
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.15
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            window.animator().setFrame(frame, display: true)
-        }
-    }
-}

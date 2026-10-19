@@ -236,7 +236,7 @@ struct CommandPalette: View {
         close()
         switch item {
         case .note(let id, _, _):
-            if inNewTab, let openTab = model.openTab { openTab(id) } else { model.selection = id }
+            if inNewTab { model.newTab(noteID: id) } else { model.selection = id }
         case .tag(let tag, _): model.search(tag: tag)
         case .command(let command): command.action()
         case .place, .tags: break
@@ -378,9 +378,12 @@ struct PaletteCommand {
             PaletteCommand(name: "All Notes", shortcut: nil) { model.browse(.allNotes) },
             PaletteCommand(name: "Enclosing Folder", shortcut: "⌘↑") { model.goUp() },
         ]
-        if model.sideNote != nil {
-            commands.append(PaletteCommand(name: "Close Side Note", shortcut: nil) { model.closeSideNote() })
-        }
+        commands += [
+            PaletteCommand(name: "New Tab", shortcut: "⌘T") { model.newTab() },
+            PaletteCommand(name: "Close Tab", shortcut: "⌘W") { model.closeTab() },
+            PaletteCommand(name: model.isSplit ? "Merge Split into Tabs" : "Split", shortcut: "⇧⌘S") { model.toggleSplit() },
+            PaletteCommand(name: model.isSplit ? "Move Tab to Other Side" : "Move Tab to New Split", shortcut: nil) { model.moveTabToOtherSide() },
+        ]
         if let note = model.selectedNote {
             commands += [
                 PaletteCommand(name: "Insert Template…", shortcut: "⌥⌘T") { model.isChoosingTemplate = true },

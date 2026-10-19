@@ -185,8 +185,8 @@ struct SidebarTable: NSViewRepresentable {
                 model.openToTheSide(id)
                 return false
             }
-            if modifiers.contains(.command), let openTab = model.openTab {
-                openTab(id)
+            if modifiers.contains(.command) {
+                model.newTab(noteID: id)
                 return false
             }
             return true
@@ -246,7 +246,7 @@ struct SidebarTable: NSViewRepresentable {
             switch rows[table.clickedRow] {
             case .note(let id):
                 guard let note = model.notes.first(where: { $0.id == id }) else { return }
-                menu.addItem(item("Open in New Tab") { $0.openTab?(note.id) })
+                menu.addItem(item("Open in New Tab") { $0.newTab(noteID: note.id) })
                 menu.addItem(item("Open to the Side") { $0.openToTheSide(note.id) })
                 menu.addItem(.separator())
                 menu.addItem(item("Rename…") { $0.renaming = note })

@@ -6,17 +6,6 @@ struct ContentView: View {
     @EnvironmentObject private var model: VaultModel
     @State private var columns = NavigationSplitViewVisibility.all
     @State private var isAddingProperty = false
-    /// The sidebar's width (note list, or tree and notes together), which hiding removes.
-    @State private var sidebarWidth: CGFloat = 0
-    /// How much the window narrowed when the list last hid, to widen it back by.
-    @State private var narrowedBy: CGFloat = 0
-    /// How much the window widened to fit a side note.
-    @State private var widenedForSide: CGFloat = 0
-    /// Whether the side note shows. It follows the model's side note, but only once the
-    /// window has widened, so the split never squeezes the sidebar.
-    @State private var showsSide = false
-    /// Narrower than this, two notes side by side are too cramped, so the window widens.
-    private let sideBySideWidth: CGFloat = 760
 
     /// One column (folders, tags and notes together) or two (folders and tags beside notes).
     @ViewBuilder private var splitView: some View {
@@ -25,85 +14,50 @@ struct ContentView: View {
             // work exactly as in the single column. (SwiftUI's three-column split view on the
             // Mac won't hide both side columns from code.)
             NavigationSplitView(columnVisibility: $columns) {
-                HSplitView {
-                    PlaceTreeColumn()
-                        .frame(minWidth: 150, idealWidth: 200, maxWidth: 320)
-                    NoteList(includesPlaces: false)
-                        .frame(minWidth: 200, idealWidth: 260)
+                VStack(spacing: 0) {
+                    SidebarTopBar()
+                    HSplitView {
+                        PlaceTreeColumn()
+                            .frame(minWidth: 150, idealWidth: 200, maxWidth: 320)
+                        NoteList(includesPlaces: false)
+                            .frame(minWidth: 200, idealWidth: 260)
+                    }
                 }
+                .ignoresSafeArea(.container, edges: .top)
+                .modifier(RemovesSidebarToggle())
                 .navigationSplitViewColumnWidth(min: 360, ideal: 470, max: 760)
-                .background(widthReader { sidebarWidth = $0 })
-                .toolbar { newNoteButton }
             } detail: {
                 detail
             }
         } else {
             NavigationSplitView(columnVisibility: $columns) {
-                NoteList()
-                    .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 400)
-                    .background(widthReader { sidebarWidth = $0 })
-                    .toolbar { newNoteButton }
+                VStack(spacing: 0) {
+                    SidebarTopBar()
+                    NoteList()
+                }
+                .ignoresSafeArea(.container, edges: .top)
+                .modifier(RemovesSidebarToggle())
+                .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 400)
             } detail: {
                 detail
             }
         }
     }
 
+    /// The notes: one pane, or two side by side, each with its own tabs.
     private var detail: some View {
         Group {
-            if showsSide, let side = model.sideNoteValue {
-                // Two equal notes, each with its title above it, so neither is
-                // the window's "real" note.
+            if model.isSplit {
                 SideBySide {
-                    if let main = model.selectedNote {
-                        NotePane(note: main, isSide: false)
-                    } else {
-                        mainEditor
-                    }
+                    PaneView(paneID: model.panes[0].id)
                 } side: {
-                    NotePane(note: side, isSide: true)
+                    PaneView(paneID: model.panes[1].id)
                 }
             } else {
-                mainEditor
+                PaneView(paneID: model.panes[0].id)
             }
         }
-        .onChange(of: model.sideNote != nil) { isSplit in
-            if isSplit {
-                // The notes get what the sidebar (if showing) leaves.
-                let listWidth = columns == .detailOnly ? 0 : sidebarWidth
-                widenedForSide = max(0, listWidth + sideBySideWidth - (model.window?.frame.width ?? 0))
-                NoteListWindowResizing.resize(model.window, by: widenedForSide)
-                DispatchQueue.main.asyncAfter(deadline: .now() + (widenedForSide > 1 ? 0.17 : 0)) {
-                    showsSide = model.sideNote != nil
-                }
-            } else {
-                showsSide = false
-                NoteListWindowResizing.resize(model.window, by: -widenedForSide)
-                widenedForSide = 0
-            }
-        }
-    }
-
-    @ViewBuilder private var mainEditor: some View {
-        Group {
-            if let note = model.selectedNote {
-                NoteEditor(note: note, model: model)
-                    .id(note.id)
-            } else {
-                Text("No Note Selected")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-    }
-
-    private func widthReader(_ update: @escaping (CGFloat) -> Void) -> some View {
-        GeometryReader { geometry in
-            Color.clear
-                .onAppear { update(geometry.size.width) }
-                .onChange(of: geometry.size.width) { width in if width > 0 { update(width) } }
-        }
+        .ignoresSafeArea(.container, edges: .top)
     }
 
     private func updateColumns() {
@@ -112,19 +66,9 @@ struct ContentView: View {
     }
 
     /// In the sidebar's part of the toolbar, beside the button that hides it.
-    private var newNoteButton: some ToolbarContent {
-        ToolbarItem {
-            Button { model.createNote() } label: {
-                Label("New Note", systemImage: "square.and.pencil")
-            }
-            .help("New Note (⌘N)")
-        }
-    }
-
-    /// The note's title, or with two notes open (each titled above itself), the vault's name.
+    /// The note being worked on (in the active pane), else the vault's name.
     private var windowTitle: String {
-        if showsSide, model.sideNote != nil { return model.root?.lastPathComponent ?? "Imprint" }
-        return model.selectedNote?.title ?? model.root?.lastPathComponent ?? "Imprint"
+        model.selectedNote?.title ?? model.root?.lastPathComponent ?? "Imprint"
     }
 
     var body: some View {
@@ -134,7 +78,19 @@ struct ContentView: View {
             } else {
                 splitView
                 .navigationTitle(windowTitle)
-                .toolbar(model.isFocused ? .hidden : .visible, for: .windowToolbar)
+                // An empty toolbar, so the window's top row has the system's standard height
+                // (with the window buttons centred in it). The sidebar and each side of a
+                // split draw their own bars in that row.
+                .modifier(RemovesSidebarToggle())
+                .toolbar {
+                    if #available(macOS 26, *) {
+                        // Without its glass backing, or it shows as a sliver.
+                        ToolbarItem(placement: .automatic) { ToolbarSpacerView() }
+                            .sharedBackgroundVisibility(.hidden)
+                    } else {
+                        ToolbarItem(placement: .automatic) { ToolbarSpacerView() }
+                    }
+                }
                 .overlay(alignment: .topLeading) {
                     if model.isFocused {
                         // The one control kept in focus mode: bring the note list back.
@@ -155,22 +111,9 @@ struct ContentView: View {
                     withAnimation(.easeInOut(duration: 0.2)) { columns = .all } // Search needs the list.
                 }
                 .onChange(of: model.isFocused) { _ in updateColumns() }
-                .onChange(of: model.showsNoteList) { showing in
-                    guard !model.isFocused else { return updateColumns() }
-                    // The text keeps its width: the window narrows or widens instead.
-                    if showing {
-                        // Widen first, by what was taken away, then bring the list back into
-                        // the space. (In a narrow window the list would cover the note instead.)
-                        NoteListWindowResizing.resize(model.window, by: narrowedBy)
-                        narrowedBy = 0
-                        updateColumns()
-                    } else {
-                        // Narrow by exactly the sidebar's width as it slides away.
-                        narrowedBy = sidebarWidth
-                        updateColumns()
-                        NoteListWindowResizing.resize(model.window, by: -sidebarWidth)
-                    }
-                }
+                // The window keeps its size: the notes take the list's space, and their
+                // text column (which has a maximum width) slides over to recentre.
+                .onChange(of: model.showsNoteList) { _ in updateColumns() }
 
                 .onChange(of: columns) { visibility in
                     // The toolbar's sidebar button changes the columns directly; keep ⌘S in step.
@@ -333,80 +276,21 @@ private struct PlaceHeader: View {
     }
 }
 
-/// Two views side by side with a divider to drag between them. Unlike HSplitView, it
-/// takes only the width it's offered, so it never squeezes the sidebar.
-private struct SideBySide<Main: View, Side: View>: View {
-    @ViewBuilder let main: Main
-    @ViewBuilder let side: Side
-    /// How much of the width the main note gets.
-    @AppStorage("sideBySideFraction") private var fraction = 0.5
-    @State private var isHoveringDivider = false
-    private let minimumWidth: CGFloat = 240
-
+/// The toolbar's one, invisible item: it's there so the window has a toolbar's height.
+private struct ToolbarSpacerView: View {
     var body: some View {
-        GeometryReader { geometry in
-            let width = geometry.size.width
-            let mainWidth = clamp(width * fraction, in: width)
-            HStack(spacing: 0) {
-                main
-                    .frame(width: mainWidth)
-                Divider()
-                    .overlay {
-                        // A wider grip than the line itself.
-                        Color.clear
-                            .frame(width: 9)
-                            .contentShape(Rectangle())
-                            .onHover { hovering in
-                                if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
-                            }
-                            .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .named("sideBySide"))
-                                .onChanged { value in
-                                    guard width > 0 else { return }
-                                    fraction = clamp(value.location.x, in: width) / width
-                                })
-                    }
-                side
-                    .frame(maxWidth: .infinity)
-            }
-        }
-        .coordinateSpace(name: "sideBySide")
-    }
-
-    private func clamp(_ x: CGFloat, in width: CGFloat) -> CGFloat {
-        guard width > minimumWidth * 2 else { return width / 2 }
-        return min(max(x, minimumWidth), width - minimumWidth)
+        Color.clear.frame(width: 1, height: 1)
+            .accessibilityHidden(true)
     }
 }
 
-/// One of two notes side by side: its title, a button to close it, and the note.
-/// Closing either leaves the other as the window's only note.
-private struct NotePane: View {
-    @EnvironmentObject private var model: VaultModel
-    let note: Note
-    let isSide: Bool
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Text(note.title)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer()
-                Button {
-                    if isSide { model.closeSideNote() } else { model.closeMainNote() }
-                } label: {
-                    Image(systemName: "xmark")
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .help("Close This Note")
-            }
-            .padding(.horizontal, 16)
-            .frame(height: 30)
-            Divider()
-            NoteEditor(note: note, model: model, isSide: isSide)
-                .id((isSide ? "side:" : "") + note.id)
+/// Takes away the split view's own sidebar button (the top bars have one).
+private struct RemovesSidebarToggle: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 14, *) {
+            content.toolbar(removing: .sidebarToggle)
+        } else {
+            content
         }
     }
 }
