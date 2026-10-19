@@ -81,9 +81,16 @@ struct PaneTopBar: View {
             model.moveTab(id, toPane: paneIndex, at: model.panes[paneIndex].tabs.count)
             return true
         })
-        .background(TopBar.barColor)
-        // A hairline, like the one under the properties.
-        .overlay(alignment: .bottom) { Divider().opacity(0.5) }
+        .background { barBackground }
+    }
+
+    /// Before macOS 26, the page's colour with a hairline under it. From 26, nothing: the
+    /// note scrolls beneath, behind the scroll edge effect.
+    @ViewBuilder private var barBackground: some View {
+        if #unavailable(macOS 26) {
+            TopBar.barColor
+                .overlay(alignment: .bottom) { Divider().opacity(0.5) }
+        }
     }
 
 

@@ -332,6 +332,7 @@ struct PaletteCommand {
             PaletteCommand(name: "Smaller Text", shortcut: "⌘−") { model.makeTextSmaller() },
             PaletteCommand(name: model.isFocused ? "Leave Focus" : "Focus", shortcut: "⇧⌘\\") { model.isFocused.toggle() },
             PaletteCommand(name: model.showsMarkdown ? "Hide Markdown" : "Show Markdown", shortcut: "⇧⌘M") { model.showsMarkdown.toggle() },
+            PaletteCommand(name: model.showsNotePath ? "Hide File Path" : "Show File Path", shortcut: nil) { model.showsNotePath.toggle() },
             PaletteCommand(name: model.showsDateInList ? "Hide Dates in List" : "Show Dates in List", shortcut: nil) { model.showsDateInList.toggle() },
             PaletteCommand(name: model.showsTagsInList ? "Hide Tags in List" : "Show Tags in List", shortcut: nil) { model.showsTagsInList.toggle() },
             PaletteCommand(name: "Sort by Date Edited", shortcut: nil) { model.sort = .modified },

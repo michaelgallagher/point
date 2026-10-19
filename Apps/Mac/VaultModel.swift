@@ -48,6 +48,7 @@ final class VaultModel: ObservableObject {
     var listDate: ListDate { get { store.listDate } set { store.listDate = newValue } }
     var showsTagsInList: Bool { get { store.showsTagsInList } set { store.showsTagsInList = newValue } }
     var showsMarkdown: Bool { get { store.showsMarkdown } set { store.showsMarkdown = newValue } }
+    var showsNotePath: Bool { get { store.showsNotePath } set { store.showsNotePath = newValue } }
     var textScale: Double { get { store.textScale } set { store.textScale = newValue } }
     var browsingStyle: BrowsingStyle { get { store.browsingStyle } set { store.browsingStyle = newValue } }
     var tagOrder: TagOrder { get { store.tagOrder } set { store.tagOrder = newValue } }

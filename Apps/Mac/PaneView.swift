@@ -3,7 +3,9 @@ import SwiftUI
 import VaultKit
 
 /// One side of the window: its top bar (title or tabs) above the current tab's note, or
-/// for an empty tab, a start page.
+/// for an empty tab, a start page. From macOS 26 the bar is see-through and the note
+/// scrolls up beneath it, behind the system's hard-edged scroll edge effect, which takes
+/// the place of a line under the bar.
 struct PaneView: View {
     @EnvironmentObject private var model: VaultModel
     let paneID: VaultModel.NotePane.ID
@@ -13,17 +15,34 @@ struct PaneView: View {
     var body: some View {
         if let index = model.paneIndex(paneID) {
             let pane = model.panes[index]
-            VStack(spacing: 0) {
-                if !model.isFocused {
+            if model.isFocused {
+                page(pane, index: index, underBar: 0)
+            } else if #available(macOS 26, *) {
+                page(pane, index: index, underBar: model.topBarHeight)
+                    .safeAreaBar(edge: .top, spacing: 0) { PaneTopBar(pane: pane, paneIndex: index) }
+                    .scrollEdgeEffectStyle(.hard, for: .top)
+            } else {
+                VStack(spacing: 0) {
                     PaneTopBar(pane: pane, paneIndex: index)
+                    page(pane, index: index, underBar: 0)
                 }
+            }
+        }
+    }
+
+    /// The note or start page. `underBar` is how much of it the top bar covers: the note's
+    /// scroll view runs up beneath the bar (and is inset by the window to match), anything
+    /// else starts below it.
+    private func page(_ pane: VaultModel.NotePane, index: Int, underBar: CGFloat) -> some View {
                 Group {
                     if let note = model.note(pane.tab.noteID) {
                         NoteEditor(note: note, model: model, paneID: paneID, offersTemplates: note.id == model.freshNoteID)
+                            .environment(\.topBarCover, underBar)
                             .id(paneID.uuidString + note.id)
                     } else {
                         // An empty tab is a start page: search, recent notes and the explorer.
                         CommandPalette(isPage: true)
+                            .padding(.top, underBar)
                             .id(pane.tab.id) // A fresh page for each tab.
                     }
                 }
@@ -39,9 +58,12 @@ struct PaneView: View {
                     zone.drop(id, onPane: index, in: model)
                     return true
                 })
-            }
-        }
     }
+}
+
+extension EnvironmentValues {
+    /// How much of a note's page the see-through top bar covers.
+    @Entry var topBarCover: CGFloat = 0
 }
 
 /// Two views side by side with a divider to drag between them. Unlike HSplitView, it

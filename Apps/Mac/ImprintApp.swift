@@ -229,6 +229,7 @@ struct AppCommands: Commands {
                 .disabled(model == nil)
             Divider()
             Toggle("Show Markdown", isOn: $store.showsMarkdown)
+            Toggle("Show File Path", isOn: $store.showsNotePath)
                 .keyboardShortcut("m", modifiers: [.command, .shift])
             Toggle("Focus", isOn: bind(\.isFocused, false))
                 .keyboardShortcut("\\", modifiers: [.command, .shift])

@@ -69,6 +69,14 @@ struct PropertiesStrip: View {
                 .overlay(alignment: .topLeading) { draggedRow }
                 .padding(.leading, 18)
             }
+            // Only while open: a line, the text's width, between the properties and the text.
+            // It fades in as they open.
+            if isExpanded {
+                Divider()
+                    .opacity(0.5)
+                    .padding(.top, 4)
+                    .transition(.opacity)
+            }
         }
         .font(.callout)
         .padding(.top, 6)

@@ -9,6 +9,7 @@ import VaultKit
 @MainActor
 enum DebugSnapshots {
     static func runIfAsked(for model: VaultModel) {
+        scrollNoteIfAsked(for: model)
         guard let folder = UserDefaults.standard.string(forKey: "ImprintSnapshots") else { return }
         let directory = URL(fileURLWithPath: folder, isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -49,6 +50,30 @@ enum DebugSnapshots {
                 }
             }
         }
+    }
+
+    /// `-ImprintScrollNote <note ID>`: opens that note and scrolls it partway down (by
+    /// `-ImprintScrollBy`, 120 points unless given), to see what's under the top bar. For a
+    /// screen capture of the window: the bar's effects don't show in a snapshot.
+    private static func scrollNoteIfAsked(for model: VaultModel) {
+        guard let id = UserDefaults.standard.string(forKey: "ImprintScrollNote") else { return }
+        let amount = UserDefaults.standard.object(forKey: "ImprintScrollBy") == nil ? 120 : UserDefaults.standard.double(forKey: "ImprintScrollBy")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            model.selection = id
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                guard let content = model.window?.contentView else { return }
+                for scrollView in scrollViews(in: content) where scrollView.documentView is NSTextView {
+                    let clip = scrollView.contentView
+                    clip.scroll(to: NSPoint(x: 0, y: clip.bounds.origin.y + amount))
+                    scrollView.reflectScrolledClipView(clip)
+                }
+                Trace.mark("scrolled \(id) by \(amount)")
+            }
+        }
+    }
+
+    private static func scrollViews(in view: NSView) -> [NSScrollView] {
+        (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews(in:))
     }
 
     private static func save(_ window: NSWindow?, to url: URL) {

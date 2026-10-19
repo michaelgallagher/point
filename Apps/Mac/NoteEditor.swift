@@ -6,6 +6,7 @@ import VaultKit
 /// Shows and edits one note. The session behind it does the loading and saving.
 struct NoteEditor: View {
     @EnvironmentObject private var model: VaultModel
+    @Environment(\.topBarCover) private var topBarCover
     @StateObject private var session: EditorSession
     @StateObject private var connections: Connections
     /// The pane it's in, where links clicked in it open.
@@ -21,6 +22,8 @@ struct NoteEditor: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Below the see-through top bar; only the text scrolls beneath it.
+            Color.clear.frame(height: session.conflict != nil || session.message != nil ? topBarCover : 0)
             if session.conflict != nil {
                 ConflictBanner(session: session)
             }
@@ -48,7 +51,7 @@ struct NoteEditor: View {
     }
 }
 
-/// Above the text, scrolling with it: where the note lives, its title (its file name: most
+/// Above the text, scrolling with it: where the note lives (if turned on), its title (its file name: most
 /// notes don't start with a heading), its properties, and for a new note, templates. A
 /// hairline always separates it from the text.
 private struct NoteHeader: View {
@@ -59,7 +62,9 @@ private struct NoteHeader: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
-                NotePath(note: session.note, vault: model.root?.lastPathComponent ?? "Vault")
+                if model.showsNotePath {
+                    NotePath(note: session.note, vault: model.root?.lastPathComponent ?? "Vault")
+                }
                 Text(session.note.title)
                     .font(.system(size: 24 * model.textScale, weight: .medium))
                     .lineLimit(2)
@@ -74,7 +79,6 @@ private struct NoteHeader: View {
             if let frontmatter = session.frontmatter {
                 PropertiesStrip(frontmatter: frontmatter, session: session)
             }
-            Divider().opacity(0.5)
             if offersTemplates, session.isEmpty, !model.templates.isEmpty {
                 TemplateChoices()
             }

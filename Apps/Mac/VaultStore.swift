@@ -352,6 +352,10 @@ final class VaultStore: ObservableObject {
     @Published var swipesSidebar = UserDefaults.standard.bool(forKey: "swipesSidebar") {
         didSet { UserDefaults.standard.set(swipesSidebar, forKey: "swipesSidebar") }
     }
+    /// The note's folders above its title. Off unless turned on: it's useful, but takes room.
+    @Published var showsNotePath = UserDefaults.standard.bool(forKey: "showsNotePath") {
+        didSet { UserDefaults.standard.set(showsNotePath, forKey: "showsNotePath") }
+    }
     /// On unless turned off.
     @Published var showsDateInList = UserDefaults.standard.object(forKey: "showsDateInList") == nil || UserDefaults.standard.bool(forKey: "showsDateInList") {
         didSet { UserDefaults.standard.set(showsDateInList, forKey: "showsDateInList") }
