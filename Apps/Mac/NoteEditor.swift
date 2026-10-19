@@ -103,6 +103,53 @@ private struct NoteHeaderHost: View {
     }
 }
 
+/// Moves the text down or up as the header grows or shrinks, in step with the header's own
+/// animation (the properties opening or closing), rather than jumping to the new place.
+@MainActor
+private final class HeaderHeightAnimator: NSObject {
+    private weak var textView: MarkdownTextView?
+    private var timer: Timer?
+    private var start: CGFloat = 0
+    private var target: CGFloat = 0
+    private var began: CFTimeInterval = 0
+    /// The properties' open and close animation.
+    private let duration: CFTimeInterval = 0.15
+
+    init(textView: MarkdownTextView) {
+        self.textView = textView
+    }
+
+    func move(to height: CGFloat) {
+        guard let textView else { return }
+        timer?.invalidate()
+        // The first measurement, and slight changes, go straight there.
+        guard textView.headerHeight > 0, abs(height - textView.headerHeight) > 2 else {
+            textView.headerHeight = height
+            return
+        }
+        start = textView.headerHeight
+        target = height
+        began = CACurrentMediaTime()
+        // The header keeps room for all of itself while the text moves.
+        textView.headerViewMinimumHeight = max(start, target)
+        timer = Timer.scheduledTimer(timeInterval: 1.0 / 120, target: self, selector: #selector(step),
+                                     userInfo: nil, repeats: true)
+    }
+
+    @objc private func step() {
+        guard let textView else { return timer?.invalidate() ?? () }
+        let progress = min(1, (CACurrentMediaTime() - began) / duration)
+        // Ease out, like SwiftUI's .easeOut.
+        let eased = 1 - pow(1 - progress, 3)
+        textView.headerHeight = start + (target - start) * eased
+        if progress >= 1 {
+            timer?.invalidate()
+            timer = nil
+            textView.headerViewMinimumHeight = 0
+        }
+    }
+}
+
 private struct HeaderHeight: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
@@ -195,7 +242,7 @@ private struct EditorView: NSViewRepresentable {
         session.attach(textView, takesFocus: !model.consumeListFocus() && isActivePane)
         let header = NSHostingView(rootView: NoteHeaderHost(
             session: session, model: model, offersTemplates: offersTemplates,
-            onHeight: { [weak textView] height in textView?.headerHeight = height }
+            onHeight: { [animator = HeaderHeightAnimator(textView: textView)] height in animator.move(to: height) }
         ))
         header.sizingOptions = [] // The editor sizes it: the full width, at the height it reports.
         textView.headerView = header

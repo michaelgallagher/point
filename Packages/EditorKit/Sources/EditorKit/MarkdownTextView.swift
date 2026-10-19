@@ -189,6 +189,12 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         }
     }
 
+    /// A height the header view keeps even while `headerHeight` is smaller, so its contents
+    /// aren't squeezed while the text below animates to a new place.
+    public var headerViewMinimumHeight: CGFloat = 0 {
+        didSet { layoutHeader() }
+    }
+
     /// The text's origin, moved down below the header.
     public override var textContainerOrigin: NSPoint {
         let origin = super.textContainerOrigin
@@ -201,7 +207,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     }
 
     private func layoutHeader() {
-        headerView?.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(headerHeight, 1))
+        headerView?.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(headerHeight, headerViewMinimumHeight, 1))
     }
 
     private func updateInsets() {
