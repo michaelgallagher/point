@@ -3,8 +3,9 @@ import IndexKit
 import SwiftUI
 import VaultKit
 
-/// ⌘E: one place to open notes, search tags and run commands, all from the keyboard.
-/// ⇧⌘E: the same palette, browsing folders and tags like a column of Finder.
+/// ⌘F: one place to open notes, search tags and run commands, all from the keyboard.
+/// ⌘E: the same palette as a two-column explorer of folders, tags and their notes.
+/// In the Minimal layout, an empty tab shows the palette as a page: the start page.
 struct CommandPalette: View {
     @EnvironmentObject private var model: VaultModel
     @State private var query = ""
@@ -12,10 +13,13 @@ struct CommandPalette: View {
     @State private var highlighted = 0
     @State private var tags: [(tag: String, count: Int)] = []
     @State private var searchTask: Task<Void, Never>?
-    /// Where the explorer is.
-    @State private var level = ExplorerLevel.place(.allNotes)
+    @StateObject private var explorer = ExplorerState()
+    /// Shown as a tab's start page rather than over the window.
+    var isPage = false
+    /// On a start page: browsing in the explorer, rather than showing recent notes.
+    @State private var pageExplores = false
 
-    private var isExploring: Bool { model.paletteMode == .explorer }
+    private var isExploring: Bool { isPage ? pageExplores : model.paletteMode == .explorer }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,20 +27,20 @@ struct CommandPalette: View {
                 Image(systemName: isExploring ? "folder" : "magnifyingglass")
                     .foregroundStyle(.secondary)
                     .frame(width: 20)
-                PaletteField(text: $query, placeholder: placeholder,
-                             onMove: move, onSubmit: run, onCancel: close,
-                             onLeft: isExploring ? { goUp() } : nil, onRight: isExploring ? { enter() } : nil)
+                PaletteField(text: $query, placeholder: placeholder, fontSize: isPage ? 22 : 18,
+                             onMove: move, onSubmit: run, onCancel: cancel,
+                             onLeft: isExploring ? { explorerLeft() } : nil, onRight: isExploring ? { explorerRight() } : nil)
             }
-            .font(.title3)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            .font(isPage ? .title2 : .title3)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 18)
 
             if isExploring {
                 Divider()
-                explorerHeader
-            }
-
-            if !items.isEmpty {
+                ExplorerColumns(state: explorer) { id in open(id, inNewTab: false) }
+                    .frame(height: isPage ? nil : Self.listHeight)
+                    .frame(maxHeight: isPage ? .infinity : nil)
+            } else if !items.isEmpty || !isPage {
                 Divider()
                 ScrollViewReader { scroller in
                     ScrollView {
@@ -52,126 +56,81 @@ struct CommandPalette: View {
                         }
                         .padding(6)
                     }
-                    .frame(height: min(CGFloat(items.count) * 34 + 12, 360)) // Fits short lists.
+                    // The same height as the explorer, so the palette doesn't change size;
+                    // as a page, it fills the tab.
+                    .frame(height: isPage ? nil : Self.listHeight)
+                    .frame(maxHeight: isPage ? .infinity : nil)
                     .onChange(of: highlighted) { offset in
                         if items.indices.contains(offset) { scroller.scrollTo(items[offset].id) }
                     }
                 }
             }
         }
-        .frame(width: 560)
-        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
-        .shadow(color: .black.opacity(0.25), radius: 24, y: 10)
+        .modifier(PaletteChrome(isPage: isPage, isWide: isExploring))
         .task {
-            level = model.explorerLevel
+            if !isPage, let seed = model.paletteSeed {
+                query = seed
+                model.paletteSeed = nil
+            }
+            if isExploring { explorer.load(model) }
             tags = (try? await model.index?.allTags()) ?? []
             refresh()
         }
         .onChange(of: query) { _ in refresh() }
         .onChange(of: model.paletteMode) { _ in
+            guard !isPage else { return }
             query = ""
+            if isExploring { explorer.load(model) }
             refresh()
         }
+        .onChange(of: model.startPageRequest.count) { _ in
+            // ⌘F or ⌘E on a start page switches the page itself.
+            guard isPage else { return }
+            setPageExplores(model.startPageRequest.mode == .explorer)
+        }
     }
+
+    /// The palette's list height, searching or exploring.
+    static let listHeight: CGFloat = 420
 
     private var placeholder: String {
-        isExploring ? "Filter \(levelTitle)" : "Search notes, #tags or >commands"
+        if isExploring { return explorer.inNotes ? "Filter notes" : "Filter folders and tags" }
+        return isPage ? "Search notes, #tags or >commands" : "Search notes, #tags or >commands"
     }
 
-    // MARK: Explorer
-
-    /// Where the explorer is, and how to move.
-    private var explorerHeader: some View {
-        HStack(spacing: 4) {
-            Text(levelPath)
-                .lineLimit(1)
-                .truncationMode(.head)
-            Spacer()
-            Text("← back   → open")
-                .foregroundStyle(.tertiary)
-        }
-        .font(.callout)
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
+    /// Escape closes the palette; on a start page, it clears what's typed, then leaves the
+    /// explorer.
+    private func cancel() {
+        guard isPage else { return close() }
+        if !query.isEmpty { query = "" } else if pageExplores { setPageExplores(false) }
     }
 
-    /// What's in the explorer's level: folders or tags first, then notes, filtered by
-    /// what's typed.
-    private func explorerItems() -> [PaletteItem] {
-        var places: [PaletteItem] = []
-        var notes: [Note] = []
-        switch level {
-        case .tags:
-            places = model.sortedTagEntries.filter { $0.depth == 0 }.map { .place(.tag($0.tag), $0.count) }
-        case .place(let place):
-            places = model.subplaces(of: place).map { .place($0, model.noteCount(of: $0)) }
-            let topTags = model.sortedTagEntries.filter { $0.depth == 0 }.count
-            if place == .allNotes, topTags > 0 { places.append(.tags(topTags)) }
-            notes = model.notes(in: place).sorted(by: model.sort)
-        }
-        let noteItems = notes.map { PaletteItem.note($0.id, $0.title, nil) }
-        let filter = query.trimmingCharacters(in: .whitespaces)
-        guard !filter.isEmpty else { return places + noteItems }
-        return Self.rank(places, by: filter, name: \.name) + Self.rank(noteItems, by: filter, name: \.name)
-    }
-
-    /// Opens the highlighted folder or tag.
-    private func enter() {
-        guard items.indices.contains(highlighted) else { return }
-        switch items[highlighted] {
-        case .place(let place, _): show(.place(place))
-        case .tags: show(.tags)
-        default: NSSound.beep()
-        }
-    }
-
-    /// Back up a level, highlighting where we came from.
-    private func goUp() {
-        let from = level
-        switch level {
-        case .tags: show(.place(.allNotes))
-        case .place(.allNotes): return NSSound.beep()
-        case .place(.tag(let tag)) where !tag.contains("/"): show(.tags)
-        case .place(let place): show(.place(place.parent))
-        }
-        let cameFrom: String
-        switch from {
-        case .tags: cameFrom = "tags"
-        case .place(let place): cameFrom = "place:" + place.key
-        }
-        highlighted = items.firstIndex { $0.id == cameFrom } ?? 0
-    }
-
-    private func show(_ level: ExplorerLevel) {
-        self.level = level
-        model.explorerLevel = level
+    private func setPageExplores(_ explores: Bool) {
         query = ""
-        items = explorerItems()
-        highlighted = 0
+        pageExplores = explores
+        if explores { explorer.load(model) }
+        refresh()
     }
 
-    /// "Projects" or "#work".
-    private var levelTitle: String {
-        switch level {
-        case .tags: "Tags"
-        case .place(.allNotes): model.root?.lastPathComponent ?? "Vault"
-        case .place(let place): place.shortName
-        }
+    /// A start page's list while nothing is typed: recent notes, and the way into the explorer.
+    private func pageItems() -> [PaletteItem] {
+        model.notes.sorted(by: .modified).prefix(8).map { PaletteItem.recent($0.id, $0.title) } + [.browse]
     }
 
-    /// "MG notes › Projects › Imprint" or "Tags › #work › imprint".
-    private var levelPath: String {
-        let vault = model.root?.lastPathComponent ?? "Vault"
-        switch level {
-        case .tags: return vault + " › Tags"
-        case .place(.allNotes): return vault
-        case .place(.folder(let path)): return ([vault] + path.split(separator: "/").map(String.init)).joined(separator: " › ")
-        case .place(.tag(let tag)):
-            let parts = tag.split(separator: "/").map(String.init)
-            return ([vault, "Tags", "#" + parts[0]] + parts.dropFirst()).joined(separator: " › ")
-        }
+    // MARK: Explorer keys
+
+    private func explorerRight() {
+        if explorer.enterNotes() { query = "" } else { NSSound.beep() }
+    }
+
+    private func explorerLeft() {
+        if explorer.leaveNotes() { query = "" } else if isPage { setPageExplores(false) } else { NSSound.beep() }
+    }
+
+    private func open(_ id: Note.ID, inNewTab: Bool) {
+        if !isPage { close() }
+        // A start page opens the note in its own tab, which is the active one.
+        if inNewTab { model.newTab(noteID: id) } else { model.selection = id }
     }
 
     // MARK: Results
@@ -180,7 +139,11 @@ struct CommandPalette: View {
         searchTask?.cancel()
         let query = query
         if isExploring {
-            items = explorerItems()
+            explorer.setFilter(query)
+            return
+        }
+        if isPage, query.trimmingCharacters(in: .whitespaces).isEmpty {
+            items = pageItems()
             highlighted = 0
             return
         }
@@ -221,25 +184,27 @@ struct CommandPalette: View {
     // MARK: Keyboard
 
     private func move(_ step: Int) {
+        if isExploring { return explorer.move(step) }
         guard !items.isEmpty else { return }
         highlighted = (highlighted + step + items.count) % items.count
     }
 
     private func run() {
+        let inNewTab = NSApp.currentEvent?.modifierFlags.contains(.command) == true
+        if isExploring {
+            if explorer.inNotes, let note = explorer.currentNote { open(note.id, inNewTab: inNewTab) } else { explorerRight() }
+            return
+        }
         guard items.indices.contains(highlighted) else { return }
         let item = items[highlighted]
-        let inNewTab = NSApp.currentEvent?.modifierFlags.contains(.command) == true
+        if case .browse = item { return setPageExplores(true) }
+        if !isPage { close() }
         switch item {
-        case .place, .tags: return enter()
-        default: break
-        }
-        close()
-        switch item {
-        case .note(let id, _, _):
-            if inNewTab { model.newTab(noteID: id) } else { model.selection = id }
+        case .note(let id, _, _), .recent(let id, _):
+            open(id, inNewTab: inNewTab)
         case .tag(let tag, _): model.search(tag: tag)
         case .command(let command): command.action()
-        case .place, .tags: break
+        case .browse: break
         }
     }
 
@@ -248,28 +213,22 @@ struct CommandPalette: View {
     }
 }
 
-/// A level of the palette's explorer: the vault or a folder or tag, or the list of tags.
-enum ExplorerLevel: Hashable {
-    case place(SidebarPlace)
-    case tags
-}
-
 enum PaletteItem: Identifiable {
     case note(Note.ID, String, String?)
     case tag(String, Int)
     case command(PaletteCommand)
-    /// A folder or tag to open in the explorer, with its note count.
-    case place(SidebarPlace, Int)
-    /// The explorer's way into the tags, with how many top-level tags there are.
-    case tags(Int)
+    /// A recently edited note, on a start page.
+    case recent(Note.ID, String)
+    /// On a start page: browse folders and tags in the explorer.
+    case browse
 
     var id: String {
         switch self {
         case .note(let id, _, _): "note:\(id)"
         case .tag(let tag, _): "tag:\(tag)"
         case .command(let command): "command:\(command.name)"
-        case .place(let place, _): "place:" + place.key
-        case .tags: "tags"
+        case .recent(let id, _): "recent:\(id)"
+        case .browse: "browse"
         }
     }
 
@@ -279,8 +238,36 @@ enum PaletteItem: Identifiable {
         case .note(_, let title, _): title
         case .tag(let tag, _): tag
         case .command(let command): command.name
-        case .place(let place, _): place.shortName
-        case .tags: "Tags"
+        case .recent(_, let title): title
+        case .browse: "Browse Folders and Tags"
+        }
+    }
+}
+
+/// The palette's frame: a floating panel over the window, or as a page, a centred column
+/// on the tab's own background.
+private struct PaletteChrome: ViewModifier {
+    let isPage: Bool
+    /// The explorer's two columns need more room.
+    let isWide: Bool
+
+    func body(content: Content) -> some View {
+        if isPage {
+            content
+                .frame(maxWidth: 600) // The same width searching and exploring.
+                .padding(.top, 48)
+                .padding(.horizontal, 24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        } else {
+            // As wide as it wants, within a narrow window.
+            content
+                .frame(maxWidth: 540) // The same width searching and exploring.
+                .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                // One shadow for the whole panel, not one per row.
+                .compositingGroup()
+                .shadow(color: .black.opacity(0.25), radius: 24, y: 10)
+                .padding(.horizontal, 20) // Clear of a narrow window's edges.
         }
     }
 }
@@ -322,8 +309,8 @@ private struct PaletteRow: View {
         case .note: "doc.text"
         case .tag: "number"
         case .command: "command"
-        case .place(let place, _): place.isTag ? "number" : "folder"
-        case .tags: "tag"
+        case .recent: "clock"
+        case .browse: "folder"
         }
     }
 
@@ -332,8 +319,8 @@ private struct PaletteRow: View {
         case .note(_, let title, _): title
         case .tag(let tag, _): "#\(tag)"
         case .command(let command): command.name
-        case .place(let place, _): place.shortName
-        case .tags: "Tags"
+        case .recent(_, let title): title
+        case .browse: "Browse Folders and Tags"
         }
     }
 
@@ -342,8 +329,8 @@ private struct PaletteRow: View {
         case .note: nil
         case .tag(_, let count): "\(count) \(count == 1 ? "note" : "notes")"
         case .command(let command): command.shortcut
-        case .place(_, let count): "\(count)  ›"
-        case .tags(let count): "\(count)  ›"
+        case .recent: "Recent"
+        case .browse: "⌘E  ›"
         }
     }
 }
@@ -360,8 +347,7 @@ struct PaletteCommand {
         var commands = [
             PaletteCommand(name: "New Note", shortcut: "⌘N", isSuggested: true) { model.createNote() },
             PaletteCommand(name: "Today's Note", shortcut: "⌘T", isSuggested: true) { model.openTodaysNote() },
-            PaletteCommand(name: "Search Notes", shortcut: "⌘F") { model.focusSearch() },
-            PaletteCommand(name: "Explorer", shortcut: "⇧⌘E", isSuggested: true) { model.togglePalette(.explorer) },
+            PaletteCommand(name: "Explorer", shortcut: "⌘E", isSuggested: true) { model.togglePalette(.explorer) },
             PaletteCommand(name: model.showsNoteList ? "Hide Note List" : "Show Note List", shortcut: "⌘S") { model.showsNoteList.toggle() },
             PaletteCommand(name: "Bigger Text", shortcut: "⌘=") { model.makeTextBigger() },
             PaletteCommand(name: "Smaller Text", shortcut: "⌘−") { model.makeTextSmaller() },
@@ -381,9 +367,16 @@ struct PaletteCommand {
         commands += [
             PaletteCommand(name: "New Tab", shortcut: "⌘T") { model.newTab() },
             PaletteCommand(name: "Close Tab", shortcut: "⌘W") { model.closeTab() },
+        ]
+        commands += [
             PaletteCommand(name: model.isSplit ? "Merge Split into Tabs" : "Split", shortcut: "⇧⌘S") { model.toggleSplit() },
             PaletteCommand(name: model.isSplit ? "Move Tab to Other Side" : "Move Tab to New Split", shortcut: nil) { model.moveTabToOtherSide() },
         ]
+        commands.append(PaletteCommand(name: "Search in List", shortcut: "⇧⌘F") { model.focusSearch() })
+        for (style, name) in [(VaultModel.BrowsingStyle.singleColumn, "Use One Column Sidebar"), (.twoColumns, "Use Two Column Sidebar")]
+            where model.browsingStyle != style {
+            commands.append(PaletteCommand(name: name, shortcut: nil) { model.browsingStyle = style })
+        }
         if let note = model.selectedNote {
             commands += [
                 PaletteCommand(name: "Insert Template…", shortcut: "⌥⌘T") { model.isChoosingTemplate = true },
@@ -405,6 +398,7 @@ struct PaletteCommand {
 private struct PaletteField: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
+    var fontSize: CGFloat = 18
     let onMove: (Int) -> Void
     let onSubmit: () -> Void
     let onCancel: () -> Void
@@ -419,7 +413,7 @@ private struct PaletteField: NSViewRepresentable {
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.font = .systemFont(ofSize: 18)
+        field.font = .systemFont(ofSize: fontSize)
         field.delegate = context.coordinator
         DispatchQueue.main.async { field.window?.makeFirstResponder(field) }
         return field

@@ -61,6 +61,10 @@ struct WindowRoot: View {
                 onBecomeKey: { [weak store, weak model] in store?.activeWindow = model }
             ))
             .onAppear {
+                model.openWindowHandler = { noteID in openWindow(id: "main", value: TabRequest(noteID: noteID)) }
+                #if DEBUG
+                DebugSnapshots.runIfAsked(for: model)
+                #endif
                 if let noteID = request.noteID, model.selection == nil { model.selection = noteID }
             }
     }
@@ -153,14 +157,16 @@ struct AppCommands: Commands {
         }
         CommandGroup(after: .textEditing) {
             Divider()
-            Button("Command Palette") { model?.togglePalette(.search) }
-                .keyboardShortcut("e")
+            // The same in every layout: ⌘F searches and ⌘E explores, both in the palette.
+            Button("Search") { model?.togglePalette(.search) }
+                .keyboardShortcut("f")
                 .disabled(model == nil || store.root == nil)
             Button("Explorer") { model?.togglePalette(.explorer) }
-                .keyboardShortcut("e", modifiers: [.command, .shift])
+                .keyboardShortcut("e")
                 .disabled(model == nil || store.root == nil)
-            Button("Search Notes") { model?.focusSearch() }
-                .keyboardShortcut("f")
+            // The sidebar's own search field (there's no sidebar in Minimal).
+            Button("Search in List") { model?.focusSearch() }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
                 .disabled(model == nil || store.root == nil)
             Button("Find in Note") { FindInNote.show() }
                 .keyboardShortcut("f", modifiers: [.command, .option])
@@ -170,13 +176,6 @@ struct AppCommands: Commands {
                 .keyboardShortcut(.upArrow)
                 .disabled(model == nil || model?.place == .allNotes)
             Button("Top Level") { model?.browse(.allNotes) }
-                .disabled(model == nil)
-            Divider()
-            Button("Previous Note") { model?.selectAdjacentNote(-1) }
-                .keyboardShortcut(.upArrow, modifiers: [.command, .option])
-                .disabled(model == nil)
-            Button("Next Note") { model?.selectAdjacentNote(1) }
-                .keyboardShortcut(.downArrow, modifiers: [.command, .option])
                 .disabled(model == nil)
             Divider()
             Button("Back") { model?.goBack() }

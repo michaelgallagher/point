@@ -2,7 +2,8 @@ import AppKit
 import SwiftUI
 import VaultKit
 
-/// One side of the window: its top bar (title or tabs) above the current tab's note.
+/// One side of the window: its top bar (title or tabs) above the current tab's note, or
+/// for an empty tab, a start page.
 struct PaneView: View {
     @EnvironmentObject private var model: VaultModel
     let paneID: VaultModel.NotePane.ID
@@ -15,34 +16,15 @@ struct PaneView: View {
                     PaneTopBar(pane: pane, paneIndex: index)
                 }
                 if let note = model.note(pane.tab.noteID) {
-                    NoteEditor(note: note, model: model, paneID: paneID)
+                    NoteEditor(note: note, model: model, paneID: paneID, offersTemplates: note.id == model.freshNoteID)
                         .id(paneID.uuidString + note.id)
                 } else {
-                    BlankPane(isActive: index == model.activePane, isSplit: model.isSplit)
-                        .contentShape(Rectangle())
-                        .onTapGesture { model.activate(pane: paneID) }
+                    // An empty tab is a start page: search, recent notes and the explorer.
+                    CommandPalette(isPage: true)
+                        .id(pane.tab.id) // A fresh page for each tab.
                 }
             }
         }
-    }
-}
-
-/// A tab with no note yet. (Later: a small file browser here.)
-private struct BlankPane: View {
-    let isActive: Bool
-    let isSplit: Bool
-
-    var body: some View {
-        VStack(spacing: 6) {
-            Text("No Note Selected")
-                .font(.title3)
-            if isSplit {
-                Text(isActive ? "Pick a note in the list to open it here." : "Click here, then pick a note in the list.")
-                    .font(.callout)
-            }
-        }
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

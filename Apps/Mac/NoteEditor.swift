@@ -10,9 +10,11 @@ struct NoteEditor: View {
     @StateObject private var connections: Connections
     /// The pane it's in, where links clicked in it open.
     let paneID: VaultModel.NotePane.ID
-
-    init(note: Note, model: VaultModel, paneID: VaultModel.NotePane.ID) {
+    /// Whether to offer templates while the note is empty (a note just made).
+    var offersTemplates = false
+    init(note: Note, model: VaultModel, paneID: VaultModel.NotePane.ID, offersTemplates: Bool = false) {
         self.paneID = paneID
+        self.offersTemplates = offersTemplates
         _session = StateObject(wrappedValue: EditorSession(note: note))
         _connections = StateObject(wrappedValue: Connections(note: note, model: model))
     }
@@ -21,6 +23,19 @@ struct NoteEditor: View {
         VStack(spacing: 0) {
             if session.conflict != nil {
                 ConflictBanner(session: session)
+            }
+            // The note's title (its file name) above everything: most notes don't start
+            // with a heading, and the top bar's path is too small to be the title.
+            do {
+                Text(session.note.title)
+                    .font(.system(size: 24 * model.textScale, weight: .bold))
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+                    .padding(.top, 18)
+                    .padding(.leading, 5) // Lines up with the text, which is inset a little.
+                    .frame(maxWidth: 720, alignment: .leading)
+                    .padding(.horizontal, 28)
+                    .frame(maxWidth: .infinity)
             }
             if let frontmatter = session.frontmatter {
                 PropertiesStrip(frontmatter: frontmatter, session: session)
@@ -32,6 +47,9 @@ struct NoteEditor: View {
                     .padding()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if session.isLoaded {
+                if offersTemplates, session.isEmpty, !model.templates.isEmpty {
+                    TemplateChoices()
+                }
                 EditorView(session: session, model: model, paneID: paneID, showsMarkdown: model.showsMarkdown, textScale: model.textScale)
             } else {
                 Color.clear
@@ -43,6 +61,40 @@ struct NoteEditor: View {
             connections.refresh()
         }
         .onDisappear { session.save(leaving: true) }
+    }
+}
+
+/// Above a new, empty note: start from a template, or just type.
+private struct TemplateChoices: View {
+    @EnvironmentObject private var model: VaultModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("Start from a template:")
+                .foregroundStyle(.secondary)
+            ForEach(model.templates, id: \.url) { template in
+                Button(template.name) { model.insertTemplate(at: template.url) }
+                    .modifier(GlassButtonStyle())
+            }
+            Text("or just type.")
+                .foregroundStyle(.tertiary)
+        }
+        .font(.callout)
+        .padding(.horizontal, 28)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 720, alignment: .leading)
+        .frame(maxWidth: .infinity)
+    }
+}
+
+/// Glass buttons where the system has them, bordered ones before.
+struct GlassButtonStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26, *) {
+            content.buttonStyle(.glass)
+        } else {
+            content.buttonStyle(.bordered)
+        }
     }
 }
 

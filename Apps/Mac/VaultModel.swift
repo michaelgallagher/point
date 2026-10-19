@@ -129,6 +129,10 @@ final class VaultModel: ObservableObject {
     }
 
     var isSplit: Bool { panes.count > 1 }
+    /// Opens a note in a new window. Set by the window, which can open others.
+    var openWindowHandler: ((Note.ID?) -> Void)?
+    /// A note just made with ⌘N in the Minimal layout, which offers templates while empty.
+    @Published var freshNoteID: Note.ID?
 
     /// The note in the active pane's current tab. Setting it opens a note there, or moves to
     /// the tab where it's already open.
@@ -152,10 +156,14 @@ final class VaultModel: ObservableObject {
                 Trace.mark("top bar height \(height)")
                 topBarHeight = height
             }
+            if let inset = TopBar.windowButtonsInset(for: window) { windowButtonsInset = inset }
         }
     }
     /// The height of the bars along the window's top, lined up with its window buttons.
     @Published private(set) var topBarHeight: CGFloat = 38
+    /// How far in from the window's left edge the top bar's contents start, clear of the
+    /// window buttons.
+    @Published private(set) var windowButtonsInset: CGFloat = 92
 
     /// Where a note is open, if it is.
     private func location(of id: Note.ID) -> (pane: Int, tab: Int)? {
@@ -394,7 +402,10 @@ final class VaultModel: ObservableObject {
     func createNote(text: String = "") {
         var folder = ""
         if case .folder(let path) = place { folder = path }
-        if let id = store.createNote(text: text, inFolder: folder) { selection = id }
+        guard let id = store.createNote(text: text, inFolder: folder) else { return }
+        // A new tab, unless this one is empty, and templates on offer until typing starts.
+        freshNoteID = id
+        if selection == nil { selection = id } else { newTab(noteID: id) }
     }
 
     /// Opens today's daily note, creating it if needed.
@@ -461,8 +472,12 @@ final class VaultModel: ObservableObject {
 
     /// Focus mode: just the text, with all other interface hidden.
     @Published var isFocused = false
-    /// Whether the note list is showing (⌘S, or a two-finger swipe, hides and shows it).
-    @Published var showsNoteList = true
+    /// Whether the sidebar is showing (⌘S, or a two-finger swipe, hides and shows it).
+    /// Remembered, so new windows open the way the last one was left: hiding the sidebar
+    /// is how Imprint becomes a single, compact note.
+    @Published var showsNoteList = UserDefaults.standard.object(forKey: "showsNoteList") == nil || UserDefaults.standard.bool(forKey: "showsNoteList") {
+        didSet { UserDefaults.standard.set(showsNoteList, forKey: "showsNoteList") }
+    }
 
     func startSwipeTracking() { store.startSwipeTracking() }
 
@@ -474,17 +489,29 @@ final class VaultModel: ObservableObject {
     }
     /// Results for `searchText`, or nil when not searching.
     @Published private(set) var searchResults: [SearchResult]?
-    /// Whether the ⌘E command palette is showing.
+    /// Whether the command palette is showing.
     @Published var isPaletteShown = false
-    /// Whether the palette searches (⌘E) or browses folders and tags (⇧⌘E).
+    /// Whether the palette searches (⌘F) or browses folders and tags (⌘E).
     @Published var paletteMode = PaletteMode.search
-    /// Where the palette's explorer was left, to start there next time.
-    var explorerLevel = ExplorerLevel.place(.allNotes)
+    /// Text to start the palette with, such as a tag clicked in a note.
+    @Published var paletteSeed: String?
+    /// Where the palette's explorer was left (place, column, note), to start there next time.
+    var explorerPlace: SidebarPlace = .allNotes
+    var explorerInNotes = false
+    var explorerNote: Note.ID?
+    /// ⌘F or ⌘E pressed while a start page is showing: the page switches to that mode.
+    @Published private(set) var startPageRequest: (mode: PaletteMode, count: Int) = (.search, 0)
 
     enum PaletteMode { case search, explorer }
 
     /// Shows the palette in a mode, or hides it if it's already showing that.
     func togglePalette(_ mode: PaletteMode) {
+        // On a start page, ⌘F and ⌘E switch the page itself between searching and
+        // exploring, rather than opening a palette on top of it.
+        if selection == nil, !isPaletteShown {
+            startPageRequest = (mode, startPageRequest.count + 1)
+            return
+        }
         if isPaletteShown && paletteMode == mode {
             isPaletteShown = false
         } else {
@@ -496,6 +523,7 @@ final class VaultModel: ObservableObject {
     @Published private(set) var searchFocusRequest = 0
     private var searchTask: Task<Void, Never>?
 
+    /// Puts the cursor in the sidebar's search field, showing the sidebar if it's hidden.
     func focusSearch() {
         isFocused = false
         searchFocusRequest += 1
@@ -503,6 +531,16 @@ final class VaultModel: ObservableObject {
 
     /// Searches for a tag, for example after a tag is clicked in a note.
     func search(tag: String) {
+        // With the sidebar hidden, search in the palette rather than bringing it back.
+        if !showsNoteList || isFocused {
+            paletteSeed = "#" + tag
+            isPaletteShown = false
+            DispatchQueue.main.async { [weak self] in
+                self?.paletteMode = .search
+                self?.isPaletteShown = true
+            }
+            return
+        }
         searchText = "#" + tag
         focusSearch()
     }

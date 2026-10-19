@@ -117,6 +117,30 @@ struct LineFormattingTests {
         #expect(marked(view) == "- [ ] it|em")
     }
 
+    @Test func movingLinesUpAndDown() {
+        let view = editor("one\ntw|o\nthree")
+        view.moveLinesUp(nil)
+        #expect(marked(view) == "tw|o\none\nthree")
+        view.moveLinesUp(nil) // Already first: nothing changes.
+        #expect(marked(view) == "tw|o\none\nthree")
+        view.moveLinesDown(nil)
+        view.moveLinesDown(nil) // Past the last line, which has no line break.
+        #expect(marked(view) == "one\nthree\ntw|o")
+        view.moveLinesUp(nil)
+        #expect(marked(view) == "one\ntw|o\nthree")
+        view.undoManager?.undo() // In a test, the moves are one undo group.
+        #expect(view.string == "one\ntwo\nthree")
+    }
+
+    @Test func movingSelectedLines() {
+        let view = editor("a\nb\nc\nd|")
+        // Select from inside "b" to the start of "d": "b" and "c" move, "d" stays.
+        view.setSelectedRange(NSRange(location: 2, length: 4))
+        view.moveLinesDown(nil)
+        #expect(view.string == "a\nd\nb\nc")
+        #expect(view.selectedRange() == NSRange(location: 4, length: 3)) // "b\nc", now last.
+    }
+
     @Test func indentAndOutdent() {
         let view = editor("- a\n- b|")
         view.indentLines(nil)

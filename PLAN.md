@@ -106,8 +106,9 @@ A single flat list of notes won't scale, so the sidebar browses folders and tags
 
 | Keys | Action |
 |---|---|
-| ⌘E | Command palette (search, all tags, commands) |
-| ⌘F | Search the vault |
+| ⌘F | Command palette: search notes, all tags, commands (branch `minimalist`; was ⌘E) |
+| ⌘E | Command palette as the two-column explorer (branch `minimalist`; was ⇧⌘E) |
+| ⇧⌘F | The note list's search field, in the sidebar layouts (branch `minimalist`; was ⌘F) |
 | ⌥⌘F | Find within the note |
 | ⌘B / ⌘I / ⌘U | Bold / italic / highlight |
 | ⌘1 … ⌘6 | Heading level |
@@ -117,7 +118,7 @@ A single flat list of notes won't scale, so the sidebar browses folders and tags
 | Tab / ⇧Tab | Indent / outdent in lists |
 | ⌘[ / ⌘] | Back / forward through visited notes |
 | ⌘↑ | Up to the enclosing folder or parent tag |
-| ⌥⌘↑ / ⌥⌘↓ | Previous / next note in the list |
+| ⌥⌘↑ / ⌥⌘↓ | Move the line up / down (branch `minimalist`; was previous / next note in the list) |
 | ⌘+ / ⌘− | Bigger / smaller note text |
 | ⌘S | Hide or show the note list |
 | ⌘T | New tab |
@@ -307,6 +308,29 @@ Buy the developer account first.
 4. **macOS 13.** TextKit and SwiftUI are older. Mitigation: test on the 2017 Mac at every milestone, and accept a simpler experience there.
 5. **On-device model quality.** Foundation Models is small, so digests may be shallow. Mitigation: keep prompts narrow, and lean on embeddings and statistics for topics and clusters.
 6. **Digests depend on the M3.** They're only generated when the M3 is awake and running the app. Mitigation: generate on launch for any missed weeks.
+
+## Exploration: radically minimal (issue #2, branch `minimalist`)
+
+**The question.** Can Imprint drop the usual "explorer on the left, note on the right" layout? The needs: keep a bunch of notes open, find things quickly, show as little interface as possible. Principles 5, 7 and 9 point the same way: fast, minimal, and the command palette as the main way to do things.
+
+**Outcome (19 October 2026): no separate mode.** The draft built a third layout, "Minimal". Once the sidebar layouts gained its tabs, top bar, splitting and palette, hiding the sidebar gave almost exactly Minimal, so Minimal was folded into the app: **hiding the sidebar is the minimal setup**, remembered for new windows and relaunches. A saved "Minimal" setting becomes One column with the sidebar hidden. Settings keeps One column / Two columns, which only shape the sidebar when it shows.
+
+**What the exploration added to the app:**
+1. **Explorer or note.** You rarely need the explorer and the note at once. With the sidebar hidden, a window is one compact note (as narrow as 420 points), to sit beside other windows.
+2. **Tabs along the top,** drawn by Imprint (Mike didn't like the glass tabs): each tab its natural width plus a little padding, sharing the width equally (titles truncated) only once they don't fit; the selected tab light grey; no shadows; a close button on hover at each tab's leading edge, as in Safari. (The first draft put tabs in a list down the side; Mike preferred regular tabs.)
+3. **One top bar:** white like the page, with a hairline under it like the one under the properties, starting clear of the window buttons (measured from the window). No New Tab button (⌘T); a Split button, or with a split, a close button for each side. With the sidebar hidden, New Note and Show Sidebar sit just past the window buttons. With one tab, the bar shows the note's path (folders, then its name in bold).
+4. **The note's title always shows above its properties** (the path is too small to be the main title, and most notes don't start with a heading).
+5. **Every new or empty tab is a start page:** a large search field (searching everything, as ⌘F does) over recent notes and "Browse Folders and Tags". Browsing, or ⌘E on a start page, turns the page into the explorer. ⌘F and ⌘E on a start page switch the page itself, rather than opening a palette on top.
+6. **The palette is one size whether searching or exploring:** 540 points wide with a 420-point list, a roomier typing area, a divider running to its edges, rounder corners (16 points), no outline, and one shadow for the whole panel (none on the selection). The start page is 600 wide.
+7. **The explorer has two columns,** like the two-column sidebar, on the start page and in the ⌘E palette alike: pinned places, folders (nested) and tags (nested) on the left; the highlighted place's notes on the right. ↑↓ move, → or Return goes into the notes, ← goes back (on a start page, ← from the places goes back to recent notes), typing filters whichever column has the keyboard, and Return opens a note (⌘Return in a new tab). It reopens where it was left.
+8. **Splitting:** the Split button or ⇧⌘S, ⌥⌘-click and Open to the Side. Each side has its own tabs, and an empty side shows a start page. A tab can also go to its own window ("Open in New Window").
+9. **New note gives a choice without slowing you down.** ⌘N opens a blank note in a new tab (or fills an empty one) with the cursor in it. While it's empty, a row of templates sits above the text; typing anything removes it.
+10. **Shortcuts:** ⌘F opens the palette to search; ⌘E opens it as the explorer. ⇧⌘F goes to the sidebar's search field (showing the sidebar), also "Search in List" in the palette. ⌥⌘F stays Find in Note; ⇧⌘E is free. ⌥⌘↑ / ⌥⌘↓ move the current line (or the selected lines) up or down; the Previous and Next Note shortcuts are gone.
+11. **Clicking a tag** searches for it in the palette while the sidebar is hidden, or in the sidebar's search field while it shows.
+
+**Checks:** all package tests pass (VaultKit 62, MarkdownKit 33, EditorKit 57 including line moving, IndexKit 18). Layouts were checked from pictures saved by a debug hook (`-ImprintSnapshots <folder>`, with `-showsNoteList NO` to start with the sidebar hidden): tabs, the top bar with and without the sidebar, the start page and its explorer, both palettes, the template row, splits. Glass buttons don't show in those pictures. Not yet tried by hand: the explorer's keys, and opening a second window.
+
+**Later:** windows that snap together; auto-hiding the sidebar below a set window width (see Topics for investigation).
 
 ## Topics for investigation
 
