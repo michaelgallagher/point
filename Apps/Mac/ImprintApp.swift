@@ -157,15 +157,17 @@ struct AppCommands: Commands {
         }
         CommandGroup(after: .textEditing) {
             Divider()
-            Button("Command Palette") { model?.togglePalette(.search) }
-                .keyboardShortcut("e")
-                .disabled(model == nil || store.root == nil)
-            Button("Explorer") { model?.togglePalette(.explorer) }
-                .keyboardShortcut("e", modifiers: [.command, .shift])
-                .disabled(model == nil || store.root == nil)
-            Button("Search Notes") { model?.focusSearch() }
+            // The same in every layout: ⌘F searches and ⌘E explores, both in the palette.
+            Button("Search") { model?.togglePalette(.search) }
                 .keyboardShortcut("f")
                 .disabled(model == nil || store.root == nil)
+            Button("Explorer") { model?.togglePalette(.explorer) }
+                .keyboardShortcut("e")
+                .disabled(model == nil || store.root == nil)
+            // The sidebar's own search field (there's no sidebar in Minimal).
+            Button("Search in List") { model?.focusSearch() }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
+                .disabled(model == nil || store.root == nil || model?.isMinimal == true)
             Button("Find in Note") { FindInNote.show() }
                 .keyboardShortcut("f", modifiers: [.command, .option])
         }

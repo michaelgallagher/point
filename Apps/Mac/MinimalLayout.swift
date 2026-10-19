@@ -5,7 +5,7 @@ import VaultKit
 /// The Minimal layout: no explorer panel, one note at a time, tabs along the top, and a
 /// start page (search, recent notes, and the explorer) in every empty tab. It's meant to be
 /// compact, to sit beside other windows; finding things happens in the start page and the
-/// ⌘E palette, never beside the note.
+/// palette (⌘F to search, ⌘E to explore), never beside the note.
 struct MinimalLayout: View {
     @EnvironmentObject private var model: VaultModel
 

@@ -3,8 +3,8 @@ import IndexKit
 import SwiftUI
 import VaultKit
 
-/// ⌘E: one place to open notes, search tags and run commands, all from the keyboard.
-/// ⇧⌘E: the same palette as a two-column explorer of folders, tags and their notes.
+/// ⌘F: one place to open notes, search tags and run commands, all from the keyboard.
+/// ⌘E: the same palette as a two-column explorer of folders, tags and their notes.
 /// In the Minimal layout, an empty tab shows the palette as a page: the start page.
 struct CommandPalette: View {
     @EnvironmentObject private var model: VaultModel
@@ -84,7 +84,7 @@ struct CommandPalette: View {
             refresh()
         }
         .onChange(of: model.startPageRequest.count) { _ in
-            // ⌘E or ⇧⌘E on a start page switches the page itself.
+            // ⌘F or ⌘E on a start page switches the page itself.
             guard isPage else { return }
             setPageExplores(model.startPageRequest.mode == .explorer)
         }
@@ -331,7 +331,7 @@ private struct PaletteRow: View {
         case .tag(_, let count): "\(count) \(count == 1 ? "note" : "notes")"
         case .command(let command): command.shortcut
         case .recent: "Recent"
-        case .browse: "⇧⌘E  ›"
+        case .browse: "⌘E  ›"
         }
     }
 }
@@ -348,8 +348,7 @@ struct PaletteCommand {
         var commands = [
             PaletteCommand(name: "New Note", shortcut: "⌘N", isSuggested: true) { model.createNote() },
             PaletteCommand(name: "Today's Note", shortcut: "⌘T", isSuggested: true) { model.openTodaysNote() },
-            PaletteCommand(name: "Search Notes", shortcut: "⌘F") { model.focusSearch() },
-            PaletteCommand(name: "Explorer", shortcut: "⇧⌘E", isSuggested: true) { model.togglePalette(.explorer) },
+            PaletteCommand(name: "Explorer", shortcut: "⌘E", isSuggested: true) { model.togglePalette(.explorer) },
             PaletteCommand(name: model.showsNoteList ? "Hide Note List" : "Show Note List", shortcut: "⌘S") { model.showsNoteList.toggle() },
             PaletteCommand(name: "Bigger Text", shortcut: "⌘=") { model.makeTextBigger() },
             PaletteCommand(name: "Smaller Text", shortcut: "⌘−") { model.makeTextSmaller() },
@@ -372,6 +371,7 @@ struct PaletteCommand {
         ]
         if !model.isMinimal {
             commands += [
+                PaletteCommand(name: "Search in List", shortcut: "⇧⌘F") { model.focusSearch() },
                 PaletteCommand(name: model.isSplit ? "Merge Split into Tabs" : "Split", shortcut: "⇧⌘S") { model.toggleSplit() },
                 PaletteCommand(name: model.isSplit ? "Move Tab to Other Side" : "Move Tab to New Split", shortcut: nil) { model.moveTabToOtherSide() },
             ]

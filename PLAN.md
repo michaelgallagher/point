@@ -106,8 +106,9 @@ A single flat list of notes won't scale, so the sidebar browses folders and tags
 
 | Keys | Action |
 |---|---|
-| ⌘E | Command palette (search, all tags, commands) |
-| ⌘F | Search the vault |
+| ⌘F | Command palette: search notes, all tags, commands (branch `minimalist`; was ⌘E) |
+| ⌘E | Command palette as the two-column explorer (branch `minimalist`; was ⇧⌘E) |
+| ⇧⌘F | The note list's search field, in the sidebar layouts (branch `minimalist`; was ⌘F) |
 | ⌥⌘F | Find within the note |
 | ⌘B / ⌘I / ⌘U | Bold / italic / highlight |
 | ⌘1 … ⌘6 | Heading level |
@@ -117,7 +118,7 @@ A single flat list of notes won't scale, so the sidebar browses folders and tags
 | Tab / ⇧Tab | Indent / outdent in lists |
 | ⌘[ / ⌘] | Back / forward through visited notes |
 | ⌘↑ | Up to the enclosing folder or parent tag |
-| ⌥⌘↑ / ⌥⌘↓ | Previous / next note in the list |
+| ⌥⌘↑ / ⌥⌘↓ | Move the line up / down (branch `minimalist`; was previous / next note in the list) |
 | ⌘+ / ⌘− | Bigger / smaller note text |
 | ⌘S | Hide or show the note list |
 | ⌘T | New tab |
@@ -318,14 +319,15 @@ Buy the developer account first.
 3. **Tabs along the top,** drawn by Imprint (Mike didn't like the glass tabs), revised 19 October 2026: the top row is always light grey; each tab is its natural width plus a little padding, and only shares the width equally (titles truncated) once they don't fit; the selected tab is a slightly darker grey; no shadows; a close button on hover at each tab's leading edge, as in Safari. The row starts clear of the window buttons, measured from the window. + opens a new tab. The same tabs are used in the other layouts on this branch. (The first draft put tabs in a list down the side; Mike preferred regular tabs.)
    - **With one tab,** the top row shows the note's path: its folders, then its name in bold.
    - **The note's title always shows above its properties** (the path is too small to be the main title, and most notes don't start with a heading).
-4. **Every new or empty tab is a start page:** a large search field (searching everything, as ⌘E does) over recent notes and "Browse Folders and Tags". Browsing, or ⇧⌘E on a start page, turns the page into the explorer.
-5. **The palette is one size whether searching or exploring:** 540 points wide with a 420-point list (the explorer's height), a roomier typing area, a divider running to its edges, rounder corners (16 points) and one shadow for the whole panel (none on the selection). The start page is 600 wide. **⌘E and ⇧⌘E on a start page switch the page itself** between searching and exploring, rather than opening a palette on top. **The explorer has two columns,** like the two-column sidebar, on the start page and in the ⇧⌘E palette alike: pinned places, folders (nested) and tags (nested) on the left; the highlighted place's notes on the right. ↑↓ move, → or Return goes into the notes, ← goes back (on a start page, ← from the places goes back to recent notes), typing filters whichever column has the keyboard, and Return opens a note (⌘Return in a new tab). It reopens where it was left.
+4. **Every new or empty tab is a start page:** a large search field (searching everything, as ⌘F does) over recent notes and "Browse Folders and Tags". Browsing, or ⌘E on a start page, turns the page into the explorer.
+5. **The palette is one size whether searching or exploring:** 540 points wide with a 420-point list (the explorer's height), a roomier typing area, a divider running to its edges, rounder corners (16 points) and one shadow for the whole panel (none on the selection). The start page is 600 wide. **⌘F and ⌘E on a start page switch the page itself** between searching and exploring, rather than opening a palette on top. **The explorer has two columns,** like the two-column sidebar, on the start page and in the ⌘E palette alike: pinned places, folders (nested) and tags (nested) on the left; the highlighted place's notes on the right. ↑↓ move, → or Return goes into the notes, ← goes back (on a start page, ← from the places goes back to recent notes), typing filters whichever column has the keyboard, and Return opens a note (⌘Return in a new tab). It reopens where it was left.
 6. **No splitting.** Two notes side by side means two windows: ⌥⌘-click, Open to the Side and a tab's "Open in New Window" open a new window; ⇧⌘S is unavailable.
 7. **New note gives a choice without slowing you down.** ⌘N opens a blank note in a new tab with the cursor in it. While it's empty, a row of templates sits above the text; typing anything removes it.
-8. **Shortcuts:** ⌥⌘↑ / ⌥⌘↓ move the current line (or the selected lines) up or down (Format menu). The Previous and Next Note shortcuts are gone: the list isn't on screen in Minimal.
+8. **Shortcuts (in every layout, decided 19 October 2026):** ⌘F opens the palette to search; ⌘E opens it as the explorer (on a start page, both switch the page itself). In the sidebar layouts, ⇧⌘F goes to the list's search field (also "Search in List" in the palette); Minimal has no list. ⌥⌘F stays Find in Note. ⇧⌘E is free. One scheme for all layouts, so switching layouts never changes what the keys do.
+   **Line moving:** ⌥⌘↑ / ⌥⌘↓ move the current line (or the selected lines) up or down (Format menu). The Previous and Next Note shortcuts are gone: the list isn't on screen in Minimal.
 9. **Search goes through the palette.** ⌘F and clicking a tag open the palette (with the tag typed in).
 
-**Draft status (19 October 2026):** built on branch `minimalist`. Checked from pictures of the window saved by a debug hook (`-ImprintSnapshots <folder>` with `-browsingStyle minimal`): top tabs, the start page, its explorer, the ⇧⌘E explorer over a note, the template row and the single-tab window all render as intended. The + button's glass doesn't show in those pictures. Line moving is covered by EditorKit tests. Not yet tried by hand: the explorer's keys, and opening a second window.
+**Draft status (19 October 2026):** built on branch `minimalist`. Checked from pictures of the window saved by a debug hook (`-ImprintSnapshots <folder>` with `-browsingStyle minimal`): top tabs, the start page, its explorer, the ⌘E explorer over a note, the template row and the single-tab window all render as intended. The + button's glass doesn't show in those pictures. Line moving is covered by EditorKit tests. Not yet tried by hand: the explorer's keys, and opening a second window.
 
 **Not in the draft:** windows that snap together; a pinned first "explorer" tab (decided against: ⌘T reaches the start page from anywhere, which is simpler); a slimmer default size for new Minimal windows.
 
