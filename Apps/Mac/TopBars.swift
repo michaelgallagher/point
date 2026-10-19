@@ -26,7 +26,7 @@ enum TopBar {
 
 }
 
-/// The sidebar's top bar: the New Note and Hide Sidebar buttons, at its trailing edge.
+/// The sidebar's top bar: the Hide Sidebar button, at its trailing edge.
 struct SidebarTopBar: View {
     @EnvironmentObject private var model: VaultModel
 
@@ -42,13 +42,12 @@ struct SidebarTopBar: View {
     }
 }
 
-/// New Note, and the button that hides and shows the sidebar.
+/// The button that hides and shows the sidebar. (New notes come from ⌘N or the palette.)
 struct SidebarButtons: View {
     @EnvironmentObject private var model: VaultModel
 
     var body: some View {
         HStack(spacing: 10) {
-            BarButton("New Note", systemImage: "square.and.pencil", help: "New Note (⌘N)") { model.createNote() }
             BarButton(model.showsNoteList ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.left",
                       help: model.showsNoteList ? "Hide Sidebar (⌘S)" : "Show Sidebar (⌘S)") {
                 if model.isFocused { model.isFocused = false } else { model.showsNoteList.toggle() }
