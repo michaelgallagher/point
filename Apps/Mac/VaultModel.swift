@@ -158,10 +158,14 @@ final class VaultModel: ObservableObject {
                 Trace.mark("top bar height \(height)")
                 topBarHeight = height
             }
+            if let inset = TopBar.windowButtonsInset(for: window) { windowButtonsInset = inset }
         }
     }
     /// The height of the bars along the window's top, lined up with its window buttons.
     @Published private(set) var topBarHeight: CGFloat = 38
+    /// How far in from the window's left edge the top bar's contents start, clear of the
+    /// window buttons.
+    @Published private(set) var windowButtonsInset: CGFloat = 92
 
     /// Where a note is open, if it is.
     private func location(of id: Note.ID) -> (pane: Int, tab: Int)? {
@@ -498,13 +502,23 @@ final class VaultModel: ObservableObject {
     @Published var paletteMode = PaletteMode.search
     /// Text to start the palette with, such as a tag clicked in a note.
     @Published var paletteSeed: String?
-    /// Where the palette's explorer was left, to start there next time.
-    var explorerLevel = ExplorerLevel.place(.allNotes)
+    /// Where the palette's explorer was left (place, column, note), to start there next time.
+    var explorerPlace: SidebarPlace = .allNotes
+    var explorerInNotes = false
+    var explorerNote: Note.ID?
+    /// ⌘E or ⇧⌘E pressed while a start page is showing: the page switches to that mode.
+    @Published private(set) var startPageRequest: (mode: PaletteMode, count: Int) = (.search, 0)
 
     enum PaletteMode { case search, explorer }
 
     /// Shows the palette in a mode, or hides it if it's already showing that.
     func togglePalette(_ mode: PaletteMode) {
+        // On a start page, ⌘E and ⇧⌘E switch the page itself between searching and
+        // exploring, rather than opening a palette on top of it.
+        if isMinimal, selection == nil, !isPaletteShown {
+            startPageRequest = (mode, startPageRequest.count + 1)
+            return
+        }
         if isPaletteShown && paletteMode == mode {
             isPaletteShown = false
         } else {

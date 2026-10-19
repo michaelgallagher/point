@@ -13,8 +13,17 @@ enum TopBar {
         return ((window.frame.height - middle) * 2).rounded()
     }
 
-    /// Room for the close, minimise and zoom buttons at the window's top left.
-    static let windowButtonsWidth: CGFloat = 76
+    /// Past the zoom button, with a gap, measured from the window.
+    @MainActor static func windowButtonsInset(for window: NSWindow?) -> CGFloat? {
+        guard let window, let button = window.standardWindowButton(.zoomButton) else { return nil }
+        return (button.convert(button.bounds, to: nil).maxX + 16).rounded()
+    }
+
+    /// The top bar's background, always: a light grey over the page.
+    static let barColor = Color.primary.opacity(0.05)
+    /// The selected tab: a little darker than the bar.
+    static let selectedTabColor = Color.primary.opacity(0.07)
+
 }
 
 /// The sidebar's top bar: the New Note and Hide Sidebar buttons, at its trailing edge.
@@ -26,7 +35,7 @@ struct SidebarTopBar: View {
             Spacer()
             SidebarButtons()
         }
-        .padding(.leading, TopBar.windowButtonsWidth)
+        .padding(.leading, model.windowButtonsInset)
         .padding(.trailing, 8)
         .frame(height: model.topBarHeight)
         .background(WindowDragArea())
@@ -63,20 +72,10 @@ struct PaneTopBar: View {
             if holdsSidebarButtons {
                 SidebarButtons()
             }
-            if pane.tabs.count > 1, #available(macOS 26, *) {
-                GlassTabs(pane: pane, paneIndex: paneIndex)
-            } else if pane.tabs.count > 1 {
-                TabStrip(
-                    titles: pane.tabs.map { model.note($0.noteID)?.title ?? "New Tab" },
-                    selected: pane.current,
-                    select: { model.selectTab($0, inPane: paneIndex) },
-                    menu: { tabMenu(for: $0) }
-                )
+            if pane.tabs.count > 1 {
+                NoteTabs(pane: pane, paneIndex: paneIndex)
             } else {
-                Text(model.note(pane.tab.noteID)?.title ?? "New Tab")
-                    .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                NotePath(note: model.note(pane.tab.noteID))
                     // With two sides, the one being worked on has the stronger title.
                     .foregroundStyle(isActive || !model.isSplit ? .primary : .secondary)
                     .contextMenu { tabMenuItems(for: pane.current) }
@@ -89,10 +88,11 @@ struct PaneTopBar: View {
                 BarButton("Split", systemImage: "rectangle.split.2x1", help: "Split (⇧⌘S)") { model.toggleSplit() }
             }
         }
-        .padding(.leading, holdsSidebarButtons ? TopBar.windowButtonsWidth : 16)
+        .padding(.leading, holdsSidebarButtons ? model.windowButtonsInset : 16)
         .padding(.trailing, 8)
         .frame(height: model.topBarHeight)
         .background(WindowDragArea())
+        .background(TopBar.barColor)
         .overlay(alignment: .bottom) { Divider() }
     }
 
@@ -105,20 +105,6 @@ struct PaneTopBar: View {
         }
     }
 
-    /// The right-click menu for a tab in the tab strip.
-    private func tabMenu(for index: Int) -> NSMenu {
-        let menu = NSMenu()
-        menu.addItem(BlockMenuItem("Close Tab") { model.closeTab(index, inPane: paneIndex) })
-        menu.addItem(BlockMenuItem("Close Other Tabs") { model.closeOtherTabs(index, inPane: paneIndex) })
-        menu.addItem(.separator())
-        menu.addItem(BlockMenuItem(model.isSplit ? "Move to Other Side" : "Move to New Split") {
-            model.moveTabToOtherSide(index, inPane: paneIndex)
-        })
-        if model.isSplit {
-            menu.addItem(BlockMenuItem("Merge Both Sides into Tabs") { model.mergeIntoTabs() })
-        }
-        return menu
-    }
 }
 
 /// An icon button like a toolbar's.
@@ -162,56 +148,75 @@ struct BarButton: View {
     }
 }
 
-/// A side's tabs as Liquid Glass capsules: the current one solid glass, the others clear
-/// glass, each with a close button on hover. Right-click a tab for its menu.
-@available(macOS 26, *)
-struct GlassTabs: View {
+/// A side's tabs, drawn by Imprint: the current tab a raised, page-coloured tab (it is the
+/// page below), the others plain titles that shade on hover, each with a close button on
+/// hover, at its leading edge as in Safari and Finder. Right-click a tab for its menu.
+struct NoteTabs: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
     let paneIndex: Int
 
     var body: some View {
-        GlassEffectContainer(spacing: 6) {
-            HStack(spacing: 6) {
-                ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
-                    GlassTab(
-                        title: model.note(tab.noteID)?.title ?? "New Tab",
-                        isCurrent: index == pane.current,
-                        select: { model.selectTab(index, inPane: paneIndex) },
-                        close: { model.closeTab(index, inPane: paneIndex) }
-                    )
-                    .contextMenu {
-                        Button("Close Tab") { model.closeTab(index, inPane: paneIndex) }
-                        Button("Close Other Tabs") { model.closeOtherTabs(index, inPane: paneIndex) }
-                        Divider()
-                        Button(model.isSplit ? "Move to Other Side" : "Move to New Split") {
-                            model.moveTabToOtherSide(index, inPane: paneIndex)
-                        }
-                        if model.isSplit {
-                            Button("Merge Both Sides into Tabs") { model.mergeIntoTabs() }
-                        }
-                    }
-                }
+        // Each tab its natural width while they fit; when they don't, equal shares, with
+        // titles truncated.
+        ViewThatFits(in: .horizontal) {
+            row(natural: true)
+            row(natural: false)
+        }
+    }
+
+    private func row(natural: Bool) -> some View {
+        HStack(spacing: 2) {
+            ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
+                NoteTab(
+                    title: model.note(tab.noteID)?.title ?? "New Tab",
+                    isCurrent: index == pane.current,
+                    natural: natural,
+                    select: { model.selectTab(index, inPane: paneIndex) },
+                    close: { model.closeTab(index, inPane: paneIndex) }
+                )
+                .contextMenu { menu(for: index, tab: tab) }
+            }
+        }
+    }
+
+    @ViewBuilder private func menu(for index: Int, tab: VaultModel.NoteTab) -> some View {
+        Button("Close Tab") { model.closeTab(index, inPane: paneIndex) }
+        Button("Close Other Tabs") { model.closeOtherTabs(index, inPane: paneIndex) }
+        if let id = tab.noteID, model.isMinimal {
+            Divider()
+            Button("Open in New Window") {
+                model.closeTab(index, inPane: paneIndex)
+                model.openWindowHandler?(id)
+            }
+        } else if !model.isMinimal {
+            Divider()
+            Button(model.isSplit ? "Move to Other Side" : "Move to New Split") {
+                model.moveTabToOtherSide(index, inPane: paneIndex)
+            }
+            if model.isSplit {
+                Button("Merge Both Sides into Tabs") { model.mergeIntoTabs() }
             }
         }
     }
 }
 
-@available(macOS 26, *)
-private struct GlassTab: View {
+private struct NoteTab: View {
     let title: String
     let isCurrent: Bool
+    /// Its natural width, or an equal share of a crowded row.
+    let natural: Bool
     let select: () -> Void
     let close: () -> Void
     @State private var isHovering = false
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 2) {
             Button(action: close) {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .bold))
                     .frame(width: 16, height: 16)
-                    .contentShape(Circle())
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
@@ -220,76 +225,44 @@ private struct GlassTab: View {
             Text(title)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .font(.callout.weight(isCurrent ? .semibold : .regular))
+                .font(.callout.weight(isCurrent ? .medium : .regular))
                 .foregroundStyle(isCurrent ? .primary : .secondary)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: natural ? nil : .infinity)
             Color.clear.frame(width: 16, height: 16) // Balances the close button.
         }
-        .padding(.horizontal, 8)
-        .frame(minWidth: 80, maxWidth: 200)
-        .frame(height: 32)
-        .contentShape(Capsule())
-        .glassEffect(isCurrent ? .regular.interactive() : .clear.interactive(), in: .capsule)
+        .padding(.horizontal, 6)
+        .frame(minWidth: natural ? nil : 70, maxWidth: natural ? nil : .infinity)
+        .fixedSize(horizontal: natural, vertical: false)
+        .frame(height: 28)
+        .background {
+            let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
+            if isCurrent {
+                shape.fill(TopBar.selectedTabColor)
+            } else if isHovering {
+                shape.fill(TopBar.selectedTabColor.opacity(0.6))
+            }
+        }
+        .contentShape(Rectangle())
         .onTapGesture(perform: select)
         .onHover { isHovering = $0 }
     }
 }
 
-/// A pane's tabs, as the system's segmented control. Right-click a tab for its menu.
-struct TabStrip: NSViewRepresentable {
-    let titles: [String]
-    let selected: Int
-    let select: (Int) -> Void
-    let menu: (Int) -> NSMenu
-    /// Each tab's widest, so a few tabs don't stretch across the whole bar.
-    private let maxTabWidth: CGFloat = 200
+/// A note's place in the vault, for the top bar: its folders, then its title in bold.
+struct NotePath: View {
+    let note: Note?
 
-    func makeNSView(context: Context) -> TabSegments {
-        let control = TabSegments()
-        control.trackingMode = .selectOne
-        // The current tab as a light pill, like the system's tabs, not a blue button.
-        control.selectedSegmentBezelColor = .controlBackgroundColor
-        control.segmentDistribution = .fillEqually
-        control.target = context.coordinator
-        control.action = #selector(Coordinator.changed(_:))
-        control.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        return control
-    }
-
-    func updateNSView(_ control: TabSegments, context: Context) {
-        context.coordinator.select = select
-        control.menuForSegment = menu
-        if control.segmentCount != titles.count { control.segmentCount = titles.count }
-        for (index, title) in titles.enumerated() where control.label(forSegment: index) != title {
-            control.setLabel(title, forSegment: index)
-            control.setToolTip(title, forSegment: index)
+    var body: some View {
+        if let note {
+            let folders = note.id.split(separator: "/").dropLast().map(String.init)
+            (Text(folders.map { $0 + "  ›  " }.joined()).foregroundColor(.secondary)
+                + Text(note.title).fontWeight(.semibold))
+                .lineLimit(1)
+                .truncationMode(.head)
+                .help(note.id)
+        } else {
+            Text("New Tab").fontWeight(.semibold)
         }
-        control.selectedSegment = selected
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: TabSegments, context: Context) -> CGSize? {
-        let widest = CGFloat(titles.count) * maxTabWidth
-        return CGSize(width: min(proposal.width ?? widest, widest), height: nsView.intrinsicContentSize.height)
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    @MainActor
-    final class Coordinator: NSObject {
-        var select: ((Int) -> Void)?
-        @objc func changed(_ sender: NSSegmentedControl) { select?(sender.selectedSegment) }
-    }
-}
-
-/// A segmented control whose right-click menu belongs to the segment under the pointer.
-final class TabSegments: NSSegmentedControl {
-    var menuForSegment: ((Int) -> NSMenu)?
-
-    override func menu(for event: NSEvent) -> NSMenu? {
-        guard segmentCount > 0, let menuForSegment else { return nil }
-        let x = convert(event.locationInWindow, from: nil).x
-        let index = Int(x / (bounds.width / CGFloat(segmentCount)))
-        return menuForSegment(min(max(index, 0), segmentCount - 1))
     }
 }
 

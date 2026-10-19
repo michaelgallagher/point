@@ -176,13 +176,6 @@ struct AppCommands: Commands {
             Button("Top Level") { model?.browse(.allNotes) }
                 .disabled(model == nil)
             Divider()
-            Button("Previous Note") { model?.selectAdjacentNote(-1) }
-                .keyboardShortcut(.upArrow, modifiers: [.command, .option])
-                .disabled(model == nil)
-            Button("Next Note") { model?.selectAdjacentNote(1) }
-                .keyboardShortcut(.downArrow, modifiers: [.command, .option])
-                .disabled(model == nil)
-            Divider()
             Button("Back") { model?.goBack() }
                 .keyboardShortcut("[")
                 .disabled(model?.backStack.isEmpty ?? true)

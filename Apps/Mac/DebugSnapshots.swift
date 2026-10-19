@@ -19,10 +19,23 @@ enum DebugSnapshots {
                 for note in model.notes.sorted(by: .modified).prefix(2) { model.newTab(noteID: note.id) }
             }),
             ("2-start-page", { model.newTab() }),
-            ("3-new-note", { model.createNote() }),
-            ("4-one-tab", {
+            ("3-start-page-explorer", { model.togglePalette(.explorer) }),
+            ("3b-start-page-search-again", { model.togglePalette(.search) }),
+            ("4-new-note", { model.createNote() }),
+            ("5-palette-explorer", {
                 model.closeTab() // The new, empty note goes, as an untouched new note does.
+                model.togglePalette(.explorer)
+            }),
+            ("5b-palette-search", { model.togglePalette(.search) }),
+            ("6-one-tab", {
+                model.isPaletteShown = false
                 model.closeOtherTabs(0, inPane: 0)
+            }),
+            ("7-note-in-folder", {
+                // The deepest note, to show its path in the top bar.
+                if let note = model.notes.max(by: { $0.id.filter { $0 == "/" }.count < $1.id.filter { $0 == "/" }.count }) {
+                    model.selection = note.id
+                }
             }),
         ]
         for (index, step) in steps.enumerated() {

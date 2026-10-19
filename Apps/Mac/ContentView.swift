@@ -123,7 +123,8 @@ struct ContentView: View {
                 }
             }
         }
-        .frame(minWidth: 600, minHeight: 400)
+        // Minimal is meant to sit beside other windows, so it can be narrow.
+        .frame(minWidth: model.isMinimal ? 420 : 600, minHeight: 400)
         .onAppear { model.startSwipeTracking() }
         .overlay(alignment: .top) {
             if model.isPaletteShown {

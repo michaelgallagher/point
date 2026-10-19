@@ -182,6 +182,50 @@ extension MarkdownTextView {
 
     // MARK: Indenting
 
+    @objc public func moveLinesUp(_ sender: Any?) { moveLines(down: false) }
+    @objc public func moveLinesDown(_ sender: Any?) { moveLines(down: true) }
+
+    /// Moves the line with the cursor (or every line the selection touches) up or down past
+    /// its neighbour, keeping the selection on it, as one undoable edit.
+    func moveLines(down: Bool) {
+        let text = string as NSString
+        let selection = selectedRange()
+        // A selection that ends at the very start of a line doesn't take that line along.
+        var end = NSMaxRange(selection)
+        if selection.length > 0, end > 0, text.character(at: end - 1) == 10 { end -= 1 }
+        let block = text.lineRange(for: NSRange(location: selection.location, length: max(0, end - selection.location)))
+        let offset = selection.location - block.location
+
+        /// A line's text and its line break ("" for the last line of the note).
+        func split(_ line: String) -> (String, String) {
+            if line.hasSuffix("\r\n") { return (String(line.dropLast(2)), "\r\n") }
+            if line.hasSuffix("\n") || line.hasSuffix("\r") { return (String(line.dropLast()), String(line.suffix(1))) }
+            return (line, "")
+        }
+
+        if down {
+            guard NSMaxRange(block) < text.length else { return NSSound.beep() }
+            let below = text.lineRange(for: NSRange(location: NSMaxRange(block), length: 0))
+            let (blockText, blockBreak) = split(text.substring(with: block))
+            let (belowText, belowBreak) = split(text.substring(with: below))
+            // The last line has no break of its own; the moved lines end up last and give it theirs.
+            let newBelow = belowText + blockBreak
+            let replacement = newBelow + blockText + belowBreak
+            let union = NSRange(location: block.location, length: NSMaxRange(below) - block.location)
+            let start = block.location + (newBelow as NSString).length
+            let length = min(selection.length, union.location + (replacement as NSString).length - start - offset)
+            replace(union, with: replacement, select: NSRange(location: start + offset, length: max(0, length)))
+        } else {
+            guard block.location > 0 else { return NSSound.beep() }
+            let above = text.lineRange(for: NSRange(location: block.location - 1, length: 0))
+            let (blockText, blockBreak) = split(text.substring(with: block))
+            let (aboveText, aboveBreak) = split(text.substring(with: above))
+            let replacement = blockText + aboveBreak + aboveText + blockBreak
+            let union = NSRange(location: above.location, length: NSMaxRange(block) - above.location)
+            replace(union, with: replacement, select: NSRange(location: above.location + offset, length: selection.length))
+        }
+    }
+
     @objc public func indentLines(_ sender: Any?) { changeIndent(by: 1) }
     @objc public func outdentLines(_ sender: Any?) { changeIndent(by: -1) }
 

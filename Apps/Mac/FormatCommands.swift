@@ -27,6 +27,8 @@ struct FormatCommands: Commands {
             // ⌘← and ⌘→ stay as the system's start and end of line.
             item("Indent", #selector(MarkdownTextView.indentLines(_:)), .rightArrow, [.command, .option])
             item("Outdent", #selector(MarkdownTextView.outdentLines(_:)), .leftArrow, [.command, .option])
+            item("Move Line Up", #selector(MarkdownTextView.moveLinesUp(_:)), .upArrow, [.command, .option])
+            item("Move Line Down", #selector(MarkdownTextView.moveLinesDown(_:)), .downArrow, [.command, .option])
             Divider()
             item("Add Link…", #selector(MarkdownTextView.addLink(_:)), "k")
             Button("Add Property…") { NotificationCenter.default.post(name: .imprintAddProperty, object: model) }

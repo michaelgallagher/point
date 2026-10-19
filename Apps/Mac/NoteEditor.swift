@@ -12,7 +12,6 @@ struct NoteEditor: View {
     let paneID: VaultModel.NotePane.ID
     /// Whether to offer templates while the note is empty (a note just made).
     var offersTemplates = false
-
     init(note: Note, model: VaultModel, paneID: VaultModel.NotePane.ID, offersTemplates: Bool = false) {
         self.paneID = paneID
         self.offersTemplates = offersTemplates
@@ -24,6 +23,19 @@ struct NoteEditor: View {
         VStack(spacing: 0) {
             if session.conflict != nil {
                 ConflictBanner(session: session)
+            }
+            // The note's title (its file name) above everything: most notes don't start
+            // with a heading, and the top bar's path is too small to be the title.
+            do {
+                Text(session.note.title)
+                    .font(.system(size: 24 * model.textScale, weight: .bold))
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+                    .padding(.top, 18)
+                    .padding(.leading, 5) // Lines up with the text, which is inset a little.
+                    .frame(maxWidth: 720, alignment: .leading)
+                    .padding(.horizontal, 28)
+                    .frame(maxWidth: .infinity)
             }
             if let frontmatter = session.frontmatter {
                 PropertiesStrip(frontmatter: frontmatter, session: session)
