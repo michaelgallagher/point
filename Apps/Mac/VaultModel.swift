@@ -322,6 +322,83 @@ final class VaultModel: ObservableObject {
         }
     }
 
+    // MARK: Dragging tabs
+
+    /// Where a tab is, by its ID.
+    func location(ofTab id: NoteTab.ID) -> (pane: Int, tab: Int)? {
+        for p in panes.indices {
+            if let t = panes[p].tabs.firstIndex(where: { $0.id == id }) { return (p, t) }
+        }
+        return nil
+    }
+
+    /// Whether a dragged tab can make a split: only when the window isn't split yet.
+    func canSplit(withTab id: NoteTab.ID) -> Bool {
+        !isSplit && location(ofTab: id) != nil
+    }
+
+    /// A tab dropped on one half of an unsplit window's page: splits the window, with the
+    /// tab alone on that side. If it was the only tab, the other side gets an empty one (a
+    /// start page), as with ⇧⌘S.
+    func split(withTab id: NoteTab.ID, onLeading: Bool) {
+        guard canSplit(withTab: id), let (_, t) = location(ofTab: id) else { return }
+        var source = panes[0]
+        let moving = Self.remove(t, from: &source)
+        if source.tabs.isEmpty { source = NotePane() }
+        let side = NotePane(tabs: [moving])
+        panes = onLeading ? [side, source] : [source, side]
+        activePane = onLeading ? 0 : 1
+    }
+
+    /// A tab dropped among a side's tabs (`at` counts the tabs there before the drop). A side
+    /// left with no tabs closes.
+    func moveTab(_ id: NoteTab.ID, toPane target: Int, at index: Int) {
+        guard let (p, t) = location(ofTab: id), panes.indices.contains(target) else { return }
+        var panes = panes
+        let moving = Self.remove(t, from: &panes[p])
+        // The tab's own removal shifts the places after it along by one.
+        let dest = min(p == target && index > t ? index - 1 : index, panes[target].tabs.count)
+        panes[target].tabs.insert(moving, at: dest)
+        panes[target].current = dest
+        commitMove(panes, target: target)
+    }
+
+    /// A tab dropped on the other side's page: it becomes that side's current tab, taking
+    /// the place of an empty one.
+    func moveTab(_ id: NoteTab.ID, intoPane target: Int) {
+        guard let (p, t) = location(ofTab: id), p != target, panes.indices.contains(target) else { return }
+        var panes = panes
+        let moving = Self.remove(t, from: &panes[p])
+        if panes[target].tab.noteID == nil {
+            panes[target].tab = moving
+        } else {
+            panes[target].tabs.insert(moving, at: panes[target].current + 1)
+            panes[target].current += 1
+        }
+        commitMove(panes, target: target)
+    }
+
+    /// Takes a tab out of a pane, keeping the pane's current tab where it was (or its
+    /// neighbour, if it was the one taken). May leave the pane without tabs.
+    private static func remove(_ t: Int, from pane: inout NotePane) -> NoteTab {
+        let tab = pane.tabs.remove(at: t)
+        if pane.current > t { pane.current -= 1 }
+        pane.current = max(0, min(pane.current, pane.tabs.count - 1))
+        return tab
+    }
+
+    /// Shows the panes after a move in one go, closing a side left without tabs.
+    private func commitMove(_ moved: [NotePane], target: Int) {
+        var moved = moved
+        var target = target
+        if let empty = moved.firstIndex(where: { $0.tabs.isEmpty }) {
+            moved.remove(at: empty)
+            if empty < target { target -= 1 }
+        }
+        panes = moved
+        activePane = target
+    }
+
     /// Opens a note on the other side (splitting the window first if needed).
     func openToTheSide(_ id: Note.ID) {
         if let (p, t) = location(of: id) {

@@ -7,6 +7,8 @@ import VaultKit
 struct PaneView: View {
     @EnvironmentObject private var model: VaultModel
     let paneID: VaultModel.NotePane.ID
+    /// Where a tab dragged over the page would go.
+    @State private var dropZone: PaneDropZone?
 
     var body: some View {
         if let index = model.paneIndex(paneID) {
@@ -15,14 +17,28 @@ struct PaneView: View {
                 if !model.isFocused {
                     PaneTopBar(pane: pane, paneIndex: index)
                 }
-                if let note = model.note(pane.tab.noteID) {
-                    NoteEditor(note: note, model: model, paneID: paneID, offersTemplates: note.id == model.freshNoteID)
-                        .id(paneID.uuidString + note.id)
-                } else {
-                    // An empty tab is a start page: search, recent notes and the explorer.
-                    CommandPalette(isPage: true)
-                        .id(pane.tab.id) // A fresh page for each tab.
+                Group {
+                    if let note = model.note(pane.tab.noteID) {
+                        NoteEditor(note: note, model: model, paneID: paneID, offersTemplates: note.id == model.freshNoteID)
+                            .id(paneID.uuidString + note.id)
+                    } else {
+                        // An empty tab is a start page: search, recent notes and the explorer.
+                        CommandPalette(isPage: true)
+                            .id(pane.tab.id) // A fresh page for each tab.
+                    }
                 }
+                // A tab dragged onto one half of the page splits the window; onto the other
+                // side's page, it moves there.
+                .overlay { PaneDropHighlight(zone: dropZone) }
+                .background(TabDropArea { id, point, size in
+                    dropZone = id.flatMap { PaneDropZone(tab: $0, overPane: index, x: point.x, width: size.width, in: model) }
+                    return dropZone != nil
+                } drop: { id, point, size in
+                    dropZone = nil
+                    guard let zone = PaneDropZone(tab: id, overPane: index, x: point.x, width: size.width, in: model) else { return false }
+                    zone.drop(id, onPane: index, in: model)
+                    return true
+                })
             }
         }
     }
