@@ -77,7 +77,7 @@ struct ContentView: View {
                 OpenVaultView()
             } else {
                 Group {
-                    if model.isMinimal { MinimalLayout() } else { splitView }
+                    splitView
                 }
                 .navigationTitle(windowTitle)
                 // An empty toolbar, so the window's top row has the system's standard height
@@ -124,8 +124,13 @@ struct ContentView: View {
             }
         }
         // Minimal is meant to sit beside other windows, so it can be narrow.
-        .frame(minWidth: model.isMinimal ? 420 : 600, minHeight: 400)
-        .onAppear { model.startSwipeTracking() }
+        // With the sidebar hidden, a window is one compact note that can sit beside others.
+        .frame(minWidth: model.showsNoteList && !model.isFocused ? 600 : 420, minHeight: 400)
+        .onAppear {
+            model.startSwipeTracking()
+            // Open the way the last window was left: with or without the sidebar.
+            columns = model.showsNoteList ? .all : .detailOnly
+        }
         .overlay(alignment: .top) {
             if model.isPaletteShown {
                 ZStack(alignment: .top) {

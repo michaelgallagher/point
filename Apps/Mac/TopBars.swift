@@ -19,8 +19,8 @@ enum TopBar {
         return (button.convert(button.bounds, to: nil).maxX + 16).rounded()
     }
 
-    /// The top bar's background, always: a light grey over the page.
-    static let barColor = Color.primary.opacity(0.05)
+    /// The top bar's background, in every layout: the page's own colour.
+    static let barColor = Color(nsColor: .textBackgroundColor)
     /// The selected tab: a little darker than the bar.
     static let selectedTabColor = Color.primary.opacity(0.07)
 
@@ -47,7 +47,7 @@ struct SidebarButtons: View {
     @EnvironmentObject private var model: VaultModel
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 10) {
             BarButton("New Note", systemImage: "square.and.pencil", help: "New Note (⌘N)") { model.createNote() }
             BarButton(model.showsNoteList ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.left",
                       help: model.showsNoteList ? "Hide Sidebar (⌘S)" : "Show Sidebar (⌘S)") {
@@ -63,7 +63,8 @@ struct PaneTopBar: View {
     let pane: VaultModel.NotePane
     let paneIndex: Int
 
-    /// The first side holds the sidebar's buttons while the sidebar is hidden.
+    /// The first side holds the sidebar's buttons while the sidebar is hidden, just past the
+    /// window buttons.
     private var holdsSidebarButtons: Bool { paneIndex == 0 && !model.showsNoteList }
     private var isActive: Bool { paneIndex == model.activePane }
 
@@ -81,7 +82,6 @@ struct PaneTopBar: View {
                     .contextMenu { tabMenuItems(for: pane.current) }
             }
             Spacer(minLength: 0)
-            BarButton("New Tab", systemImage: "plus", help: "New Tab (⌘T)") { model.newTab(inPane: paneIndex) }
             if model.isSplit {
                 BarButton("Close This Side", systemImage: "xmark", help: "Close This Side") { model.closePane(paneIndex) }
             } else {
@@ -93,7 +93,8 @@ struct PaneTopBar: View {
         .frame(height: model.topBarHeight)
         .background(WindowDragArea())
         .background(TopBar.barColor)
-        .overlay(alignment: .bottom) { Divider() }
+        // A hairline, like the one under the properties.
+        .overlay(alignment: .bottom) { Divider().opacity(0.5) }
     }
 
     @ViewBuilder private func tabMenuItems(for index: Int) -> some View {
@@ -133,6 +134,7 @@ struct BarButton: View {
             .buttonStyle(.glass)
             .buttonBorderShape(.circle)
             .controlSize(.large)
+            .focusEffectDisabled() // No focus ring when the window opens.
             .help(help)
         } else {
             Button(action: action) {
@@ -183,19 +185,17 @@ struct NoteTabs: View {
     @ViewBuilder private func menu(for index: Int, tab: VaultModel.NoteTab) -> some View {
         Button("Close Tab") { model.closeTab(index, inPane: paneIndex) }
         Button("Close Other Tabs") { model.closeOtherTabs(index, inPane: paneIndex) }
-        if let id = tab.noteID, model.isMinimal {
-            Divider()
+        Divider()
+        Button(model.isSplit ? "Move to Other Side" : "Move to New Split") {
+            model.moveTabToOtherSide(index, inPane: paneIndex)
+        }
+        if model.isSplit {
+            Button("Merge Both Sides into Tabs") { model.mergeIntoTabs() }
+        }
+        if let id = tab.noteID {
             Button("Open in New Window") {
                 model.closeTab(index, inPane: paneIndex)
                 model.openWindowHandler?(id)
-            }
-        } else if !model.isMinimal {
-            Divider()
-            Button(model.isSplit ? "Move to Other Side" : "Move to New Split") {
-                model.moveTabToOtherSide(index, inPane: paneIndex)
-            }
-            if model.isSplit {
-                Button("Merge Both Sides into Tabs") { model.mergeIntoTabs() }
             }
         }
     }

@@ -330,7 +330,18 @@ final class VaultStore: ObservableObject {
     @Published var textScale: Double = UserDefaults.standard.object(forKey: "textScale") as? Double ?? 1 {
         didSet { UserDefaults.standard.set(textScale, forKey: "textScale") }
     }
-    @Published var browsingStyle = VaultModel.BrowsingStyle(rawValue: UserDefaults.standard.string(forKey: "browsingStyle") ?? "") ?? .singleColumn {
+    /// The saved sidebar layout. The draft "Minimal" layout became "one column, with the
+    /// sidebar hidden", so a saved Minimal turns into just that.
+    private static func savedBrowsingStyle() -> VaultModel.BrowsingStyle {
+        let defaults = UserDefaults.standard
+        if defaults.string(forKey: "browsingStyle") == "minimal" {
+            defaults.set(VaultModel.BrowsingStyle.singleColumn.rawValue, forKey: "browsingStyle")
+            defaults.set(false, forKey: "showsNoteList")
+        }
+        return VaultModel.BrowsingStyle(rawValue: defaults.string(forKey: "browsingStyle") ?? "") ?? .singleColumn
+    }
+
+    @Published var browsingStyle = VaultStore.savedBrowsingStyle() {
         didSet { UserDefaults.standard.set(browsingStyle.rawValue, forKey: "browsingStyle") }
     }
     /// How folders and tags are sorted, in both layouts.

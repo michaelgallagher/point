@@ -368,15 +368,12 @@ struct PaletteCommand {
             PaletteCommand(name: "New Tab", shortcut: "⌘T") { model.newTab() },
             PaletteCommand(name: "Close Tab", shortcut: "⌘W") { model.closeTab() },
         ]
-        if !model.isMinimal {
-            commands += [
-                PaletteCommand(name: "Search in List", shortcut: "⇧⌘F") { model.focusSearch() },
-                PaletteCommand(name: model.isSplit ? "Merge Split into Tabs" : "Split", shortcut: "⇧⌘S") { model.toggleSplit() },
-                PaletteCommand(name: model.isSplit ? "Move Tab to Other Side" : "Move Tab to New Split", shortcut: nil) { model.moveTabToOtherSide() },
-            ]
-        }
-        for (style, name) in [(VaultModel.BrowsingStyle.minimal, "Use Minimal Layout"),
-                              (.singleColumn, "Use One Column Layout"), (.twoColumns, "Use Two Column Layout")]
+        commands += [
+            PaletteCommand(name: model.isSplit ? "Merge Split into Tabs" : "Split", shortcut: "⇧⌘S") { model.toggleSplit() },
+            PaletteCommand(name: model.isSplit ? "Move Tab to Other Side" : "Move Tab to New Split", shortcut: nil) { model.moveTabToOtherSide() },
+        ]
+        commands.append(PaletteCommand(name: "Search in List", shortcut: "⇧⌘F") { model.focusSearch() })
+        for (style, name) in [(VaultModel.BrowsingStyle.singleColumn, "Use One Column Sidebar"), (.twoColumns, "Use Two Column Sidebar")]
             where model.browsingStyle != style {
             commands.append(PaletteCommand(name: name, shortcut: nil) { model.browsingStyle = style })
         }

@@ -167,7 +167,7 @@ struct AppCommands: Commands {
             // The sidebar's own search field (there's no sidebar in Minimal).
             Button("Search in List") { model?.focusSearch() }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
-                .disabled(model == nil || store.root == nil || model?.isMinimal == true)
+                .disabled(model == nil || store.root == nil)
             Button("Find in Note") { FindInNote.show() }
                 .keyboardShortcut("f", modifiers: [.command, .option])
         }
@@ -215,9 +215,9 @@ struct AppCommands: Commands {
             Divider()
             Button((model?.isSplit ?? false) ? "Merge Split into Tabs" : "Split") { model?.toggleSplit() }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
-                .disabled(model == nil || model?.isMinimal == true)
+                .disabled(model == nil)
             Button((model?.isSplit ?? false) ? "Move Tab to Other Side" : "Move Tab to New Split") { model?.moveTabToOtherSide() }
-                .disabled(model == nil || model?.isMinimal == true)
+                .disabled(model == nil)
             Button("Show Next Tab") { model?.cycleTab(1) }
                 .keyboardShortcut("]", modifiers: [.command, .shift])
                 .disabled(model == nil)

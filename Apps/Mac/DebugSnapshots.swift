@@ -4,7 +4,8 @@ import VaultKit
 
 /// Debug builds only: `-ImprintSnapshots <folder>` opens a few notes in tabs, then saves
 /// pictures of the window in a few states (a start page, a note, a new note), so the layout
-/// can be checked without anyone at the screen. Combine with `-browsingStyle minimal`.
+/// can be checked without anyone at the screen. Add `-showsNoteList NO` to start with the
+/// sidebar hidden.
 @MainActor
 enum DebugSnapshots {
     static func runIfAsked(for model: VaultModel) {
@@ -31,6 +32,8 @@ enum DebugSnapshots {
                 model.isPaletteShown = false
                 model.closeOtherTabs(0, inPane: 0)
             }),
+            ("8-split", { model.toggleSplit() }),
+            ("9-no-list", { model.showsNoteList = false }),
             ("7-note-in-folder", {
                 // The deepest note, to show its path in the top bar.
                 if let note = model.notes.max(by: { $0.id.filter { $0 == "/" }.count < $1.id.filter { $0 == "/" }.count }) {
