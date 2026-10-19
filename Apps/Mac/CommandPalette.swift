@@ -5,7 +5,7 @@ import VaultKit
 
 /// ⌘F: one place to open notes, search tags and run commands, all from the keyboard.
 /// ⌘E: the same palette as a two-column explorer of folders, tags and their notes.
-/// In the Minimal layout, an empty tab shows the palette as a page: the start page.
+/// An empty tab shows the same palette as a page: the start page.
 struct CommandPalette: View {
     @EnvironmentObject private var model: VaultModel
     @State private var query = ""
@@ -16,7 +16,7 @@ struct CommandPalette: View {
     @StateObject private var explorer = ExplorerState()
     /// Shown as a tab's start page rather than over the window.
     var isPage = false
-    /// On a start page: browsing in the explorer, rather than showing recent notes.
+    /// On a start page: browsing in the explorer, rather than searching.
     @State private var pageExplores = false
 
     private var isExploring: Bool { isPage ? pageExplores : model.paletteMode == .explorer }
@@ -77,6 +77,10 @@ struct CommandPalette: View {
             refresh()
         }
         .onChange(of: query) { _ in refresh() }
+        // At launch the palette (or a start page) can appear before the notes have loaded.
+        .onChange(of: model.notes.count) { _ in
+            if query.isEmpty, !isExploring { refresh() }
+        }
         .onChange(of: model.paletteMode) { _ in
             guard !isPage else { return }
             query = ""
@@ -112,11 +116,6 @@ struct CommandPalette: View {
         refresh()
     }
 
-    /// A start page's list while nothing is typed: recent notes, and the way into the explorer.
-    private func pageItems() -> [PaletteItem] {
-        model.notes.sorted(by: .modified).prefix(8).map { PaletteItem.recent($0.id, $0.title) } + [.browse]
-    }
-
     // MARK: Explorer keys
 
     private func explorerRight() {
@@ -140,11 +139,6 @@ struct CommandPalette: View {
         let query = query
         if isExploring {
             explorer.setFilter(query)
-            return
-        }
-        if isPage, query.trimmingCharacters(in: .whitespaces).isEmpty {
-            items = pageItems()
-            highlighted = 0
             return
         }
         let commands = PaletteCommand.all(for: model)
@@ -197,14 +191,12 @@ struct CommandPalette: View {
         }
         guard items.indices.contains(highlighted) else { return }
         let item = items[highlighted]
-        if case .browse = item { return setPageExplores(true) }
         if !isPage { close() }
         switch item {
-        case .note(let id, _, _), .recent(let id, _):
+        case .note(let id, _, _):
             open(id, inNewTab: inNewTab)
         case .tag(let tag, _): model.search(tag: tag)
         case .command(let command): command.action()
-        case .browse: break
         }
     }
 
@@ -217,18 +209,12 @@ enum PaletteItem: Identifiable {
     case note(Note.ID, String, String?)
     case tag(String, Int)
     case command(PaletteCommand)
-    /// A recently edited note, on a start page.
-    case recent(Note.ID, String)
-    /// On a start page: browse folders and tags in the explorer.
-    case browse
 
     var id: String {
         switch self {
         case .note(let id, _, _): "note:\(id)"
         case .tag(let tag, _): "tag:\(tag)"
         case .command(let command): "command:\(command.name)"
-        case .recent(let id, _): "recent:\(id)"
-        case .browse: "browse"
         }
     }
 
@@ -238,8 +224,6 @@ enum PaletteItem: Identifiable {
         case .note(_, let title, _): title
         case .tag(let tag, _): tag
         case .command(let command): command.name
-        case .recent(_, let title): title
-        case .browse: "Browse Folders and Tags"
         }
     }
 }
@@ -309,8 +293,6 @@ private struct PaletteRow: View {
         case .note: "doc.text"
         case .tag: "number"
         case .command: "command"
-        case .recent: "clock"
-        case .browse: "folder"
         }
     }
 
@@ -319,8 +301,6 @@ private struct PaletteRow: View {
         case .note(_, let title, _): title
         case .tag(let tag, _): "#\(tag)"
         case .command(let command): command.name
-        case .recent(_, let title): title
-        case .browse: "Browse Folders and Tags"
         }
     }
 
@@ -329,8 +309,6 @@ private struct PaletteRow: View {
         case .note: nil
         case .tag(_, let count): "\(count) \(count == 1 ? "note" : "notes")"
         case .command(let command): command.shortcut
-        case .recent: "Recent"
-        case .browse: "⌘E  ›"
         }
     }
 }
@@ -346,7 +324,7 @@ struct PaletteCommand {
     @MainActor static func all(for model: VaultModel) -> [PaletteCommand] {
         var commands = [
             PaletteCommand(name: "New Note", shortcut: "⌘N", isSuggested: true) { model.createNote() },
-            PaletteCommand(name: "Today's Note", shortcut: "⌘T", isSuggested: true) { model.openTodaysNote() },
+            PaletteCommand(name: "Today's Note", shortcut: "⇧⌘T", isSuggested: true) { model.openTodaysNote() },
             PaletteCommand(name: "Explorer", shortcut: "⌘E", isSuggested: true) { model.togglePalette(.explorer) },
             PaletteCommand(name: model.showsNoteList ? "Hide Note List" : "Show Note List", shortcut: "⌘S") { model.showsNoteList.toggle() },
             PaletteCommand(name: "Bigger Text", shortcut: "⌘=") { model.makeTextBigger() },
