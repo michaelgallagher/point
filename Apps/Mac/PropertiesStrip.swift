@@ -71,11 +71,11 @@ struct PropertiesStrip: View {
             }
         }
         .font(.callout)
-        .padding(.vertical, 10)
+        .padding(.top, 6)
+        .padding(.bottom, 10)
         .frame(maxWidth: 720, alignment: .leading)
         .padding(.horizontal, 28)
         .frame(maxWidth: .infinity)
-        .overlay(alignment: .bottom) { Divider().opacity(0.5) }
     }
 
     private static let space = "properties"

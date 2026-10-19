@@ -91,7 +91,9 @@ struct SidebarTable: NSViewRepresentable {
         /// Row heights as last laid out, to spot rows whose height changed.
         private var shownHeights: [CGFloat] = []
 
-        static func noteHeight(hasTags: Bool) -> CGFloat { hasTags ? 38 : 24 }
+        static func noteHeight(hasTags: Bool, density: VaultModel.SidebarDensity) -> CGFloat {
+            hasTags ? density.twoLineHeight : density.rowHeight
+        }
 
         init(_ parent: SidebarTable) { self.parent = parent }
 
@@ -168,12 +170,12 @@ struct SidebarTable: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             switch rows[row] {
-            case .header, .tagsHeader: 24
+            case .header, .tagsHeader: model.sidebarDensity.headerHeight
             case .divider: 11
-            case .place: 24
+            case .place: model.sidebarDensity.rowHeight
             case .note(let id):
                 // Two lines only for a note that has tags to show.
-                Self.noteHeight(hasTags: model.showsTagsInList && !model.listTags(for: id).isEmpty)
+                Self.noteHeight(hasTags: model.showsTagsInList && !model.listTags(for: id).isEmpty, density: model.sidebarDensity)
             }
         }
 

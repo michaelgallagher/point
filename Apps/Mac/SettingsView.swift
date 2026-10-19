@@ -16,6 +16,14 @@ struct SettingsView: View {
                     .pickerStyle(.radioGroup)
                     .labelsHidden()
                 }
+                Setting("Density") {
+                    Picker("Density", selection: $store.sidebarDensity) {
+                        Text("Comfortable").tag(VaultModel.SidebarDensity.comfortable)
+                        Text("Compact").tag(VaultModel.SidebarDensity.compact)
+                    }
+                    .pickerStyle(.radioGroup)
+                    .labelsHidden()
+                }
                 Setting("Folders and tags, in two columns") {
                     Picker("Folders and tags, in two columns", selection: $store.treeLayout) {
                         Text("Together, folders above tags").tag(VaultModel.TreeLayout.stacked)

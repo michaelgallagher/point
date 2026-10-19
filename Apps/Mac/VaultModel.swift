@@ -52,6 +52,7 @@ final class VaultModel: ObservableObject {
     var browsingStyle: BrowsingStyle { get { store.browsingStyle } set { store.browsingStyle = newValue } }
     var tagOrder: TagOrder { get { store.tagOrder } set { store.tagOrder = newValue } }
     var treeLayout: TreeLayout { get { store.treeLayout } set { store.treeLayout = newValue } }
+    var sidebarDensity: SidebarDensity { get { store.sidebarDensity } set { store.sidebarDensity = newValue } }
     var sortedTagEntries: [TagTree.Entry] { store.sortedTagEntries }
 
     func chooseVault() { store.chooseVault() }
@@ -625,6 +626,20 @@ final class VaultModel: ObservableObject {
 
     enum TreeKind: String { case folders, tags }
     enum TagOrder: String { case name, modified }
+    /// How tightly the sidebar's rows are packed. The same heights in one column and in both
+    /// columns of two, so the layouts match.
+    enum SidebarDensity: String {
+        case compact, comfortable
+
+        /// A folder, tag or note without tags to show: the system's small and medium sidebar
+        /// rows, which the two-column view's tree uses.
+        var rowHeight: CGFloat { self == .compact ? 24 : 32 }
+        /// A note with its tags on a second line.
+        var twoLineHeight: CGFloat { self == .compact ? 38 : 48 }
+        /// A section heading ("Folders", "Tags").
+        var headerHeight: CGFloat { self == .compact ? 24 : 30 }
+    }
+
     /// The two-column view's left column: folders and tags stacked, or one at a time.
     enum TreeLayout: String { case stacked, toggle }
 

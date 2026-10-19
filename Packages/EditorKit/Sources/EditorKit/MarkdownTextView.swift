@@ -163,6 +163,45 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     public override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         updateInsets()
+        layoutHeader()
+    }
+
+    // MARK: Header
+
+    /// A view above the text that scrolls with it, such as the note's title and properties.
+    /// Its owner reports its height through `headerHeight`.
+    public var headerView: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            if let headerView { addSubview(headerView) }
+            layoutHeader()
+        }
+    }
+
+    /// The header's height. The text starts below it.
+    public var headerHeight: CGFloat = 0 {
+        didSet {
+            guard headerHeight != oldValue else { return }
+            layoutHeader()
+            sizeToFit()
+            needsDisplay = true
+            updateInsertionPointStateAndRestartTimer(true)
+        }
+    }
+
+    /// The text's origin, moved down below the header.
+    public override var textContainerOrigin: NSPoint {
+        let origin = super.textContainerOrigin
+        return NSPoint(x: origin.x, y: origin.y + headerHeight)
+    }
+
+    /// Makes room for the header when the view grows or shrinks to fit its text.
+    public override func setConstrainedFrameSize(_ desiredSize: NSSize) {
+        super.setConstrainedFrameSize(NSSize(width: desiredSize.width, height: desiredSize.height + headerHeight))
+    }
+
+    private func layoutHeader() {
+        headerView?.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(headerHeight, 1))
     }
 
     private func updateInsets() {

@@ -383,6 +383,10 @@ final class VaultStore: ObservableObject {
         didSet { UserDefaults.standard.set(tagOrder.rawValue, forKey: "tagOrder") }
     }
     /// The two-column view's left column: folders and tags together, or one at a time.
+    /// How tightly the sidebar's rows are packed, in both layouts.
+    @Published var sidebarDensity = VaultModel.SidebarDensity(rawValue: UserDefaults.standard.string(forKey: "sidebarDensity") ?? "") ?? .comfortable {
+        didSet { UserDefaults.standard.set(sidebarDensity.rawValue, forKey: "sidebarDensity") }
+    }
     @Published var treeLayout = VaultModel.TreeLayout(rawValue: UserDefaults.standard.string(forKey: "treeLayout") ?? "") ?? .stacked {
         didSet { UserDefaults.standard.set(treeLayout.rawValue, forKey: "treeLayout") }
     }

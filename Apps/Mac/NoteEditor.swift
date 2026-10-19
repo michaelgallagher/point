@@ -24,23 +24,6 @@ struct NoteEditor: View {
             if session.conflict != nil {
                 ConflictBanner(session: session)
             }
-            // Where the note lives, then its title (its file name), above everything: most
-            // notes don't start with a heading.
-            VStack(alignment: .leading, spacing: 4) {
-                NotePath(note: session.note, vault: model.root?.lastPathComponent ?? "Vault")
-                Text(session.note.title)
-                    .font(.system(size: 24 * model.textScale, weight: .medium))
-                    .lineLimit(2)
-                    .textSelection(.enabled)
-            }
-            .padding(.top, 14)
-            .padding(.leading, 5) // Lines up with the text, which is inset a little.
-            .frame(maxWidth: 720, alignment: .leading)
-            .padding(.horizontal, 28)
-            .frame(maxWidth: .infinity)
-            if let frontmatter = session.frontmatter {
-                PropertiesStrip(frontmatter: frontmatter, session: session)
-            }
             if let message = session.message {
                 Text(message)
                     .foregroundStyle(.secondary)
@@ -48,10 +31,10 @@ struct NoteEditor: View {
                     .padding()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if session.isLoaded {
-                if offersTemplates, session.isEmpty, !model.templates.isEmpty {
-                    TemplateChoices()
-                }
-                EditorView(session: session, model: model, paneID: paneID, showsMarkdown: model.showsMarkdown, textScale: model.textScale)
+                // The header (path, title, properties) is inside the editor, so it scrolls
+                // away with the text instead of taking up room above it.
+                EditorView(session: session, model: model, paneID: paneID, offersTemplates: offersTemplates,
+                           showsMarkdown: model.showsMarkdown, textScale: model.textScale)
             } else {
                 Color.clear
             }
@@ -63,6 +46,66 @@ struct NoteEditor: View {
         }
         .onDisappear { session.save(leaving: true) }
     }
+}
+
+/// Above the text, scrolling with it: where the note lives, its title (its file name: most
+/// notes don't start with a heading), its properties, and for a new note, templates. A
+/// hairline always separates it from the text.
+private struct NoteHeader: View {
+    @ObservedObject var session: EditorSession
+    @ObservedObject var model: VaultModel
+    let offersTemplates: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                NotePath(note: session.note, vault: model.root?.lastPathComponent ?? "Vault")
+                Text(session.note.title)
+                    .font(.system(size: 24 * model.textScale, weight: .medium))
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+            }
+            .padding(.top, 16)
+            .padding(.bottom, session.frontmatter == nil ? 12 : 2)
+            .padding(.leading, 5) // Lines up with the text, which is inset a little.
+            .frame(maxWidth: 720, alignment: .leading)
+            .padding(.horizontal, 28)
+            .frame(maxWidth: .infinity)
+            if let frontmatter = session.frontmatter {
+                PropertiesStrip(frontmatter: frontmatter, session: session)
+            }
+            Divider().opacity(0.5)
+            if offersTemplates, session.isEmpty, !model.templates.isEmpty {
+                TemplateChoices()
+            }
+        }
+    }
+}
+
+/// Measures the header, so the editor can put the text below it.
+private struct NoteHeaderHost: View {
+    let session: EditorSession
+    let model: VaultModel
+    let offersTemplates: Bool
+    let onHeight: (CGFloat) -> Void
+
+    var body: some View {
+        NoteHeader(session: session, model: model, offersTemplates: offersTemplates)
+            .environmentObject(model)
+            .fixedSize(horizontal: false, vertical: true)
+            .background(GeometryReader { proxy in
+                Color.clear.preference(key: HeaderHeight.self, value: proxy.size.height)
+            })
+            .onPreferenceChange(HeaderHeight.self) { height in
+                DispatchQueue.main.async { onHeight(height) }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+}
+
+private struct HeaderHeight: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 /// Above a new, empty note: start from a template, or just type.
@@ -138,6 +181,7 @@ private struct EditorView: NSViewRepresentable {
     let session: EditorSession
     let model: VaultModel
     let paneID: VaultModel.NotePane.ID
+    let offersTemplates: Bool
     /// Passed as a value, not read from the model, so SwiftUI updates the view when it changes.
     let showsMarkdown: Bool
     let textScale: Double
@@ -149,6 +193,12 @@ private struct EditorView: NSViewRepresentable {
         // window splits, mustn't take it).
         let isActivePane = model.paneIndex(paneID) == model.activePane
         session.attach(textView, takesFocus: !model.consumeListFocus() && isActivePane)
+        let header = NSHostingView(rootView: NoteHeaderHost(
+            session: session, model: model, offersTemplates: offersTemplates,
+            onHeight: { [weak textView] height in textView?.headerHeight = height }
+        ))
+        header.sizingOptions = [] // The editor sizes it: the full width, at the height it reports.
+        textView.headerView = header
         let noteID = session.note.id
         textView.onOpenLink = { [weak model, paneID] link in model?.open(link, from: noteID, inPane: paneID) }
         textView.onOpenLinkInNewTab = { [weak model, paneID] link in model?.open(link, from: noteID, inPane: paneID, as: .newTab) }

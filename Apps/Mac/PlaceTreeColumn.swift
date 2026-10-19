@@ -61,6 +61,8 @@ struct PlaceTreeColumn: View {
             // material as the note list beside it rather than on white.
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)
+            // The system's small or medium sidebar rows, which the note list beside it matches.
+            .environment(\.sidebarRowSize, model.sidebarDensity == .compact ? .small : .medium)
 
             Divider()
             Picker("Sort by", selection: $model.tagOrder) {
@@ -120,6 +122,7 @@ private struct PlaceLabel: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 16)
             Text(name)
+                .font(.body) // The note list's size, even in small (compact) rows.
                 .lineLimit(1)
             Spacer(minLength: 4)
             if place != .allNotes {
