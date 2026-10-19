@@ -571,7 +571,8 @@ final class VaultModel: ObservableObject {
 
     /// Focus mode: just the text, with all other interface hidden.
     @Published var isFocused = false
-    /// Whether the sidebar is showing (⌘S, or a two-finger swipe, hides and shows it).
+    /// Whether the sidebar is showing (⌘S, or a two-finger swipe if turned on in Settings,
+    /// hides and shows it).
     /// Remembered, so new windows open the way the last one was left: hiding the sidebar
     /// is how Imprint becomes a single, compact note.
     @Published var showsNoteList = UserDefaults.standard.object(forKey: "showsNoteList") == nil || UserDefaults.standard.bool(forKey: "showsNoteList") {

@@ -15,11 +15,11 @@ final class SwipeToToggleNoteList {
     /// - Parameters:
     ///   - isNoteListShowing: whether the list is showing now, so only the useful way works.
     ///   - onSwipe: called with true for a swipe to the left.
-    ///   - isNoteWindow: whether a window is the note window to act on, so swipes over
-    ///     Settings (or any other window) do nothing.
-    init(isNoteWindow: @escaping (NSWindow?) -> Bool, isNoteListShowing: @escaping () -> Bool, onSwipe: @escaping (_ toTheLeft: Bool) -> Void) {
+    ///   - acceptsSwipe: whether to act on a swipe: it's turned on, and it's over the note
+    ///     window, not Settings (or any other window) or the tabs, which scroll sideways.
+    init(acceptsSwipe: @escaping (NSEvent) -> Bool, isNoteListShowing: @escaping () -> Bool, onSwipe: @escaping (_ toTheLeft: Bool) -> Void) {
         monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            if isNoteWindow(event.window) {
+            if acceptsSwipe(event) {
                 self?.handle(event, isNoteListShowing: isNoteListShowing, onSwipe: onSwipe)
             }
             return event // Never swallow scrolling.

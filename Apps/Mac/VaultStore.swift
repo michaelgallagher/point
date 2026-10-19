@@ -347,6 +347,11 @@ final class VaultStore: ObservableObject {
 
     // MARK: Display settings (shared by every window)
 
+    /// A two-finger swipe shows and hides the sidebar. Off unless turned on: it's easily
+    /// set off by accident.
+    @Published var swipesSidebar = UserDefaults.standard.bool(forKey: "swipesSidebar") {
+        didSet { UserDefaults.standard.set(swipesSidebar, forKey: "swipesSidebar") }
+    }
     /// On unless turned off.
     @Published var showsDateInList = UserDefaults.standard.object(forKey: "showsDateInList") == nil || UserDefaults.standard.bool(forKey: "showsDateInList") {
         didSet { UserDefaults.standard.set(showsDateInList, forKey: "showsDateInList") }
@@ -578,9 +583,14 @@ final class VaultStore: ObservableObject {
     /// The window in front, which swipes act on.
     weak var activeWindow: VaultModel?
 
-    /// Two-finger swipes: left hides the front window's note list, right shows it.
+    /// Two-finger swipes, when turned on: left hides the front window's note list, right
+    /// shows it.
     private lazy var swipe = SwipeToToggleNoteList(
-        isNoteWindow: { [weak self] window in window != nil && window === self?.activeWindow?.window },
+        acceptsSwipe: { [weak self] event in
+            guard let self, swipesSidebar, let model = activeWindow, let window = event.window, window === model.window else { return false }
+            // Not over the top bars, where the tabs scroll sideways.
+            return event.locationInWindow.y < window.frame.height - model.topBarHeight
+        },
         isNoteListShowing: { [weak self] in self?.activeWindow?.showsNoteList ?? true },
         onSwipe: { [weak self] toTheLeft in
             guard let window = self?.activeWindow, !window.isFocused, window.showsNoteList == toTheLeft else { return }

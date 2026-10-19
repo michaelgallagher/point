@@ -141,12 +141,9 @@ struct NoteTabs: View {
     /// Shows where a tab dropped past the last one would go.
     var isAppendTarget = false
 
-    /// Tab widths: a tab is as wide as its title, between these.
+    /// A tab is as wide as its whole title, never cut off, and no narrower than this. When
+    /// they don't all fit, the row scrolls.
     static let narrowest: CGFloat = 80
-    static let widest: CGFloat = 240
-    /// When they don't all fit, the others shrink to this (or their own width, if less)
-    /// before the row scrolls.
-    static let squeezed: CGFloat = 120
     static let spacing: CGFloat = 2
     /// Room at each end of the row, for the drop marker.
     static let inset: CGFloat = 4
@@ -154,7 +151,7 @@ struct NoteTabs: View {
     var body: some View {
         GeometryReader { geometry in
             let titles = pane.tabs.map { model.note($0.noteID)?.title ?? "New Tab" }
-            let widths = Self.widths(for: titles, current: pane.current, in: geometry.size.width - Self.inset * 2)
+            let widths = titles.map(Self.width(for:))
             let rowWidth = widths.reduce(0, +) + Self.spacing * CGFloat(max(widths.count - 1, 0)) + Self.inset * 2
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -193,28 +190,8 @@ struct NoteTabs: View {
         }
     }
 
-    /// Each tab as wide as its title, while they all fit. When they don't, the current tab
-    /// keeps its width and the others share what's left, each down to `squeezed`; past that,
-    /// the row scrolls.
-    static func widths(for titles: [String], current: Int, in available: CGFloat) -> [CGFloat] {
-        let natural = titles.map { min(max(titleWidth($0) + chrome, narrowest), widest) }
-        let gaps = spacing * CGFloat(max(titles.count - 1, 0))
-        guard natural.reduce(0, +) + gaps > available, natural.indices.contains(current) else { return natural }
-        var widths = natural
-        var room = available - gaps - natural[current]
-        var sharing = natural.indices.filter { $0 != current }
-        // Tabs narrower than an equal share keep their own width; the rest share equally.
-        while !sharing.isEmpty {
-            let share = room / CGFloat(sharing.count)
-            let fitting = sharing.filter { natural[$0] <= share }
-            if fitting.isEmpty {
-                for i in sharing { widths[i] = max(share, min(natural[i], squeezed)) }
-                break
-            }
-            for i in fitting { room -= natural[i] }
-            sharing.removeAll { fitting.contains($0) }
-        }
-        return widths
+    static func width(for title: String) -> CGFloat {
+        max(titleWidth(title) + chrome, narrowest)
     }
 
     /// The close button, its balance on the other side, and padding.
@@ -273,7 +250,7 @@ private struct NoteTab: View {
             .opacity(isHovering ? 1 : 0)
             Text(title)
                 .lineLimit(1)
-                .truncationMode(.middle)
+                .fixedSize() // Never cut off: the tab is sized to fit it.
                 .font(.callout.weight(isCurrent ? .medium : .regular))
                 .foregroundStyle(isCurrent ? .primary : .secondary)
                 .frame(maxWidth: .infinity)
@@ -331,14 +308,41 @@ private struct TabMouseArea: NSViewRepresentable {
         override var mouseDownCanMoveWindow: Bool { false }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+        /// Whether the pointer is over the tab, as last told to SwiftUI.
+        private var isInside = false
+
+        /// Checks where the pointer actually is. Entered and exited events alone leave a tab
+        /// shaded when it moves out from under a still pointer (a tab closed or moved, the
+        /// row scrolled) and miss the tab that moves in.
+        private func syncHover(leaving: Bool = false) {
+            var inside = false
+            if !leaving, let window, !isHiddenOrHasHiddenAncestor {
+                inside = visibleRect.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
+            }
+            guard inside != isInside else { return }
+            isInside = inside
+            // Not in the middle of SwiftUI laying out the row, which this can be called from.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, isInside == inside else { return }
+                onHover(inside)
+            }
+        }
+
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
             trackingAreas.forEach(removeTrackingArea)
-            addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+            addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
+            syncHover()
         }
 
-        override func mouseEntered(with event: NSEvent) { onHover(true) }
-        override func mouseExited(with event: NSEvent) { onHover(false) }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            syncHover()
+        }
+
+        override func mouseEntered(with event: NSEvent) { syncHover() }
+        override func mouseMoved(with event: NSEvent) { syncHover() }
+        override func mouseExited(with event: NSEvent) { syncHover(leaving: true) }
 
         override func mouseDown(with event: NSEvent) {
             mouseDownAt = event.locationInWindow
@@ -368,7 +372,7 @@ private struct TabMouseArea: NSViewRepresentable {
         }
 
         func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-            onHover(false)
+            syncHover()
         }
 
         /// The tab as drawn, to drag.

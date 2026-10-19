@@ -33,6 +33,7 @@ struct SettingsView: View {
                     .labelsHidden()
                 }
                 .disabled(store.browsingStyle != .twoColumns)
+                Toggle("Swipe sideways with two fingers to show and hide it", isOn: $store.swipesSidebar)
             }
 
             Divider()
