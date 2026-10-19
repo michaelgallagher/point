@@ -1,17 +1,25 @@
 import Foundation
 
-/// The vault's folders, worked out from where its notes are.
+/// The vault's folders: those its notes are in, and any others found on disk (empty ones).
 public struct FolderTree: Sendable {
     /// Each folder's path (`Projects/Archive`; the vault root is "") and how many notes are in
     /// it, including in its subfolders.
     public let noteCounts: [String: Int]
 
-    public init(notes: [Note]) {
+    public init(notes: [Note], folders: [String] = []) {
         var counts: [String: Int] = [:]
         for note in notes {
             var folder = Self.folder(of: note.id)
             while !folder.isEmpty {
                 counts[folder, default: 0] += 1
+                folder = Self.parent(of: folder)
+            }
+        }
+        // Folders without notes still show, with a count of 0 (as do the folders above them).
+        for path in folders {
+            var folder = path
+            while !folder.isEmpty {
+                if counts[folder] == nil { counts[folder] = 0 }
                 folder = Self.parent(of: folder)
             }
         }

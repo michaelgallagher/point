@@ -125,6 +125,9 @@ struct AppCommands: Commands {
             Button("New Note") { model?.createNote() }
                 .keyboardShortcut("n")
                 .disabled(model == nil || store.root == nil)
+            Button("New Folder…") { model?.newFolder() }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+                .disabled(model == nil || store.root == nil)
             Button("New Tab") { model?.newTab() }
                 .keyboardShortcut("t")
                 .disabled(model == nil)

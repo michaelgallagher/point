@@ -143,6 +143,7 @@ private struct PlaceLabel: View {
                 Button(model.isPinned(place) ? "Unpin" : "Pin to Sidebar") { model.togglePin(place) }
             }
             if let path = folderPath, let root = model.root {
+                Button("New Folder Inside…") { model.newFolder(in: path) }
                 Button("Show in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([path.isEmpty ? root : root.appendingPathComponent(path)])
                 }

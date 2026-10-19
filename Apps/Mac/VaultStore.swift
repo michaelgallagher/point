@@ -21,7 +21,11 @@ extension Notification.Name {
 final class VaultStore: ObservableObject {
     @Published private(set) var root: URL?
     @Published private(set) var notes: [Note] = [] {
-        didSet { folderTree = FolderTree(notes: notes) }
+        didSet { folderTree = FolderTree(notes: notes, folders: folders) }
+    }
+    /// Every folder on disk, including empty ones (which the notes alone wouldn't show).
+    private var folders: [String] = [] {
+        didSet { folderTree = FolderTree(notes: notes, folders: folders) }
     }
     @Published var errorMessage: String?
     @Published var sort: NoteSort {
@@ -68,9 +72,10 @@ final class VaultStore: ObservableObject {
         guard let root else { return }
         do {
             let scanned = try await Task.detached(priority: .userInitiated) {
-                try VaultScanner.scan(root)
+                try VaultScanner.scanWithFolders(root)
             }.value
-            notes = scanned.sorted(by: sort)
+            folders = scanned.folders
+            notes = scanned.notes.sorted(by: sort)
             errorMessage = nil
             refreshTags()
             updateIndex()
@@ -104,6 +109,7 @@ final class VaultStore: ObservableObject {
         root?.stopAccessingSecurityScopedResource()
         _ = url.startAccessingSecurityScopedResource()
         root = url
+        folders = []
         notes = []
         settings = ObsidianSettings.load(vault: url)
         indexedTags = [:]
@@ -124,6 +130,34 @@ final class VaultStore: ObservableObject {
     }
 
     // MARK: Creating, renaming and deleting
+
+    /// Creates a folder called `name` inside `parent` ("" is the vault root) and returns its
+    /// path, or nil (with a message) if it can't.
+    func createFolder(named name: String, in parent: String) -> String? {
+        guard let root else { return nil }
+        // Folder names can't contain the path separators macOS and Obsidian use.
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        guard !clean.isEmpty, !clean.hasPrefix(".") else {
+            errorMessage = "A folder needs a name that doesn't start with a dot."
+            return nil
+        }
+        let path = parent.isEmpty ? clean : parent + "/" + clean
+        let url = root.appendingPathComponent(path, isDirectory: true)
+        guard !FileManager.default.fileExists(atPath: url.path) else {
+            errorMessage = "There's already a folder or file called \"\(clean)\" there."
+            return nil
+        }
+        do {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+            folders.append(path)
+            return path
+        } catch {
+            errorMessage = "Imprint couldn't make the folder: \(error.localizedDescription)"
+            return nil
+        }
+    }
 
     /// Creates an untitled note in `folder` ("" is the vault root) and returns its ID.
     func createNote(text: String = "", inFolder folder: String) -> Note.ID? {

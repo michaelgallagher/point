@@ -122,6 +122,7 @@ A single flat list of notes won't scale, so the sidebar browses folders and tags
 | ⌘+ / ⌘− | Bigger / smaller note text |
 | ⌘S | Hide or show the note list |
 | ⌘T | New tab |
+| ⇧⌘N | New folder, inside the folder being browsed (also "New Folder Inside…" on a folder's right-click menu) |
 | ⇧⌘T | Today's note |
 | ⌘-click | Open a note or link in a new tab |
 | ⌘, | Settings |
@@ -327,6 +328,7 @@ Buy the developer account first.
 9. **New note gives a choice without slowing you down.** ⌘N opens a blank note in a new tab (or fills an empty one) with the cursor in it. While it's empty, a row of templates sits above the text; typing anything removes it.
 10. **Shortcuts:** ⌘F opens the palette to search; ⌘E opens it as the explorer. ⇧⌘F goes to the sidebar's search field (showing the sidebar), also "Search in List" in the palette. ⌥⌘F stays Find in Note; ⇧⌘E is free. ⌥⌘↑ / ⌥⌘↓ move the current line (or the selected lines) up or down; the Previous and Next Note shortcuts are gone.
 11. **Clicking a tag** searches for it in the palette while the sidebar is hidden, or in the sidebar's search field while it shows.
+12. **New folders** (19 October 2026): New Folder… (⇧⌘N, the File menu, the palette, or "New Folder Inside…" on a folder) asks for a name and makes it inside the folder being browsed (or the vault root), then browses into it, so ⌘N puts a note there. Folders now come from disk as well as from where notes are, so empty folders show (with a count of 0), here and in Obsidian's vault alike.
 
 **Checks:** all package tests pass (VaultKit 62, MarkdownKit 33, EditorKit 57 including line moving, IndexKit 18). Layouts were checked from pictures saved by a debug hook (`-ImprintSnapshots <folder>`, with `-showsNoteList NO` to start with the sidebar hidden): tabs, the top bar with and without the sidebar, the start page and its explorer, both palettes, the template row, splits. Glass buttons don't show in those pictures. Not yet tried by hand: the explorer's keys, and opening a second window.
 

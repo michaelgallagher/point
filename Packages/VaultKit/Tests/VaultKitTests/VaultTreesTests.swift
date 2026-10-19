@@ -24,6 +24,14 @@ struct FolderTreeTests {
         #expect(tree.noteCounts["NHS/Projects"] == 2)
     }
 
+    @Test func emptyFoldersShowWithNoNotes() {
+        let tree = FolderTree(notes: [note("NHS/Plan.md")], folders: ["NHS", "Empty/Inner"])
+        #expect(tree.subfolders(of: "") == ["Empty", "NHS"])
+        #expect(tree.subfolders(of: "Empty") == ["Empty/Inner"])
+        #expect(tree.noteCounts["Empty/Inner"] == 0)
+        #expect(tree.noteCounts["NHS"] == 1)
+    }
+
     @Test func paths() {
         #expect(FolderTree.folder(of: "NHS/Projects/Alpha.md") == "NHS/Projects")
         #expect(FolderTree.folder(of: "Inbox.md") == "")

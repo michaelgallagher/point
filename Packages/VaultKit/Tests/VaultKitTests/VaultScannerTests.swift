@@ -45,6 +45,15 @@ struct VaultScannerTests {
         #expect(try VaultScanner.scan(root).map(\.id) == ["Note.md"])
     }
 
+    @Test func findsEveryFolderIncludingEmptyOnes() throws {
+        let root = try makeVault(["Projects/Imprint.md": now, ".obsidian/workspace.md": now])
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Empty/Inner"), withIntermediateDirectories: true)
+
+        let folders = try VaultScanner.scanWithFolders(root).folders.sorted()
+        #expect(folders == ["Empty", "Empty/Inner", "Projects"]) // Not .obsidian.
+    }
+
     @Test func includesEvictedICloudFiles() throws {
         let root = try makeVault(["Projects/.Plan.md.icloud": now])
         defer { try? FileManager.default.removeItem(at: root) }

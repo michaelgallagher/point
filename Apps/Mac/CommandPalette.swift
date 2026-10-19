@@ -326,6 +326,7 @@ struct PaletteCommand {
             PaletteCommand(name: "New Note", shortcut: "⌘N", isSuggested: true) { model.createNote() },
             PaletteCommand(name: "Today's Note", shortcut: "⇧⌘T", isSuggested: true) { model.openTodaysNote() },
             PaletteCommand(name: "Explorer", shortcut: "⌘E", isSuggested: true) { model.togglePalette(.explorer) },
+            PaletteCommand(name: "New Folder…", shortcut: "⇧⌘N") { model.newFolder() },
             PaletteCommand(name: model.showsNoteList ? "Hide Note List" : "Show Note List", shortcut: "⌘S") { model.showsNoteList.toggle() },
             PaletteCommand(name: "Bigger Text", shortcut: "⌘=") { model.makeTextBigger() },
             PaletteCommand(name: "Smaller Text", shortcut: "⌘−") { model.makeTextSmaller() },

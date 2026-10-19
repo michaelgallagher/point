@@ -266,6 +266,7 @@ struct SidebarTable: NSViewRepresentable {
             case .place(let place, _):
                 menu.addItem(item(model.isPinned(place) ? "Unpin" : "Pin to Sidebar") { $0.togglePin(place) })
                 if case .folder(let path) = place, let root = model.root {
+                    menu.addItem(item("New Folder Inside…") { $0.newFolder(in: path) })
                     menu.addItem(item("Show in Finder") { _ in
                         NSWorkspace.shared.activateFileViewerSelecting([root.appendingPathComponent(path)])
                     })

@@ -463,6 +463,27 @@ final class VaultModel: ObservableObject {
 
     /// The note being renamed, moved or tagged, while that sheet is showing.
     @Published var renaming: Note?
+    /// Where a new folder is being made, while the New Folder sheet is showing.
+    @Published var creatingFolder: FolderRequest?
+
+    struct FolderRequest: Identifiable {
+        /// The folder it goes in ("" for the vault root).
+        let parent: String
+        var id: String { parent }
+    }
+
+    /// Asks for a new folder's name. It goes in `parent`, or the folder being browsed.
+    func newFolder(in parent: String? = nil) {
+        var folder = ""
+        if case .folder(let path) = place { folder = path }
+        creatingFolder = FolderRequest(parent: parent ?? folder)
+    }
+
+    /// Makes the folder and browses into it, so ⌘N then puts a note there.
+    func createFolder(named name: String, in parent: String) {
+        guard let path = store.createFolder(named: name, in: parent) else { return }
+        browse(.folder(path))
+    }
     @Published var moving: Note?
     @Published var tagging: Note?
     /// Whether the Insert Template picker is showing.

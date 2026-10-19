@@ -148,6 +148,9 @@ struct ContentView: View {
         .sheet(item: $model.renaming) { note in
             RenameSheet(note: note)
         }
+        .sheet(item: $model.creatingFolder) { request in
+            NewFolderSheet(parent: request.parent)
+        }
         .sheet(isPresented: $model.isChoosingTemplate) {
             TemplatePicker()
         }
@@ -423,6 +426,41 @@ private struct RenameSheet: View {
 
     private func rename() {
         model.rename(note, to: title)
+        dismiss()
+    }
+}
+
+private struct NewFolderSheet: View {
+    @EnvironmentObject private var model: VaultModel
+    @Environment(\.dismiss) private var dismiss
+    let parent: String
+    @State private var name = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("New Folder")
+                .font(.headline)
+            TextField("Name", text: $name)
+                .frame(width: 320)
+                .onSubmit(create)
+            Text("In " + ([model.root?.lastPathComponent ?? "Vault"] + parent.split(separator: "/").map(String.init)).joined(separator: " › "))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Create", action: create)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(20)
+    }
+
+    private func create() {
+        guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        model.createFolder(named: name, in: parent)
         dismiss()
     }
 }
