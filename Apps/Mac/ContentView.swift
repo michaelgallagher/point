@@ -154,6 +154,9 @@ struct ContentView: View {
         .sheet(isPresented: $model.isChoosingTemplate) {
             TemplatePicker()
         }
+        .sheet(isPresented: $model.isShowingShortcuts) {
+            ShortcutsSheet()
+        }
         .sheet(item: $model.moving) { note in
             MoveSheet(note: note)
         }

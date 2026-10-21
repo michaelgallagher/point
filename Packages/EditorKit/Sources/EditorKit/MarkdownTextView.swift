@@ -8,7 +8,11 @@ import MarkdownKit
 /// changes attributes, so `string` can be saved as-is without any conversion.
 public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDelegate {
     /// The parsed structure of the current text, kept up to date on every edit.
-    public private(set) var tokens: [MarkdownToken] = []
+    public private(set) var tokens: [MarkdownToken] = [] {
+        didSet { blockTokens = Dictionary(tokens.filter(\.isBlock).map { ($0.range.location, $0) }, uniquingKeysWith: { first, _ in first }) }
+    }
+    /// The block (heading, list item and so on) starting at each place, for quick lookups.
+    private(set) var blockTokens: [Int: MarkdownToken] = [:]
     /// Called after every change the user makes to the text.
     public var onTextChange: ((MarkdownTextView) -> Void)?
     /// Called when a link is clicked.
@@ -30,6 +34,13 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
 
     var styler = MarkdownStyler()
 
+    /// Folded headings and list items, by where their lines start (see +Folding).
+    var folds: Set<Int> = []
+    /// What each fold hid when last applied, to tell whether an edit reaches into it.
+    var appliedFoldRanges: [Int: NSRange] = [:]
+    /// The foldable line under the pointer, whose arrow shows.
+    var hoveredFoldLine: Int?
+
     /// How big the text is, relative to the normal 15pt (⌘+ / ⌘−).
     public var textScale: CGFloat {
         get { styler.theme.bodySize / 15 }
@@ -41,6 +52,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
             typingAttributes = styler.baseAttributes
             storage.beginEditing()
             styler.style(storage, range: NSRange(location: 0, length: storage.length), tokens: tokens)
+            applyFolds()
             storage.endEditing()
         }
     }
@@ -53,6 +65,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
             styler.showsMarkdown = newValue
             storage.beginEditing()
             styler.style(storage, range: NSRange(location: 0, length: storage.length), tokens: tokens)
+            applyFolds()
             storage.endEditing()
             setSelectionDirectly(selectedRange())
         }
@@ -118,6 +131,8 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     /// Replaces the whole text, for example when opening a note. Not undoable.
     public func load(_ markdown: String) {
         guard let storage = textStorage else { return }
+        folds = []
+        appliedFoldRanges = [:]
         storage.setAttributedString(NSAttributedString(string: markdown, attributes: styler.baseAttributes))
         undoManager?.removeAllActions()
         // Start at the first visible text, never inside hidden frontmatter or markers.
@@ -164,6 +179,31 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         super.setFrameSize(newSize)
         updateInsets()
         layoutHeader()
+    }
+
+    // MARK: Fold arrows
+
+    public override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        drawFoldArrows(in: rect)
+    }
+
+    public override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if !trackingAreas.contains(where: { $0.owner === self && $0.userInfo?["folds"] != nil }) {
+            addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                           owner: self, userInfo: ["folds": true]))
+        }
+    }
+
+    public override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        updateHoveredFoldLine(at: convert(event.locationInWindow, from: nil))
+    }
+
+    public override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        updateHoveredFoldLine(at: nil)
     }
 
     // MARK: Header
@@ -228,6 +268,11 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         guard editedMask.contains(.editedCharacters) else { return }
         let old = tokens
         tokens = MarkdownParser.parse(textStorage.string)
+        // Folds move with the text; one the edit reached into opens, and everything restyles.
+        if updateFolds(edited: editedRange, delta: delta, hiddenBefore: appliedFoldRanges) {
+            styler.style(textStorage, range: NSRange(location: 0, length: textStorage.length), tokens: tokens)
+        }
+        defer { applyFolds() }
 
         var range = editedRange
         if structureChanged(from: old, to: tokens, editedRange: editedRange, delta: delta) {

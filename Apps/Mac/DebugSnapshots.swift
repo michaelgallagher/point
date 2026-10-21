@@ -20,6 +20,8 @@ enum DebugSnapshots {
                 model.closeOtherTabs(model.panes[0].tabs.count - 1, inPane: 0)
                 for note in model.notes.sorted(by: .modified).prefix(2) { model.newTab(noteID: note.id) }
             }),
+            ("0-shortcuts", { model.isShowingShortcuts = true }),
+            ("0b-shortcuts-closed", { model.isShowingShortcuts = false }),
             ("2-start-page", { model.newTab() }),
             ("3-start-page-explorer", { model.togglePalette(.explorer) }),
             ("3b-start-page-search-again", { model.togglePalette(.search) }),

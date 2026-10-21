@@ -35,7 +35,7 @@ struct PlaceTreeColumn: View {
 
             List(selection: selection) {
                 if !model.pins.isEmpty {
-                    Section("Pinned") {
+                    FoldingSection("Pinned") {
                         ForEach(model.pins, id: \.self) { place in
                             PlaceLabel(place: place, name: place.title).tag("pin:" + place.key)
                         }
@@ -43,14 +43,14 @@ struct PlaceTreeColumn: View {
                 }
                 // Stacked (the default): folders, then tags. Otherwise whichever is toggled.
                 if model.treeLayout == .stacked || model.treeKind == .folders {
-                    Section("Folders") {
+                    FoldingSection("Folders") {
                         OutlineGroup(model.folderNodes, children: \.children) { node in
                             PlaceLabel(place: node.place, name: node.name).tag("tree:" + node.place.key)
                         }
                     }
                 }
                 if model.treeLayout == .stacked || model.treeKind == .tags, !model.tagNodes.isEmpty {
-                    Section("Tags") {
+                    FoldingSection("Tags") {
                         OutlineGroup(model.tagNodes, children: \.children) { node in
                             PlaceLabel(place: node.place, name: node.name).tag("tree:" + node.place.key)
                         }
@@ -133,11 +133,13 @@ private struct PlaceLabel: View {
             }
         }
         .background(RoundedRectangle(cornerRadius: 4).fill(isDropTarget ? Color.accentColor.opacity(0.25) : .clear))
+        // A folder can be dragged into another (not the vault's top level, which holds them all).
+        .modifier(FolderDragSource(path: folderPath.flatMap { $0.isEmpty ? nil : $0 }))
         .onDrop(of: [.text], isTargeted: folderPath == nil ? nil : $isDropTarget) { providers in
             guard let path = folderPath, let provider = providers.first else { return false }
             _ = provider.loadObject(ofClass: NSString.self) { object, _ in
                 guard let id = object as? String else { return }
-                Task { @MainActor in model.move(noteID: id, toFolder: path) }
+                Task { @MainActor in model.drop(id, onFolder: path) }
             }
             return true
         }
@@ -168,6 +170,40 @@ private struct PlaceLabel: View {
         case .allNotes: "tray"
         case .folder: "folder"
         case .tag: "number"
+        }
+    }
+}
+
+/// Lets a folder's row be dragged, carrying its path; other rows aren't.
+private struct FolderDragSource: ViewModifier {
+    let path: String?
+
+    func body(content: Content) -> some View {
+        if let path {
+            content.onDrag { NSItemProvider(object: (VaultModel.folderDragPrefix + path) as NSString) }
+        } else {
+            content
+        }
+    }
+}
+
+/// A section of the tree that folds away, from macOS 14, and stays as it was left.
+private struct FoldingSection<Content: View>: View {
+    let title: String
+    @AppStorage private var isExpanded: Bool
+    @ViewBuilder let content: Content
+
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        _isExpanded = AppStorage(wrappedValue: true, "treeSectionExpanded." + title)
+        self.content = content()
+    }
+
+    var body: some View {
+        if #available(macOS 14, *) {
+            Section(isExpanded: $isExpanded) { content } header: { Text(title) }
+        } else {
+            Section(title) { content }
         }
     }
 }

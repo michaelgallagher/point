@@ -23,6 +23,7 @@ final class VaultModel: ObservableObject {
         }
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(noteMoved(_:)), name: .imprintNoteMoved, object: nil)
+        center.addObserver(self, selector: #selector(folderMoved(_:)), name: .imprintFolderMoved, object: nil)
         center.addObserver(self, selector: #selector(vaultOpened), name: .imprintVaultOpened, object: nil)
         center.addObserver(self, selector: #selector(appWillTerminate), name: NSApplication.willTerminateNotification, object: nil)
     }
@@ -70,6 +71,19 @@ final class VaultModel: ObservableObject {
     func makeTextSmaller() { store.makeTextSmaller() }
     func rename(_ note: Note, to title: String) { store.rename(note, to: title) }
     func move(noteID: Note.ID, toFolder folder: String) { store.move(noteID: noteID, toFolder: folder) }
+    func moveFolder(_ path: String, into parent: String) { store.moveFolder(path, into: parent) }
+
+    /// What a dragged sidebar row carries: a note's ID, or for a folder, this and its path.
+    static let folderDragPrefix = "imprint-folder:"
+
+    /// Something dropped on a folder ("" is the vault root): a note or a folder goes inside.
+    func drop(_ dragged: String, onFolder folder: String) {
+        if dragged.hasPrefix(Self.folderDragPrefix) {
+            moveFolder(String(dragged.dropFirst(Self.folderDragPrefix.count)), into: folder)
+        } else {
+            move(noteID: dragged, toFolder: folder)
+        }
+    }
 
     func moveToTrash(_ note: Note) {
         store.moveToTrash(note)
@@ -115,11 +129,54 @@ final class VaultModel: ObservableObject {
     /// The window's notes: one pane, or two side by side. Each note is open in at most one
     /// tab, so two editors never write the same file.
     @Published private(set) var panes = [NotePane()] {
-        didSet { tracePanes() }
+        didSet {
+            tracePanes()
+            saveWindowState()
+        }
     }
     /// The pane last clicked or typed in, which the list, palette and menus act on.
     @Published private(set) var activePane = 0 {
-        didSet { tracePanes() }
+        didSet {
+            tracePanes()
+            saveWindowState()
+        }
+    }
+
+    // MARK: Opening as it was left
+
+    /// What's kept of the window last used, so the app opens the way it was left: its tabs on
+    /// each side, the tab showing on each, the side being worked on and the folder browsed.
+    private struct SavedWindow: Codable {
+        var tabs: [[Note.ID?]]
+        var current: [Int]
+        var activePane: Int
+        var place: String
+    }
+
+    private var savedStateKey: String? { root.map { "windowState." + VaultStore.vaultKey($0) } }
+
+    /// Saves this window's state, if it's the one in use (or the only one).
+    func saveWindowState() {
+        guard let key = savedStateKey, store.activeWindow == nil || store.activeWindow === self else { return }
+        let saved = SavedWindow(tabs: panes.map { $0.tabs.map(\.noteID) }, current: panes.map(\.current),
+                                activePane: activePane, place: place.key)
+        if let data = try? JSONEncoder().encode(saved) { UserDefaults.standard.set(data, forKey: key) }
+    }
+
+    /// Opens the window as the last one was left.
+    func restoreWindowState() {
+        guard let key = savedStateKey, let data = UserDefaults.standard.data(forKey: key),
+              let saved = try? JSONDecoder().decode(SavedWindow.self, from: data), !saved.tabs.isEmpty else { return }
+        var restored: [NotePane] = saved.tabs.prefix(2).enumerated().compactMap { index, ids in
+            guard !ids.isEmpty else { return nil }
+            var pane = NotePane(tabs: ids.map { NoteTab(noteID: $0) })
+            pane.current = min(max(saved.current.indices.contains(index) ? saved.current[index] : 0, 0), ids.count - 1)
+            return pane
+        }
+        if restored.isEmpty { restored = [NotePane()] }
+        if let place = SidebarPlace(key: saved.place) { self.place = place }
+        panes = restored
+        activePane = min(max(saved.activePane, 0), restored.count - 1)
     }
 
     private func tracePanes() {
@@ -218,6 +275,11 @@ final class VaultModel: ObservableObject {
         panes[p].tabs.insert(NoteTab(noteID: noteID), at: insertAt)
         panes[p].current = insertAt
         activePane = p
+    }
+
+    /// ⌃⌘T: a new tab (a start page) on the other side, splitting the window if needed.
+    func newTabOnOtherSide() {
+        if isSplit { newTab(inPane: 1 - activePane) } else { toggleSplit() }
     }
 
     func selectTab(_ tab: Int, inPane pane: Int) {
@@ -449,6 +511,13 @@ final class VaultModel: ObservableObject {
         }
     }
 
+    /// A folder moved: if this window is showing it (or a folder inside it), follow it.
+    @objc private func folderMoved(_ notification: Notification) {
+        guard let old = notification.userInfo?["old"] as? String, let new = notification.userInfo?["new"] as? String,
+              case .folder(let shown) = place, shown == old || shown.hasPrefix(old + "/") else { return }
+        place = .folder(new + shown.dropFirst(old.count))
+    }
+
     @objc private func vaultOpened() {
         panes = [NotePane()]
         activePane = 0
@@ -481,10 +550,10 @@ final class VaultModel: ObservableObject {
     }
 
     /// Creates an untitled note in the folder being browsed (or the vault root) and opens it.
-    func createNote(text: String = "") {
+    func createNote(text: String = "", titled title: String? = nil) {
         var folder = ""
         if case .folder(let path) = place { folder = path }
-        guard let id = store.createNote(text: text, inFolder: folder) else { return }
+        guard let id = store.createNote(text: text, titled: title, inFolder: folder) else { return }
         // A new tab, unless this one is empty, and templates on offer until typing starts.
         freshNoteID = id
         if selection == nil { selection = id } else { newTab(noteID: id) }
@@ -570,6 +639,8 @@ final class VaultModel: ObservableObject {
     @Published var tagging: Note?
     /// Whether the Insert Template picker is showing.
     @Published var isChoosingTemplate = false
+    /// The keyboard shortcuts sheet (⌘/).
+    @Published var isShowingShortcuts = false
 
     // MARK: Window
 
@@ -671,7 +742,9 @@ final class VaultModel: ObservableObject {
     // MARK: Browsing folders and tags
 
     /// Where the sidebar is: the top level, a folder or a tag.
-    @Published var place: SidebarPlace = .allNotes
+    @Published var place: SidebarPlace = .allNotes {
+        didSet { saveWindowState() }
+    }
 
     func browse(_ place: SidebarPlace) {
         Trace.mark("browse \(place.key)")

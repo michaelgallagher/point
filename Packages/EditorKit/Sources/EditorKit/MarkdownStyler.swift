@@ -203,6 +203,16 @@ struct MarkdownStyler {
         return style
     }
 
+    /// Hides a whole line under a fold, as frontmatter is hidden.
+    func hideLine(_ line: NSRange, storage: NSTextStorage, text: NSString) {
+        collapseLine(line, storage: storage, text: text, height: 0.1)
+        // Nothing drawn for it either: no bullet, checkbox, tag pill or block background.
+        let full = text.lineRange(for: line)
+        for key: NSAttributedString.Key in [.imprintListMarker, .imprintTag, .imprintWebLink, .imprintRule, .imprintBlock] {
+            storage.removeAttribute(key, range: full)
+        }
+    }
+
     /// Hides a whole line, such as a code fence, leaving only a sliver of space.
     private func collapseLine(_ line: NSRange, storage: NSTextStorage, text: NSString, height: CGFloat = 6) {
         let full = text.lineRange(for: line) // Includes the line break, which sets the line's height.

@@ -27,6 +27,33 @@ struct NoteFilesTests {
         #expect(NoteFiles.untitledName(at: date) == "2026-10-18 0942")
     }
 
+    @Test func moveFolderTakesEverythingInIt() throws {
+        let root = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let projects = root.appendingPathComponent("Projects/Old")
+        try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Archive"), withIntermediateDirectories: true)
+        _ = try NoteFiles.create(title: "Idea", in: projects)
+        let moved = try NoteFiles.moveFolder(root.appendingPathComponent("Projects"), into: root.appendingPathComponent("Archive"))
+        #expect(moved.lastPathComponent == "Projects")
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("Archive/Projects/Old/Idea.md").path))
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("Projects").path))
+    }
+
+    @Test func moveFolderRefusesItselfAndTakenNames() throws {
+        let root = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for path in ["A/B", "C/A"] {
+            try FileManager.default.createDirectory(at: root.appendingPathComponent(path), withIntermediateDirectories: true)
+        }
+        #expect(throws: NoteFiles.FileError.folderIntoItself) {
+            try NoteFiles.moveFolder(root.appendingPathComponent("A"), into: root.appendingPathComponent("A/B"))
+        }
+        #expect(throws: NoteFiles.FileError.folderTaken("A")) {
+            try NoteFiles.moveFolder(root.appendingPathComponent("A"), into: root.appendingPathComponent("C"))
+        }
+    }
+
     @Test func createAvoidsExistingNames() throws {
         let folder = try makeFolder()
         defer { try? FileManager.default.removeItem(at: folder) }

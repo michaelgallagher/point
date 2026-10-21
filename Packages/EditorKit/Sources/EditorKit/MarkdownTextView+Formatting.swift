@@ -419,7 +419,12 @@ extension MarkdownTextView {
     // MARK: Checkboxes
 
     public override func mouseDown(with event: NSEvent) {
-        if toggleCheckbox(at: convert(event.locationInWindow, from: nil)) { return }
+        let point = convert(event.locationInWindow, from: nil)
+        if let line = foldArrowLine(at: point) {
+            setFolded(!folds.contains(line), line: line)
+            return
+        }
+        if toggleCheckbox(at: point) { return }
         if openLink(for: event) { return } // ⌥-click places the cursor in a link instead.
         super.mouseDown(with: event)
     }

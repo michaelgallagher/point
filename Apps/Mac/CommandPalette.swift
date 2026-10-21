@@ -35,15 +35,24 @@ struct CommandPalette: View {
             }
             .font(isPage ? .title2 : .title3)
             .padding(.horizontal, 16)
-            .padding(.vertical, 18)
+            .padding(.vertical, isPage ? 12 : 18)
+            // On a start page, the field is a rounded box; in the floating palette, a line
+            // below it divides it from the list.
+            .background {
+                if isPage {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.primary.opacity(0.05))
+                }
+            }
+            .padding(.bottom, isPage ? 10 : 0)
 
             if isExploring {
-                Divider()
+                if !isPage { Divider() }
                 ExplorerColumns(state: explorer) { id in open(id, inNewTab: false) }
                     .frame(height: isPage ? nil : Self.listHeight)
                     .frame(maxHeight: isPage ? .infinity : nil)
             } else if !items.isEmpty || !isPage {
-                Divider()
+                if !isPage { Divider() }
                 ScrollViewReader { scroller in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
@@ -174,6 +183,12 @@ struct CommandPalette: View {
                     found.first { $0.noteID == id } ?? model.note(id).map { PaletteItem.note($0.id, $0.title, nil) }
                 } + found.filter { item in openSet.contains(item.noteID ?? "") && !openMatches.contains(item.noteID ?? "") }
                 notes = openFirst + found.filter { !openSet.contains($0.noteID ?? "") }
+                // A name no note has yet: offer to make it, first if nothing else matched (so
+                // typing a new name and pressing Return makes the note).
+                let title = NoteFiles.sanitizedTitle(trimmed)
+                if !title.isEmpty, !model.notes.contains(where: { $0.title.caseInsensitiveCompare(title) == .orderedSame }) {
+                    notes = notes.isEmpty ? [.create(title)] : notes + [.create(title)]
+                }
                 tagItems = tags.filter { Fuzzy.score(query: trimmed, name: $0.tag) != nil }.prefix(3).map { PaletteItem.tag($0.tag, $0.count) }
                 commandItems = Self.rank(commands, by: trimmed, name: \.name).prefix(3).map(PaletteItem.command)
             }
@@ -210,6 +225,7 @@ struct CommandPalette: View {
         case .note(let id, _, _):
             open(id, inNewTab: inNewTab)
         case .tag(let tag, _): model.search(tag: tag)
+        case .create(let title): model.createNote(titled: title)
         case .command(let command): command.action()
         }
     }
@@ -222,6 +238,8 @@ struct CommandPalette: View {
 enum PaletteItem: Identifiable {
     case note(Note.ID, String, String?)
     case tag(String, Int)
+    /// A new note with this name.
+    case create(String)
     case command(PaletteCommand)
 
     var noteID: Note.ID? {
@@ -233,6 +251,7 @@ enum PaletteItem: Identifiable {
         switch self {
         case .note(let id, _, _): "note:\(id)"
         case .tag(let tag, _): "tag:\(tag)"
+        case .create(let title): "create:\(title)"
         case .command(let command): "command:\(command.name)"
         }
     }
@@ -242,6 +261,7 @@ enum PaletteItem: Identifiable {
         switch self {
         case .note(_, let title, _): title
         case .tag(let tag, _): tag
+        case .create(let title): title
         case .command(let command): command.name
         }
     }
@@ -313,6 +333,7 @@ private struct PaletteRow: View {
         switch item {
         case .note: "doc.text"
         case .tag: "number"
+        case .create: "plus"
         case .command: "command"
         }
     }
@@ -321,6 +342,7 @@ private struct PaletteRow: View {
         switch item {
         case .note(_, let title, _): title
         case .tag(let tag, _): "#\(tag)"
+        case .create(let title): "New Note “\(title)”"
         case .command(let command): command.name
         }
     }
@@ -329,6 +351,7 @@ private struct PaletteRow: View {
         switch item {
         case .note: isOpen ? "Open" : nil
         case .tag(_, let count): "\(count) \(count == 1 ? "note" : "notes")"
+        case .create: nil
         case .command(let command): command.shortcut
         }
     }
@@ -367,6 +390,7 @@ struct PaletteCommand {
         ]
         commands += [
             PaletteCommand(name: "New Tab", shortcut: "⌘T") { model.newTab() },
+            PaletteCommand(name: "New Tab on Other Side", shortcut: "⌃⌘T") { model.newTabOnOtherSide() },
             PaletteCommand(name: "Close Tab", shortcut: "⌘W") { model.closeTab() },
         ]
         commands += [
@@ -374,6 +398,7 @@ struct PaletteCommand {
             PaletteCommand(name: model.isSplit ? "Move Tab to Other Side" : "Move Tab to New Split", shortcut: nil) { model.moveTabToOtherSide() },
         ]
         commands.append(PaletteCommand(name: "Search in List", shortcut: "⇧⌘F") { model.focusSearch() })
+        commands.append(PaletteCommand(name: "Keyboard Shortcuts", shortcut: "⌘/") { model.isShowingShortcuts = true })
         commands.append(model.sidebarDensity == .compact
             ? PaletteCommand(name: "Use Comfortable Sidebar", shortcut: nil) { model.sidebarDensity = .comfortable }
             : PaletteCommand(name: "Use Compact Sidebar", shortcut: nil) { model.sidebarDensity = .compact })

@@ -5,31 +5,40 @@ import VaultKit
 
 /// One row of the sidebar: a section label, a divider, a folder or tag, or a note.
 enum SidebarRow: Hashable {
-    case header(String)
-    case tagsHeader
+    /// A section's label, which folds the section away or opens it again.
+    case header(SidebarSection)
     case divider
     case place(SidebarPlace, depth: Int)
     case note(Note.ID)
 }
 
+/// The sidebar's sections at the vault's top level, each of which can be folded away.
+enum SidebarSection: String, CaseIterable {
+    case pinned = "Pinned", folders = "Folders", tags = "Tags", notes = "Notes"
+}
+
 extension VaultModel {
-    /// The rows to show for the current place, in order.
-    func sidebarRows(tagsExpanded: Bool, includesPlaces: Bool = true) -> [SidebarRow] {
+    /// The rows to show for the current place, in order. A folded section shows only its label.
+    func sidebarRows(collapsed: Set<SidebarSection>, includesPlaces: Bool = true) -> [SidebarRow] {
         guard includesPlaces else { return notes(in: place).map { .note($0.id) } }
         var sections: [[SidebarRow]] = []
+        func section(_ name: SidebarSection, _ rows: [SidebarRow]) -> [SidebarRow] {
+            [.header(name)] + (collapsed.contains(name) ? [] : rows)
+        }
         let subplaces = subplaces(of: place)
         if place == .allNotes {
-            if !pins.isEmpty { sections.append([.header("Pinned")] + pins.map { .place($0, depth: 0) }) }
-            if !subplaces.isEmpty { sections.append([.header("Folders")] + subplaces.map { .place($0, depth: 0) }) }
+            if !pins.isEmpty { sections.append(section(.pinned, pins.map { .place($0, depth: 0) })) }
+            if !subplaces.isEmpty { sections.append(section(.folders, subplaces.map { .place($0, depth: 0) })) }
             if !tagTree.entries.isEmpty {
-                sections.append([.tagsHeader] + (tagsExpanded ? sortedTagEntries.map { .place(.tag($0.tag), depth: $0.depth) } : []))
+                sections.append(section(.tags, sortedTagEntries.map { .place(.tag($0.tag), depth: $0.depth) }))
             }
         } else if !subplaces.isEmpty {
             sections.append(subplaces.map { .place($0, depth: 0) })
         }
         let notes = notes(in: place)
         if !notes.isEmpty {
-            sections.append((place == .allNotes && !sections.isEmpty ? [SidebarRow.header("Notes")] : []) + notes.map { .note($0.id) })
+            let rows = notes.map { SidebarRow.note($0.id) }
+            sections.append(place == .allNotes && !sections.isEmpty ? section(.notes, rows) : rows)
         }
         // Thin dividers between sections.
         return sections.enumerated().flatMap { index, rows in index == 0 ? rows : [.divider] + rows }
@@ -42,7 +51,18 @@ struct SidebarTable: NSViewRepresentable {
     @ObservedObject var model: VaultModel
     /// False in the two-column view, where folders and tags have their own column.
     var includesPlaces = true
-    @AppStorage("tagsSectionExpanded") var tagsExpanded = true
+    /// The folded sections, by name, comma separated.
+    @AppStorage("collapsedSidebarSections") var collapsedSections = UserDefaults.standard.object(forKey: "tagsSectionExpanded") as? Bool == false ? "Tags" : ""
+
+    var collapsed: Set<SidebarSection> {
+        Set(collapsedSections.split(separator: ",").compactMap { SidebarSection(rawValue: String($0)) })
+    }
+
+    func toggle(_ section: SidebarSection) {
+        var sections = collapsed
+        if sections.remove(section) == nil { sections.insert(section) }
+        collapsedSections = SidebarSection.allCases.filter(sections.contains).map(\.rawValue).joined(separator: ",")
+    }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -103,7 +123,7 @@ struct SidebarTable: NSViewRepresentable {
         /// going deeper, from the left when going back up.
         func update(animated: Bool) {
             guard let table else { return }
-            let newRows = model.sidebarRows(tagsExpanded: parent.tagsExpanded, includesPlaces: parent.includesPlaces)
+            let newRows = model.sidebarRows(collapsed: parent.collapsed, includesPlaces: parent.includesPlaces)
             let place = model.place
             let placeChanged = shownPlace != nil && shownPlace != place
             if !placeChanged, newRows == rows {
@@ -170,7 +190,7 @@ struct SidebarTable: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             switch rows[row] {
-            case .header, .tagsHeader: model.sidebarDensity.headerHeight
+            case .header: model.sidebarDensity.headerHeight
             case .divider: model.sidebarDensity.dividerHeight
             case .place: model.sidebarDensity.rowHeight
             case .note(let id):
@@ -200,7 +220,7 @@ struct SidebarTable: NSViewRepresentable {
             let identifier = NSUserInterfaceItemIdentifier("row")
             let cell = tableView.makeView(withIdentifier: identifier, owner: nil) as? HostingCell ?? HostingCell()
             cell.identifier = identifier
-            cell.show(SidebarRowView(row: rows[row], model: model, tagsExpanded: parent.tagsExpanded))
+            cell.show(SidebarRowView(row: rows[row], model: model, collapsed: parent.collapsed))
             return cell
         }
 
@@ -214,7 +234,7 @@ struct SidebarTable: NSViewRepresentable {
             guard rows.indices.contains(row) else { return }
             switch rows[row] {
             case .place(let place, _): model.browse(place)
-            case .tagsHeader: parent.tagsExpanded.toggle()
+            case .header(let section): parent.toggle(section)
             default: break
             }
         }
@@ -222,21 +242,32 @@ struct SidebarTable: NSViewRepresentable {
         // MARK: Dragging notes onto folders
 
         func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
-            if case .note(let id) = rows[row] { return id as NSString }
-            return nil
+            switch rows[row] {
+            case .note(let id): return id as NSString
+            case .place(.folder(let path), _): return (VaultModel.folderDragPrefix + path) as NSString
+            default: return nil
+            }
         }
 
         func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int,
                        proposedDropOperation operation: NSTableView.DropOperation) -> NSDragOperation {
-            guard operation == .on, rows.indices.contains(row), case .place(.folder, _) = rows[row] else { return [] }
-            return .move
+            guard operation == .on, rows.indices.contains(row) else { return [] }
+            switch rows[row] {
+            case .place(.folder, _): return .move
+            // The heading over the folders: the top level.
+            case .header(.folders) where model.place == .allNotes: return .move
+            default: return []
+            }
         }
 
         func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo, row: Int,
                        dropOperation: NSTableView.DropOperation) -> Bool {
-            guard case .place(.folder(let path), _) = rows[row],
-                  let id = info.draggingPasteboard.string(forType: .string) else { return false }
-            model.move(noteID: id, toFolder: path)
+            guard let dragged = info.draggingPasteboard.string(forType: .string) else { return false }
+            switch rows[row] {
+            case .place(.folder(let path), _): model.drop(dragged, onFolder: path)
+            case .header(.folders): model.drop(dragged, onFolder: "")
+            default: return false
+            }
             return true
         }
 
@@ -257,7 +288,7 @@ struct SidebarTable: NSViewRepresentable {
                 menu.addItem(item("Show in Finder") { $0.showInFinder(note) })
                 menu.addItem(.separator())
                 menu.addItem(item("Move to Trash") { $0.moveToTrash(note) })
-            case .header, .tagsHeader:
+            case .header:
                 // Right-click a section label to choose how folders and tags are sorted.
                 let byName = item("Sort Folders and Tags by Name") { $0.tagOrder = .name }
                 byName.state = model.tagOrder == .name ? .on : .off
@@ -365,30 +396,24 @@ struct SidebarRowView: View {
     /// Observed, so a row redraws when tags or dates change. (Handing the cell a new view
     /// with the same plain reference wouldn't: SwiftUI sees nothing different and skips it.)
     @ObservedObject var model: VaultModel
-    let tagsExpanded: Bool
+    let collapsed: Set<SidebarSection>
 
     var body: some View {
         switch row {
-        case .header(let title):
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                .padding(.leading, 8)
-                .padding(.bottom, 3)
-        case .tagsHeader:
+        case .header(let section):
+            let isOpen = !collapsed.contains(section)
             HStack(spacing: 4) {
-                Text("Tags")
+                Text(section.rawValue)
                 Image(systemName: "chevron.right")
                     .font(.caption2.weight(.semibold))
-                    .rotationEffect(.degrees(tagsExpanded ? 90 : 0))
+                    .rotationEffect(.degrees(isOpen ? 90 : 0))
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             .padding(.leading, 8)
             .padding(.bottom, 3)
-            .help(tagsExpanded ? "Hide tags" : "Show tags")
+            .help(isOpen ? "Hide \(section.rawValue.lowercased())" : "Show \(section.rawValue.lowercased())")
         case .divider:
             // Low in its row: the room above ends the section before it, which otherwise
             // looks cramped (most of all a collapsed section, its heading right on the line).

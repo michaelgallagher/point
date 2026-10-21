@@ -8,6 +8,8 @@ import VaultKit
 extension Notification.Name {
     /// A note moved or was renamed: `userInfo` has "old" and "new" IDs. Windows follow it.
     static let imprintNoteMoved = Notification.Name("ImprintNoteMoved")
+    /// A folder moved: `old` and `new` are its paths.
+    static let imprintFolderMoved = Notification.Name("ImprintFolderMoved")
     /// A different vault was opened. Windows start afresh.
     static let imprintVaultOpened = Notification.Name("ImprintVaultOpened")
 }
@@ -159,16 +161,17 @@ final class VaultStore: ObservableObject {
         }
     }
 
-    /// Creates an untitled note in `folder` ("" is the vault root) and returns its ID.
-    func createNote(text: String = "", inFolder folder: String) -> Note.ID? {
+    /// Creates a note in `folder` ("" is the vault root) and returns its ID: untitled (to be
+    /// named by its first line), unless given a title.
+    func createNote(text: String = "", titled title: String? = nil, inFolder folder: String) -> Note.ID? {
         guard let root else { return nil }
         do {
-            let url = try NoteFiles.create(title: NoteFiles.untitledName(), text: text,
+            let url = try NoteFiles.create(title: title ?? NoteFiles.untitledName(), text: text,
                                            in: folder.isEmpty ? root : root.appendingPathComponent(folder))
             let id = folder.isEmpty ? url.lastPathComponent : folder + "/" + url.lastPathComponent
             add(Note(id: id, url: url, title: url.deletingPathExtension().lastPathComponent,
                      modified: Date(), created: Date(), isDownloaded: true))
-            untitled.insert(id)
+            if title == nil { untitled.insert(id) }
             return id
         } catch {
             errorMessage = "Couldn't create a note: \(error.localizedDescription)"
@@ -258,6 +261,39 @@ final class VaultStore: ObservableObject {
             Task { await reload() }
         } catch {
             errorMessage = "Couldn't move “\(note.title)”: \(error.localizedDescription)"
+        }
+    }
+
+    /// Moves a folder, with its notes and folders, into another folder ("" is the vault
+    /// root). Open notes save first and keep showing, under their new paths. Links by name,
+    /// as Obsidian makes them, keep working; links written as paths aren't rewritten.
+    func moveFolder(_ path: String, into parent: String) {
+        guard let root, !path.isEmpty, FolderTree.parent(of: path) != parent else { return }
+        let prefix = path + "/"
+        let moving = notes.filter { $0.id.hasPrefix(prefix) }
+        NotificationCenter.default.post(name: .imprintSaveNow, object: self)
+        moving.forEach { releaseFile($0.url) }
+        do {
+            let url = try NoteFiles.moveFolder(root.appendingPathComponent(path),
+                                               into: parent.isEmpty ? root : root.appendingPathComponent(parent))
+            let newPath = parent.isEmpty ? url.lastPathComponent : parent + "/" + url.lastPathComponent
+            for note in moving {
+                let newID = newPath + "/" + note.id.dropFirst(prefix.count)
+                replace(note, with: newID, url: root.appendingPathComponent(newID))
+            }
+            // Pins to the folder, or to folders inside it, follow it.
+            let moved = pins.map { pin -> SidebarPlace in
+                guard case .folder(let pinned) = pin, pinned == path || pinned.hasPrefix(prefix) else { return pin }
+                return .folder(newPath + pinned.dropFirst(path.count))
+            }
+            if moved != pins {
+                pins = moved
+                UserDefaults.standard.set(pins.map(\.key), forKey: "pins." + Self.vaultKey(root))
+            }
+            NotificationCenter.default.post(name: .imprintFolderMoved, object: self, userInfo: ["old": path, "new": newPath])
+            Task { await reload() }
+        } catch {
+            errorMessage = "Couldn't move “\(FolderTree.name(of: path))”: \(error.localizedDescription)"
         }
     }
 
@@ -452,6 +488,15 @@ final class VaultStore: ObservableObject {
     }
 
     /// A short, stable name for a vault, from a hash of its path.
+    /// Whether a window has already opened the way the app was left, this launch: only the
+    /// first window does. Later ones start fresh.
+    private var hasRestoredWindow = false
+
+    func claimWindowRestore() -> Bool {
+        defer { hasRestoredWindow = true }
+        return !hasRestoredWindow
+    }
+
     static func vaultKey(_ url: URL) -> String {
         SHA256.hash(data: Data(url.resolvingSymlinksInPath().path.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
     }

@@ -65,7 +65,11 @@ struct WindowRoot: View {
                 #if DEBUG
                 DebugSnapshots.runIfAsked(for: model)
                 #endif
-                if let noteID = request.noteID, model.selection == nil { model.selection = noteID }
+                if let noteID = request.noteID, model.selection == nil {
+                    model.selection = noteID
+                } else if request.noteID == nil, store.claimWindowRestore() {
+                    model.restoreWindowState()
+                }
             }
     }
 }
@@ -131,6 +135,9 @@ struct AppCommands: Commands {
             Button("New Tab") { model?.newTab() }
                 .keyboardShortcut("t")
                 .disabled(model == nil)
+            Button("New Tab on Other Side") { model?.newTabOnOtherSide() }
+                .keyboardShortcut("t", modifiers: [.command, .control])
+                .disabled(model == nil)
             Button("New Window") { openWindow(id: "main", value: TabRequest()) }
                 .keyboardShortcut("n", modifiers: [.command, .option])
             Button("Today's Note") { model?.openTodaysNote() }
@@ -173,6 +180,11 @@ struct AppCommands: Commands {
                 .disabled(model == nil || store.root == nil)
             Button("Find in Note") { FindInNote.show() }
                 .keyboardShortcut("f", modifiers: [.command, .option])
+        }
+        CommandGroup(after: .help) {
+            Button("Keyboard Shortcuts") { model?.isShowingShortcuts = true }
+                .keyboardShortcut("/")
+                .disabled(model == nil)
         }
         CommandMenu("Go") {
             Button("Enclosing Folder") { model?.goUp() }
@@ -229,8 +241,8 @@ struct AppCommands: Commands {
                 .disabled(model == nil)
             Divider()
             Toggle("Show Markdown", isOn: $store.showsMarkdown)
-            Toggle("Show File Path", isOn: $store.showsNotePath)
                 .keyboardShortcut("m", modifiers: [.command, .shift])
+            Toggle("Show File Path", isOn: $store.showsNotePath)
             Toggle("Focus", isOn: bind(\.isFocused, false))
                 .keyboardShortcut("\\", modifiers: [.command, .shift])
                 .disabled(model == nil)

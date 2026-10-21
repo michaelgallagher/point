@@ -5,11 +5,15 @@ public enum NoteFiles {
     public enum FileError: Error, LocalizedError, Equatable {
         case emptyTitle
         case titleTaken(String)
+        case folderTaken(String)
+        case folderIntoItself
 
         public var errorDescription: String? {
             switch self {
             case .emptyTitle: "A note needs a name."
             case .titleTaken(let title): "There's already a note called “\(title)”."
+            case .folderTaken(let name): "There's already a folder called “\(name)” there."
+            case .folderIntoItself: "A folder can't go inside itself."
             }
         }
     }
@@ -87,6 +91,26 @@ public enum NoteFiles {
         NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: url, options: .forMoving, writingItemAt: destination, options: .forReplacing, error: &coordinationError) { from, to in
             do {
                 try FileManager.default.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try FileManager.default.moveItem(at: from, to: to)
+            } catch {
+                moveError = error
+            }
+        }
+        if let error = coordinationError ?? moveError { throw error }
+        return destination
+    }
+
+    /// Moves a folder, with everything in it, into another folder and returns its new URL.
+    /// It keeps its name: if the other folder already has one by that name, nothing moves.
+    public static func moveFolder(_ url: URL, into parent: URL) throws -> URL {
+        let source = url.standardizedFileURL, parent = parent.standardizedFileURL
+        guard parent != source, !parent.path.hasPrefix(source.path + "/") else { throw FileError.folderIntoItself }
+        let destination = parent.appendingPathComponent(source.lastPathComponent)
+        guard !FileManager.default.fileExists(atPath: destination.path) else { throw FileError.folderTaken(source.lastPathComponent) }
+        var coordinationError: NSError?
+        var moveError: Error?
+        NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: source, options: .forMoving, writingItemAt: destination, options: .forReplacing, error: &coordinationError) { from, to in
+            do {
                 try FileManager.default.moveItem(at: from, to: to)
             } catch {
                 moveError = error
