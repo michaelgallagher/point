@@ -85,7 +85,8 @@ struct InlineFormattingTests {
         view.headerView = NSView()
         view.headerHeight = 120
         #expect(view.textContainerOrigin.y == origin + 120)
-        #expect(view.headerView?.frame.height == 120)
+        // Shown through a clip as tall as the header; the header itself is taller (see `layoutHeader`).
+        #expect(view.headerView?.superview?.frame.height == 120)
         #expect(view.headerView?.frame.width == view.bounds.width)
         #expect(view.frame.height >= height + 120 || view.frame.height >= view.minSize.height)
     }

@@ -354,7 +354,10 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
 
     private func layoutHeader() {
         headerClip.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(headerHeight, 1))
-        headerView?.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(headerHeight, headerViewMinimumHeight, 1))
+        // Always taller than its contents can be: a SwiftUI view in a frame shorter than itself
+        // is re-centred for a moment when its contents grow, which flashes. The clip shows
+        // only `headerHeight` of it.
+        headerView?.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(headerHeight, headerViewMinimumHeight, 1, 2000))
     }
 
     private func updateInsets() {
