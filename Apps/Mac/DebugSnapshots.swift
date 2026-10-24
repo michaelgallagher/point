@@ -24,6 +24,19 @@ enum DebugSnapshots {
             }),
             ("0-shortcuts", { model.isShowingShortcuts = true }),
             ("0b-shortcuts-closed", { model.isShowingShortcuts = false }),
+            ("0d-add-property", {
+                // The Add Property window, drawn offscreen.
+                let host = NSHostingView(rootView: AddPropertySheet().environmentObject(model))
+                host.frame = NSRect(origin: .zero, size: host.fittingSize)
+                let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+                window.contentView = host
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
+                    host.cacheDisplay(in: host.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: directory.appendingPathComponent("0d-add-property.png"))
+                    window.close()
+                }
+            }),
             ("0c-settings", {
                 // Settings, drawn offscreen (an app in the background can't open its window).
                 let host = NSHostingView(rootView: SettingsView().environmentObject(model.store))

@@ -130,6 +130,23 @@ public struct Frontmatter: Equatable, Sendable {
         properties.first { $0.key == key }.map { ($0.range, "") }
     }
 
+    /// The edit that renames a property: the range of its name on its first line, and the new
+    /// name. Its value, and every other line, stay as they are. Nil if the new name is empty,
+    /// unchanged or already used.
+    public func edit(renaming key: String, to newKey: String, in text: String) -> (NSRange, String)? {
+        let name = newKey.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, name != key, !properties.contains(where: { $0.key == name }),
+              let property = properties.first(where: { $0.key == key }) else { return nil }
+        let ns = text as NSString
+        let line = ns.lineRange(for: NSRange(location: property.range.location, length: 0))
+        let colon = ns.range(of: ":", range: line)
+        guard colon.location != NSNotFound else { return nil }
+        // A name YAML would misread (a colon and space, a leading # or quote) is quoted.
+        let needsQuotes = name.contains(": ") || name.hasSuffix(":") || name.first.map { "#'\"[{&*!|>%@`-?".contains($0) } == true
+        let written = needsQuotes ? "\"" + name.replacingOccurrences(of: "\"", with: "\\\"") + "\"" : name
+        return (NSRange(location: line.location, length: colon.location - line.location), written)
+    }
+
     /// The edit that moves a property to a new place among the others: the range to
     /// replace and its new text. `destination` is an index into `properties` before the
     /// move, as in SwiftUI's `onMove` (the property goes in front of the one there, or last).

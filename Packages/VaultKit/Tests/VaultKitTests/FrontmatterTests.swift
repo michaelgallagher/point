@@ -54,6 +54,22 @@ struct FrontmatterTests {
         #expect(edited.contains("aliases:\n  - Only one\n# a comment"))
     }
 
+    @Test func renamingAPropertyChangesOnlyItsName() throws {
+        let frontmatter = try #require(Frontmatter.parse(note))
+        let renamed = apply(try #require(frontmatter.edit(renaming: "aliases", to: "also known as", in: note)), to: note)
+        #expect(renamed.contains("\nalso known as:\n  - Imprint app\n  - The editor\n"))
+        #expect(try #require(Frontmatter.parse(renamed)).properties.map(\.key) == ["tags", "created", "also known as", "nested"])
+        // Everything else is untouched.
+        #expect(renamed.replacingOccurrences(of: "also known as:", with: "aliases:") == note)
+        // A name YAML would misread is quoted.
+        let quoted = apply(try #require(frontmatter.edit(renaming: "created", to: "#made", in: note)), to: note)
+        #expect(quoted.contains("\n\"#made\": 2026-10-17\n"))
+        // Empty, the same, or another property's name: nothing to do.
+        #expect(frontmatter.edit(renaming: "created", to: " ", in: note) == nil)
+        #expect(frontmatter.edit(renaming: "created", to: "created", in: note) == nil)
+        #expect(frontmatter.edit(renaming: "created", to: "tags", in: note) == nil)
+    }
+
     @Test func movingAPropertyKeepsEveryLine() throws {
         let frontmatter = try #require(Frontmatter.parse(note))
         // Up: the list goes first, comment and nested value untouched.

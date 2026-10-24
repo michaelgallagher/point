@@ -22,30 +22,54 @@ struct AddPropertySheet: View {
     @State private var text = ""
     @State private var date = Date()
 
+    /// The fields' width: the window hugs them, with no empty space beside them.
+    private static let fieldWidth: CGFloat = 240
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 16) {
             Text("Add Property")
                 .font(.headline)
-            Form {
-                TextField("Name", text: $name)
-                    .onChange(of: name) { newName in
-                        // Suggest the kind from familiar names.
-                        if newName.lowercased() == "tags" { kind = .tags }
-                        else if PropertyDate.names.contains(newName.lowercased()) { kind = .date }
-                    }
-                Picker("Kind", selection: $kind) {
-                    ForEach(Kind.allCases) { Text($0.rawValue).tag($0) }
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 12) {
+                GridRow {
+                    label("Name")
+                    TextField("Name", text: $name, prompt: Text("status"))
+                        .labelsHidden()
+                        .frame(width: Self.fieldWidth)
+                        .onChange(of: name) { newName in
+                            // Suggest the kind from familiar names.
+                            if newName.lowercased() == "tags" { kind = .tags }
+                            else if PropertyDate.names.contains(newName.lowercased()) { kind = .date }
+                        }
                 }
-                switch kind {
-                case .date:
-                    DatePicker("Value", selection: $date, displayedComponents: .date)
-                case .list, .tags:
-                    TextField("Values", text: $text, prompt: Text(kind == .tags ? "work, ideas" : "one, two"))
-                case .text:
-                    TextField("Value", text: $text)
+                GridRow {
+                    label("Kind")
+                    Picker("Kind", selection: $kind) {
+                        ForEach(Kind.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                    .frame(width: Self.fieldWidth, alignment: .leading)
+                }
+                GridRow {
+                    label(kind == .list || kind == .tags ? "Values" : "Value")
+                    Group {
+                        switch kind {
+                        case .date:
+                            DatePicker("Value", selection: $date, displayedComponents: .date)
+                                .labelsHidden()
+                                .fixedSize()
+                        case .list, .tags:
+                            TextField("Values", text: $text, prompt: Text(kind == .tags ? "work, ideas" : "one, two"))
+                                .labelsHidden()
+                        case .text:
+                            TextField("Value", text: $text)
+                                .labelsHidden()
+                        }
+                    }
+                    .frame(width: Self.fieldWidth, alignment: .leading)
                 }
             }
-            .frame(width: 340)
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
@@ -56,6 +80,13 @@ struct AddPropertySheet: View {
             }
         }
         .padding(20)
+        .fixedSize()
+    }
+
+    private func label(_ text: String) -> some View {
+        Text(text)
+            .foregroundStyle(.secondary)
+            .gridColumnAlignment(.trailing)
     }
 
     /// YAML keys can't contain a colon; Obsidian also trims spaces.

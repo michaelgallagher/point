@@ -47,28 +47,16 @@ struct PropertiesStrip: View {
             .offset(x: -(Self.chevronWidth + 4))
 
             if isExpanded {
-                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 6) {
+                VStack(alignment: .leading, spacing: 2) {
                     ForEach(frontmatter.properties) { property in
-                        GridRow {
-                            Text(property.key)
-                                .foregroundStyle(.secondary)
-                                .gridColumnAlignment(.trailing)
-                                .contentShape(Rectangle())
-                                .gesture(reorderGesture(for: property.key))
-                                .onHover { hovering in
-                                    guard dragging == nil else { return }
-                                    if hovering { NSCursor.openHand.push() } else { NSCursor.pop() }
-                                }
-                                .help("Drag to reorder")
-                            PropertyField(property: property, session: session)
-                        }
-                        .opacity(dragging == property.key ? 0.4 : 1)
-                        .background(GeometryReader { proxy in
-                            Color.clear.preference(key: RowFrames.self, value: [property.key: proxy.frame(in: .named(Self.space))])
-                        })
+                        row(for: property)
+                            .opacity(dragging == property.key ? 0.4 : 1)
+                            .background(GeometryReader { proxy in
+                                Color.clear.preference(key: RowFrames.self, value: [property.key: proxy.frame(in: .named(Self.space))])
+                            })
                     }
-                    GridRow {
-                        Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                    HStack(spacing: 12) {
+                        Color.clear.frame(width: keyWidth, height: 1)
                         Button {
                             NotificationCenter.default.post(name: .imprintAddProperty, object: model)
                         } label: {
@@ -77,15 +65,16 @@ struct PropertiesStrip: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
                     }
+                    .padding(.horizontal, Self.rowInset)
+                    .padding(.vertical, Self.rowPadding)
                 }
                 .coordinateSpace(name: Self.space)
                 .onPreferenceChange(RowFrames.self) { rowFrames = $0 }
                 .overlay(alignment: .topLeading) { dropIndicator }
                 .overlay(alignment: .topLeading) { draggedRow }
-                .padding(.leading, 2)
+                // The rows' backgrounds reach into the margin; their text lines up with the summary.
+                .padding(.leading, -Self.rowInset)
             }
-            // Only while open: a line, the text's width, between the properties and the text.
-            // It fades in as they open.
             // Drawn like a horizontal rule in the note: one point, the separator colour.
             if isExpanded {
                 Rectangle()
@@ -106,6 +95,73 @@ struct PropertiesStrip: View {
 
     private static let space = "properties"
     private static let chevronWidth: CGFloat = 12
+    /// Room around each row's text, inside its hover background.
+    private static let rowInset: CGFloat = 6
+    private static let rowPadding: CGFloat = 4
+
+    /// The property under the pointer, shaded so it's clear it can be clicked.
+    @State private var hoveredKey: String?
+    /// The property whose name is being edited, and the name as typed.
+    @State private var renamingKey: String?
+    @State private var newName = ""
+    @FocusState private var isRenaming: Bool
+
+    /// The keys' column: as wide as the longest key, within reason.
+    private var keyWidth: CGFloat {
+        let font = NSFont.preferredFont(forTextStyle: .callout)
+        let widest = frontmatter.properties.map { ($0.key as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
+        return min(max(ceil(widest) + 4, 60), 180)
+    }
+
+    /// One property: its name (click to rename, drag to reorder), then its value.
+    private func row(for property: Frontmatter.Property) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Group {
+                if renamingKey == property.key {
+                    TextField("Name", text: $newName)
+                        .textFieldStyle(.plain)
+                        .focused($isRenaming)
+                        .onSubmit { finishRenaming() }
+                        .onExitCommand { renamingKey = nil }
+                        .onChange(of: isRenaming) { renaming in
+                            if !renaming { finishRenaming() }
+                        }
+                } else {
+                    Text(property.key)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .contentShape(Rectangle())
+                        .gesture(reorderGesture(for: property.key))
+                        .onTapGesture { startRenaming(property.key) }
+                        .help("Click to rename, drag to reorder")
+                }
+            }
+            .frame(width: keyWidth, alignment: .leading)
+            PropertyField(property: property, session: session)
+        }
+        .padding(.horizontal, Self.rowInset)
+        .padding(.vertical, Self.rowPadding)
+        .background {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.primary.opacity(hoveredKey == property.key && dragging == nil ? 0.05 : 0))
+        }
+        .onHover { hovering in
+            if hovering { hoveredKey = property.key } else if hoveredKey == property.key { hoveredKey = nil }
+        }
+    }
+
+    private func startRenaming(_ key: String) {
+        newName = key
+        renamingKey = key
+        DispatchQueue.main.async { isRenaming = true }
+    }
+
+    private func finishRenaming() {
+        guard let key = renamingKey else { return }
+        renamingKey = nil
+        session.renameProperty(key, to: newName)
+    }
 
     /// Drags a property, by its name, to a new place among the others.
     private func reorderGesture(for key: String) -> some Gesture {

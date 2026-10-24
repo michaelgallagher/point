@@ -229,6 +229,12 @@ final class EditorSession: NSObject, ObservableObject {
         textView.applyEdit(replacing: edit.0, with: edit.1)
     }
 
+    /// Renames a property, changing only its name in the note.
+    func renameProperty(_ key: String, to newKey: String) {
+        guard let textView, let edit = frontmatter?.edit(renaming: key, to: newKey, in: textView.string) else { return }
+        textView.applyEdit(replacing: edit.0, with: edit.1)
+    }
+
     func removeProperty(_ key: String) {
         guard let textView, let edit = frontmatter?.edit(removing: key) else { return }
         textView.applyEdit(replacing: edit.0, with: edit.1)

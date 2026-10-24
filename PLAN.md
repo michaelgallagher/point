@@ -312,7 +312,7 @@ Features:
 5. **Properties open per note:** opening or closing them in one note, say in a split, leaves the other note alone. (Now one shared setting; it becomes per note, remembered for the session.)
 6. **Bug: fast scrolling stops short of the end of a note.** Likely the editor laying out only what's on screen (non-contiguous layout) and not knowing the full height until later. To reproduce first, then fix (for example, finish layout in the background once a note opens).
 
-*Batch 2: the properties element, redesigned*
+*Batch 2: the properties element, redesigned*. Done 24 October 2026: one row per property (a column of keys as wide as the longest, left-aligned under the summary, 4 points above and below each row), a faint rounded background on the row under the pointer, a key renamed by clicking it (Return or clicking away renames, Escape cancels; only the name before the colon changes, quoted if YAML needs it: `Frontmatter.edit(renaming:to:in:)`), dragging a key still reorders, and the Add Property window laid out as a tight grid (labels, then 240-point fields, Kind as a segmented control). Hover and renaming need trying by hand.
 1. A little more height for each row.
 2. Keys aligned left, not right.
 3. A faint background on a row under the pointer, so it's clear it can be clicked.
