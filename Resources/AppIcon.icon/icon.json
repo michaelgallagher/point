@@ -1,20 +1,7 @@
 {
   "fill" : {
-    "solid" : "srgb:0.97255,0.93333,0.72157,1.00000"
+    "automatic-gradient" : "display-p3:0.98431,0.98431,0.89412,1.00000"
   },
-  "fill-specializations" : [
-    {
-      "value" : {
-        "solid" : "srgb:0.97255,0.93333,0.72157,1.00000"
-      }
-    },
-    {
-      "appearance" : "dark",
-      "value" : {
-        "solid" : "srgb:0.10980,0.18039,0.40000,1.00000"
-      }
-    }
-  ],
   "groups" : [
     {
       "layers" : [
@@ -22,17 +9,16 @@
           "fill-specializations" : [
             {
               "value" : {
-                "solid" : "srgb:0.10980,0.18039,0.40000,1.00000"
+                "solid" : "srgb:0.10588,0.05882,0.30196,1.00000"
               }
             },
             {
               "appearance" : "dark",
               "value" : {
-                "solid" : "srgb:0.97255,0.93333,0.72157,1.00000"
+                "solid" : "srgb:0.98431,0.98431,0.89412,1.00000"
               }
             }
           ],
-          "glass" : false,
           "image-name" : "dot.svg",
           "name" : "dot"
         }

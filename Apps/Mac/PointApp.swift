@@ -103,7 +103,7 @@ private struct WindowTabbing: NSViewRepresentable {
             onAttach?(window)
             window.tabbingMode = .disallowed
             if let observer { NotificationCenter.default.removeObserver(observer) }
-            observer = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self, weak window] _ in
+            observer = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.onBecomeKey?()
                 }
