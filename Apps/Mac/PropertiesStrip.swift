@@ -143,7 +143,7 @@ struct PropertiesStrip: View {
         .padding(.horizontal, Self.rowInset)
         .padding(.vertical, Self.rowPadding)
         .background {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            Capsule()
                 .fill(Color.primary.opacity(hoveredKey == property.key && dragging == nil ? 0.05 : 0))
         }
         .onHover { hovering in
@@ -200,8 +200,8 @@ struct PropertiesStrip: View {
             }
             .padding(.horizontal, 10)
             .frame(height: height + 8)
-            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
+            .background(Color(nsColor: .textBackgroundColor), in: Capsule())
+            .overlay(Capsule().strokeBorder(.separator))
             .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
             .offset(x: -10, y: dragY - (height + 8) / 2)
             .allowsHitTesting(false)

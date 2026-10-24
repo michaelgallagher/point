@@ -37,11 +37,11 @@ struct CommandPalette: View {
             .font(isPage ? .title2 : .title3)
             .padding(.horizontal, 16)
             .padding(.vertical, isPage ? 12 : 18)
-            // On a start page, the field is a rounded box; in the floating palette, a line
+            // On a start page, the field is a capsule; in the floating palette, a line
             // below it divides it from the list.
             .background {
                 if isPage {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    Capsule()
                         .fill(Color.primary.opacity(0.05))
                 }
             }
@@ -332,7 +332,7 @@ private struct PaletteRow: View {
         .foregroundStyle(isHighlighted ? .white : .primary)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 6).fill(isHighlighted ? Color.accentColor : .clear))
+        .background(Capsule().fill(isHighlighted ? Color.accentColor : .clear))
     }
 
     private var icon: String {

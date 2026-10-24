@@ -264,7 +264,7 @@ private struct ExplorerRow: View {
         .padding(.leading, 8 + indent)
         .padding(.trailing, 8)
         .padding(.vertical, 5)
-        .background(RoundedRectangle(cornerRadius: 6).fill(
+        .background(Capsule().fill(
             isDropTarget ? Color.accentColor.opacity(0.25)
                 : isAccented ? Color.accentColor : (isHighlighted ? Color.primary.opacity(0.1) : .clear)
         ))

@@ -370,7 +370,7 @@ private struct SearchField: View {
         }
         .padding(.horizontal, 8)
         .frame(height: height)
-        .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary.opacity(0.6)))
+        .background(Capsule().fill(.quaternary.opacity(0.6)))
     }
 }
 

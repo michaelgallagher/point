@@ -347,7 +347,7 @@ private struct NoteTab: View {
         // As tall as a selected row in the comfortable sidebar, in either density.
         .frame(height: VaultModel.SidebarDensity.comfortable.rowHeight)
         .background {
-            let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
+            let shape = Capsule()
             Group {
                 if isCurrent {
                     shape.fill(TopBar.selectedTabColor)

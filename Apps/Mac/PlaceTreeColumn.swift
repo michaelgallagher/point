@@ -25,6 +25,8 @@ struct PlaceTreeColumn: View {
         )
     }
 
+    private func isSelected(_ id: String) -> Bool { selection.wrappedValue == id }
+
     var body: some View {
         VStack(spacing: 0) {
             if model.treeLayout == .toggle {
@@ -36,13 +38,13 @@ struct PlaceTreeColumn: View {
             List(selection: selection) {
                 // Special places first, with no heading: every note, and the trash.
                 Section {
-                    PlaceLabel(place: .everything, name: SidebarPlace.everything.title).tag("tree:" + SidebarPlace.everything.key)
-                    PlaceLabel(place: .trash, name: SidebarPlace.trash.title).tag("tree:" + SidebarPlace.trash.key)
+                    PlaceLabel(place: .everything, name: SidebarPlace.everything.title, isSelected: isSelected("tree:" + SidebarPlace.everything.key)).tag("tree:" + SidebarPlace.everything.key)
+                    PlaceLabel(place: .trash, name: SidebarPlace.trash.title, isSelected: isSelected("tree:" + SidebarPlace.trash.key)).tag("tree:" + SidebarPlace.trash.key)
                 }
                 if !model.pins.isEmpty {
                     FoldingSection("Pinned") {
                         ForEach(model.pins, id: \.self) { place in
-                            PlaceLabel(place: place, name: place.title).tag("pin:" + place.key)
+                            PlaceLabel(place: place, name: place.title, isSelected: isSelected("pin:" + place.key)).tag("pin:" + place.key)
                         }
                     }
                 }
@@ -50,14 +52,14 @@ struct PlaceTreeColumn: View {
                 if model.treeLayout == .stacked || model.treeKind == .folders {
                     FoldingSection("Folders") {
                         OutlineGroup(model.folderNodes, children: \.children) { node in
-                            PlaceLabel(place: node.place, name: node.name).tag("tree:" + node.place.key)
+                            PlaceLabel(place: node.place, name: node.name, isSelected: isSelected("tree:" + node.place.key)).tag("tree:" + node.place.key)
                         }
                     }
                 }
                 if model.treeLayout == .stacked || model.treeKind == .tags, !model.tagNodes.isEmpty {
                     FoldingSection("Tags") {
                         OutlineGroup(model.tagNodes, children: \.children) { node in
-                            PlaceLabel(place: node.place, name: node.name).tag("tree:" + node.place.key)
+                            PlaceLabel(place: node.place, name: node.name, isSelected: isSelected("tree:" + node.place.key)).tag("tree:" + node.place.key)
                         }
                     }
                 }
@@ -66,6 +68,9 @@ struct PlaceTreeColumn: View {
             // material as the note list beside it rather than on white.
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)
+            // The system draws the selected row as a rounded rectangle; each row draws a capsule
+            // itself instead, so this turns the system's off.
+            .background(SystemSelectionHider())
             // The system's small or medium sidebar rows, which the note list beside it matches.
             .environment(\.sidebarRowSize, model.sidebarDensity == .compact ? .small : .medium)
 
@@ -111,25 +116,38 @@ private struct PlaceLabel: View {
     @EnvironmentObject private var model: VaultModel
     let place: SidebarPlace
     let name: String
+    let isSelected: Bool
+    @Environment(\.controlActiveState) private var activeState
     @State private var isDropTarget = false
+
+    /// Selected while the window is in front: the accent colour, with white text. Otherwise grey.
+    private var isOnAccent: Bool { isSelected && activeState != .inactive }
 
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: icon)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(isOnAccent ? Color.white : Color.secondary)
                 .frame(width: 16)
             Text(name)
                 .font(.body) // The note list's size, even in small (compact) rows.
+                .foregroundStyle(isOnAccent ? Color.white : Color.primary)
                 .lineLimit(1)
             Spacer(minLength: 4)
             if place != .allNotes {
                 Text("\(model.noteCount(of: place))")
                     .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(isOnAccent ? Color.white.opacity(0.7) : Color.secondary.opacity(0.6))
                     .monospacedDigit()
             }
         }
-        .background(RoundedRectangle(cornerRadius: 4).fill(isDropTarget ? Color.accentColor.opacity(0.25) : .clear))
+        // Reaching a little past the label, as the system's selection does.
+        .background(
+            Capsule()
+                .fill(isDropTarget ? Color.accentColor.opacity(0.25)
+                    : isOnAccent ? Color.accentColor : isSelected ? Color.primary.opacity(0.12) : .clear)
+                .padding(.horizontal, -8)
+                .padding(.vertical, -2)
+        )
         // A folder can be dragged into another (not the vault's top level, which holds them all).
         .modifier(FolderDragSource(path: folderPath.flatMap { $0.isEmpty ? nil : $0 }))
         .onDrop(of: [.text], isTargeted: folderPath == nil ? nil : $isDropTarget) { providers in
@@ -237,7 +255,7 @@ struct SortBar<Value: Hashable>: View {
                 .padding(.horizontal, 10)
                 .frame(maxWidth: .infinity)
                 .frame(height: 26)
-                .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary.opacity(0.6)))
+                .background(Capsule().fill(.quaternary.opacity(0.6)))
                 .contentShape(Rectangle())
             }
             .menuStyle(.button)
@@ -246,6 +264,43 @@ struct SortBar<Value: Hashable>: View {
             .help(help)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
+        }
+    }
+}
+
+/// Turns off the system's drawing of the selected row in the List it sits behind, whose
+/// table is found among the views around it. The rows draw their own selection (a capsule).
+private struct SystemSelectionHider: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { Finder() }
+    func updateNSView(_ view: NSView, context: Context) { (view as? Finder)?.hide() }
+
+    final class Finder: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            hide()
+            // The table can arrive after this view does.
+            DispatchQueue.main.async { [weak self] in self?.hide() }
+        }
+
+        func hide() {
+            var ancestor = superview
+            for _ in 0..<8 {
+                guard let current = ancestor else { return }
+                if let table = Self.table(in: current) {
+                    table.selectionHighlightStyle = .none
+                    return
+                }
+                ancestor = current.superview
+            }
+        }
+
+        /// The first table in a view's subviews that isn't the note list's.
+        private static func table(in view: NSView) -> NSTableView? {
+            if let table = view as? NSTableView, !(table is SidebarTableView) { return table }
+            for subview in view.subviews {
+                if let found = table(in: subview) { return found }
+            }
+            return nil
         }
     }
 }

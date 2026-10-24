@@ -109,7 +109,7 @@ struct SidebarTable: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let table = SidebarTableView()
         table.headerView = nil
-        table.style = .sourceList
+        table.style = .inset
         table.backgroundColor = .clear
         table.intercellSpacing = NSSize(width: 0, height: 0)
         table.usesAutomaticRowHeights = false
@@ -256,6 +256,14 @@ struct SidebarTable: NSViewRepresentable {
         }
 
         func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool { false }
+
+        func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+            let identifier = NSUserInterfaceItemIdentifier("capsuleRow")
+            if let reused = tableView.makeView(withIdentifier: identifier, owner: nil) as? CapsuleRowView { return reused }
+            let view = CapsuleRowView()
+            view.identifier = identifier
+            return view
+        }
 
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
             let identifier = NSUserInterfaceItemIdentifier("row")
@@ -463,6 +471,33 @@ final class SidebarTableView: NSTableView {
             if let found = firstTextView(in: subview) { return found }
         }
         return nil
+    }
+}
+
+/// A row that shows its selection, and where a drag would drop on it, as a capsule, to match the
+/// Liquid Glass controls (the source list style draws a rounded rectangle).
+final class CapsuleRowView: NSTableRowView {
+    /// Inset from the row's edges, like the system's selection.
+    private var shape: NSRect { bounds.insetBy(dx: 8, dy: 1) }
+
+    private func capsule(in rect: NSRect) -> NSBezierPath {
+        NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2)
+    }
+
+    override func drawSelection(in dirtyRect: NSRect) {
+        guard selectionHighlightStyle != .none else { return }
+        // Accent while the list has the keyboard, grey when something else does.
+        (isEmphasized ? NSColor.selectedContentBackgroundColor : NSColor.unemphasizedSelectedContentBackgroundColor).setFill()
+        capsule(in: shape).fill()
+    }
+
+    override func drawDraggingDestinationFeedback(in dirtyRect: NSRect) {
+        let path = capsule(in: shape.insetBy(dx: 1, dy: 1))
+        NSColor.controlAccentColor.withAlphaComponent(0.2).setFill()
+        path.fill()
+        NSColor.controlAccentColor.setStroke()
+        path.lineWidth = 2
+        path.stroke()
     }
 }
 
