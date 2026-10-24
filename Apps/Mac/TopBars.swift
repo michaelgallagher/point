@@ -2,9 +2,9 @@ import AppKit
 import SwiftUI
 import VaultKit
 
-/// The window has no title bar or toolbar of its own: the sidebar and each side of the split
-/// draw their own slim bar along the top edge, so a split runs the full height of the window.
-/// Each side has a second row of the same height beneath it, for its tabs.
+/// The window has an empty toolbar, only to give the title bar its tall standard height with the
+/// window buttons centred in it: the sidebar and each side of the split draw their own bar along
+/// the top edge, so a split runs the full height of the window.
 enum TopBar {
     /// Twice the distance from the window's top to the middle of its close button, so the
     /// close, minimise and zoom buttons sit centred in the bars. Measured from the window.
@@ -57,69 +57,55 @@ struct SidebarTopBar: View {
     }
 }
 
-/// One side's two rows at the top: the window's slim bar (the sidebar button while the
-/// sidebar is hidden, and the split button), then back and forward and the tabs.
+/// One side's header, a single row: back and forward, the tabs, and the split button. With the
+/// sidebar hidden, the first side's row starts past the window buttons, with the button that
+/// shows the sidebar.
 struct PaneTopBar: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
     let paneIndex: Int
 
-    /// With the sidebar hidden, the first side's bar starts past the window buttons, with
-    /// the button that shows the sidebar.
     private var startsAtWindowEdge: Bool { paneIndex == 0 && (!model.showsNoteList || model.isFocused) }
 
-    /// A tab dragged over the tab row's empty space, which would go at the end.
+    /// A tab dragged over the row's empty space, which would go at the end.
     @State private var isAppendTarget = false
 
     var body: some View {
         VStack(spacing: 0) {
-            windowBar
-            BarLine(axis: .horizontal)
-            tabRow
-            // Under the tabs whatever is below: a note or a start page.
+            HStack(spacing: 0) {
+                if startsAtWindowEdge {
+                    Color.clear.frame(width: model.windowButtonsInset, height: 1)
+                    BarIcon("sidebar.left", label: "Show Sidebar", help: "Show Sidebar (⌘S)") { model.showsNoteList = true }
+                        .padding(.trailing, 4)
+                }
+                BackForwardButtons(pane: pane, paneIndex: paneIndex)
+                    .padding(.horizontal, 6)
+                BarLine()
+                // Always tabs, even just one: the note's title is only here, not in the page.
+                NoteTabs(pane: pane, paneIndex: paneIndex, isAppendTarget: isAppendTarget)
+                if model.isSplit {
+                    BarIcon("xmark", label: "Close This Side", help: "Close This Side") { model.closePane(paneIndex) }
+                } else {
+                    BarIcon("rectangle.split.2x1", label: "Split", help: "Split (⇧⌘S)") { model.toggleSplit() }
+                }
+            }
+            .padding(.trailing, 8)
+            .frame(height: model.topBarHeight)
+            .background(WindowDragArea())
+            // A tab dropped past the last one goes at the end.
+            .background(TabDropArea { id, _, _ in
+                isAppendTarget = id.map { model.location(ofTab: $0) != nil } ?? false
+                return isAppendTarget
+            } drop: { id, _, _ in
+                isAppendTarget = false
+                guard model.location(ofTab: id) != nil, model.panes.indices.contains(paneIndex) else { return false }
+                model.moveTab(id, toPane: paneIndex, at: model.panes[paneIndex].tabs.count)
+                return true
+            })
+            // Under the row, whatever is below: a note or a start page.
             BarLine(axis: .horizontal)
         }
         .background { barBackground }
-    }
-
-    private var windowBar: some View {
-        HStack(spacing: 0) {
-            if startsAtWindowEdge {
-                BarIcon("sidebar.left", label: "Show Sidebar", help: "Show Sidebar (⌘S)") { model.showsNoteList = true }
-            }
-            Spacer(minLength: 0)
-            if model.isSplit {
-                BarIcon("xmark", label: "Close This Side", help: "Close This Side") { model.closePane(paneIndex) }
-            } else {
-                BarIcon("rectangle.split.2x1", label: "Split", help: "Split (⇧⌘S)") { model.toggleSplit() }
-            }
-        }
-        .padding(.leading, startsAtWindowEdge ? model.windowButtonsInset : 8)
-        .padding(.trailing, 8)
-        .frame(height: model.topBarHeight)
-        .background(WindowDragArea())
-    }
-
-    private var tabRow: some View {
-        HStack(spacing: 0) {
-            BackForwardButtons(pane: pane, paneIndex: paneIndex)
-                .padding(.horizontal, 6)
-            BarLine()
-            // Always tabs, even just one: the note's title is only here, not in the page.
-            NoteTabs(pane: pane, paneIndex: paneIndex, isAppendTarget: isAppendTarget)
-        }
-        .frame(height: model.topBarHeight)
-        .background(WindowDragArea())
-        // A tab dropped past the last one goes at the end.
-        .background(TabDropArea { id, _, _ in
-            isAppendTarget = id.map { model.location(ofTab: $0) != nil } ?? false
-            return isAppendTarget
-        } drop: { id, _, _ in
-            isAppendTarget = false
-            guard model.location(ofTab: id) != nil, model.panes.indices.contains(paneIndex) else { return false }
-            model.moveTab(id, toPane: paneIndex, at: model.panes[paneIndex].tabs.count)
-            return true
-        })
     }
 
     /// Before macOS 26, the page's colour. From 26, nothing: the editor blurs the note
@@ -172,9 +158,9 @@ struct BarIcon: View {
 
     var body: some View {
         Image(systemName: symbol)
-            .font(.system(size: 13, weight: .medium))
+            .font(.system(size: 17, weight: .medium))
             .foregroundStyle(enabled ? .secondary : .quaternary)
-            .frame(width: 26, height: 26)
+            .frame(width: 36, height: 36)
             .allowsHitTesting(false) // The click area below takes the clicks.
             .background(ClickArea(enabled: enabled, help: help, action: action))
             .accessibilityElement()
@@ -283,10 +269,10 @@ struct NoteTabs: View {
     }
 
     /// Padding, the gap and the close button.
-    private static let chrome: CGFloat = 12 + 4 + 16 + 6
+    private static let chrome: CGFloat = 14 + 4 + 22 + 6
 
     private static func titleWidth(_ title: String) -> CGFloat {
-        let size = NSFont.preferredFont(forTextStyle: .callout).pointSize
+        let size = NSFont.preferredFont(forTextStyle: .body).pointSize
         let font = NSFont.systemFont(ofSize: size, weight: .semibold)
         return ceil((title as NSString).size(withAttributes: [.font: font]).width)
     }
@@ -330,21 +316,21 @@ private struct NoteTab: View {
             Text(title)
                 .lineLimit(1)
                 .fixedSize() // Never cut off: the tab is sized to fit it.
-                .font(.callout.weight(.semibold))
+                .font(.body.weight(.semibold))
                 .foregroundStyle(isCurrent ? .primary : .secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .allowsHitTesting(false) // Clicks go to the tab's mouse area, below.
             Button(action: close) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
-                    .frame(width: 16, height: 16)
+                    .font(.system(size: 11, weight: .bold))
+                    .frame(width: 22, height: 22)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .foregroundStyle(isHovering ? .secondary : .quaternary)
             .help("Close Tab")
         }
-        .padding(.leading, 12)
+        .padding(.leading, 14)
         .padding(.trailing, 6)
         .frame(width: width)
         .frame(maxHeight: .infinity) // The full height of the row.

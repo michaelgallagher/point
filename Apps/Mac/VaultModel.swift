@@ -269,8 +269,8 @@ final class VaultModel: ObservableObject {
     }
     /// The height of the bars along the window's top, lined up with its window buttons.
     @Published private(set) var topBarHeight: CGFloat = 38
-    /// Both rows at the top of a side (the bar and the tab row) and the lines around them.
-    var topBarsHeight: CGFloat { topBarHeight * 2 + 2 }
+    /// The header of a side: its row and the line under it.
+    var topBarsHeight: CGFloat { topBarHeight + 1 }
     /// How far in from the window's left edge the top bar's contents start, clear of the
     /// window buttons.
     @Published private(set) var windowButtonsInset: CGFloat = 92
