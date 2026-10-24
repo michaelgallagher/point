@@ -370,6 +370,23 @@ Features:
    - **Migration:** settings and the saved vault access move over from the old identifier, so nothing is lost. The sandbox container changes with the identifier, so this needs care.
    - **The repository:** renaming it on GitHub, and the local folder, is for Mike to do or approve, since it changes links and remotes.
 
+**To do (24 October 2026, separate from H):** the bottom bars line up. The links bar under a note ("1 link here", `ConnectionsBar`) is shorter than the two-column sidebar's sort bars beside it (`SortBar`: 6 points, a 26-point box, 6 points, plus its top line, about 39 in all). Make the links bar exactly the sort bar's height, its top line level with theirs and its text centred, so the three read as one strip along the bottom of the window. Best done by giving both one shared height constant rather than matching by eye, then checking in a picture with the sidebar in two columns.
+
+**H. Capsules everywhere** (Mike, 24 October 2026). Not started. Every highlight and box becomes a fully rounded capsule, to match the Liquid Glass controls, even where Finder uses rounded rectangles (Mike finds that mix incoherent). Smallest first:
+
+1. **Our own shapes become capsules** (a line each, `Capsule()` in place of `RoundedRectangle`):
+   - **In the top bar and sidebar:** tabs (`NoteTab`, 32 tall); the sidebar search field (`SearchField`); and the sort menus at the bottom of the two-column sidebar (`SortBar`).
+   - **In the palette and explorer:** the start page's search box, palette rows (`PaletteRow`, including the blue highlight), and explorer rows (`ExplorerRow`).
+   - **In a note:** properties rows on hover (`PropertiesStrip`).
+   - **Check:** pictures of each, light and dark; a capsule on a tall two-line row may look too round, in which case it keeps the capsule's ends but at the row's height.
+2. **One-column sidebar selection** (`SidebarTable`, an AppKit source list): the system draws the selected row as a rounded rectangle. A custom `NSTableRowView` (`drawSelection(in:)` drawing a capsule, inset like the system's, in the accent colour when the list has the keyboard and grey when not) replaces it, set through `tableView(_:rowViewForRow:)`. About 30 lines. Also the drop highlight on folders while dragging.
+3. **Two-column folder tree selection** (`PlaceTreeColumn`, a SwiftUI sidebar `List`): the hardest, since SwiftUI draws the selection with no shape setting. Two options, to choose when we get there:
+   - **Keep the List, draw our own selection:** hide the system's and draw a capsule behind the selected row with `listRowBackground`, from the model's place. Keyboard focus and the unemphasized (window inactive) state need handling by hand.
+   - **Rebuild the tree as an AppKit outline view** like the one-column list, with the same capsule row view. More work, but one way of drawing for both sidebars.
+
+   Try the first. If it fights the system (flicker, or focus rings), do the second.
+4. **Anything else rounded:** look through for remaining `RoundedRectangle`s (the tag pills are capsules already; highlights and inline code keep small rounded corners, since they're text, not controls).
+
 ### M4 — iPhone
 Buy the developer account first.
 - Folder access through Files, list and editor.
