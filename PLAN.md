@@ -291,9 +291,62 @@ Features:
 - **Dragging tabs:** drag a tab along its bar to reorder it, or onto the other side's bar to put it there. Drag it onto the page: in an unsplit window, the left or right half (shaded as you drag) splits the window with that tab alone on that side (a window's only tab leaves an empty start page behind); with a split, the other side's page takes it as its current tab. A side left without tabs closes. Not across windows yet. Tabs handle the mouse, and drop targets take the drag, in AppKit: in the title bar area the window takes any drag SwiftUI doesn't claim and moves itself, and SwiftUI's drop targets never see a drag started in AppKit.
 - **Top of the window:** no title bar or toolbar. The sidebar and each side of the split have their own bar along the window's top edge, sized from where macOS puts the close, minimise and zoom buttons so everything sits on one line. The sidebar's bar holds New Note and Hide Sidebar; while the sidebar is hidden, the first side's bar holds them. Empty bar space drags the window and double-click zooms it, like a title bar.
 - **Each side's bar:** the note's title, or with more than one tab, the tabs as the system's segmented control (the current tab a light pill). Then New Tab (+), and Split, or with a split, Close This Side (x). Right-click a tab: Close Tab, Close Other Tabs, Move to Other Side, Merge Both Sides into Tabs. With a split, the other side's title is dimmed.
-- **Height and glass (18 October 2026):** the window keeps an empty toolbar (its one invisible item has no glass backing), so its top row has the system's standard height (52 points on macOS 27) and the bars line up with it; clicks still reach the bars. On macOS 26 and later, tabs are Liquid Glass capsules (the current one solid glass, the others clear glass, a close button on hover) and the bar buttons are round glass buttons. Older systems keep the segmented control and plain buttons.
+- **Height and glass (18 October 2026, revised 24 October):** the window's toolbar holds only the system's sidebar button, which gives its top row the standard height (52 points on macOS 27); the bars line up with it. (An invisible toolbar item used to do this, but it took the clicks of whatever bar sat under it.) On macOS 26 and later, tabs are Liquid Glass capsules (the current one solid glass, the others clear glass, a close button on hover) and the bar buttons are round glass buttons. Older systems keep the segmented control and plain buttons.
 - **Keyboard on load:** an editor only takes the keyboard if it's on the active side (and the note wasn't picked in the list), so rebuilding the split never moves the active side.
 - **Later:** a blank tab will show a small file browser. Dragging tabs between sides.
+
+**G. Palettes, editor, sidebar, properties and identity** (Mike's notes, 24 October 2026). In seven batches, smallest first. Not started.
+
+*Batch 0: back and forward, still not right* (first)
+1. **Back changes the sidebar highlight, but the note stays the same.** Likely the window-wide history going to a note open in another tab and not bringing that tab forward properly. To reproduce with the click test (`-ImprintClickBack`) and fix.
+2. **Back is active with nowhere to go back to.** The arrow must be off when this tab has no earlier note.
+3. **History belongs to each tab, not the window.** Each tab keeps its own back and forward. Every change of the tab's note counts: a note opened in it, a link followed, a note picked in the list. Switching tabs doesn't count.
+   - **A note already open in another tab:** a note is open in at most one tab, so two editors never write the same file. Decision needed for going back to such a note. The plan: it moves into this tab, and the other tab goes back to the note before it, or to a start page. To confirm with Mike.
+   - **The window-wide history goes:** it replaces the per-tab stacks added on 24 October.
+
+*Batch 1: editor and properties polish* (small, well-defined)
+1. **Tags:** more room inside the colour pill around the text.
+2. **Highlight and inline code:** slightly rounded corners on their colour areas.
+3. **Properties arrow:** clicking the arrow (not just the summary) opens and closes the properties.
+4. **Properties divider:** the same weight and colour as a horizontal rule in the note.
+5. **Properties open per note:** opening or closing them in one note, say in a split, leaves the other note alone. (Now one shared setting; it becomes per note, remembered for the session.)
+6. **Bug: fast scrolling stops short of the end of a note.** Likely the editor laying out only what's on screen (non-contiguous layout) and not knowing the full height until later. To reproduce first, then fix (for example, finish layout in the background once a note opens).
+
+*Batch 2: the properties element, redesigned*
+1. A little more height for each row.
+2. Keys aligned left, not right.
+3. A faint background on a row under the pointer, so it's clear it can be clicked.
+4. Renaming a key (click its name). Only that key's line changes in the file.
+5. **The Add Property window:** a tighter layout, without the empty space on its right.
+
+*Batch 3: the sidebar*
+1. **A top section with special places:**
+   - **All Notes:** every note in one list, across folders.
+   - **Trash:** notes deleted in Imprint are kept for 30 days, then removed for good. The number of days is in Settings. Decision needed: Obsidian has its own trash setting (system trash, the vault's `.trash` folder, or delete). The plan is that Imprint's Trash is the vault's `.trash` folder, so Obsidian sees the same notes, with Imprint clearing out notes older than the set number of days. To confirm with Mike.
+2. **One column: a sort selector** at the top of the list (date edited, date created, title).
+3. **One column, inside a folder with subfolders:** "Folders" and "Notes" labels over the two parts of the list. If none of the folders has subfolders, so there are no unfold arrows, the folders line up with the notes' text.
+
+*Batch 4: the palettes* (bigger)
+1. **Dragging in the explorer:** drag notes and folders between folders in the ⌘E explorer (and its start-page version), as in the sidebar, so the sidebar is needed less.
+2. **⌘F as a general command runner:**
+   - **Templates:** "Apply Template…" inserts a template into the note.
+   - **Formatting:** everything in the Format menu for the selected text, as commands: block quote, bold, italic, highlight, code, strikethrough, headings, lists, checklist, link.
+   - **More:** anything else that acts on the current note or selection.
+
+   Commands that act on a selection keep the selection the editor had before the palette opened.
+
+*Batch 5: the editor* (biggest)
+1. **Several cursors at once,** as in code editors:
+   - **Adding cursors:** ⌥-click adds a cursor; ⌃⇧↑/↓ adds one on the line above or below; ⌘D adds the next match of the selection.
+   - **Typing:** it goes in at every cursor; Escape goes back to one.
+   - **What's hard:** the hidden Markdown markers, list continuation and undo all assume one cursor. A design note comes first.
+
+*Batch 6: identity*
+1. **Icon:** a pale yellow square field with a small dark blue dot in the middle; in dark mode the colours swap (a dark blue field, a pale yellow dot). Made as an Icon Composer (`.icon`) file with light and dark variants, plus a plain asset-catalog icon for macOS before 26.
+2. **Rename to Point:**
+   - **In the app:** its name, the bundle identifier (`org.mikegallagher.point`), the targets in `project.yml`, and the names in the code and docs.
+   - **Migration:** settings and the saved vault access move over from the old identifier, so nothing is lost. The sandbox container changes with the identifier, so this needs care.
+   - **The repository:** renaming it on GitHub, and the local folder, is for Mike to do or approve, since it changes links and remotes.
 
 ### M4 — iPhone
 Buy the developer account first.
