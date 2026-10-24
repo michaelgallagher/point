@@ -207,6 +207,24 @@ struct SettingsView: View {
                 }
             }
 
+            Divider()
+
+            SettingsSection("Trash") {
+                HStack(spacing: 6) {
+                    Text("Keep deleted notes for")
+                    TextField("Days", value: $store.trashRetentionDays, format: .number)
+                        .frame(width: 44)
+                        .multilineTextAlignment(.trailing)
+                    Stepper("Days", value: $store.trashRetentionDays, in: 1...365)
+                        .labelsHidden()
+                    Text(store.trashRetentionDays == 1 ? "day" : "days")
+                }
+                Text("Deleted notes go to the vault's .trash folder, which Obsidian uses too, and are removed for good after this.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
     }
 
     @ViewBuilder private var textPage: some View {

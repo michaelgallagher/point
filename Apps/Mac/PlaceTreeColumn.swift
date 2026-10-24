@@ -34,6 +34,11 @@ struct PlaceTreeColumn: View {
             }
 
             List(selection: selection) {
+                // Special places first, with no heading: every note, and the trash.
+                Section {
+                    PlaceLabel(place: .everything, name: SidebarPlace.everything.title).tag("tree:" + SidebarPlace.everything.key)
+                    PlaceLabel(place: .trash, name: SidebarPlace.trash.title).tag("tree:" + SidebarPlace.trash.key)
+                }
                 if !model.pins.isEmpty {
                     FoldingSection("Pinned") {
                         ForEach(model.pins, id: \.self) { place in
@@ -161,7 +166,7 @@ private struct PlaceLabel: View {
         switch place {
         case .allNotes: ""
         case .folder(let path): path
-        case .tag: nil
+        case .tag, .everything, .trash: nil
         }
     }
 
@@ -170,6 +175,8 @@ private struct PlaceLabel: View {
         case .allNotes: "tray"
         case .folder: "folder"
         case .tag: "number"
+        case .everything: "tray.full"
+        case .trash: "trash"
         }
     }
 }

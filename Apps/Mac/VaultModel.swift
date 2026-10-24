@@ -72,6 +72,7 @@ final class VaultModel: ObservableObject {
     func rename(_ note: Note, to title: String) { store.rename(note, to: title) }
     func move(noteID: Note.ID, toFolder folder: String) { store.move(noteID: noteID, toFolder: folder) }
     func moveFolder(_ path: String, into parent: String) { store.moveFolder(path, into: parent) }
+    var trashedNotes: [VaultTrash.Item] { store.trashedNotes }
 
     /// What a dragged sidebar row carries: a note's ID, or for a folder, this and its path.
     static let folderDragPrefix = "imprint-folder:"
@@ -888,6 +889,7 @@ final class VaultModel: ObservableObject {
         Trace.mark("browse \(place.key)")
         if place.isTag { lastTagPlace = place } else { lastFolderPlace = place }
         searchText = ""
+        if place == .trash { store.refreshTrash() } // Obsidian may have added to it.
         self.place = place
     }
 

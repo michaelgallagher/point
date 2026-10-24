@@ -319,7 +319,13 @@ Features:
 4. Renaming a key (click its name). Only that key's line changes in the file.
 5. **The Add Property window:** a tighter layout, without the empty space on its right.
 
-*Batch 3: the sidebar*
+*Batch 3: the sidebar*. Done 24 October 2026:
+- **Special places:** All Notes (`SidebarPlace.everything`) and Trash (`.trash`) at the top of both sidebar layouts, with no heading.
+- **Where deleted notes go (decided):** a note deleted in Imprint always goes to the vault's `.trash` folder, whatever Obsidian is set to, because only notes there can be listed and put back. The deletion date and original folder are kept in Imprint's own settings, per vault (`VaultTrash`).
+- **Clearing out:** notes kept longer than the set number of days (30 unless changed, in Settings › Notes) go for good when the vault opens and whenever the Trash is shown.
+- **The Trash list:** each note with how long ago it went; right-click for Put Back (to its folder, or the top level if that's gone) or Delete Now; Empty asks first.
+- **One column:** the Notes label always shows, with a sort menu on it. Inside a folder with folders, "Folders" and "Notes" label the two parts. With no folder in the list to unfold, there's no arrow column, and folders line up with the notes' text.
+- **Checked:** a debug trash test (`-ImprintTrashTest <note>`) passed delete, list, put back and back; pictures of the top level, a folder with folders and one without.
 1. **A top section with special places:**
    - **All Notes:** every note in one list, across folders.
    - **Trash:** notes deleted in Imprint are kept for 30 days, then removed for good. The number of days is in Settings. Decision needed: Obsidian has its own trash setting (system trash, the vault's `.trash` folder, or delete). The plan is that Imprint's Trash is the vault's `.trash` folder, so Obsidian sees the same notes, with Imprint clearing out notes older than the set number of days. To confirm with Mike.

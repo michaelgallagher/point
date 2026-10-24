@@ -12,6 +12,11 @@ enum DebugSnapshots {
     static func runIfAsked(for model: VaultModel) {
         scrollNoteIfAsked(for: model)
         clickBackIfAsked(for: model)
+        if let key = UserDefaults.standard.string(forKey: "ImprintBrowse"), let place = SidebarPlace(key: key) {
+            // `-ImprintBrowse <place key>`: shows that place in the sidebar.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { model.browse(place) }
+        }
+        trashIfAsked(for: model)
         guard let folder = UserDefaults.standard.string(forKey: "ImprintSnapshots") else { return }
         let directory = URL(fileURLWithPath: folder, isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -171,6 +176,28 @@ enum DebugSnapshots {
         }
         for (index, step) in steps.enumerated() {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2 + Double(index) * 0.6, execute: step)
+        }
+    }
+
+    /// `-ImprintTrashTest <note ID>`: deletes that note, checks it's listed in the trash, puts
+    /// it back and checks it's back, noting each step in the trace.
+    private static func trashIfAsked(for model: VaultModel) {
+        guard let id = UserDefaults.standard.string(forKey: "ImprintTrashTest") else { return }
+        func check(_ name: String, _ ok: Bool) { Trace.mark("trash test: \(ok ? "PASS" : "FAIL") \(name)") }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            guard let note = model.note(id) else { return check("note found", false) }
+            model.moveToTrash(note)
+            check("gone from the notes", model.note(id) == nil)
+            check("listed in the trash", model.trashedNotes.contains { $0.title == note.title })
+            model.browse(.trash)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                guard let item = model.trashedNotes.first(where: { $0.title == note.title }) else { return check("still listed", false) }
+                model.store.restore(item)
+                check("gone from the trash", !model.trashedNotes.contains { $0.title == note.title })
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    check("back where it was", model.note(id) != nil)
+                }
+            }
         }
     }
 

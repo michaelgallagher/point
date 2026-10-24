@@ -110,10 +110,15 @@ public struct TagTree: Sendable {
 
 /// A place in the sidebar to browse.
 public enum SidebarPlace: Hashable, Sendable, Codable {
+    /// The vault's top level: its folders, and the notes not in any.
     case allNotes
     /// A folder, by path from the vault root.
     case folder(String)
     case tag(String)
+    /// Every note, in one list, whatever folder it's in.
+    case everything
+    /// Notes deleted, kept for a while before they go for good.
+    case trash
 
     /// For storing pins: `folder:NHS`, `tag:work/imprint`.
     public var key: String {
@@ -121,11 +126,15 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
         case .allNotes: "all"
         case .folder(let path): "folder:" + path
         case .tag(let tag): "tag:" + tag
+        case .everything: "everything"
+        case .trash: "trash"
         }
     }
 
     public init?(key: String) {
         if key == "all" { self = .allNotes }
+        else if key == "everything" { self = .everything }
+        else if key == "trash" { self = .trash }
         else if key.hasPrefix("folder:") { self = .folder(String(key.dropFirst(7))) }
         else if key.hasPrefix("tag:") { self = .tag(String(key.dropFirst(4))) }
         else { return nil }
@@ -134,7 +143,7 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
     /// Where the back arrow goes: a folder's parent folder, a tag's parent tag, else All Notes.
     public var parent: SidebarPlace {
         switch self {
-        case .allNotes: .allNotes
+        case .allNotes, .everything, .trash: .allNotes
         case .folder(let path):
             FolderTree.parent(of: path).isEmpty ? .allNotes : .folder(FolderTree.parent(of: path))
         case .tag(let tag):

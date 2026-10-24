@@ -199,12 +199,15 @@ private struct NoteList: View {
             if includesPlaces, model.place != .allNotes, model.searchResults == nil {
                 PlaceHeader()
             } else if !includesPlaces, model.searchResults == nil {
-                Text(model.place == .allNotes ? (model.root?.lastPathComponent ?? "Notes") : model.place.title)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 6)
+                HStack {
+                    Text(model.place == .allNotes ? (model.root?.lastPathComponent ?? "Notes") : model.place.title)
+                        .font(.headline)
+                        .lineLimit(1)
+                    Spacer()
+                    if model.place == .trash { EmptyTrashButton() }
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 6)
             }
             // As tall as a comfortable row, in either density.
             SearchField(text: $model.searchText, isFocused: $searchFocused, height: VaultModel.SidebarDensity.comfortable.rowHeight) {
@@ -273,15 +276,37 @@ private struct PlaceHeader: View {
                 .font(.headline)
                 .lineLimit(1)
             Spacer()
-            Button { model.togglePin(model.place) } label: {
-                Image(systemName: model.isPinned(model.place) ? "pin.fill" : "pin")
+            if model.place == .trash {
+                EmptyTrashButton()
+            } else if model.place != .everything {
+                Button { model.togglePin(model.place) } label: {
+                    Image(systemName: model.isPinned(model.place) ? "pin.fill" : "pin")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help(model.isPinned(model.place) ? "Unpin" : "Pin to the top of the sidebar")
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .help(model.isPinned(model.place) ? "Unpin" : "Pin to the top of the sidebar")
         }
         .padding(.horizontal, 10)
         .padding(.top, 4)
+    }
+}
+
+/// Empties the trash, after asking: the notes in it go for good.
+private struct EmptyTrashButton: View {
+    @EnvironmentObject private var model: VaultModel
+    @State private var isConfirming = false
+
+    var body: some View {
+        Button("Empty") { isConfirming = true }
+            .buttonStyle(.borderless)
+            .disabled(model.trashedNotes.isEmpty)
+            .help("Delete every note in the trash now")
+            .confirmationDialog("Delete the \(model.trashedNotes.count) notes in the trash for good?", isPresented: $isConfirming) {
+                Button("Empty Trash", role: .destructive) { model.store.emptyTrash() }
+            } message: {
+                Text("This can't be undone.")
+            }
     }
 }
 
@@ -297,6 +322,8 @@ extension SidebarPlace {
         case .allNotes: "All Notes"
         case .folder(let path): FolderTree.name(of: path)
         case .tag(let tag): "#" + tag
+        case .everything: "All Notes"
+        case .trash: "Trash"
         }
     }
 

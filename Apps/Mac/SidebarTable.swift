@@ -10,6 +10,8 @@ enum SidebarRow: Hashable {
     case divider
     case place(SidebarPlace, depth: Int)
     case note(Note.ID)
+    /// A note in the trash.
+    case trashed(VaultTrash.Item)
 }
 
 /// The sidebar's sections at the vault's top level, each of which can be folded away.
@@ -24,12 +26,13 @@ extension VaultModel {
         switch place {
         case .folder(let path): path
         case .tag(let tag): "#" + tag
-        case .allNotes: ""
+        case .allNotes, .everything, .trash: ""
         }
     }
 
     /// `expanded` holds the folders and tags unfolded to show the ones inside them.
     func sidebarRows(collapsed: Set<SidebarSection>, expanded: Set<String> = [], includesPlaces: Bool = true) -> [SidebarRow] {
+        if place == .trash { return trashedNotes.map { .trashed($0) } }
         guard includesPlaces else { return notes(in: place).map { .note($0.id) } }
         var sections: [[SidebarRow]] = []
         func section(_ name: SidebarSection, _ rows: [SidebarRow]) -> [SidebarRow] {
@@ -44,6 +47,8 @@ extension VaultModel {
         }
         let subplaces = subplaces(of: place)
         if place == .allNotes {
+            // Special places first, with no heading: every note, and the trash.
+            sections.append([.place(.everything, depth: 0), .place(.trash, depth: 0)])
             if !pins.isEmpty { sections.append(section(.pinned, pins.map { .place($0, depth: 0) })) }
             if !subplaces.isEmpty { sections.append(section(.folders, folderRows(subplaces, depth: 0))) }
             if !tagTree.entries.isEmpty {
@@ -55,12 +60,14 @@ extension VaultModel {
                 sections.append(section(.tags, tags.map { .place(.tag($0.tag), depth: $0.depth) }))
             }
         } else if !subplaces.isEmpty {
-            sections.append(place.isTag ? subplaces.map { .place($0, depth: 0) } : folderRows(subplaces, depth: 0))
+            // Inside a folder (or tag) with folders (or tags) in it: labelled, as at the top.
+            let rows = place.isTag ? subplaces.map { SidebarRow.place($0, depth: 0) } : folderRows(subplaces, depth: 0)
+            sections.append(section(place.isTag ? .tags : .folders, rows))
         }
+        // The notes, always under their label, which holds the sort menu.
         let notes = notes(in: place)
         if !notes.isEmpty {
-            let rows = notes.map { SidebarRow.note($0.id) }
-            sections.append(place == .allNotes && !sections.isEmpty ? section(.notes, rows) : rows)
+            sections.append(section(.notes, notes.map { SidebarRow.note($0.id) }))
         }
         // Thin dividers between sections.
         return sections.enumerated().flatMap { index, rows in index == 0 ? rows : [.divider] + rows }
@@ -200,6 +207,7 @@ struct SidebarTable: NSViewRepresentable {
             func depth(_ place: SidebarPlace) -> Int {
                 switch place {
                 case .allNotes: 0
+                case .everything, .trash: 1
                 case .folder(let path), .tag(let path): path.split(separator: "/").count
                 }
             }
@@ -225,7 +233,7 @@ struct SidebarTable: NSViewRepresentable {
             switch rows[row] {
             case .header: model.sidebarDensity.headerHeight
             case .divider: model.sidebarDensity.dividerHeight
-            case .place: model.sidebarDensity.rowHeight
+            case .place, .trashed: model.sidebarDensity.rowHeight
             case .note(let id):
                 // Two lines only for a note that has tags to show.
                 Self.noteHeight(hasTags: model.showsTagsInList && !model.listTags(for: id).isEmpty, density: model.sidebarDensity)
@@ -253,7 +261,8 @@ struct SidebarTable: NSViewRepresentable {
             let identifier = NSUserInterfaceItemIdentifier("row")
             let cell = tableView.makeView(withIdentifier: identifier, owner: nil) as? HostingCell ?? HostingCell()
             cell.identifier = identifier
-            cell.show(SidebarRowView(row: rows[row], model: model, collapsed: parent.collapsed, expanded: parent.expanded))
+            cell.show(SidebarRowView(row: rows[row], model: model, collapsed: parent.collapsed, expanded: parent.expanded,
+                                          showsArrows: showsArrows))
             return cell
         }
 
@@ -266,7 +275,7 @@ struct SidebarTable: NSViewRepresentable {
             let row = sender.clickedRow
             guard rows.indices.contains(row) else { return }
             switch rows[row] {
-            case .place(let place, let depth) where place != .allNotes && clickedArrow(row: row, depth: depth, in: sender)
+            case .place(let place, let depth) where showsArrows && clickedArrow(row: row, depth: depth, in: sender)
                 && !model.subplaces(of: place).isEmpty:
                 parent.toggleExpanded(VaultModel.expansionKey(place))
             case .place(let place, _): model.browse(place)
@@ -318,10 +327,22 @@ struct SidebarTable: NSViewRepresentable {
 
         // MARK: Right-click menus
 
+        /// Whether any folder or tag in the list unfolds. If none does, there's no column for
+        /// the arrows, and folders line up with the notes' text.
+        var showsArrows: Bool {
+            rows.contains { row in
+                guard case .place(let place, _) = row else { return false }
+                return !model.subplaces(of: place).isEmpty
+            }
+        }
+
         func menuNeedsUpdate(_ menu: NSMenu) {
             menu.removeAllItems()
             guard let table, rows.indices.contains(table.clickedRow) else { return }
             switch rows[table.clickedRow] {
+            case .trashed(let trashed):
+                menu.addItem(item("Put Back") { $0.store.restore(trashed) })
+                menu.addItem(item("Delete Now") { $0.store.deleteForever(trashed) })
             case .note(let id):
                 guard let note = model.notes.first(where: { $0.id == id }) else { return }
                 menu.addItem(item("Open in New Tab") { $0.newTab(noteID: note.id) })
@@ -444,6 +465,8 @@ struct SidebarRowView: View {
     let collapsed: Set<SidebarSection>
     /// Folders unfolded to show their subfolders.
     var expanded: Set<String> = []
+    /// Whether the list has a column for unfold arrows (some folder or tag in it unfolds).
+    var showsArrows = true
 
     /// Where a folder's unfold arrow starts, and its width, in the row.
     static func arrowStart(depth: Int) -> CGFloat { 4 + CGFloat(depth) * 14 }
@@ -458,11 +481,14 @@ struct SidebarRowView: View {
                 Image(systemName: "chevron.right")
                     .font(.caption2.weight(.semibold))
                     .rotationEffect(.degrees(isOpen ? 90 : 0))
+                Spacer(minLength: 4)
+                if section == .notes { SortMenu(model: model) }
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             .padding(.leading, 8)
+            .padding(.trailing, 8)
             .padding(.bottom, 3)
             .help(isOpen ? "Hide \(section.rawValue.lowercased())" : "Show \(section.rawValue.lowercased())")
         case .divider:
@@ -475,19 +501,21 @@ struct SidebarRowView: View {
         case .place(let place, let depth):
             HStack(spacing: 6) {
                 // A folder with folders in it, or a tag with tags under it, unfolds from the arrow.
-                Group {
-                    if place != .allNotes, !model.subplaces(of: place).isEmpty {
-                        Image(systemName: "chevron.right")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .rotationEffect(.degrees(expanded.contains(VaultModel.expansionKey(place)) ? 90 : 0))
-                    } else {
-                        Color.clear
+                if showsArrows {
+                    Group {
+                        if !model.subplaces(of: place).isEmpty {
+                            Image(systemName: "chevron.right")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .rotationEffect(.degrees(expanded.contains(VaultModel.expansionKey(place)) ? 90 : 0))
+                        } else {
+                            Color.clear
+                        }
                     }
+                    .frame(width: Self.arrowWidth)
+                    .padding(.trailing, -2)
                 }
-                .frame(width: Self.arrowWidth)
-                .padding(.trailing, -2)
-                Image(systemName: place.isTag ? "number" : "folder")
+                Image(systemName: place.symbol)
                     .foregroundStyle(.secondary)
                     .frame(width: 16)
                 Text(depth > 0 ? place.shortName : place.title)
@@ -498,13 +526,26 @@ struct SidebarRowView: View {
                     .foregroundStyle(.tertiary)
                     .monospacedDigit()
             }
-            .padding(.leading, Self.arrowStart(depth: depth))
+            // Without arrows, the icon lines up with the notes' text.
+            .padding(.leading, showsArrows ? Self.arrowStart(depth: depth) : 8 + CGFloat(depth) * 14)
             .padding(.trailing, 8)
             .frame(maxHeight: .infinity)
         case .note(let id):
             if let note = model.notes.first(where: { $0.id == id }) {
                 SidebarNoteRow(note: note, model: model)
             }
+        case .trashed(let trashed):
+            HStack(spacing: 6) {
+                Text(trashed.title)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Text(trashed.deleted, format: .relative(presentation: .named))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 8)
+            .frame(maxHeight: .infinity)
+            .help("Right-click to put it back, or delete it now")
         }
     }
 }
@@ -559,4 +600,48 @@ struct SidebarNoteRow: View {
 
 extension Array {
     subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
+}
+
+/// The note list's sort order, as a small menu on its label.
+private struct SortMenu: View {
+    @ObservedObject var model: VaultModel
+
+    var body: some View {
+        Menu {
+            Picker("Sort Notes By", selection: Binding(get: { model.sort }, set: { model.sort = $0 })) {
+                Text("Date Edited").tag(NoteSort.modified)
+                Text("Date Created").tag(NoteSort.created)
+                Text("Title").tag(NoteSort.title)
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Text(name)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.visible)
+        .controlSize(.small) // The size of the label it sits on.
+        .fixedSize()
+        .help("How notes are sorted")
+    }
+
+    private var name: String {
+        switch model.sort {
+        case .modified: "Date Edited"
+        case .created: "Date Created"
+        case .title: "Title"
+        }
+    }
+}
+
+extension SidebarPlace {
+    /// The sidebar's symbol for a place.
+    var symbol: String {
+        switch self {
+        case .allNotes: "tray"
+        case .folder: "folder"
+        case .tag: "number"
+        case .everything: "tray.full"
+        case .trash: "trash"
+        }
+    }
 }

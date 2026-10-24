@@ -136,6 +136,7 @@ final class VaultStore: ObservableObject {
             Task { @MainActor in self?.filesChanged(urls) }
         }
         NotificationCenter.default.post(name: .imprintVaultOpened, object: self)
+        refreshTrash()
         Task { await reload() }
     }
 
@@ -243,16 +244,96 @@ final class VaultStore: ObservableObject {
         NotificationCenter.default.post(name: .imprintNoteMoved, object: self, userInfo: ["old": note.id, "new": newID])
     }
 
+    /// Moves a note to the vault's trash (its `.trash` folder, whatever Obsidian is set to:
+    /// only notes there can be listed and put back), remembering when, and where from.
     func moveToTrash(_ note: Note) {
         guard let root else { return }
         releaseFile(note.url)
         untitled.remove(note.id)
         do {
-            try NoteFiles.trash(note.url, vault: root, option: settings.trashOption)
+            let name = try VaultTrash.move(note.url, vault: root)
+            trashRecords[name] = VaultTrash.Record(deleted: Date(), folder: FolderTree.folder(of: note.id))
             notes.removeAll { $0.id == note.id }
+            refreshTrash()
         } catch {
             errorMessage = "Couldn't move “\(note.title)” to the trash: \(error.localizedDescription)"
         }
+    }
+
+    // MARK: Trash
+
+    /// The notes in the vault's trash, newest first.
+    @Published private(set) var trashedNotes: [VaultTrash.Item] = []
+    /// How long deleted notes are kept before they go for good.
+    @Published var trashRetentionDays: Int = UserDefaults.standard.object(forKey: "trashRetentionDays") as? Int ?? 30 {
+        didSet {
+            UserDefaults.standard.set(trashRetentionDays, forKey: "trashRetentionDays")
+            refreshTrash()
+        }
+    }
+
+    /// When each note in the trash was deleted, and where from, by its name there. Kept by
+    /// the app, per vault, not in the vault.
+    private var trashRecords: [String: VaultTrash.Record] {
+        get {
+            guard let root, let data = UserDefaults.standard.data(forKey: "trash." + Self.vaultKey(root)) else { return [:] }
+            return (try? JSONDecoder().decode([String: VaultTrash.Record].self, from: data)) ?? [:]
+        }
+        set {
+            guard let root else { return }
+            UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: "trash." + Self.vaultKey(root))
+        }
+    }
+
+    /// Lists the trash, removing for good the notes kept longer than the set number of days.
+    /// A note found there with no record (put there by Obsidian, say) starts its days now.
+    func refreshTrash() {
+        guard let root else { return trashedNotes = [] }
+        var records = trashRecords
+        let now = Date()
+        let cutoff = now.addingTimeInterval(-Double(max(trashRetentionDays, 1)) * 86_400)
+        var items: [VaultTrash.Item] = []
+        for item in VaultTrash.items(in: root, records: records, now: now) {
+            if item.deleted < cutoff {
+                try? VaultTrash.delete(item)
+                records[item.name] = nil
+            } else {
+                if records[item.name] == nil { records[item.name] = VaultTrash.Record(deleted: now, folder: item.folder ?? "") }
+                items.append(item)
+            }
+        }
+        // Forget notes no longer there (emptied or put back elsewhere).
+        let names = Set(items.map(\.name))
+        records = records.filter { names.contains($0.key) }
+        if records != trashRecords { trashRecords = records }
+        if items != trashedNotes { trashedNotes = items }
+    }
+
+    /// Puts a note back where it was (or at the top level, if its folder is gone).
+    func restore(_ item: VaultTrash.Item) {
+        guard let root else { return }
+        do {
+            _ = try VaultTrash.restore(item, vault: root)
+            trashRecords[item.name] = nil
+            refreshTrash()
+            Task { await reload() }
+        } catch {
+            errorMessage = "Couldn't put back “\(item.title)”: \(error.localizedDescription)"
+        }
+    }
+
+    func deleteForever(_ item: VaultTrash.Item) {
+        do {
+            try VaultTrash.delete(item)
+            refreshTrash()
+        } catch {
+            errorMessage = "Couldn't delete “\(item.title)”: \(error.localizedDescription)"
+        }
+    }
+
+    func emptyTrash() {
+        trashedNotes.forEach { try? VaultTrash.delete($0) }
+        refreshTrash()
     }
 
     /// Moves a note into a folder ("" is the vault root), keeping links to it working.
@@ -560,6 +641,8 @@ final class VaultStore: ObservableObject {
     func notes(in place: SidebarPlace) -> [Note] {
         switch place {
         case .allNotes: notes.filter { !$0.id.contains("/") }
+        case .everything: notes
+        case .trash: []
         case .folder(let path): notes.filter { FolderTree.folder(of: $0.id) == path }
         case .tag(let tag): notes.filter { TagTree.tags(indexedTags[$0.id] ?? [], include: tag) }
         }
@@ -569,6 +652,7 @@ final class VaultStore: ObservableObject {
     func subplaces(of place: SidebarPlace) -> [SidebarPlace] {
         switch place {
         case .allNotes: sortedFolders(folderTree.subfolders(of: "")).map(SidebarPlace.folder)
+        case .everything, .trash: []
         case .folder(let path): sortedFolders(folderTree.subfolders(of: path)).map(SidebarPlace.folder)
         case .tag(let tag): sortedTags(tagTree.children(of: tag)).map { .tag($0.tag) }
         }
@@ -624,7 +708,8 @@ final class VaultStore: ObservableObject {
     /// How many notes a folder or tag holds, including in its subfolders or nested tags.
     func noteCount(of place: SidebarPlace) -> Int {
         switch place {
-        case .allNotes: notes.count
+        case .allNotes, .everything: notes.count
+        case .trash: trashedNotes.count
         case .folder(let path): folderTree.noteCounts[path] ?? 0
         case .tag(let tag): tagTree.entries.first { $0.id == tag.lowercased() }?.count ?? 0
         }
