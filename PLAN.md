@@ -295,6 +295,8 @@ Features:
 - **Keyboard on load:** an editor only takes the keyboard if it's on the active side (and the note wasn't picked in the list), so rebuilding the split never moves the active side.
 - **Later:** a blank tab will show a small file browser. Dragging tabs between sides.
 
+- **Sorting in two columns (24 October 2026):** the notes column has its own sort menu along its bottom (date edited, date created, title), like the folders column's. Both are as wide as their column: a box like the search field's that opens the choices (`SortBar`), since the system's pop-up menu sizes itself to its text.
+
 **G. Palettes, editor, sidebar, properties and identity** (Mike's notes, 24 October 2026). In seven batches, smallest first. Not started.
 
 *Batch 0: back and forward, still not right* (first). Done 24 October 2026: each tab keeps its own history (a note opened in the tab counts, switching tabs doesn't); the arrows are off unless there's an existing note to go to; going back to a note open in another tab moves it here and that tab steps back itself (or shows a start page). Checked with real clicks sent through the window (`-PointClickBack YES`), ten checks, sidebar open and hidden.

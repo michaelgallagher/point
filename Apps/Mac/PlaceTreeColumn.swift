@@ -69,16 +69,8 @@ struct PlaceTreeColumn: View {
             // The system's small or medium sidebar rows, which the note list beside it matches.
             .environment(\.sidebarRowSize, model.sidebarDensity == .compact ? .small : .medium)
 
-            Divider()
-            Picker("Sort by", selection: $model.tagOrder) {
-                Text("Name").tag(VaultModel.TagOrder.name)
-                Text("Date Modified").tag(VaultModel.TagOrder.modified)
-            }
-            .pickerStyle(.menu)
-            .controlSize(.small)
-            .help("How folders and tags are sorted")
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            SortBar(help: "How folders and tags are sorted", selection: $model.tagOrder,
+                    options: [("Folders and Tags by Name", .name), ("Folders and Tags by Date Modified", .modified)])
         }
         .onChange(of: model.treeLayout) { _ in model.matchPlaceToTree() }
         .onAppear { model.matchPlaceToTree() }
@@ -211,6 +203,49 @@ private struct FoldingSection<Content: View>: View {
             Section(isExpanded: $isExpanded) { content } header: { Text(title) }
         } else {
             Section(title) { content }
+        }
+    }
+}
+
+/// A sort menu along the bottom of a sidebar column, as wide as the column: a box like the
+/// search field's, showing the order chosen, which opens the choices. (The system's pop-up
+/// menu sizes itself to its text, whatever room it's given.)
+struct SortBar<Value: Hashable>: View {
+    let help: String
+    @Binding var selection: Value
+    let options: [(name: String, value: Value)]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider()
+            Menu {
+                Picker(help, selection: $selection) {
+                    ForEach(options, id: \.value) { Text($0.name).tag($0.value) }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } label: {
+                HStack(spacing: 4) {
+                    Text(options.first { $0.value == selection }?.name ?? "")
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .font(.callout)
+                .padding(.horizontal, 10)
+                .frame(maxWidth: .infinity)
+                .frame(height: 26)
+                .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary.opacity(0.6)))
+                .contentShape(Rectangle())
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .help(help)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
         }
     }
 }

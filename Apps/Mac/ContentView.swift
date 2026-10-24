@@ -234,6 +234,12 @@ private struct NoteList: View {
             } else {
                 browser
             }
+            // In two columns, the notes' sort order along the bottom, as the folders' is
+            // beside it. (One column has it on the list's Notes label.)
+            if !includesPlaces {
+                SortBar(help: "How notes are sorted", selection: $model.sort,
+                        options: [("Notes by Date Edited", .modified), ("Notes by Date Created", .created), ("Notes by Title", .title)])
+            }
         }
         .onChange(of: model.searchFocusRequest) { _ in searchFocused = true }
         .overlay {
