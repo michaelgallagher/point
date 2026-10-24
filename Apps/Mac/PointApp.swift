@@ -20,6 +20,7 @@ struct PointApp: App {
             TabRequest()
         }
         .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unifiedCompact) // The slim title bar.
         .commands {
             AppCommands(store: store)
             FormatCommands()

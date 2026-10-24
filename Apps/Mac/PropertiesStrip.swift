@@ -42,9 +42,6 @@ struct PropertiesStrip: View {
             }
             .buttonStyle(.plain)
             .help(isExpanded ? "Hide properties" : "Show properties")
-            // The chevron hangs in the margin, so the summary lines up with the title. Moved as
-            // a whole, so the chevron is still part of the button and takes clicks.
-            .offset(x: -(Self.chevronWidth + 4))
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: 2) {
@@ -72,7 +69,7 @@ struct PropertiesStrip: View {
                 .onPreferenceChange(RowFrames.self) { rowFrames = $0 }
                 .overlay(alignment: .topLeading) { dropIndicator }
                 .overlay(alignment: .topLeading) { draggedRow }
-                // The rows' backgrounds reach into the margin; their text lines up with the summary.
+                // The rows' backgrounds reach into the margin; their text lines up with the chevron.
                 .padding(.leading, -Self.rowInset)
             }
             // Drawn like a horizontal rule in the note: one point, the separator colour.
@@ -89,7 +86,7 @@ struct PropertiesStrip: View {
         .padding(.bottom, 10)
         .padding(.leading, 5) // Lines up with the title and the text, which are inset a little.
         .frame(maxWidth: 720, alignment: .leading)
-        .padding(.horizontal, 28)
+        .padding(.horizontal, 21)
         .frame(maxWidth: .infinity)
     }
 

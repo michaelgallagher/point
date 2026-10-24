@@ -24,6 +24,7 @@ struct ContentView: View {
                     }
                 }
                 .ignoresSafeArea(.container, edges: .top)
+                .modifier(NoSidebarToggle())
                 .navigationSplitViewColumnWidth(min: 360, ideal: 470, max: 760)
             } detail: {
                 detail
@@ -35,6 +36,7 @@ struct ContentView: View {
                     NoteList()
                 }
                 .ignoresSafeArea(.container, edges: .top)
+                .modifier(NoSidebarToggle())
                 .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 400)
             } detail: {
                 detail
@@ -78,11 +80,11 @@ struct ContentView: View {
                     splitView
                 }
                 .navigationTitle(windowTitle)
-                // The window's toolbar holds only the system's sidebar button (the split view
-                // adds it), which gives the top row its standard height and puts the button
-                // where macOS does. No other toolbar items: an item, even an invisible one,
-                // takes the clicks meant for the bars drawn in that row (the back and forward
-                // arrows sat under one). The sidebar and each side draw their own bars there.
+                // No toolbar, not even the system's sidebar button, so the top row is the slim
+                // title bar. The sidebar and each side draw their own bars there, with their
+                // own plain sidebar button. (A toolbar item, even an invisible one, takes the
+                // clicks meant for the bars drawn in that row.) Removed from the sidebar
+                // column, where the split view adds it.
                 .overlay(alignment: .topLeading) {
                     if model.isFocused {
                         // The one control kept in focus mode: bring the note list back.

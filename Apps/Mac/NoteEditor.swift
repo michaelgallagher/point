@@ -37,7 +37,7 @@ struct NoteEditor: View {
                 // The header (path, title, properties) is inside the editor, so it scrolls
                 // away with the text instead of taking up room above it.
                 EditorView(session: session, model: model, paneID: paneID, offersTemplates: offersTemplates,
-                           showsMarkdown: model.showsMarkdown, textScale: model.textScale, typography: model.store.typography)
+                           topBarCover: topBarCover, showsMarkdown: model.showsMarkdown, textScale: model.textScale, typography: model.store.typography)
             } else {
                 Color.clear
             }
@@ -72,7 +72,7 @@ private struct NoteHeader: View {
             .padding(.bottom, session.frontmatter == nil ? 12 : 2)
             .padding(.leading, 5) // Lines up with the text, which is inset a little.
             .frame(maxWidth: 720, alignment: .leading)
-            .padding(.horizontal, 28)
+            .padding(.horizontal, 21)
             .frame(maxWidth: .infinity)
             if let frontmatter = session.frontmatter {
                 PropertiesStrip(frontmatter: frontmatter, session: session,
@@ -215,7 +215,7 @@ private struct TemplateChoices: View {
                 .foregroundStyle(.tertiary)
         }
         .font(.callout)
-        .padding(.horizontal, 28)
+        .padding(.horizontal, 21)
         .padding(.vertical, 10)
         .frame(maxWidth: 720, alignment: .leading)
         .frame(maxWidth: .infinity)
@@ -273,6 +273,8 @@ private struct EditorView: NSViewRepresentable {
     let model: VaultModel
     let paneID: VaultModel.NotePane.ID
     let offersTemplates: Bool
+    /// How much of the editor the top bars cover: the text starts below, and scrolls beneath.
+    let topBarCover: CGFloat
     /// Passed as a value, not read from the model, so SwiftUI updates the view when it changes.
     let showsMarkdown: Bool
     let textScale: Double
@@ -318,6 +320,11 @@ private struct EditorView: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        // Set here rather than by the window, which only knows of the first row.
+        if scrollView.automaticallyAdjustsContentInsets || scrollView.contentInsets.top != topBarCover {
+            scrollView.automaticallyAdjustsContentInsets = false
+            scrollView.contentInsets = NSEdgeInsets(top: topBarCover, left: 0, bottom: 0, right: 0)
+        }
         guard let textView = scrollView.documentView as? MarkdownTextView else { return }
         textView.showsMarkdown = showsMarkdown
         textView.textScale = textScale

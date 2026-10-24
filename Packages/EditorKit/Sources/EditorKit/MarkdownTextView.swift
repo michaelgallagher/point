@@ -314,9 +314,9 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     }
 
     private func updateInsets() {
-        let side = max(28, ((frame.width - styler.theme.maxTextWidth) / 2).rounded())
+        let side = max(21, ((frame.width - styler.theme.maxTextWidth) / 2).rounded())
         if textContainerInset.width != side {
-            textContainerInset = NSSize(width: side, height: 28)
+            textContainerInset = NSSize(width: side, height: 21)
         }
     }
 
@@ -590,8 +590,8 @@ extension MarkdownToken {
 #endif
 
 /// The editor's scroll view. Where the window's top bars cover its top (its top content
-/// inset, from the window), it blurs the text scrolling beneath them, with a hairline at the
-/// edge, like the system's hard scroll edge effect. (The system's own effect needs a title
+/// inset), it blurs the text scrolling beneath them, like the system's hard scroll edge
+/// effect. The bars draw their own line at the edge. (The system's own effect needs a title
 /// bar that isn't transparent, which takes the top bars' clicks and drops; and a blur from
 /// outside the scroll view doesn't pick up the text.)
 final class MarkdownScrollView: NSScrollView {
@@ -602,26 +602,17 @@ final class MarkdownScrollView: NSScrollView {
         view.state = .active
         return view
     }()
-    private let edgeLine: NSBox = {
-        let line = NSBox()
-        line.boxType = .separator
-        return line
-    }()
-
     override func tile() {
         super.tile()
         let height = contentInsets.top
         guard height > 0 else {
             edgeBlur.removeFromSuperview()
-            edgeLine.removeFromSuperview()
             return
         }
         if edgeBlur.superview == nil {
             addSubview(edgeBlur, positioned: .above, relativeTo: contentView)
-            addSubview(edgeLine, positioned: .above, relativeTo: edgeBlur)
         }
         let top = isFlipped ? 0 : bounds.height - height
         edgeBlur.frame = NSRect(x: 0, y: top, width: bounds.width, height: height)
-        edgeLine.frame = NSRect(x: 0, y: isFlipped ? height - 1 : top, width: bounds.width, height: 1)
     }
 }

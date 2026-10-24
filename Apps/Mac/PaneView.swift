@@ -2,10 +2,9 @@ import AppKit
 import SwiftUI
 import VaultKit
 
-/// One side of the window: its top bar (title or tabs) above the current tab's note, or
-/// for an empty tab, a start page. From macOS 26 the note scrolls up beneath the bar,
-/// which has no background of its own: the system's hard scroll edge effect blurs what's
-/// under it (see `WindowTabbing`).
+/// One side of the window: its top bar and tab row above the current tab's note, or for an
+/// empty tab, a start page. From macOS 26 the note scrolls up beneath both rows, which have
+/// no background of their own: the editor blurs what's under them (`MarkdownScrollView`).
 struct PaneView: View {
     @EnvironmentObject private var model: VaultModel
     let paneID: VaultModel.NotePane.ID
@@ -16,9 +15,10 @@ struct PaneView: View {
         if let index = model.paneIndex(paneID) {
             let pane = model.panes[index]
             if model.isFocused {
-                page(pane, index: index, underBar: 0)
-            } else if #available(macOS 26, *) {
+                // Only the window buttons' row, empty.
                 page(pane, index: index, underBar: model.topBarHeight)
+            } else if #available(macOS 26, *) {
+                page(pane, index: index, underBar: model.topBarHeight * 2 + 2) // Both rows, and their lines.
                     .overlay(alignment: .top) { PaneTopBar(pane: pane, paneIndex: index) }
             } else {
                 VStack(spacing: 0) {
