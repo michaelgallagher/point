@@ -454,6 +454,7 @@ extension MarkdownTextView {
             return
         }
         if toggleCheckbox(at: point) { return }
+        if addCursor(for: event) { return } // ⌥-click adds a cursor (but not on a link).
         if openLink(for: event) { return } // ⌥-click places the cursor in a link instead.
         super.mouseDown(with: event)
     }

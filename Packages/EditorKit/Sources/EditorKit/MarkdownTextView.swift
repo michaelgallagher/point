@@ -41,6 +41,12 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     /// The foldable line under the pointer, whose arrow shows.
     var hoveredFoldLine: Int?
 
+    /// The cursors (and selections) besides the main one (see +Cursors).
+    var extraSelections: [NSRange] = []
+    /// Set while the cursors themselves move the selection, so it doesn't count as the
+    /// selection changing some other way (which goes back to one cursor).
+    var isApplyingToCursors = false
+
     /// How big the text is, relative to the chosen size (⌘+ / ⌘−).
     public var textScale: CGFloat {
         get { styler.theme.scale }
@@ -236,7 +242,13 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
 
     public override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
+        drawExtraSelections(in: rect)
         drawFoldArrows(in: rect)
+    }
+
+    public override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        drawExtraInsertionPoints(in: dirtyRect)
     }
 
     public override func updateTrackingAreas() {
@@ -360,6 +372,8 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
 
     /// Keeps the insertion point out of hidden markers, so every arrow press visibly moves it.
     public override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        // Moved some other way (a click, undo, find): back to one cursor.
+        if !isApplyingToCursors, hasMultipleCursors { collapseCursors() }
         guard !isAdjustingSelection, !stillSelecting, ranges.count == 1, ranges[0].rangeValue.length == 0 else {
             super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
             return
@@ -478,6 +492,11 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     }
 
     public override func insertText(_ string: Any, replacementRange: NSRange) {
+        // Typed with several cursors: at each of them.
+        if hasMultipleCursors, !isApplyingToCursors, replacementRange.location == NSNotFound, !hasMarkedText() {
+            performAtEachCursor { self.insertText(string, replacementRange: replacementRange) }
+            return
+        }
         if replacementRange.location == NSNotFound, selectedRange().length > 0 {
             expandSelectionToWholeTokens()
         }

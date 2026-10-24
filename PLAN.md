@@ -345,7 +345,13 @@ Features:
 
    Commands that act on a selection keep the selection the editor had before the palette opened.
 
-*Batch 5: the editor* (biggest)
+*Batch 5: the editor* (biggest). Done 24 October 2026:
+- **Where the cursors live:** the text view's own selection is the main cursor, and the others are kept beside it (`MarkdownTextView+Cursors`).
+- **Editing:** typing, deleting, Return, Tab and the arrow keys (with or without ⇧) are done at each cursor in turn, last first, with the editor's usual handling each time: lists continue, hidden markers are stepped over. It all undoes in one step.
+- **Adding cursors:** ⌥-click (⌥-click on a link still places the cursor in it), ⌃⇧↑ / ⌃⇧↓ for the line above or below, and ⌘D (the word first, then each next match). These are in the Format menu and the cheat sheet.
+- **Back to one:** Escape, a plain click, undo, or any other command.
+- **Drawing:** the other cursors are text-height, and their selections are drawn like the main one.
+- **Tests:** seven editor tests cover typing, deleting, lists, ⌘D, adding a cursor below, Escape and undo. To try by hand: ⌥-click, and the feel of it.
 1. **Several cursors at once,** as in code editors:
    - **Adding cursors:** ⌥-click adds a cursor; ⌃⇧↑/↓ adds one on the line above or below; ⌘D adds the next match of the selection.
    - **Typing:** it goes in at every cursor; Escape goes back to one.

@@ -54,6 +54,10 @@ struct ShortcutsSheet: View {
             ("⌥⌘↑  ⌥⌘↓", "Move line up, down"),
             ("⌥⌘[  ⌥⌘]", "Fold, unfold the list item or heading"),
             ("⌘X", "With nothing selected: cut the line"),
+            ("⌥-click", "Add a cursor"),
+            ("⌃⇧↑  ⌃⇧↓", "Add a cursor above, below"),
+            ("⌘D", "Select the word, then add the next match"),
+            ("Esc", "Back to one cursor"),
         ]),
     ]
 

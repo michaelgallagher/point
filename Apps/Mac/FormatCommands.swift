@@ -34,6 +34,11 @@ struct FormatCommands: Commands {
             item("Fold", #selector(MarkdownTextView.foldLine(_:)), "[", [.command, .option])
             item("Unfold", #selector(MarkdownTextView.unfoldLine(_:)), "]", [.command, .option])
             Divider()
+            // More cursors (⌥-click adds one too; Escape goes back to one).
+            item("Add Cursor Above", #selector(MarkdownTextView.addCursorAbove(_:)), .upArrow, [.control, .shift])
+            item("Add Cursor Below", #selector(MarkdownTextView.addCursorBelow(_:)), .downArrow, [.control, .shift])
+            item("Add Next Match", #selector(MarkdownTextView.addNextMatch(_:)), "d")
+            Divider()
             item("Add Link…", #selector(MarkdownTextView.addLink(_:)), "k")
             Button("Add Property…") { NotificationCenter.default.post(name: .imprintAddProperty, object: model) }
                 .disabled(model?.selectedNote == nil)
