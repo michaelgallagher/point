@@ -383,6 +383,15 @@ Features:
 
 **To do (24 October 2026, separate from H): All Notes and Trash in the explorer.** The ⌘E explorer (and its start-page version) lists the same special places as the sidebar, at the top of its left column with no heading: All Notes (every note, in the right column) and Trash. `ExplorerState.load` adds them before Pinned, with the `tray.full` and `trash` symbols. The Trash's right column lists deleted notes with how long ago each went. Return puts the highlighted one back, since a trashed note can't be opened, and the right-click menu has Put Back and Delete Now. Neither takes drops yet (dropping on Trash to delete could come later).
 
+**To do (24 October 2026, separate from H): applying a template to a note that has properties.** Today `VaultModel.insertTemplate` inserts the whole rendered template at the cursor, its `---` frontmatter block included, so a note with properties gets a second block in the middle of its text. Instead, the template's properties and its text are handled separately:
+- **Its properties:** merged into the note's own, by key.
+  - **Same keys:** if the note already has every key the template has (the same set, or more besides), nothing changes. A note's existing values are never overwritten.
+  - **Keys the note lacks:** if the template has keys the note doesn't, only those are added, with the template's values (rendered, so `{{date}}` and the like are filled in), after the note's existing properties, each as its own line. Only those lines change in the file (`Frontmatter.edit(adding:)` per key).
+  - **A note with no properties:** it gets the template's block at the top of the note, not at the cursor.
+- **Its text** (everything after its frontmatter) goes in at the cursor, as now.
+- **Undo:** one undo takes back both parts.
+- **Tests (VaultKit or EditorKit):** same set, a subset of the note's, more keys in the template, no frontmatter in the note, no frontmatter in the template. Also a template key that matches a note key with a different value: the note's value stays.
+
 **H. Capsules everywhere** (Mike, 24 October 2026). Not started. Every highlight and box becomes a fully rounded capsule, to match the Liquid Glass controls, even where Finder uses rounded rectangles (Mike finds that mix incoherent). Smallest first:
 
 1. **Our own shapes become capsules** (a line each, `Capsule()` in place of `RoundedRectangle`):
