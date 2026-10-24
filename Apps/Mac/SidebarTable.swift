@@ -279,9 +279,49 @@ struct SidebarTable: NSViewRepresentable {
                 && !model.subplaces(of: place).isEmpty:
                 parent.toggleExpanded(VaultModel.expansionKey(place))
             case .place(let place, _): model.browse(place)
-            case .header(let section): parent.toggle(section)
+            case .header(let section):
+                // The sort label at the section's right edge opens its menu; the rest of the
+                // row folds the section. (It's drawn in a view that takes no clicks, so the
+                // table sees them all.)
+                if let menu = sortMenu(for: section), clickedSortLabel(row: row, section: section, in: sender) {
+                    let point = sender.convert(NSApp.currentEvent?.locationInWindow ?? .zero, from: nil)
+                    menu.popUp(positioning: nil, at: NSPoint(x: point.x, y: sender.rect(ofRow: row).maxY), in: sender)
+                } else {
+                    parent.toggle(section)
+                }
             default: break
             }
+        }
+
+        /// Whether the click was on a section's sort label, at the right end of its row.
+        private func clickedSortLabel(row: Int, section: SidebarSection, in table: NSTableView) -> Bool {
+            guard let event = NSApp.currentEvent, let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false),
+                  let label = model.sortLabel(for: section) else { return false }
+            let x = cell.convert(event.locationInWindow, from: nil).x
+            return x >= cell.bounds.width - SidebarRowView.sortLabelWidth(label) - 12
+        }
+
+        /// How a section is sorted: notes by date edited, date created or title; folders and tags
+        /// by name or date modified.
+        private func sortMenu(for section: SidebarSection) -> NSMenu? {
+            let menu = NSMenu()
+            switch section {
+            case .notes:
+                for (title, sort) in [("Date Edited", NoteSort.modified), ("Date Created", .created), ("Title", .title)] {
+                    let entry = item(title) { $0.sort = sort }
+                    entry.state = model.sort == sort ? .on : .off
+                    menu.addItem(entry)
+                }
+            case .folders, .tags:
+                for (title, order) in [("Name", VaultModel.TagOrder.name), ("Date Modified", .modified)] {
+                    let entry = item(title) { $0.tagOrder = order }
+                    entry.state = model.tagOrder == order ? .on : .off
+                    menu.addItem(entry)
+                }
+            case .pinned:
+                return nil
+            }
+            return menu
         }
 
         /// Whether the click was on a folder's or tag's unfold arrow, at the start of its row.
@@ -472,6 +512,12 @@ struct SidebarRowView: View {
     static func arrowStart(depth: Int) -> CGFloat { 4 + CGFloat(depth) * 14 }
     static let arrowWidth: CGFloat = 12
 
+    /// The width of a section's sort label and its arrows.
+    static func sortLabelWidth(_ label: String) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: NSFont.preferredFont(forTextStyle: .caption1).pointSize, weight: .semibold)
+        return ceil((label as NSString).size(withAttributes: [.font: font]).width) + 2 + 8
+    }
+
     var body: some View {
         switch row {
         case .header(let section):
@@ -482,7 +528,15 @@ struct SidebarRowView: View {
                     .font(.caption2.weight(.semibold))
                     .rotationEffect(.degrees(isOpen ? 90 : 0))
                 Spacer(minLength: 4)
-                if section == .notes { SortMenu(model: model) }
+                if let label = model.sortLabel(for: section) {
+                    // Drawn only: the table takes the click and shows the menu.
+                    HStack(spacing: 2) {
+                        Text(label)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 8, weight: .semibold))
+                    }
+                    .help("How \(section.rawValue.lowercased()) are sorted")
+                }
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
@@ -602,33 +656,21 @@ extension Array {
     subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
 }
 
-/// The note list's sort order, as a small menu on its label.
-private struct SortMenu: View {
-    @ObservedObject var model: VaultModel
-
-    var body: some View {
-        Menu {
-            Picker("Sort Notes By", selection: Binding(get: { model.sort }, set: { model.sort = $0 })) {
-                Text("Date Edited").tag(NoteSort.modified)
-                Text("Date Created").tag(NoteSort.created)
-                Text("Title").tag(NoteSort.title)
+extension VaultModel {
+    /// The name of how a section is sorted, shown at the right of its label (nothing for
+    /// sections that aren't sorted).
+    func sortLabel(for section: SidebarSection) -> String? {
+        switch section {
+        case .notes:
+            switch sort {
+            case .modified: "Date Edited"
+            case .created: "Date Created"
+            case .title: "Title"
             }
-            .pickerStyle(.inline)
-        } label: {
-            Text(name)
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.visible)
-        .controlSize(.small) // The size of the label it sits on.
-        .fixedSize()
-        .help("How notes are sorted")
-    }
-
-    private var name: String {
-        switch model.sort {
-        case .modified: "Date Edited"
-        case .created: "Date Created"
-        case .title: "Title"
+        case .folders, .tags:
+            tagOrder == .name ? "Name" : "Date Modified"
+        case .pinned:
+            nil
         }
     }
 }

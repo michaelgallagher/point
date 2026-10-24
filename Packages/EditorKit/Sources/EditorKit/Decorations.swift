@@ -47,6 +47,12 @@ struct EditorTheme {
     var paragraphSpacing: CGFloat = 0
     var indentPerLevel: CGFloat = 22
     var markerWidth: CGFloat = 22
+    /// A bullet is small and sits at the text's left edge, so its text starts closer.
+    var bulletWidth: CGFloat = 15
+    func markerWidth(for marker: ListMarker) -> CGFloat {
+        if case .bullet = marker { return bulletWidth }
+        return markerWidth
+    }
     var maxTextWidth: CGFloat = 720
 
     /// The size of the arrow symbol after web links, and the space made for it.
@@ -70,11 +76,6 @@ struct EditorTheme {
         let font = NSFont.systemFont(ofSize: size, weight: weight)
         guard style.italic else { return font }
         return NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(.italic), size: size) ?? font
-    }
-
-    /// Space above a heading: H1 and H2 stand apart, smaller headings sit like body text.
-    func spaceBeforeHeading(level: Int) -> CGFloat {
-        level <= 2 ? headingFont(level: level).pointSize * 0.5 : 0
     }
 
     func calloutColor(_ type: String) -> NSColor {

@@ -755,7 +755,7 @@ final class VaultStore: ObservableObject {
         acceptsSwipe: { [weak self] event in
             guard let self, swipesSidebar, let model = activeWindow, let window = event.window, window === model.window else { return false }
             // Not over the top bars, where the tabs scroll sideways.
-            return event.locationInWindow.y < window.frame.height - model.topBarHeight
+            return event.locationInWindow.y < window.frame.height - model.topBarsHeight
         },
         isNoteListShowing: { [weak self] in self?.activeWindow?.showsNoteList ?? true },
         onSwipe: { [weak self] toTheLeft in

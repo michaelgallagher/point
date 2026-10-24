@@ -136,6 +136,9 @@ private struct NoteHeaderHost: View {
     var body: some View {
         NoteHeader(session: session, model: model, offersTemplates: offersTemplates)
             .environmentObject(model)
+            // No SwiftUI animation inside: the editor moves the text and reveals the header
+            // together (see `HeaderHeightAnimator`), and the two animating apart look like a jump.
+            .transaction { $0.animation = nil }
             .fixedSize(horizontal: false, vertical: true)
             .background(GeometryReader { proxy in
                 Color.clear.preference(key: HeaderHeight.self, value: proxy.size.height)

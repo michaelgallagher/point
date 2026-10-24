@@ -179,6 +179,9 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
 
     /// Which load the gradual layout belongs to, so a newer note's text stops an older run.
     private var layoutRun = 0
+    /// Whether the gradual layout is still going, so the rest of the note is a guess.
+    private var isCompletingLayout = false
+    private var scrollObserver: NSObjectProtocol?
 
     /// Lays out the rest of the note, a piece at a time, after it opens. Only what's on
     /// screen is laid out at first (so long notes open instantly), which leaves the note's
@@ -186,15 +189,43 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     private func completeLayoutGradually() {
         layoutRun += 1
         let run = layoutRun
+        isCompletingLayout = true
         func step(from start: Int) {
             DispatchQueue.main.async { [weak self] in
-                guard let self, run == self.layoutRun, let layoutManager, let storage = textStorage, start < storage.length else { return }
+                guard let self, run == self.layoutRun else { return }
+                guard let layoutManager, let storage = textStorage, start < storage.length else {
+                    isCompletingLayout = false
+                    return
+                }
                 let end = min(start + 20_000, storage.length)
                 layoutManager.ensureLayout(forCharacterRange: NSRange(location: start, length: end - start))
                 step(from: end)
             }
         }
         step(from: 0)
+    }
+
+    /// While the rest of a note is still being laid out, scrolling lays out everything up to
+    /// what's showing (and a little past it), so the note's height is right where it is
+    /// scrolled to, instead of a guess that jumps when the layout catches up.
+    public override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
+        scrollObserver = nil
+        guard let clip = superview as? NSClipView else { return }
+        clip.postsBoundsChangedNotifications = true
+        scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: clip, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.layOutThroughVisibleText() }
+        }
+    }
+
+    private func layOutThroughVisibleText() {
+        guard isCompletingLayout, let layoutManager, let container = textContainer, let storage = textStorage, storage.length > 0 else { return }
+        let origin = textContainerOrigin
+        let bottom = NSPoint(x: container.lineFragmentPadding + 1, y: visibleRect.maxY - origin.y)
+        let index = layoutManager.characterIndexForPoint(bottom, in: container)
+        let end = min(index + 2_000, storage.length)
+        layoutManager.ensureLayout(forCharacterRange: NSRange(location: 0, length: end))
     }
 
     /// Swaps in a newer version of the text (for example, edited in Obsidian), replacing only
@@ -276,10 +307,22 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     public var headerView: NSView? {
         didSet {
             oldValue?.removeFromSuperview()
-            if let headerView { addSubview(headerView) }
+            if let headerView {
+                headerClip.addSubview(headerView)
+                if headerClip.superview == nil { addSubview(headerClip) }
+            }
             layoutHeader()
         }
     }
+
+    /// Holds the header and shows only `headerHeight` of it, so while the header's contents
+    /// open or close, what's revealed grows or shrinks with the text moving below it.
+    private let headerClip: NSView = {
+        let view = FlippedView()
+        view.wantsLayer = true
+        view.layer?.masksToBounds = true
+        return view
+    }()
 
     /// The header's height. The text starts below it.
     public var headerHeight: CGFloat = 0 {
@@ -310,6 +353,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     }
 
     private func layoutHeader() {
+        headerClip.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(headerHeight, 1))
         headerView?.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(headerHeight, headerViewMinimumHeight, 1))
     }
 
@@ -588,6 +632,11 @@ extension MarkdownToken {
     }
 }
 #endif
+
+/// A view whose origin is at its top left, like the text view's: what it clips is cut from the bottom.
+private final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
+}
 
 /// The editor's scroll view. Where the window's top bars cover its top (its top content
 /// inset), it blurs the text scrolling beneath them, like the system's hard scroll edge

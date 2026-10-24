@@ -18,7 +18,7 @@ struct PaneView: View {
                 // Only the window buttons' row, empty.
                 page(pane, index: index, underBar: model.topBarHeight)
             } else if #available(macOS 26, *) {
-                page(pane, index: index, underBar: model.topBarHeight * 2 + 2) // Both rows, and their lines.
+                page(pane, index: index, underBar: model.topBarsHeight)
                     .overlay(alignment: .top) { PaneTopBar(pane: pane, paneIndex: index) }
             } else {
                 VStack(spacing: 0) {
