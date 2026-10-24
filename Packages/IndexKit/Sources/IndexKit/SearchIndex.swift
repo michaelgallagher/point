@@ -55,7 +55,7 @@ public actor SearchIndex {
     private var titles: [(row: Int, id: Note.ID, title: String)] = []
 
     /// Opens the index at `url`, or an in-memory one when nil. An index from an older
-    /// version of Imprint is rebuilt from scratch.
+    /// version of Point is rebuilt from scratch.
     public init(url: URL?) throws {
         if let url {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

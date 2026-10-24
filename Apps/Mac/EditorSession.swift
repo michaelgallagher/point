@@ -4,13 +4,13 @@ import VaultKit
 
 extension Notification.Name {
     /// Posted by the vault model with the changed file URLs in `userInfo["urls"]`.
-    static let imprintFilesChanged = Notification.Name("ImprintFilesChanged")
+    static let pointFilesChanged = Notification.Name("PointFilesChanged")
     /// Posted before a note's file is renamed or deleted, with its URL in `userInfo["url"]`.
-    static let imprintReleaseFile = Notification.Name("ImprintReleaseFile")
+    static let pointReleaseFile = Notification.Name("PointReleaseFile")
     /// Asks every open note to save its edits now.
-    static let imprintSaveNow = Notification.Name("ImprintSaveNow")
+    static let pointSaveNow = Notification.Name("PointSaveNow")
     /// Asks the open note to insert `userInfo["text"]` at its cursor.
-    static let imprintInsertText = Notification.Name("ImprintInsertText")
+    static let pointInsertText = Notification.Name("PointInsertText")
 }
 
 /// One open note: loading it, saving edits, and keeping it in step with changes made
@@ -46,13 +46,13 @@ final class EditorSession: NSObject, ObservableObject {
         super.init()
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(appWillResignActive), name: NSApplication.willResignActiveNotification, object: nil)
-        center.addObserver(self, selector: #selector(filesChanged(_:)), name: .imprintFilesChanged, object: nil)
-        center.addObserver(self, selector: #selector(releaseFile(_:)), name: .imprintReleaseFile, object: nil)
-        center.addObserver(self, selector: #selector(appWillResignActive), name: .imprintSaveNow, object: nil)
-        center.addObserver(self, selector: #selector(insertText(_:)), name: .imprintInsertText, object: nil)
-        center.addObserver(self, selector: #selector(setPropertyFromNotification(_:)), name: .imprintSetProperty, object: nil)
-        center.addObserver(self, selector: #selector(addTagFromNotification(_:)), name: .imprintAddTag, object: nil)
-        center.addObserver(self, selector: #selector(editorCommand(_:)), name: .imprintEditorCommand, object: nil)
+        center.addObserver(self, selector: #selector(filesChanged(_:)), name: .pointFilesChanged, object: nil)
+        center.addObserver(self, selector: #selector(releaseFile(_:)), name: .pointReleaseFile, object: nil)
+        center.addObserver(self, selector: #selector(appWillResignActive), name: .pointSaveNow, object: nil)
+        center.addObserver(self, selector: #selector(insertText(_:)), name: .pointInsertText, object: nil)
+        center.addObserver(self, selector: #selector(setPropertyFromNotification(_:)), name: .pointSetProperty, object: nil)
+        center.addObserver(self, selector: #selector(addTagFromNotification(_:)), name: .pointAddTag, object: nil)
+        center.addObserver(self, selector: #selector(editorCommand(_:)), name: .pointEditorCommand, object: nil)
     }
 
     // MARK: Loading
@@ -94,10 +94,10 @@ final class EditorSession: NSObject, ObservableObject {
     // MARK: Saving
 
     /// Seconds after the last keystroke before saving. Debug builds accept
-    /// `-ImprintSaveDelay <seconds>`, to test what happens to unsaved edits.
+    /// `-PointSaveDelay <seconds>`, to test what happens to unsaved edits.
     private static let saveDelay: Double = {
         #if DEBUG
-        let value = UserDefaults.standard.double(forKey: "ImprintSaveDelay")
+        let value = UserDefaults.standard.double(forKey: "PointSaveDelay")
         if value > 0 { return value }
         #endif
         return 1
@@ -135,7 +135,7 @@ final class EditorSession: NSObject, ObservableObject {
                 conflict = .changedElsewhere(theirs: theirs)
             }
         } catch {
-            NSLog("Imprint: couldn't save \(note.id): \(error.localizedDescription)")
+            NSLog("Point: couldn't save \(note.id): \(error.localizedDescription)")
         }
     }
 

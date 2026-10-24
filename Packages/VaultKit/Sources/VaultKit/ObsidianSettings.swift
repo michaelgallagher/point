@@ -1,6 +1,6 @@
 import Foundation
 
-/// The vault settings Imprint shares with Obsidian, read from `.obsidian/`.
+/// The vault settings Point shares with Obsidian, read from `.obsidian/`.
 /// Missing files or keys fall back to Obsidian's own defaults.
 public struct ObsidianSettings: Sendable, Equatable {
     public enum TrashOption: String, Sendable {
@@ -8,7 +8,7 @@ public struct ObsidianSettings: Sendable, Equatable {
         case system
         /// The vault's own `.trash` folder.
         case local
-        /// Permanent deletion. Imprint treats this as `system`, to stay recoverable.
+        /// Permanent deletion. Point treats this as `system`, to stay recoverable.
         case none
     }
 

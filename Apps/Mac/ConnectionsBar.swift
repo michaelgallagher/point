@@ -14,7 +14,7 @@ final class Connections: ObservableObject {
     init(note: Note, model: VaultModel) {
         self.note = note
         self.model = model
-        NotificationCenter.default.addObserver(self, selector: #selector(vaultChanged), name: .imprintFilesChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(vaultChanged), name: .pointFilesChanged, object: nil)
     }
 
     @objc private func vaultChanged() {

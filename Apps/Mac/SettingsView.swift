@@ -3,7 +3,7 @@ import EditorKit
 import SwiftUI
 import VaultKit
 
-/// Imprint's Settings window (⌘,): its sections in a list down the left, each section's
+/// Point's Settings window (⌘,): its sections in a list down the left, each section's
 /// settings beside it, each with its label above its options.
 struct SettingsView: View {
     @EnvironmentObject private var store: VaultStore
@@ -70,7 +70,7 @@ struct SettingsView: View {
             }
         }
         .frame(width: 780, height: 560)
-        // No "Imprint Settings" in the title bar: the page's name is in the toolbar instead.
+        // No "Point Settings" in the title bar: the page's name is in the toolbar instead.
         .background(SettingsWindowStyle())
     }
 

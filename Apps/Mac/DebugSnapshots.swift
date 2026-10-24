@@ -3,7 +3,7 @@ import AppKit
 import SwiftUI
 import VaultKit
 
-/// Debug builds only: `-ImprintSnapshots <folder>` opens a few notes in tabs, then saves
+/// Debug builds only: `-PointSnapshots <folder>` opens a few notes in tabs, then saves
 /// pictures of the window in a few states (a start page, a note, a new note), so the layout
 /// can be checked without anyone at the screen. Add `-showsNoteList NO` to start with the
 /// sidebar hidden.
@@ -12,13 +12,13 @@ enum DebugSnapshots {
     static func runIfAsked(for model: VaultModel) {
         scrollNoteIfAsked(for: model)
         clickBackIfAsked(for: model)
-        if let key = UserDefaults.standard.string(forKey: "ImprintBrowse"), let place = SidebarPlace(key: key) {
-            // `-ImprintBrowse <place key>`: shows that place in the sidebar.
+        if let key = UserDefaults.standard.string(forKey: "PointBrowse"), let place = SidebarPlace(key: key) {
+            // `-PointBrowse <place key>`: shows that place in the sidebar.
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { model.browse(place) }
         }
         trashIfAsked(for: model)
         formatIfAsked(for: model)
-        guard let folder = UserDefaults.standard.string(forKey: "ImprintSnapshots") else { return }
+        guard let folder = UserDefaults.standard.string(forKey: "PointSnapshots") else { return }
         let directory = URL(fileURLWithPath: folder, isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
@@ -95,12 +95,12 @@ enum DebugSnapshots {
         }
     }
 
-    /// `-ImprintScrollNote <note ID>`: opens that note and scrolls it partway down (by
-    /// `-ImprintScrollBy`, 120 points unless given), to see what's under the top bar. For a
+    /// `-PointScrollNote <note ID>`: opens that note and scrolls it partway down (by
+    /// `-PointScrollBy`, 120 points unless given), to see what's under the top bar. For a
     /// screen capture of the window: the bar's effects don't show in a snapshot.
     private static func scrollNoteIfAsked(for model: VaultModel) {
-        guard let id = UserDefaults.standard.string(forKey: "ImprintScrollNote") else { return }
-        let amount = UserDefaults.standard.object(forKey: "ImprintScrollBy") == nil ? 120 : UserDefaults.standard.double(forKey: "ImprintScrollBy")
+        guard let id = UserDefaults.standard.string(forKey: "PointScrollNote") else { return }
+        let amount = UserDefaults.standard.object(forKey: "PointScrollBy") == nil ? 120 : UserDefaults.standard.double(forKey: "PointScrollBy")
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             model.selection = id
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
@@ -115,11 +115,11 @@ enum DebugSnapshots {
         }
     }
 
-    /// `-ImprintClickBack YES`: tries the back and forward arrows on the first side's bar
+    /// `-PointClickBack YES`: tries the back and forward arrows on the first side's bar
     /// with real mouse events sent through the window, as a person's clicks would go, and
     /// notes in the trace whether each step did what it should.
     private static func clickBackIfAsked(for model: VaultModel) {
-        guard UserDefaults.standard.bool(forKey: "ImprintClickBack") else { return }
+        guard UserDefaults.standard.bool(forKey: "PointClickBack") else { return }
         func check(_ name: String, _ ok: Bool, _ detail: String = "") {
             Trace.mark("click test: \(ok ? "PASS" : "FAIL") \(name) \(detail)")
         }
@@ -182,10 +182,10 @@ enum DebugSnapshots {
         }
     }
 
-    /// `-ImprintTrashTest <note ID>`: deletes that note, checks it's listed in the trash, puts
+    /// `-PointTrashTest <note ID>`: deletes that note, checks it's listed in the trash, puts
     /// it back and checks it's back, noting each step in the trace.
     private static func trashIfAsked(for model: VaultModel) {
-        guard let id = UserDefaults.standard.string(forKey: "ImprintTrashTest") else { return }
+        guard let id = UserDefaults.standard.string(forKey: "PointTrashTest") else { return }
         func check(_ name: String, _ ok: Bool) { Trace.mark("trash test: \(ok ? "PASS" : "FAIL") \(name)") }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             guard let note = model.note(id) else { return check("note found", false) }
@@ -204,10 +204,10 @@ enum DebugSnapshots {
         }
     }
 
-    /// `-ImprintFormatTest <note ID>`: opens the note, selects its first word, and runs the
+    /// `-PointFormatTest <note ID>`: opens the note, selects its first word, and runs the
     /// palette's own Bold, then Block Quote, commands, checking the note's text each time.
     private static func formatIfAsked(for model: VaultModel) {
-        guard let id = UserDefaults.standard.string(forKey: "ImprintFormatTest") else { return }
+        guard let id = UserDefaults.standard.string(forKey: "PointFormatTest") else { return }
         func check(_ name: String, _ ok: Bool, _ detail: String) { Trace.mark("format test: \(ok ? "PASS" : "FAIL") \(name) \(detail)") }
         func editor() -> NSTextView? {
             func find(_ view: NSView) -> NSTextView? {

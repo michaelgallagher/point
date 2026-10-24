@@ -1,4 +1,4 @@
-# Imprint
+# Point
 
 A simple, fast, native Markdown notes app for Mac and iPhone that works on an Obsidian vault. See [PLAN.md](PLAN.md).
 
@@ -7,10 +7,10 @@ A simple, fast, native Markdown notes app for Mac and iPhone that works on an Ob
 Requires Xcode and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`). The Xcode project is generated from `project.yml` and is not checked in.
 
 ```bash
-xcodegen && open Imprint.xcodeproj
+xcodegen && open Point.xcodeproj
 ```
 
-Run the `Imprint-Mac` scheme. Debug builds aren't sandboxed, so they can open a vault by path, skipping the folder picker. Add `-ImprintVault ~/path/to/vault` to the scheme's launch arguments.
+Run the `Point-Mac` scheme. Debug builds aren't sandboxed, so they can open a vault by path, skipping the folder picker. Add `-PointVault ~/path/to/vault` to the scheme's launch arguments.
 
 Tests for the shared code (run each from its package folder):
 
@@ -40,7 +40,7 @@ cd Packages/EditorKit && IMPRINT_ROUNDTRIP_VAULT=~/path/to/vault swift test -c r
 ./scripts/build-mac.sh
 ```
 
-This writes a universal (Apple Silicon and Intel) app that runs on macOS 13 or later to `build/Imprint.app`, plus `build/Imprint.zip` for copying. The app is signed ad hoc, so on the other Mac right-click it and choose Open the first time.
+This writes a universal (Apple Silicon and Intel) app that runs on macOS 13 or later to `build/Point.app`, plus `build/Point.zip` for copying. The app is signed ad hoc, so on the other Mac right-click it and choose Open the first time.
 
 ## Layout
 

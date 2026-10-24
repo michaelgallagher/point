@@ -3,12 +3,12 @@ import VaultKit
 
 extension Notification.Name {
     /// Asks the window to show the Add Property sheet for the open note.
-    static let imprintAddProperty = Notification.Name("ImprintAddProperty")
+    static let pointAddProperty = Notification.Name("PointAddProperty")
     /// Asks the open note to set a property: `userInfo` has "key", "values" and "isList".
-    static let imprintSetProperty = Notification.Name("ImprintSetProperty")
+    static let pointSetProperty = Notification.Name("PointSetProperty")
     /// Asks a note's editor to do a Format menu command: `userInfo` has "noteID" and
     /// "action" (the command's selector, by name).
-    static let imprintEditorCommand = Notification.Name("ImprintEditorCommand")
+    static let pointEditorCommand = Notification.Name("PointEditorCommand")
 }
 
 /// Adds a property to the open note, creating its frontmatter if it has none.
@@ -108,7 +108,7 @@ struct AddPropertySheet: View {
                 .filter { !$0.isEmpty }
         case .text: values = [text.trimmingCharacters(in: .whitespaces)]
         }
-        NotificationCenter.default.post(name: .imprintSetProperty, object: nil,
+        NotificationCenter.default.post(name: .pointSetProperty, object: nil,
                                         userInfo: ["key": key, "values": values, "isList": kind == .list || kind == .tags,
                                                    "noteID": model.selection ?? ""])
         dismiss()

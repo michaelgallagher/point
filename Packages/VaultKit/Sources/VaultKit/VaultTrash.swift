@@ -1,7 +1,7 @@
 import Foundation
 
 /// The vault's trash: its `.trash` folder, as Obsidian uses it when set to "Move to Obsidian
-/// trash". Notes deleted in Imprint always go there, so they can be listed and put back, and
+/// trash". Notes deleted in Point always go there, so they can be listed and put back, and
 /// Obsidian sees the same ones. When each was deleted, and where from, is kept by the app.
 public enum VaultTrash {
     /// A note in the trash.
@@ -10,7 +10,7 @@ public enum VaultTrash {
         public let name: String
         public let url: URL
         public var title: String { url.deletingPathExtension().lastPathComponent }
-        /// When it was deleted (or first found in the trash, if Imprint didn't delete it).
+        /// When it was deleted (or first found in the trash, if Point didn't delete it).
         public let deleted: Date
         /// The folder it came from ("" for the vault's top level), if known.
         public let folder: String?

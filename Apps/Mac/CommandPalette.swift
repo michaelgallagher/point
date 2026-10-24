@@ -415,7 +415,7 @@ struct PaletteCommand {
         if let note = model.selectedNote {
             commands += [
                 PaletteCommand(name: "Insert Template…", shortcut: "⌥⌘T") { model.isChoosingTemplate = true },
-                PaletteCommand(name: "Add Property…", shortcut: nil) { NotificationCenter.default.post(name: .imprintAddProperty, object: model) },
+                PaletteCommand(name: "Add Property…", shortcut: nil) { NotificationCenter.default.post(name: .pointAddProperty, object: model) },
                 PaletteCommand(name: "Rename Note…", shortcut: nil) { model.renaming = note },
                 PaletteCommand(name: "Move to Folder…", shortcut: nil) { model.moving = note },
                 PaletteCommand(name: "Add Tag…", shortcut: nil) { model.tagging = note },
@@ -456,7 +456,7 @@ struct PaletteCommand {
             ]
             for (name, shortcut, action) in formats {
                 commands.append(PaletteCommand(name: name, shortcut: shortcut) {
-                    NotificationCenter.default.post(name: .imprintEditorCommand, object: nil,
+                    NotificationCenter.default.post(name: .pointEditorCommand, object: nil,
                                                     userInfo: ["noteID": note.id, "action": NSStringFromSelector(action)])
                 })
             }

@@ -3,12 +3,12 @@ import SwiftUI
 import VaultKit
 
 @main
-struct ImprintApp: App {
+struct PointApp: App {
     /// The vault, shared by every window and tab.
     @StateObject private var store = VaultStore()
 
     init() {
-        // Imprint has its own tabs, inside each side of a window; no window tabs.
+        // Point has its own tabs, inside each side of a window; no window tabs.
         NSWindow.allowsAutomaticWindowTabbing = false
     }
 
@@ -74,7 +74,7 @@ struct WindowRoot: View {
     }
 }
 
-/// Reports the window, and when it comes to the front. Imprint keeps its own tabs, inside
+/// Reports the window, and when it comes to the front. Point keeps its own tabs, inside
 /// each side of a window, so macOS's window tabs are turned off.
 private struct WindowTabbing: NSViewRepresentable {
     let onAttach: (NSWindow) -> Void

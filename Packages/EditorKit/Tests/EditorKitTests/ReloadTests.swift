@@ -98,18 +98,18 @@ struct LinkAndTagStyleTests {
         let storage = view.textStorage!
         let ns = text as NSString
         let siteEnd = ns.range(of: "site").location + 3
-        #expect(storage.attribute(.imprintWebLink, at: siteEnd, effectiveRange: nil) != nil)
+        #expect(storage.attribute(.pointWebLink, at: siteEnd, effectiveRange: nil) != nil)
         #expect((storage.attribute(.kern, at: siteEnd, effectiveRange: nil) as? CGFloat ?? 0) > 0)
-        #expect(storage.attribute(.imprintWebLink, at: ns.length - 1, effectiveRange: nil) != nil)
+        #expect(storage.attribute(.pointWebLink, at: ns.length - 1, effectiveRange: nil) != nil)
         // Wikilinks don't get the symbol.
         let noteEnd = ns.range(of: "Note").location + 3
-        #expect(storage.attribute(.imprintWebLink, at: noteEnd, effectiveRange: nil) == nil)
+        #expect(storage.attribute(.pointWebLink, at: noteEnd, effectiveRange: nil) == nil)
     }
 
     @Test func tagsAreMarkedForPills() {
         let view = EditorTestSupport.makeEditor("a #tag b", height: 300)
-        #expect(view.textStorage!.attribute(.imprintTag, at: 3, effectiveRange: nil) != nil)
-        #expect(view.textStorage!.attribute(.imprintTag, at: 7, effectiveRange: nil) == nil)
+        #expect(view.textStorage!.attribute(.pointTag, at: 3, effectiveRange: nil) != nil)
+        #expect(view.textStorage!.attribute(.pointTag, at: 7, effectiveRange: nil) == nil)
     }
 }
 

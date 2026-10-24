@@ -216,7 +216,7 @@ struct BarButton: View {
     }
 }
 
-/// A side's tabs, drawn by Imprint: the current tab a raised, page-coloured tab (it is the
+/// A side's tabs, drawn by Point: the current tab a raised, page-coloured tab (it is the
 /// page below), the others plain titles that shade on hover, each with a close button on
 /// hover, at its leading edge as in Safari and Finder. Right-click a tab for its menu.
 struct NoteTabs: View {
@@ -479,7 +479,7 @@ private struct TabMouseArea: NSViewRepresentable {
 /// A dragged tab, on the drag's pasteboard by its ID, which is looked up in the window it's
 /// dropped in (a tab from another window isn't found there, so isn't taken).
 enum TabDrag {
-    static let pasteboardType = NSPasteboard.PasteboardType("org.mikegallagher.imprint.tab")
+    static let pasteboardType = NSPasteboard.PasteboardType("org.mikegallagher.point.tab")
 
     static func tab(on pasteboard: NSPasteboard) -> VaultModel.NoteTab.ID? {
         pasteboard.string(forType: pasteboardType).flatMap(UUID.init(uuidString:))

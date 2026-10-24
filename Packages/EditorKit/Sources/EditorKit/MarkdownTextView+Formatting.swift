@@ -461,14 +461,14 @@ extension MarkdownTextView {
 
     /// Ticks or unticks the checkbox at a point in the view, if there is one there.
     func toggleCheckbox(at point: NSPoint) -> Bool {
-        guard let layoutManager = imprintLayoutManager, let container = textContainer, let storage = textStorage else { return false }
+        guard let layoutManager = pointLayoutManager, let container = textContainer, let storage = textStorage else { return false }
         let origin = textContainerOrigin
         let local = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
         let index = layoutManager.characterIndexForPoint(local, in: container)
         let lineStart = lineStart(of: min(index, max(storage.length - 1, 0)))
         guard let token = tokens.first(where: { $0.range.location == lineStart }),
               case .listItem(.task(let done), _) = token.kind,
-              let decoration = storage.attribute(.imprintListMarker, at: lineStart, effectiveRange: nil) as? ListMarkerDecoration,
+              let decoration = storage.attribute(.pointListMarker, at: lineStart, effectiveRange: nil) as? ListMarkerDecoration,
               let marker = token.syntax.first else { return false }
 
         let line = layoutManager.lineRect(containing: lineStart, storage: storage)

@@ -69,7 +69,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     }
 
     private func themeChanged() {
-        imprintLayoutManager?.theme = styler.theme
+        pointLayoutManager?.theme = styler.theme
         typingAttributes = styler.baseAttributes
         restyleAll()
     }
@@ -110,7 +110,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     private var ownedStorage: NSTextStorage?
     private var isAdjustingSelection = false
 
-    var imprintLayoutManager: ImprintLayoutManager? { layoutManager as? ImprintLayoutManager }
+    var pointLayoutManager: PointLayoutManager? { layoutManager as? PointLayoutManager }
 
     /// An editor inside a scroll view, ready to put in a window.
     public static func makeScrollable() -> (NSScrollView, MarkdownTextView) {
@@ -126,7 +126,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     /// Builds the TextKit 1 text system by hand so the custom layout manager can hide markers.
     convenience init(markdown: Void) {
         let storage = NSTextStorage()
-        let layoutManager = ImprintLayoutManager()
+        let layoutManager = PointLayoutManager()
         // Lay out only what is on screen, so long notes open instantly.
         layoutManager.allowsNonContiguousLayout = true
         storage.addLayoutManager(layoutManager)
@@ -386,7 +386,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
 
     func isHidden(_ index: Int) -> Bool {
         guard let storage = textStorage, index >= 0, index < storage.length else { return false }
-        return storage.attribute(.imprintHidden, at: index, effectiveRange: nil) != nil
+        return storage.attribute(.pointHidden, at: index, effectiveRange: nil) != nil
     }
 
     /// The hidden run containing the character at `index`, limited to its line.
@@ -394,7 +394,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         guard let storage = textStorage, isHidden(index) else { return nil }
         let line = (storage.string as NSString).lineRange(for: NSRange(location: index, length: 0))
         var run = NSRange()
-        _ = storage.attribute(.imprintHidden, at: index, longestEffectiveRange: &run, in: line)
+        _ = storage.attribute(.pointHidden, at: index, longestEffectiveRange: &run, in: line)
         return run
     }
 
@@ -406,7 +406,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         let text = string as NSString
         var start = 0, end = 0, contentsEnd = 0
         text.getLineStart(&start, end: &end, contentsEnd: &contentsEnd, for: NSRange(location: index, length: 0))
-        guard start < text.length, storage.attribute(.imprintCollapsed, at: start, effectiveRange: nil) != nil else { return nil }
+        guard start < text.length, storage.attribute(.pointCollapsed, at: start, effectiveRange: nil) != nil else { return nil }
         return NSRange(location: start, length: contentsEnd - start)
     }
 

@@ -58,7 +58,7 @@ struct PropertiesStrip: View {
                     HStack(spacing: 12) {
                         Color.clear.frame(width: keyWidth, height: 1)
                         Button {
-                            NotificationCenter.default.post(name: .imprintAddProperty, object: model)
+                            NotificationCenter.default.post(name: .pointAddProperty, object: model)
                         } label: {
                             Label("Add Property", systemImage: "plus")
                         }
@@ -241,7 +241,7 @@ private struct RowFrames: PreferenceKey {
     }
 }
 
-/// One editable value. Lists are edited as comma-separated text. Values Imprint doesn't
+/// One editable value. Lists are edited as comma-separated text. Values Point doesn't
 /// understand (nested YAML) are shown but can only be changed in raw Markdown.
 private struct PropertyField: View {
     let property: Frontmatter.Property

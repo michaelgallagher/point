@@ -4,24 +4,24 @@ import MarkdownKit
 
 extension NSAttributedString.Key {
     /// Marker characters (`**`, `[[`, `# `) that are in the file but not shown.
-    static let imprintHidden = NSAttributedString.Key("imprint.hidden")
+    static let pointHidden = NSAttributedString.Key("point.hidden")
     /// A line squeezed to a sliver, such as a code fence or frontmatter. The cursor skips it.
-    static let imprintCollapsed = NSAttributedString.Key("imprint.collapsed")
+    static let pointCollapsed = NSAttributedString.Key("point.collapsed")
     /// A block drawn behind its text: a quote bar, callout or code background.
-    static let imprintBlock = NSAttributedString.Key("imprint.block")
+    static let pointBlock = NSAttributedString.Key("point.block")
     /// A list marker drawn in place of the hidden `- `, `1. ` or `- [ ] `.
-    static let imprintListMarker = NSAttributedString.Key("imprint.listMarker")
+    static let pointListMarker = NSAttributedString.Key("point.listMarker")
     /// A horizontal rule drawn in place of the hidden `---`.
-    static let imprintRule = NSAttributedString.Key("imprint.rule")
+    static let pointRule = NSAttributedString.Key("point.rule")
     /// A `#tag`, drawn as a pill.
-    static let imprintTag = NSAttributedString.Key("imprint.tag")
+    static let pointTag = NSAttributedString.Key("point.tag")
     /// The last letter of a link to a website, followed by the arrow symbol drawn after it.
-    static let imprintWebLink = NSAttributedString.Key("imprint.webLink")
+    static let pointWebLink = NSAttributedString.Key("point.webLink")
     /// A background colour (an `NSColor`) drawn with rounded corners behind the text, line by
     /// line: highlights and inline code.
-    static let imprintRoundedBackground = NSAttributedString.Key("imprint.roundedBackground")
+    static let pointRoundedBackground = NSAttributedString.Key("point.roundedBackground")
     /// A line-height multiple (CGFloat) overriding the theme's, for example in code blocks.
-    static let imprintLineHeight = NSAttributedString.Key("imprint.lineHeight")
+    static let pointLineHeight = NSAttributedString.Key("point.lineHeight")
 }
 
 enum BlockDecoration: Hashable {

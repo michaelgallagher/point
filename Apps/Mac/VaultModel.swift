@@ -22,9 +22,9 @@ final class VaultModel: ObservableObject {
             Task { @MainActor in self?.scheduleSearch() }
         }
         let center = NotificationCenter.default
-        center.addObserver(self, selector: #selector(noteMoved(_:)), name: .imprintNoteMoved, object: nil)
-        center.addObserver(self, selector: #selector(folderMoved(_:)), name: .imprintFolderMoved, object: nil)
-        center.addObserver(self, selector: #selector(vaultOpened), name: .imprintVaultOpened, object: nil)
+        center.addObserver(self, selector: #selector(noteMoved(_:)), name: .pointNoteMoved, object: nil)
+        center.addObserver(self, selector: #selector(folderMoved(_:)), name: .pointFolderMoved, object: nil)
+        center.addObserver(self, selector: #selector(vaultOpened), name: .pointVaultOpened, object: nil)
         center.addObserver(self, selector: #selector(appWillTerminate), name: NSApplication.willTerminateNotification, object: nil)
     }
 
@@ -75,7 +75,7 @@ final class VaultModel: ObservableObject {
     var trashedNotes: [VaultTrash.Item] { store.trashedNotes }
 
     /// What a dragged sidebar row carries: a note's ID, or for a folder, this and its path.
-    static let folderDragPrefix = "imprint-folder:"
+    static let folderDragPrefix = "point-folder:"
 
     /// Something dropped on a folder ("" is the vault root): a note or a folder goes inside.
     func drop(_ dragged: String, onFolder folder: String) {
@@ -704,7 +704,7 @@ final class VaultModel: ObservableObject {
     func insertTemplate(at url: URL) {
         guard let note = selectedNote, let template = try? NoteReader.read(contentsOf: url) else { return NSSound.beep() }
         let text = Templates.render(template, title: note.title, settings: settings)
-        NotificationCenter.default.post(name: .imprintInsertText, object: self, userInfo: ["text": text, "noteID": note.id])
+        NotificationCenter.default.post(name: .pointInsertText, object: self, userInfo: ["text": text, "noteID": note.id])
     }
 
     // MARK: Links
@@ -785,7 +785,7 @@ final class VaultModel: ObservableObject {
     /// Whether the sidebar is showing (⌘S, or a two-finger swipe if turned on in Settings,
     /// hides and shows it).
     /// Remembered, so new windows open the way the last one was left: hiding the sidebar
-    /// is how Imprint becomes a single, compact note.
+    /// is how Point becomes a single, compact note.
     @Published var showsNoteList = UserDefaults.standard.object(forKey: "showsNoteList") == nil || UserDefaults.standard.bool(forKey: "showsNoteList") {
         didSet {
             UserDefaults.standard.set(showsNoteList, forKey: "showsNoteList")

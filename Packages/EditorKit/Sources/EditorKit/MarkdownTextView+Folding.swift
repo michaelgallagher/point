@@ -179,11 +179,11 @@ extension MarkdownTextView {
     /// Where a line's fold arrow goes: in the margin, just before its heading text or its
     /// list marker.
     func foldArrowRect(forLine line: Int) -> NSRect? {
-        guard let layoutManager = imprintLayoutManager, let storage = textStorage, let container = textContainer,
+        guard let layoutManager = pointLayoutManager, let storage = textStorage, let container = textContainer,
               line < storage.length else { return nil }
         let lineRect = layoutManager.lineRect(containing: line, storage: storage)
         var x = container.lineFragmentPadding
-        if let decoration = storage.attribute(.imprintListMarker, at: line, effectiveRange: nil) as? ListMarkerDecoration {
+        if let decoration = storage.attribute(.pointListMarker, at: line, effectiveRange: nil) as? ListMarkerDecoration {
             x += styler.theme.indentPerLevel * CGFloat(decoration.level)
         }
         let size: CGFloat = 14
@@ -204,7 +204,7 @@ extension MarkdownTextView {
 
     /// The start of the line at a point in the view.
     func line(at point: NSPoint) -> Int? {
-        guard let layoutManager = imprintLayoutManager, let container = textContainer, textStorage?.length ?? 0 > 0 else { return nil }
+        guard let layoutManager = pointLayoutManager, let container = textContainer, textStorage?.length ?? 0 > 0 else { return nil }
         let origin = textContainerOrigin
         let local = NSPoint(x: max(point.x - origin.x, container.lineFragmentPadding + 1), y: point.y - origin.y)
         let index = layoutManager.characterIndexForPoint(local, in: container)
@@ -230,7 +230,7 @@ extension MarkdownTextView {
 
     /// A "⋯" after a folded line's text, for what's rolled up under it.
     private func drawFoldedMark(afterLine line: Int) {
-        guard let layoutManager = imprintLayoutManager, let container = textContainer else { return }
+        guard let layoutManager = pointLayoutManager, let container = textContainer else { return }
         let end = lineContentsEnd(of: line)
         let lastVisible = max(line, end - 1)
         let glyph = layoutManager.glyphIndexForCharacter(at: lastVisible)

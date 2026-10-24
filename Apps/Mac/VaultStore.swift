@@ -7,11 +7,11 @@ import VaultKit
 
 extension Notification.Name {
     /// A note moved or was renamed: `userInfo` has "old" and "new" IDs. Windows follow it.
-    static let imprintNoteMoved = Notification.Name("ImprintNoteMoved")
+    static let pointNoteMoved = Notification.Name("PointNoteMoved")
     /// A folder moved: `old` and `new` are its paths.
-    static let imprintFolderMoved = Notification.Name("ImprintFolderMoved")
+    static let pointFolderMoved = Notification.Name("PointFolderMoved")
     /// A different vault was opened. Windows start afresh.
-    static let imprintVaultOpened = Notification.Name("ImprintVaultOpened")
+    static let pointVaultOpened = Notification.Name("PointVaultOpened")
 }
 
 /// The open vault, shared by every window and tab: its notes, search index, tags, file
@@ -79,7 +79,7 @@ final class VaultStore: ObservableObject {
         do {
             UserDefaults.standard.set(try VaultLocation.bookmark(for: url), forKey: Keys.bookmark)
         } catch {
-            errorMessage = "Imprint couldn't remember this folder: \(error.localizedDescription)"
+            errorMessage = "Point couldn't remember this folder: \(error.localizedDescription)"
         }
         open(url)
     }
@@ -96,13 +96,13 @@ final class VaultStore: ObservableObject {
             refreshTags()
             updateIndex()
         } catch {
-            errorMessage = "Imprint couldn't read the vault: \(error.localizedDescription)"
+            errorMessage = "Point couldn't read the vault: \(error.localizedDescription)"
         }
     }
 
     private func restoreVault() {
         #if DEBUG
-        if let path = UserDefaults.standard.string(forKey: "ImprintVault") {
+        if let path = UserDefaults.standard.string(forKey: "PointVault") {
             open(URL(fileURLWithPath: (path as NSString).expandingTildeInPath))
             return
         }
@@ -116,7 +116,7 @@ final class VaultStore: ObservableObject {
             }
         } catch {
             UserDefaults.standard.removeObject(forKey: Keys.bookmark)
-            errorMessage = "Imprint lost access to your vault. Open it again."
+            errorMessage = "Point lost access to your vault. Open it again."
         }
     }
 
@@ -135,14 +135,14 @@ final class VaultStore: ObservableObject {
         watcher = VaultWatcher(root: url) { [weak self] urls in
             Task { @MainActor in self?.filesChanged(urls) }
         }
-        NotificationCenter.default.post(name: .imprintVaultOpened, object: self)
+        NotificationCenter.default.post(name: .pointVaultOpened, object: self)
         refreshTrash()
         Task { await reload() }
     }
 
     /// Something in the vault changed, here or elsewhere: rescan, and tell open notes.
     private func filesChanged(_ urls: [URL]) {
-        NotificationCenter.default.post(name: .imprintFilesChanged, object: self, userInfo: ["urls": urls])
+        NotificationCenter.default.post(name: .pointFilesChanged, object: self, userInfo: ["urls": urls])
         Task { await reload() }
     }
 
@@ -171,7 +171,7 @@ final class VaultStore: ObservableObject {
             folders.append(path)
             return path
         } catch {
-            errorMessage = "Imprint couldn't make the folder: \(error.localizedDescription)"
+            errorMessage = "Point couldn't make the folder: \(error.localizedDescription)"
             return nil
         }
     }
@@ -241,7 +241,7 @@ final class VaultStore: ObservableObject {
                                 modified: note.modified, created: note.created, isDownloaded: true)
         }
         if untitled.remove(note.id) != nil { untitled.insert(newID) }
-        NotificationCenter.default.post(name: .imprintNoteMoved, object: self, userInfo: ["old": note.id, "new": newID])
+        NotificationCenter.default.post(name: .pointNoteMoved, object: self, userInfo: ["old": note.id, "new": newID])
     }
 
     /// Moves a note to the vault's trash (its `.trash` folder, whatever Obsidian is set to:
@@ -346,11 +346,11 @@ final class VaultStore: ObservableObject {
             let url = try NoteFiles.move(note.url, toFolder: folder.isEmpty ? root : root.appendingPathComponent(folder))
             let newID = folder.isEmpty ? url.lastPathComponent : folder + "/" + url.lastPathComponent
             replace(note, with: newID, url: url)
-            NotificationCenter.default.post(name: .imprintSaveNow, object: self)
+            NotificationCenter.default.post(name: .pointSaveNow, object: self)
             Task.detached(priority: .userInitiated) {
                 let result = LinkUpdater.updateLinks(afterMoving: note, to: newID, notes: vaultBeforeMove, root: root)
                 if !result.skippedNotes.isEmpty {
-                    NSLog("Imprint: links not updated in \(result.skippedNotes) (changed while updating)")
+                    NSLog("Point: links not updated in \(result.skippedNotes) (changed while updating)")
                 }
             }
             Task { await reload() }
@@ -366,7 +366,7 @@ final class VaultStore: ObservableObject {
         guard let root, !path.isEmpty, FolderTree.parent(of: path) != parent else { return }
         let prefix = path + "/"
         let moving = notes.filter { $0.id.hasPrefix(prefix) }
-        NotificationCenter.default.post(name: .imprintSaveNow, object: self)
+        NotificationCenter.default.post(name: .pointSaveNow, object: self)
         moving.forEach { releaseFile($0.url) }
         do {
             let url = try NoteFiles.moveFolder(root.appendingPathComponent(path),
@@ -385,7 +385,7 @@ final class VaultStore: ObservableObject {
                 pins = moved
                 UserDefaults.standard.set(pins.map(\.key), forKey: "pins." + Self.vaultKey(root))
             }
-            NotificationCenter.default.post(name: .imprintFolderMoved, object: self, userInfo: ["old": path, "new": newPath])
+            NotificationCenter.default.post(name: .pointFolderMoved, object: self, userInfo: ["old": path, "new": newPath])
             Task { await reload() }
         } catch {
             errorMessage = "Couldn't move “\(FolderTree.name(of: path))”: \(error.localizedDescription)"
@@ -395,18 +395,18 @@ final class VaultStore: ObservableObject {
     /// Points every link to `note` at its new title, in the background. Open notes save
     /// first, and pick up the rewritten links through the vault watcher.
     private func updateLinks(to note: Note, newTitle: String, vault: [Note]) {
-        NotificationCenter.default.post(name: .imprintSaveNow, object: self)
+        NotificationCenter.default.post(name: .pointSaveNow, object: self)
         Task.detached(priority: .userInitiated) {
             let result = LinkUpdater.updateLinks(to: note, newTitle: newTitle, notes: vault)
             if !result.skippedNotes.isEmpty {
-                NSLog("Imprint: links not updated in \(result.skippedNotes) (changed while updating)")
+                NSLog("Point: links not updated in \(result.skippedNotes) (changed while updating)")
             }
         }
     }
 
     /// Asks any editor showing this file to save now and stop writing to it.
     private func releaseFile(_ url: URL) {
-        NotificationCenter.default.post(name: .imprintReleaseFile, object: self, userInfo: ["url": url])
+        NotificationCenter.default.post(name: .pointReleaseFile, object: self, userInfo: ["url": url])
     }
 
     /// Creates the note a link points to but which doesn't exist yet, and returns its ID.
@@ -595,6 +595,7 @@ final class VaultStore: ObservableObject {
     /// app's own storage, never in the vault, named by a hash of the vault's path.
     private func openIndex(for url: URL) {
         let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            // Still where it was when the app was called Imprint, so it isn't built again.
             .appendingPathComponent("Imprint/Index", isDirectory: true)
         index = try? SearchIndex(url: folder.appendingPathComponent("\(Self.vaultKey(url)).sqlite"))
     }

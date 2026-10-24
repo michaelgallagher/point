@@ -66,7 +66,7 @@ struct ContentView: View {
     /// In the sidebar's part of the toolbar, beside the button that hides it.
     /// The note being worked on (in the active pane), else the vault's name.
     private var windowTitle: String {
-        model.selectedNote?.title ?? model.root?.lastPathComponent ?? "Imprint"
+        model.selectedNote?.title ?? model.root?.lastPathComponent ?? "Point"
     }
 
     var body: some View {
@@ -157,7 +157,7 @@ struct ContentView: View {
         .sheet(isPresented: $isAddingProperty) {
             AddPropertySheet()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .imprintAddProperty)) { notification in
+        .onReceive(NotificationCenter.default.publisher(for: .pointAddProperty)) { notification in
             // Only the window that asked.
             guard notification.object as AnyObject? === model, model.selectedNote != nil else { return }
             isAddingProperty = true
@@ -170,7 +170,7 @@ private struct OpenVaultView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Text("Imprint")
+            Text("Point")
                 .font(.largeTitle.weight(.semibold))
             Text("Choose the folder that holds your notes.")
                 .foregroundStyle(.secondary)

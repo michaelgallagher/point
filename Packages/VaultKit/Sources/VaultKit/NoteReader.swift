@@ -10,7 +10,7 @@ public enum NoteReader {
         public var errorDescription: String? {
             switch self {
             case .notDownloaded: "This note is still downloading from iCloud."
-            case .notLossless: "This file isn't plain UTF-8 text, so Imprint won't edit it. Open it in Obsidian instead."
+            case .notLossless: "This file isn't plain UTF-8 text, so Point won't edit it. Open it in Obsidian instead."
             }
         }
     }

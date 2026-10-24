@@ -40,7 +40,7 @@ struct FormatCommands: Commands {
             item("Add Next Match", #selector(MarkdownTextView.addNextMatch(_:)), "d")
             Divider()
             item("Add Link…", #selector(MarkdownTextView.addLink(_:)), "k")
-            Button("Add Property…") { NotificationCenter.default.post(name: .imprintAddProperty, object: model) }
+            Button("Add Property…") { NotificationCenter.default.post(name: .pointAddProperty, object: model) }
                 .disabled(model?.selectedNote == nil)
         }
     }

@@ -4,7 +4,7 @@ import Foundation
 /// Reports changes to files in a vault, from any app or device, using FSEvents.
 public final class VaultWatcher: @unchecked Sendable {
     private var stream: FSEventStreamRef?
-    private let queue = DispatchQueue(label: "Imprint.VaultWatcher")
+    private let queue = DispatchQueue(label: "Point.VaultWatcher")
     private let onChange: @Sendable ([URL]) -> Void
 
     /// Starts watching `root`. `onChange` receives the changed files (never inside dot-folders

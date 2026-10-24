@@ -1,11 +1,11 @@
 import Foundation
 
-/// Debug builds only: timestamped notes to a file named by `-ImprintTrace <path>`, for
+/// Debug builds only: timestamped notes to a file named by `-PointTrace <path>`, for
 /// finding out what happens when (and what's slow) without a debugger.
 enum Trace {
     #if DEBUG
     private static let file: FileHandle? = {
-        guard let path = UserDefaults.standard.string(forKey: "ImprintTrace") else { return nil }
+        guard let path = UserDefaults.standard.string(forKey: "PointTrace") else { return nil }
         FileManager.default.createFile(atPath: path, contents: nil)
         return FileHandle(forWritingAtPath: path)
     }()

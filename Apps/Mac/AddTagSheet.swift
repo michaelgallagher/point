@@ -3,7 +3,7 @@ import VaultKit
 
 extension Notification.Name {
     /// Asks the open note to add a tag: `userInfo` has "tag" and "noteID".
-    static let imprintAddTag = Notification.Name("ImprintAddTag")
+    static let pointAddTag = Notification.Name("PointAddTag")
 }
 
 /// Adds a tag to a note's `tags` property, choosing from the vault's tags or typing a new one.
@@ -70,7 +70,7 @@ struct AddTagSheet: View {
         if model.selection != note.id { model.selection = note.id }
         // The note's editor may only just be opening; give it a moment to listen.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            NotificationCenter.default.post(name: .imprintAddTag, object: nil, userInfo: ["tag": tag, "noteID": note.id])
+            NotificationCenter.default.post(name: .pointAddTag, object: nil, userInfo: ["tag": tag, "noteID": note.id])
         }
         dismiss()
     }

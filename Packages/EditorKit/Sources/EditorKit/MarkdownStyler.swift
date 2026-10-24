@@ -93,7 +93,7 @@ struct MarkdownStyler {
                     addTrait(.bold, in: titleRange, storage: storage)
                 }
             }
-            storage.addAttributes([.paragraphStyle: style, .imprintBlock: block], range: range)
+            storage.addAttributes([.paragraphStyle: style, .pointBlock: block], range: range)
 
         case .listItem(let marker, let indent):
             let level = Int((Double(indent) / 4).rounded(.up))
@@ -106,8 +106,8 @@ struct MarkdownStyler {
             if let markerRange = token.syntax.first {
                 // Hide the indent and the marker; the layout manager draws the marker instead.
                 let hidden = NSRange(location: range.location, length: NSMaxRange(markerRange) - range.location)
-                storage.addAttribute(.imprintHidden, value: true, range: hidden)
-                storage.addAttribute(.imprintListMarker, value: ListMarkerDecoration(marker: marker, level: level),
+                storage.addAttribute(.pointHidden, value: true, range: hidden)
+                storage.addAttribute(.pointListMarker, value: ListMarkerDecoration(marker: marker, level: level),
                                      range: NSRange(location: range.location, length: 1))
                 if case .task(done: true) = marker {
                     let content = NSRange(location: NSMaxRange(markerRange), length: NSMaxRange(range) - NSMaxRange(markerRange))
@@ -123,15 +123,15 @@ struct MarkdownStyler {
                 $0.tailIndent = -12
                 $0.paragraphSpacing = 0
             }
-            storage.addAttributes([.font: theme.mono, .paragraphStyle: style, .imprintBlock: BlockDecoration.code,
-                                   .imprintLineHeight: CGFloat(1.15)], range: range)
+            storage.addAttributes([.font: theme.mono, .paragraphStyle: style, .pointBlock: BlockDecoration.code,
+                                   .pointLineHeight: CGFloat(1.15)], range: range)
             for fence in token.syntax {
                 collapseLine(fence, storage: storage, text: text)
             }
             return
 
         case .thematicBreak:
-            storage.addAttribute(.imprintRule, value: true, range: range)
+            storage.addAttribute(.pointRule, value: true, range: range)
 
         case .table:
             storage.addAttribute(.font, value: theme.mono, range: range)
@@ -150,12 +150,12 @@ struct MarkdownStyler {
             storage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range)
         case .highlight:
             // Drawn by the layout manager, with rounded corners.
-            storage.addAttribute(.imprintRoundedBackground, value: NSColor.systemYellow.withAlphaComponent(0.35), range: range)
+            storage.addAttribute(.pointRoundedBackground, value: NSColor.systemYellow.withAlphaComponent(0.35), range: range)
         case .code:
             let size = (storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont)?.pointSize ?? theme.bodySize
             storage.addAttributes([
                 .font: NSFont.monospacedSystemFont(ofSize: size * 0.88, weight: .regular),
-                .imprintRoundedBackground: NSColor.textColor.withAlphaComponent(0.07),
+                .pointRoundedBackground: NSColor.textColor.withAlphaComponent(0.07),
             ], range: range)
         case .link(let destination), .image(let destination):
             storage.addAttributes([.foregroundColor: NSColor.linkColor, .cursor: NSCursor.pointingHand], range: range)
@@ -171,7 +171,7 @@ struct MarkdownStyler {
             storage.addAttributes([.foregroundColor: color, .cursor: NSCursor.pointingHand], range: range)
         case .tag:
             // Drawn as a pill by the layout manager, with a little room on each side for it.
-            storage.addAttributes([.imprintTag: true, .cursor: NSCursor.pointingHand], range: range)
+            storage.addAttributes([.pointTag: true, .cursor: NSCursor.pointingHand], range: range)
             if range.location > 0, text.character(at: range.location - 1) != 10 {
                 storage.addAttribute(.kern, value: Self.tagSpace, range: NSRange(location: range.location - 1, length: 1))
             }
@@ -187,7 +187,7 @@ struct MarkdownStyler {
         }
 
         for marker in token.syntax {
-            storage.addAttribute(.imprintHidden, value: true, range: marker)
+            storage.addAttribute(.pointHidden, value: true, range: marker)
         }
     }
 
@@ -203,7 +203,7 @@ struct MarkdownStyler {
     private func markWebLink(at index: Int, storage: NSTextStorage) {
         guard index >= 0, index < storage.length else { return }
         let font = storage.attribute(.font, at: index, effectiveRange: nil) as? NSFont ?? theme.body
-        storage.addAttributes([.imprintWebLink: true, .kern: theme.webLinkSpace(for: font)], range: NSRange(location: index, length: 1))
+        storage.addAttributes([.pointWebLink: true, .kern: theme.webLinkSpace(for: font)], range: NSRange(location: index, length: 1))
     }
 
     private func paragraphStyle(_ configure: (NSMutableParagraphStyle) -> Void) -> NSParagraphStyle {
@@ -217,7 +217,7 @@ struct MarkdownStyler {
         collapseLine(line, storage: storage, text: text, height: 0.1)
         // Nothing drawn for it either: no bullet, checkbox, tag pill or block background.
         let full = text.lineRange(for: line)
-        for key: NSAttributedString.Key in [.imprintListMarker, .imprintTag, .imprintWebLink, .imprintRule, .imprintBlock] {
+        for key: NSAttributedString.Key in [.pointListMarker, .pointTag, .pointWebLink, .pointRule, .pointBlock] {
             storage.removeAttribute(key, range: full)
         }
     }
@@ -232,8 +232,8 @@ struct MarkdownStyler {
             $0.paragraphSpacing = 0
             $0.paragraphSpacingBefore = 0
         }
-        storage.addAttributes([.font: NSFont.systemFont(ofSize: 1), .paragraphStyle: style, .imprintCollapsed: true], range: full)
-        storage.addAttribute(.imprintHidden, value: true, range: line)
+        storage.addAttributes([.font: NSFont.systemFont(ofSize: 1), .paragraphStyle: style, .pointCollapsed: true], range: full)
+        storage.addAttribute(.pointHidden, value: true, range: line)
     }
 
     private func addTrait(_ trait: NSFontDescriptor.SymbolicTraits, in range: NSRange, storage: NSTextStorage) {

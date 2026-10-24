@@ -2,7 +2,7 @@ import Foundation
 
 /// A Markdown note in the vault.
 public struct Note: Identifiable, Hashable, Sendable {
-    /// Path relative to the vault root, such as `Projects/Imprint.md`. Unique within a vault.
+    /// Path relative to the vault root, such as `Projects/Point.md`. Unique within a vault.
     public let id: String
     /// Where the note's contents live. For a note iCloud has evicted, this is where the
     /// file will be once downloaded, not the placeholder.

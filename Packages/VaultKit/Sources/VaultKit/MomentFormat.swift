@@ -18,7 +18,7 @@ public struct MomentFormat: Sendable {
         self.format = format
     }
 
-    /// Moment's tokens that Imprint supports, longest first within each letter.
+    /// Moment's tokens that Point supports, longest first within each letter.
     private static let tokens = [
         "YYYYYY", "YYYYY", "YYYY", "YY", "Y",
         "MMMM", "MMM", "MM", "Mo", "M",

@@ -4,7 +4,7 @@ import MarkdownKit
 
 /// Lays out note text with Markdown markers hidden, and draws what replaces them:
 /// bullets, checkboxes, quote bars, callout and code backgrounds, and rules.
-final class ImprintLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
+final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
     var theme = EditorTheme()
 
     override init() {
@@ -37,7 +37,7 @@ final class ImprintLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
             let index = characterIndexes[i]
             if !NSLocationInRange(index, hiddenRun) {
                 var effective = NSRange()
-                let hidden = storage.attribute(.imprintHidden, at: index, effectiveRange: &effective) != nil
+                let hidden = storage.attribute(.pointHidden, at: index, effectiveRange: &effective) != nil
                 hiddenRun = hidden ? effective : NSRange(location: NSNotFound, length: 0)
                 if !hidden { continue }
             }
@@ -58,7 +58,7 @@ final class ImprintLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         shouldUse action: NSLayoutManager.ControlCharacterAction,
         forControlCharacterAt charIndex: Int
     ) -> NSLayoutManager.ControlCharacterAction {
-        if layoutManager.textStorage?.attribute(.imprintHidden, at: charIndex, effectiveRange: nil) != nil {
+        if layoutManager.textStorage?.attribute(.pointHidden, at: charIndex, effectiveRange: nil) != nil {
             return .zeroAdvancement
         }
         return action
@@ -81,7 +81,7 @@ final class ImprintLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
            style.maximumLineHeight > 0 {
             return false // A collapsed line, such as a code fence, keeps its sliver of height.
         }
-        let multiple = storage.attribute(.imprintLineHeight, at: characters.location, effectiveRange: nil) as? CGFloat
+        let multiple = storage.attribute(.pointLineHeight, at: characters.location, effectiveRange: nil) as? CGFloat
             ?? theme.lineHeightMultiple
         var tallest: CGFloat = 0
         storage.enumerateAttribute(.font, in: characters) { value, _, _ in
@@ -104,35 +104,35 @@ final class ImprintLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         let everything = NSRange(location: 0, length: storage.length)
 
         var drawnBlocks = Set<Int>()
-        storage.enumerateAttribute(.imprintBlock, in: characters) { value, range, _ in
+        storage.enumerateAttribute(.pointBlock, in: characters) { value, range, _ in
             guard let block = value as? BlockDecoration else { return }
             var full = NSRange()
-            _ = storage.attribute(.imprintBlock, at: range.location, longestEffectiveRange: &full, in: everything)
+            _ = storage.attribute(.pointBlock, at: range.location, longestEffectiveRange: &full, in: everything)
             guard drawnBlocks.insert(full.location).inserted else { return }
             draw(block, rect: rect(forCharacters: full, in: container, origin: origin), range: full, storage: storage)
         }
 
-        storage.enumerateAttribute(.imprintListMarker, in: characters) { value, range, _ in
+        storage.enumerateAttribute(.pointListMarker, in: characters) { value, range, _ in
             guard let decoration = value as? ListMarkerDecoration else { return }
             draw(decoration, at: range.location, storage: storage, container: container, origin: origin)
         }
 
-        storage.enumerateAttribute(.imprintRoundedBackground, in: characters) { value, range, _ in
+        storage.enumerateAttribute(.pointRoundedBackground, in: characters) { value, range, _ in
             guard let color = value as? NSColor else { return }
             drawRoundedBackground(color, for: range, storage: storage, container: container, origin: origin)
         }
 
-        storage.enumerateAttribute(.imprintTag, in: characters) { value, range, _ in
+        storage.enumerateAttribute(.pointTag, in: characters) { value, range, _ in
             guard value != nil else { return }
             drawTagPill(for: range, storage: storage, container: container, origin: origin)
         }
 
-        storage.enumerateAttribute(.imprintWebLink, in: characters) { value, range, _ in
+        storage.enumerateAttribute(.pointWebLink, in: characters) { value, range, _ in
             guard value != nil else { return }
             drawWebLinkSymbol(after: range.location, storage: storage, container: container, origin: origin)
         }
 
-        storage.enumerateAttribute(.imprintRule, in: characters) { value, range, _ in
+        storage.enumerateAttribute(.pointRule, in: characters) { value, range, _ in
             guard value != nil else { return }
             let line = lineRect(containing: range.location, storage: storage)
             let padding = container.lineFragmentPadding
@@ -217,7 +217,7 @@ final class ImprintLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         var start = 0, end = 0, contentsEnd = 0
         text.getLineStart(&start, end: &end, contentsEnd: &contentsEnd, for: NSRange(location: min(index, text.length), length: 0))
         var k = start
-        while k < contentsEnd, storage.attribute(.imprintHidden, at: k, effectiveRange: nil) != nil { k += 1 }
+        while k < contentsEnd, storage.attribute(.pointHidden, at: k, effectiveRange: nil) != nil { k += 1 }
         if k >= text.length {
             // A fully hidden last line with no line break: fall back to its first glyph.
             k = min(start, text.length - 1)
@@ -231,7 +231,7 @@ final class ImprintLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         var start = 0, end = 0, contentsEnd = 0
         text.getLineStart(&start, end: &end, contentsEnd: &contentsEnd, for: NSRange(location: min(index, text.length), length: 0))
         var k = start
-        while k < contentsEnd, storage.attribute(.imprintHidden, at: k, effectiveRange: nil) != nil { k += 1 }
+        while k < contentsEnd, storage.attribute(.pointHidden, at: k, effectiveRange: nil) != nil { k += 1 }
         return k < contentsEnd ? k : nil
     }
 
@@ -320,7 +320,7 @@ final class ImprintLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
     func textFont(near index: Int, storage: NSTextStorage) -> NSFont {
         let line = (storage.string as NSString).lineRange(for: NSRange(location: index, length: 0))
         var k = index
-        while k < NSMaxRange(line), storage.attribute(.imprintHidden, at: k, effectiveRange: nil) != nil { k += 1 }
+        while k < NSMaxRange(line), storage.attribute(.pointHidden, at: k, effectiveRange: nil) != nil { k += 1 }
         let at = min(k, max(storage.length - 1, 0))
         return storage.length > 0 ? (storage.attribute(.font, at: at, effectiveRange: nil) as? NSFont ?? theme.body) : theme.body
     }

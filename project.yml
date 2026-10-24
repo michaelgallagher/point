@@ -1,5 +1,5 @@
-# XcodeGen spec. Run `xcodegen` to (re)create Imprint.xcodeproj, which is not checked in.
-name: Imprint
+# XcodeGen spec. Run `xcodegen` to (re)create Point.xcodeproj, which is not checked in.
+name: Point
 options:
   bundleIdPrefix: org.mikegallagher
   deploymentTarget:
@@ -20,11 +20,15 @@ packages:
   IndexKit:
     path: Packages/IndexKit
 targets:
-  Imprint-Mac:
+  Point-Mac:
     type: application
     platform: macOS
     sources:
       - Apps/Mac
+      # The app icon (Icon Composer: light and dark; Xcode makes older systems' icon from it).
+      - path: Resources/AppIcon.icon
+        type: file
+        buildPhase: resources
     dependencies:
       - package: VaultKit
       - package: EditorKit
@@ -32,19 +36,22 @@ targets:
       - package: IndexKit
     settings:
       base:
-        PRODUCT_NAME: Imprint
+        PRODUCT_NAME: Point
+        # Kept from when the app was called Imprint: a new identifier would mean a new
+        # sandbox container, losing the settings and the vault's saved access.
         PRODUCT_BUNDLE_IDENTIFIER: org.mikegallagher.imprint
         # Ad-hoc signing ("Sign to Run Locally") until there is a paid developer account.
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGN_STYLE: Manual
         ENABLE_HARDENED_RUNTIME: YES
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: Imprint
+        INFOPLIST_KEY_CFBundleDisplayName: Point
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
         # Sandboxed, with access only to the folder the user picks.
-        CODE_SIGN_ENTITLEMENTS: Apps/Mac/Imprint.entitlements
+        CODE_SIGN_ENTITLEMENTS: Apps/Mac/Point.entitlements
       configs:
         # Debug builds run unsandboxed so a test vault can be opened by path
-        # (`-ImprintVault <path>`) without the folder picker.
+        # (`-PointVault <path>`) without the folder picker.
         Debug:
-          CODE_SIGN_ENTITLEMENTS: Apps/Mac/Imprint-Debug.entitlements
+          CODE_SIGN_ENTITLEMENTS: Apps/Mac/Point-Debug.entitlements
