@@ -213,10 +213,10 @@ struct AppCommands: Commands {
             Divider()
             Button("Back") { model?.goBack() }
                 .keyboardShortcut("[")
-                .disabled(model?.backStack.isEmpty ?? true)
+                .disabled(!(model.map { $0.canTravel(back: true, inPane: $0.activePane) } ?? false))
             Button("Forward") { model?.goForward() }
                 .keyboardShortcut("]")
-                .disabled(model?.forwardStack.isEmpty ?? true)
+                .disabled(!(model.map { $0.canTravel(back: false, inPane: $0.activePane) } ?? false))
         }
         CommandGroup(after: .toolbar) {
             Picker("Sort Notes By", selection: $store.sort) {

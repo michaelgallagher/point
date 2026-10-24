@@ -297,12 +297,12 @@ Features:
 
 **G. Palettes, editor, sidebar, properties and identity** (Mike's notes, 24 October 2026). In seven batches, smallest first. Not started.
 
-*Batch 0: back and forward, still not right* (first)
+*Batch 0: back and forward, still not right* (first). Done 24 October 2026: each tab keeps its own history (a note opened in the tab counts, switching tabs doesn't); the arrows are off unless there's an existing note to go to; going back to a note open in another tab moves it here and that tab steps back itself (or shows a start page). Checked with real clicks sent through the window (`-ImprintClickBack YES`), ten checks, sidebar open and hidden.
 1. **Back changes the sidebar highlight, but the note stays the same.** Likely the window-wide history going to a note open in another tab and not bringing that tab forward properly. To reproduce with the click test (`-ImprintClickBack`) and fix.
 2. **Back is active with nowhere to go back to.** The arrow must be off when this tab has no earlier note.
 3. **History belongs to each tab, not the window.** Each tab keeps its own back and forward. Every change of the tab's note counts: a note opened in it, a link followed, a note picked in the list. Switching tabs doesn't count.
    - **A note already open in another tab:** a note is open in at most one tab, so two editors never write the same file. Decision needed for going back to such a note. The plan: it moves into this tab, and the other tab goes back to the note before it, or to a start page. To confirm with Mike.
-   - **The window-wide history goes:** it replaces the per-tab stacks added on 24 October.
+   - **The window-wide history goes:** per-tab history replaces it.
 
 *Batch 1: editor and properties polish* (small, well-defined)
 1. **Tags:** more room inside the colour pill around the text.

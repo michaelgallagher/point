@@ -99,7 +99,7 @@ struct PaneTopBar: View {
 
 }
 
-/// Back and forward through the window's history, together, before the tabs: a glass
+/// Back and forward through the side's current tab's history, together, before the tabs: a glass
 /// capsule from macOS 26. Clicks are taken by AppKit views under the arrows, as the tabs'
 /// are: in the title bar's area, the window takes a click on a SwiftUI button and moves
 /// itself instead.
@@ -110,10 +110,10 @@ private struct BackForwardButtons: View {
 
     var body: some View {
         let pair = HStack(spacing: 0) {
-            arrow("chevron.left", label: "Back", help: "Back (⌘[)", enabled: !model.backStack.isEmpty) {
+            arrow("chevron.left", label: "Back", help: "Back (⌘[)", enabled: model.canTravel(back: true, inPane: paneIndex)) {
                 model.travel(back: true, inPane: paneIndex)
             }
-            arrow("chevron.right", label: "Forward", help: "Forward (⌘])", enabled: !model.forwardStack.isEmpty) {
+            arrow("chevron.right", label: "Forward", help: "Forward (⌘])", enabled: model.canTravel(back: false, inPane: paneIndex)) {
                 model.travel(back: false, inPane: paneIndex)
             }
         }

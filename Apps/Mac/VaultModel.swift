@@ -91,6 +91,8 @@ final class VaultModel: ObservableObject {
         for p in panes.indices {
             for t in panes[p].tabs.indices {
                 if panes[p].tabs[t].noteID == note.id { panes[p].tabs[t].noteID = nil }
+                panes[p].tabs[t].backStack.removeAll { $0 == note.id }
+                panes[p].tabs[t].forwardStack.removeAll { $0 == note.id }
             }
         }
     }
@@ -101,10 +103,14 @@ final class VaultModel: ObservableObject {
 
     // MARK: Panes and tabs
 
-    /// One tab: a note, or none yet.
+    /// One tab: a note (or none yet) and its own history.
     struct NoteTab: Identifiable, Equatable {
         let id = UUID()
         var noteID: Note.ID?
+        /// The notes this tab showed before (and, after going back, after) its current one,
+        /// for its back and forward arrows, ⌘[ and ⌘].
+        var backStack: [Note.ID] = []
+        var forwardStack: [Note.ID] = []
     }
 
     /// One side of the window: its tabs, one of them showing.
@@ -127,7 +133,6 @@ final class VaultModel: ObservableObject {
         didSet {
             tracePanes()
             saveWindowState()
-            recordNoteInFront()
         }
     }
     /// The pane last clicked or typed in, which the list, palette and menus act on.
@@ -135,7 +140,6 @@ final class VaultModel: ObservableObject {
         didSet {
             tracePanes()
             saveWindowState()
-            recordNoteInFront()
         }
     }
 
@@ -276,8 +280,8 @@ final class VaultModel: ObservableObject {
         return nil
     }
 
-    /// Opens a note in the active tab, unless it's already open somewhere, in which case that
-    /// tab comes forward. (History notices either way.)
+    /// Opens a note in the active tab (recording it in the tab's history), unless it's already
+    /// open somewhere, in which case that tab comes forward.
     private func show(_ id: Note.ID?) {
         let old = selection
         guard id != old else { return }
@@ -286,7 +290,17 @@ final class VaultModel: ObservableObject {
             panes[p].current = t
             return
         }
-        panes[activePane].tab.noteID = id
+        // The tab's history: the note it showed goes on its back list, and its forward list
+        // empties, as in a browser. (Bringing another tab forward isn't history: that tab's
+        // note doesn't change.)
+        var tab = panes[activePane].tab
+        if let old {
+            tab.backStack.append(old)
+            if tab.backStack.count > 200 { tab.backStack.removeFirst() }
+        }
+        tab.forwardStack.removeAll()
+        tab.noteID = id
+        panes[activePane].tab = tab
         if let old { store.finishUntitledNote(old) }
     }
 
@@ -579,29 +593,17 @@ final class VaultModel: ObservableObject {
 
     // MARK: History
 
-    /// The notes shown before (and, after going back, after) the one in front, across tabs
-    /// and sides: every change of note in front counts, however it came about (a note picked,
-    /// a tab switched to, the other side clicked into).
-    @Published private(set) var backStack: [Note.ID] = []
-    @Published private(set) var forwardStack: [Note.ID] = []
-    /// The note in front, as history last saw it.
-    private var noteInFront: Note.ID?
-    private var isTravelling = false
+    /// The active tab's history, for the Back and Forward menu items.
+    var backStack: [Note.ID] { panes[activePane].tab.backStack }
+    var forwardStack: [Note.ID] { panes[activePane].tab.forwardStack }
 
-    /// Called whenever the panes or the active pane change.
-    private func recordNoteInFront() {
-        // Panes change in steps (tabs, then which is current): wait until they add up.
-        guard panes.indices.contains(activePane), panes[activePane].tabs.indices.contains(panes[activePane].current) else { return }
-        let current = panes[activePane].tab.noteID
-        guard current != noteInFront else { return }
-        if !isTravelling, let previous = noteInFront {
-            backStack.append(previous)
-            if backStack.count > 200 { backStack.removeFirst() }
-            forwardStack.removeAll()
-        }
-        // An empty tab (a start page) isn't a place to go back to: nothing is recorded for it,
-        // and the note picked there follows the one before it.
-        noteInFront = current
+    /// Whether a side's current tab has a note to go back (or forward) to: one that still
+    /// exists and isn't the one showing. The arrows are off otherwise.
+    func canTravel(back: Bool, inPane pane: Int) -> Bool {
+        guard panes.indices.contains(pane) else { return false }
+        let tab = panes[pane].tab
+        let stack = back ? tab.backStack : tab.forwardStack
+        return stack.contains { id in id != tab.noteID && notes.contains { $0.id == id } }
     }
 
     /// A note moved or was renamed (perhaps from another window): keep showing it.
@@ -611,12 +613,11 @@ final class VaultModel: ObservableObject {
             for t in panes[p].tabs.indices {
                 var tab = panes[p].tabs[t]
                 if tab.noteID == old { tab.noteID = new }
+                tab.backStack = tab.backStack.map { $0 == old ? new : $0 }
+                tab.forwardStack = tab.forwardStack.map { $0 == old ? new : $0 }
                 panes[p].tabs[t] = tab
             }
         }
-        backStack = backStack.map { $0 == old ? new : $0 }
-        forwardStack = forwardStack.map { $0 == old ? new : $0 }
-        if noteInFront == old { noteInFront = new }
     }
 
     /// A folder moved: if this window is showing it (or a folder inside it), follow it.
@@ -640,35 +641,46 @@ final class VaultModel: ObservableObject {
     func goBack() { travel(back: true) }
     func goForward() { travel(back: false) }
 
-    /// Back or forward from a side's bar: through the window's history, from that side.
+    /// Back or forward in one side's current tab (from its bar's arrows).
     func travel(back: Bool, inPane pane: Int) {
         guard panes.indices.contains(pane) else { return }
         activePane = pane
         travel(back: back)
     }
 
-    /// Goes to the note shown before (or after) the one in front: to its tab if it's still
-    /// open, or else into the tab in front.
+    /// Goes back (or forward) in the active tab's own history. A note is open in at most one
+    /// tab, so if the note gone back to is open in another tab, it moves here, and that tab
+    /// goes back a step itself (or, with nothing to go back to, becomes a start page).
     private func travel(back: Bool) {
-        // Skip notes deleted since.
-        while let id = back ? backStack.popLast() : forwardStack.popLast() {
-            guard notes.contains(where: { $0.id == id }), id != noteInFront else { continue }
-            if let current = noteInFront {
-                if back { forwardStack.append(current) } else { backStack.append(current) }
+        var panes = panes
+        var tab = panes[activePane].tab
+        while let id = back ? tab.backStack.popLast() : tab.forwardStack.popLast() {
+            // Skip notes deleted since, and the one already showing.
+            guard id != tab.noteID, notes.contains(where: { $0.id == id }) else { continue }
+            if let current = tab.noteID {
+                if back { tab.forwardStack.append(current) } else { tab.backStack.append(current) }
             }
-            isTravelling = true
-            defer { isTravelling = false }
-            if let (p, t) = location(of: id) {
-                activePane = p
-                panes[p].current = t
-            } else {
-                let old = panes[activePane].tab.noteID
-                panes[activePane].tab.noteID = id
-                if let old { store.finishUntitledNote(old) }
+            if let (p, t) = location(of: id), !(p == activePane && t == panes[p].current) {
+                var other = panes[p].tabs[t]
+                other.noteID = nil
+                while let previous = other.backStack.popLast() {
+                    if previous != id, notes.contains(where: { $0.id == previous }), location(of: previous) == nil, previous != tab.noteID {
+                        other.noteID = previous
+                        break
+                    }
+                }
+                panes[p].tabs[t] = other
             }
-            recordNoteInFront()
+            let old = tab.noteID
+            tab.noteID = id
+            panes[activePane].tab = tab
+            self.panes = panes
+            if let old { store.finishUntitledNote(old) }
             return
         }
+        // Nothing (left) to go to: keep the stacks as tidied, and say so.
+        panes[activePane].tab = tab
+        self.panes = panes
         NSSound.beep()
     }
 

@@ -94,39 +94,70 @@ enum DebugSnapshots {
         }
     }
 
-    /// `-ImprintClickBack YES`: opens two notes one after the other, then clicks the bar's
-    /// Back arrow with real mouse events sent through the window, as a person's click would
-    /// go, and notes which note is in front before and after.
+    /// `-ImprintClickBack YES`: tries the back and forward arrows on the first side's bar
+    /// with real mouse events sent through the window, as a person's clicks would go, and
+    /// notes in the trace whether each step did what it should.
     private static func clickBackIfAsked(for model: VaultModel) {
         guard UserDefaults.standard.bool(forKey: "ImprintClickBack") else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            let open = Set(model.openNoteIDs)
-            let picks = model.notes.filter { !open.contains($0.id) }.prefix(2).map(\.id)
-            guard picks.count == 2 else { return Trace.mark("click test: not enough notes") }
-            model.selection = picks[0]
-            model.selection = picks[1]
-            Trace.mark("click test: showing \(model.selection ?? "nil"), back \(model.backStack.suffix(2))")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                guard let window = model.window, let frame = window.contentView?.superview else { return }
-                func clickViews(in view: NSView) -> [NSView] {
-                    (view is ClickArea.ClickView ? [view] : []) + view.subviews.flatMap(clickViews(in:))
-                }
-                let areas = clickViews(in: frame).sorted { $0.convert($0.bounds, to: nil).minX < $1.convert($1.bounds, to: nil).minX }
-                guard let back = areas.first else { return Trace.mark("click test: no click areas") }
-                let rect = back.convert(back.bounds, to: nil)
-                let point = NSPoint(x: rect.midX, y: rect.midY)
-                let hit = frame.hitTest(frame.convert(point, from: nil))
-                Trace.mark("click test: \(areas.count) areas, back at \(rect), hit \(hit.map { String(describing: type(of: $0)) } ?? "nil")")
-                for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-                    if let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                                      windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
-                        window.sendEvent(event)
-                    }
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    Trace.mark("click test: after clicking Back, showing \(model.selection ?? "nil") (expected \(picks[0]))")
+        func check(_ name: String, _ ok: Bool, _ detail: String = "") {
+            Trace.mark("click test: \(ok ? "PASS" : "FAIL") \(name) \(detail)")
+        }
+        func click(back: Bool) {
+            guard let window = model.window, let frame = window.contentView?.superview else { return }
+            func clickViews(in view: NSView) -> [NSView] {
+                (view is ClickArea.ClickView ? [view] : []) + view.subviews.flatMap(clickViews(in:))
+            }
+            let areas = clickViews(in: frame).sorted { $0.convert($0.bounds, to: nil).minX < $1.convert($1.bounds, to: nil).minX }
+            guard areas.count >= 2 else { return check("arrows found", false) }
+            let rect = areas[back ? 0 : 1].convert(areas[back ? 0 : 1].bounds, to: nil)
+            let point = NSPoint(x: rect.midX, y: rect.midY)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                if let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                  windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                    window.sendEvent(event)
                 }
             }
+        }
+        var steps: [() -> Void] = []
+        var a = "", b = ""
+        steps.append {
+            // Start from one side, with a fresh tab.
+            if model.isSplit { model.mergeIntoTabs() }
+            model.newTab()
+            let open = Set(model.openNoteIDs)
+            let picks = model.notes.filter { !open.contains($0.id) }.prefix(2).map(\.id)
+            guard picks.count == 2 else { return check("enough notes", false) }
+            (a, b) = (picks[0], picks[1])
+            check("a new tab has Back off", !model.canTravel(back: true, inPane: 0))
+            model.selection = a
+            model.selection = b
+            check("after A then B, Back is on", model.canTravel(back: true, inPane: 0))
+        }
+        steps.append { click(back: true) }
+        steps.append {
+            check("Back shows A", model.selection == a, "showing \(model.selection ?? "nil")")
+            check("then Back is off, Forward on", !model.canTravel(back: true, inPane: 0) && model.canTravel(back: false, inPane: 0))
+        }
+        steps.append { click(back: false) }
+        steps.append {
+            check("Forward shows B", model.selection == b, "showing \(model.selection ?? "nil")")
+            // A second tab has its own, empty, history; it opens A (not open anywhere now).
+            model.newTab()
+            check("another tab has its own history", !model.canTravel(back: true, inPane: 0))
+            model.selection = a
+            check("the other tab shows A", model.selection == a)
+            // Back to the first tab, B, and back from there to A, which the other tab has.
+            let first = model.panes[0].tabs.firstIndex { $0.noteID == b } ?? 0
+            model.selectTab(first, inPane: 0)
+        }
+        steps.append { click(back: true) }
+        steps.append {
+            check("Back to a note open in another tab moves it here", model.selection == a, "showing \(model.selection ?? "nil")")
+            check("that note is open once", model.openNoteIDs.filter { $0 == a }.count == 1)
+            check("the other tab steps back (to a start page)", model.panes[0].tabs.contains { $0.noteID == nil })
+        }
+        for (index, step) in steps.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2 + Double(index) * 0.6, execute: step)
         }
     }
 
