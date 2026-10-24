@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import SwiftUI
 import VaultKit
 
 /// Debug builds only: `-ImprintSnapshots <folder>` opens a few notes in tabs, then saves
@@ -10,6 +11,7 @@ import VaultKit
 enum DebugSnapshots {
     static func runIfAsked(for model: VaultModel) {
         scrollNoteIfAsked(for: model)
+        clickBackIfAsked(for: model)
         guard let folder = UserDefaults.standard.string(forKey: "ImprintSnapshots") else { return }
         let directory = URL(fileURLWithPath: folder, isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -22,6 +24,20 @@ enum DebugSnapshots {
             }),
             ("0-shortcuts", { model.isShowingShortcuts = true }),
             ("0b-shortcuts-closed", { model.isShowingShortcuts = false }),
+            ("0c-settings", {
+                // Settings, drawn offscreen (an app in the background can't open its window).
+                let host = NSHostingView(rootView: SettingsView().environmentObject(model.store))
+                host.frame = NSRect(x: 0, y: 0, width: 760, height: 540)
+                let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+                window.contentView = host
+                host.layoutSubtreeIfNeeded()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
+                    host.cacheDisplay(in: host.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: directory.appendingPathComponent("0c-settings-window.png"))
+                    window.close()
+                }
+            }),
             ("2-start-page", { model.newTab() }),
             ("3-start-page-explorer", { model.togglePalette(.explorer) }),
             ("3b-start-page-search-again", { model.togglePalette(.search) }),
@@ -74,6 +90,42 @@ enum DebugSnapshots {
                     scrollView.reflectScrolledClipView(clip)
                 }
                 Trace.mark("scrolled \(id) by \(amount)")
+            }
+        }
+    }
+
+    /// `-ImprintClickBack YES`: opens two notes one after the other, then clicks the bar's
+    /// Back arrow with real mouse events sent through the window, as a person's click would
+    /// go, and notes which note is in front before and after.
+    private static func clickBackIfAsked(for model: VaultModel) {
+        guard UserDefaults.standard.bool(forKey: "ImprintClickBack") else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            let open = Set(model.openNoteIDs)
+            let picks = model.notes.filter { !open.contains($0.id) }.prefix(2).map(\.id)
+            guard picks.count == 2 else { return Trace.mark("click test: not enough notes") }
+            model.selection = picks[0]
+            model.selection = picks[1]
+            Trace.mark("click test: showing \(model.selection ?? "nil"), back \(model.backStack.suffix(2))")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                guard let window = model.window, let frame = window.contentView?.superview else { return }
+                func clickViews(in view: NSView) -> [NSView] {
+                    (view is ClickArea.ClickView ? [view] : []) + view.subviews.flatMap(clickViews(in:))
+                }
+                let areas = clickViews(in: frame).sorted { $0.convert($0.bounds, to: nil).minX < $1.convert($1.bounds, to: nil).minX }
+                guard let back = areas.first else { return Trace.mark("click test: no click areas") }
+                let rect = back.convert(back.bounds, to: nil)
+                let point = NSPoint(x: rect.midX, y: rect.midY)
+                let hit = frame.hitTest(frame.convert(point, from: nil))
+                Trace.mark("click test: \(areas.count) areas, back at \(rect), hit \(hit.map { String(describing: type(of: $0)) } ?? "nil")")
+                for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                    if let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                      windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                        window.sendEvent(event)
+                    }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    Trace.mark("click test: after clicking Back, showing \(model.selection ?? "nil") (expected \(picks[0]))")
+                }
             }
         }
     }

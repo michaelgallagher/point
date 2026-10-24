@@ -34,9 +34,13 @@ struct ListMarkerDecoration: Hashable {
 
 /// Sizes and colours for the editor. Apple Notes is the reference for the feel.
 struct EditorTheme {
-    var bodySize: CGFloat = 15
+    /// The chosen sizes and styles.
+    var typography = Typography()
+    /// ⌘+ and ⌘−: how much bigger or smaller than chosen everything is.
+    var scale: CGFloat = 1
+    var bodySize: CGFloat { (CGFloat(typography.bodySize) * scale).rounded() }
     /// Extra line height, split evenly above and below the text by the layout manager.
-    var lineHeightMultiple: CGFloat = 1.3
+    var lineHeightMultiple: CGFloat { CGFloat(typography.lineHeight) }
     var paragraphSpacing: CGFloat = 0
     var indentPerLevel: CGFloat = 22
     var markerWidth: CGFloat = 22
@@ -49,17 +53,20 @@ struct EditorTheme {
     var body: NSFont { .systemFont(ofSize: bodySize) }
     var mono: NSFont { .monospacedSystemFont(ofSize: bodySize - 2, weight: .regular) }
 
-    /// H1 26pt bold, H2 18pt semibold, H3 body-size bold, H4 to H6 body-size italic.
+    /// A heading's font, from the typography: its size relative to the body, its weight,
+    /// and italic or not.
     func headingFont(level: Int) -> NSFont {
-        switch level {
-        // Sizes are for 15pt body text and scale with it (⌘+ / ⌘−).
-        case 1: return .systemFont(ofSize: (26 * bodySize / 15).rounded(), weight: .bold)
-        case 2: return .systemFont(ofSize: (18 * bodySize / 15).rounded(), weight: .semibold)
-        case 3: return .systemFont(ofSize: bodySize, weight: .bold)
-        default:
-            let regular = NSFont.systemFont(ofSize: bodySize)
-            return NSFont(descriptor: regular.fontDescriptor.withSymbolicTraits(.italic), size: bodySize) ?? regular
+        let style = typography.heading(level)
+        let size = (bodySize * CGFloat(style.size)).rounded()
+        let weight: NSFont.Weight = switch style.weight {
+        case .regular: .regular
+        case .medium: .medium
+        case .semibold: .semibold
+        case .bold: .bold
         }
+        let font = NSFont.systemFont(ofSize: size, weight: weight)
+        guard style.italic else { return font }
+        return NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(.italic), size: size) ?? font
     }
 
     /// Space above a heading: H1 and H2 stand apart, smaller headings sit like body text.

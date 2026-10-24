@@ -23,8 +23,22 @@ extension Notification.Name {
 final class VaultStore: ObservableObject {
     @Published private(set) var root: URL?
     @Published private(set) var notes: [Note] = [] {
-        didSet { folderTree = FolderTree(notes: notes, folders: folders) }
+        didSet {
+            folderTree = FolderTree(notes: notes, folders: folders)
+            // Only when notes come, go or are renamed, not when one is saved.
+            let ids = Set(notes.map(\.id))
+            if ids != noteIDs {
+                noteIDs = ids
+                linkResolver = LinkResolver(notes: notes)
+                notesGeneration += 1
+            }
+        }
     }
+    /// Resolves links against the notes as they are now.
+    private(set) var linkResolver = LinkResolver(notes: [])
+    /// Counts changes to the notes, so editors know to restyle their links.
+    private(set) var notesGeneration = 0
+    private var noteIDs: Set<Note.ID> = []
     /// Every folder on disk, including empty ones (which the notes alone wouldn't show).
     private var folders: [String] = [] {
         didSet { folderTree = FolderTree(notes: notes, folders: folders) }
@@ -383,6 +397,15 @@ final class VaultStore: ObservableObject {
 
     // MARK: Display settings (shared by every window)
 
+    /// Narrowing the window past a width hides the sidebar, and widening it again brings it
+    /// back. On unless turned off.
+    @Published var autoHidesSidebar = UserDefaults.standard.object(forKey: "autoHidesSidebar") == nil || UserDefaults.standard.bool(forKey: "autoHidesSidebar") {
+        didSet { UserDefaults.standard.set(autoHidesSidebar, forKey: "autoHidesSidebar") }
+    }
+    /// The window width, in points, below which the sidebar hides.
+    @Published var sidebarAutoHideWidth: Double = UserDefaults.standard.object(forKey: "sidebarAutoHideWidth") == nil ? 760 : UserDefaults.standard.double(forKey: "sidebarAutoHideWidth") {
+        didSet { UserDefaults.standard.set(sidebarAutoHideWidth, forKey: "sidebarAutoHideWidth") }
+    }
     /// A two-finger swipe shows and hides the sidebar. Off unless turned on: it's easily
     /// set off by accident.
     @Published var swipesSidebar = UserDefaults.standard.bool(forKey: "swipesSidebar") {
@@ -407,6 +430,11 @@ final class VaultStore: ObservableObject {
     }
     @Published var showsMarkdown = false
     /// Note text size relative to normal, kept between launches (⌘+ / ⌘−).
+    /// The body's size and line height, and each heading's size and style.
+    @Published var typography: Typography = UserDefaults.standard.data(forKey: "typography")
+        .flatMap { try? JSONDecoder().decode(Typography.self, from: $0) } ?? Typography() {
+        didSet { UserDefaults.standard.set(try? JSONEncoder().encode(typography), forKey: "typography") }
+    }
     @Published var textScale: Double = UserDefaults.standard.object(forKey: "textScale") as? Double ?? 1 {
         didSet { UserDefaults.standard.set(textScale, forKey: "textScale") }
     }

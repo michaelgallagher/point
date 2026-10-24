@@ -57,6 +57,7 @@ struct PaneTopBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            BackForwardButtons(pane: pane, paneIndex: paneIndex)
             // Always tabs, even just one: the note's path is above its title, in the page.
             NoteTabs(pane: pane, paneIndex: paneIndex, isAppendTarget: isAppendTarget)
             Spacer(minLength: 0)
@@ -96,6 +97,81 @@ struct PaneTopBar: View {
     }
 
 
+}
+
+/// Back and forward through the window's history, together, before the tabs: a glass
+/// capsule from macOS 26. Clicks are taken by AppKit views under the arrows, as the tabs'
+/// are: in the title bar's area, the window takes a click on a SwiftUI button and moves
+/// itself instead.
+private struct BackForwardButtons: View {
+    @EnvironmentObject private var model: VaultModel
+    let pane: VaultModel.NotePane
+    let paneIndex: Int
+
+    var body: some View {
+        let pair = HStack(spacing: 0) {
+            arrow("chevron.left", label: "Back", help: "Back (⌘[)", enabled: !model.backStack.isEmpty) {
+                model.travel(back: true, inPane: paneIndex)
+            }
+            arrow("chevron.right", label: "Forward", help: "Forward (⌘])", enabled: !model.forwardStack.isEmpty) {
+                model.travel(back: false, inPane: paneIndex)
+            }
+        }
+        if #available(macOS 26, *) {
+            pair
+                .padding(.horizontal, 4)
+                .frame(height: 36)
+                .glassEffect(.regular, in: Capsule())
+        } else {
+            pair
+        }
+    }
+
+    private func arrow(_ symbol: String, label: String, help: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(enabled ? .primary : .tertiary)
+            .frame(width: 28, height: 28)
+            .allowsHitTesting(false) // The click area below takes the clicks.
+            .background(ClickArea(enabled: enabled, help: help, action: action))
+            .accessibilityElement()
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// A place that takes clicks in AppKit, behind something drawn in SwiftUI: needed in the
+/// top bars, where the window would otherwise take the click and move itself.
+struct ClickArea: NSViewRepresentable {
+    var enabled = true
+    var help: String?
+    let action: () -> Void
+
+    func makeNSView(context: Context) -> ClickView { ClickView() }
+
+    func updateNSView(_ view: ClickView, context: Context) {
+        view.isEnabled = enabled
+        view.action = action
+        view.toolTip = help
+    }
+
+    final class ClickView: NSView {
+        var isEnabled = true
+        var action: () -> Void = {}
+        private var isPressed = false
+
+        override var mouseDownCanMoveWindow: Bool { false }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func mouseDown(with event: NSEvent) { isPressed = isEnabled }
+
+        override func mouseUp(with event: NSEvent) {
+            defer { isPressed = false }
+            // Only if the pointer is still over it, as with any button.
+            guard isPressed, bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+            action()
+        }
+    }
 }
 
 /// An icon button like a toolbar's.
@@ -268,7 +344,8 @@ private struct NoteTab: View {
         }
         .padding(.horizontal, 6)
         .frame(width: width)
-        .frame(height: 28)
+        // As tall as a selected row in the comfortable sidebar, in either density.
+        .frame(height: VaultModel.SidebarDensity.comfortable.rowHeight)
         .background {
             let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
             Group {

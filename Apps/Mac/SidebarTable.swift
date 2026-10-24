@@ -19,21 +19,43 @@ enum SidebarSection: String, CaseIterable {
 
 extension VaultModel {
     /// The rows to show for the current place, in order. A folded section shows only its label.
-    func sidebarRows(collapsed: Set<SidebarSection>, includesPlaces: Bool = true) -> [SidebarRow] {
+    /// How an unfolded folder or tag is remembered: a folder by its path, a tag as `#tag`.
+    static func expansionKey(_ place: SidebarPlace) -> String {
+        switch place {
+        case .folder(let path): path
+        case .tag(let tag): "#" + tag
+        case .allNotes: ""
+        }
+    }
+
+    /// `expanded` holds the folders and tags unfolded to show the ones inside them.
+    func sidebarRows(collapsed: Set<SidebarSection>, expanded: Set<String> = [], includesPlaces: Bool = true) -> [SidebarRow] {
         guard includesPlaces else { return notes(in: place).map { .note($0.id) } }
         var sections: [[SidebarRow]] = []
         func section(_ name: SidebarSection, _ rows: [SidebarRow]) -> [SidebarRow] {
             [.header(name)] + (collapsed.contains(name) ? [] : rows)
         }
+        // Folders, each followed by its subfolders if it's unfolded.
+        func folderRows(_ places: [SidebarPlace], depth: Int) -> [SidebarRow] {
+            places.flatMap { place -> [SidebarRow] in
+                guard case .folder = place, expanded.contains(Self.expansionKey(place)) else { return [.place(place, depth: depth)] }
+                return [.place(place, depth: depth)] + folderRows(self.subplaces(of: place), depth: depth + 1)
+            }
+        }
         let subplaces = subplaces(of: place)
         if place == .allNotes {
             if !pins.isEmpty { sections.append(section(.pinned, pins.map { .place($0, depth: 0) })) }
-            if !subplaces.isEmpty { sections.append(section(.folders, subplaces.map { .place($0, depth: 0) })) }
+            if !subplaces.isEmpty { sections.append(section(.folders, folderRows(subplaces, depth: 0))) }
             if !tagTree.entries.isEmpty {
-                sections.append(section(.tags, sortedTagEntries.map { .place(.tag($0.tag), depth: $0.depth) }))
+                // Nested tags show beneath a tag that's unfolded, as subfolders do.
+                let tags = sortedTagEntries.filter { entry in
+                    let parts = entry.tag.split(separator: "/")
+                    return (1..<max(parts.count, 1)).allSatisfy { expanded.contains(Self.expansionKey(.tag(parts.prefix($0).joined(separator: "/")))) }
+                }
+                sections.append(section(.tags, tags.map { .place(.tag($0.tag), depth: $0.depth) }))
             }
         } else if !subplaces.isEmpty {
-            sections.append(subplaces.map { .place($0, depth: 0) })
+            sections.append(place.isTag ? subplaces.map { .place($0, depth: 0) } : folderRows(subplaces, depth: 0))
         }
         let notes = notes(in: place)
         if !notes.isEmpty {
@@ -56,6 +78,17 @@ struct SidebarTable: NSViewRepresentable {
 
     var collapsed: Set<SidebarSection> {
         Set(collapsedSections.split(separator: ",").compactMap { SidebarSection(rawValue: String($0)) })
+    }
+
+    /// Folders unfolded to show their subfolders, by path, one per line.
+    @AppStorage("expandedSidebarFolders") var expandedFolders = ""
+
+    var expanded: Set<String> { Set(expandedFolders.split(separator: "\n").map(String.init)) }
+
+    func toggleExpanded(_ path: String) {
+        var folders = expanded
+        if folders.remove(path) == nil { folders.insert(path) }
+        expandedFolders = folders.sorted().joined(separator: "\n")
     }
 
     func toggle(_ section: SidebarSection) {
@@ -123,7 +156,7 @@ struct SidebarTable: NSViewRepresentable {
         /// going deeper, from the left when going back up.
         func update(animated: Bool) {
             guard let table else { return }
-            let newRows = model.sidebarRows(collapsed: parent.collapsed, includesPlaces: parent.includesPlaces)
+            let newRows = model.sidebarRows(collapsed: parent.collapsed, expanded: parent.expanded, includesPlaces: parent.includesPlaces)
             let place = model.place
             let placeChanged = shownPlace != nil && shownPlace != place
             if !placeChanged, newRows == rows {
@@ -220,7 +253,7 @@ struct SidebarTable: NSViewRepresentable {
             let identifier = NSUserInterfaceItemIdentifier("row")
             let cell = tableView.makeView(withIdentifier: identifier, owner: nil) as? HostingCell ?? HostingCell()
             cell.identifier = identifier
-            cell.show(SidebarRowView(row: rows[row], model: model, collapsed: parent.collapsed))
+            cell.show(SidebarRowView(row: rows[row], model: model, collapsed: parent.collapsed, expanded: parent.expanded))
             return cell
         }
 
@@ -233,10 +266,22 @@ struct SidebarTable: NSViewRepresentable {
             let row = sender.clickedRow
             guard rows.indices.contains(row) else { return }
             switch rows[row] {
+            case .place(let place, let depth) where place != .allNotes && clickedArrow(row: row, depth: depth, in: sender)
+                && !model.subplaces(of: place).isEmpty:
+                parent.toggleExpanded(VaultModel.expansionKey(place))
             case .place(let place, _): model.browse(place)
             case .header(let section): parent.toggle(section)
             default: break
             }
+        }
+
+        /// Whether the click was on a folder's or tag's unfold arrow, at the start of its row.
+        /// Measured in the row's cell, which the source list style insets from the row.
+        private func clickedArrow(row: Int, depth: Int, in table: NSTableView) -> Bool {
+            guard let event = NSApp.currentEvent, let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false) else { return false }
+            let x = cell.convert(event.locationInWindow, from: nil).x
+            let start = SidebarRowView.arrowStart(depth: depth)
+            return x >= start - 4 && x <= start + SidebarRowView.arrowWidth + 2
         }
 
         // MARK: Dragging notes onto folders
@@ -397,6 +442,12 @@ struct SidebarRowView: View {
     /// with the same plain reference wouldn't: SwiftUI sees nothing different and skips it.)
     @ObservedObject var model: VaultModel
     let collapsed: Set<SidebarSection>
+    /// Folders unfolded to show their subfolders.
+    var expanded: Set<String> = []
+
+    /// Where a folder's unfold arrow starts, and its width, in the row.
+    static func arrowStart(depth: Int) -> CGFloat { 4 + CGFloat(depth) * 14 }
+    static let arrowWidth: CGFloat = 12
 
     var body: some View {
         switch row {
@@ -423,6 +474,19 @@ struct SidebarRowView: View {
                 .frame(maxHeight: .infinity, alignment: .bottom)
         case .place(let place, let depth):
             HStack(spacing: 6) {
+                // A folder with folders in it, or a tag with tags under it, unfolds from the arrow.
+                Group {
+                    if place != .allNotes, !model.subplaces(of: place).isEmpty {
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .rotationEffect(.degrees(expanded.contains(VaultModel.expansionKey(place)) ? 90 : 0))
+                    } else {
+                        Color.clear
+                    }
+                }
+                .frame(width: Self.arrowWidth)
+                .padding(.trailing, -2)
                 Image(systemName: place.isTag ? "number" : "folder")
                     .foregroundStyle(.secondary)
                     .frame(width: 16)
@@ -434,7 +498,7 @@ struct SidebarRowView: View {
                     .foregroundStyle(.tertiary)
                     .monospacedDigit()
             }
-            .padding(.leading, 8 + CGFloat(depth) * 14)
+            .padding(.leading, Self.arrowStart(depth: depth))
             .padding(.trailing, 8)
             .frame(maxHeight: .infinity)
         case .note(let id):

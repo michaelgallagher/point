@@ -41,20 +41,50 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     /// The foldable line under the pointer, whose arrow shows.
     var hoveredFoldLine: Int?
 
-    /// How big the text is, relative to the normal 15pt (⌘+ / ⌘−).
+    /// How big the text is, relative to the chosen size (⌘+ / ⌘−).
     public var textScale: CGFloat {
-        get { styler.theme.bodySize / 15 }
+        get { styler.theme.scale }
         set {
-            let size = (15 * min(max(newValue, 0.6), 2.5)).rounded()
-            guard size != styler.theme.bodySize, let storage = textStorage else { return }
-            styler.theme.bodySize = size
-            imprintLayoutManager?.theme = styler.theme
-            typingAttributes = styler.baseAttributes
-            storage.beginEditing()
-            styler.style(storage, range: NSRange(location: 0, length: storage.length), tokens: tokens)
-            applyFolds()
-            storage.endEditing()
+            let scale = min(max(newValue, 0.6), 2.5)
+            guard scale != styler.theme.scale else { return }
+            styler.theme.scale = scale
+            themeChanged()
         }
+    }
+
+    /// The body's size and line height, and each heading's size and style (from Settings).
+    public var typography: Typography {
+        get { styler.theme.typography }
+        set {
+            guard newValue != styler.theme.typography else { return }
+            styler.theme.typography = newValue
+            themeChanged()
+        }
+    }
+
+    private func themeChanged() {
+        imprintLayoutManager?.theme = styler.theme
+        typingAttributes = styler.baseAttributes
+        restyleAll()
+    }
+
+    /// Whether a wikilink's target is a note that exists; links to notes that don't exist yet
+    /// are fainter. Set by the app, which knows the vault.
+    public var wikiLinkExists: ((String) -> Bool)? {
+        didSet {
+            styler.wikiLinkExists = wikiLinkExists
+            restyleAll()
+        }
+    }
+
+    /// Restyles the whole note, for example when notes are added or removed, which can
+    /// change which links lead anywhere.
+    public func restyleAll() {
+        guard let storage = textStorage, storage.length > 0 else { return }
+        storage.beginEditing()
+        styler.style(storage, range: NSRange(location: 0, length: storage.length), tokens: tokens)
+        applyFolds()
+        storage.endEditing()
     }
 
     /// Shows the raw Markdown instead of formatted text, for fixing anything odd.

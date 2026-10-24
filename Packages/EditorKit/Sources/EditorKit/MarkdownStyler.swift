@@ -10,6 +10,9 @@ struct MarkdownStyler {
     var theme = EditorTheme()
     /// Shows the raw Markdown, every marker visible, in a monospaced font.
     var showsMarkdown = false
+    /// Whether a wikilink's target is a note that exists. Links to notes that don't exist
+    /// yet are fainter. Without it, every link looks as if its note exists.
+    var wikiLinkExists: ((String) -> Bool)?
 
     var baseParagraphStyle: NSParagraphStyle {
         // Line height is added by the layout manager, centred on the text, not here:
@@ -161,8 +164,10 @@ struct MarkdownStyler {
         case .url:
             storage.addAttributes([.foregroundColor: NSColor.linkColor, .cursor: NSCursor.pointingHand], range: range)
             markWebLink(at: NSMaxRange(range) - 1, storage: storage)
-        case .wikiLink, .embed:
-            storage.addAttributes([.foregroundColor: NSColor.linkColor, .cursor: NSCursor.pointingHand], range: range)
+        case .wikiLink(let target), .embed(let target):
+            let exists = wikiLinkExists?(target) ?? true
+            let color = exists ? NSColor.linkColor : NSColor.linkColor.withAlphaComponent(0.5)
+            storage.addAttributes([.foregroundColor: color, .cursor: NSCursor.pointingHand], range: range)
         case .tag:
             // Drawn as a pill by the layout manager, with a little room on each side for it.
             storage.addAttributes([.imprintTag: true, .cursor: NSCursor.pointingHand], range: range)

@@ -78,20 +78,11 @@ struct ContentView: View {
                     splitView
                 }
                 .navigationTitle(windowTitle)
-                // A toolbar with nothing but the system's sidebar button, so the window's top
-                // row has the standard height (window buttons centred in it) and the sidebar
-                // button sits where macOS puts it: at the sidebar's edge, or past the window
-                // buttons while it's hidden. The sidebar and each side of a split draw their
-                // own bars in that row.
-                .toolbar {
-                    if #available(macOS 26, *) {
-                        // Without its glass backing, or it shows as a sliver.
-                        ToolbarItem(placement: .automatic) { ToolbarSpacerView() }
-                            .sharedBackgroundVisibility(.hidden)
-                    } else {
-                        ToolbarItem(placement: .automatic) { ToolbarSpacerView() }
-                    }
-                }
+                // The window's toolbar holds only the system's sidebar button (the split view
+                // adds it), which gives the top row its standard height and puts the button
+                // where macOS does. No other toolbar items: an item, even an invisible one,
+                // takes the clicks meant for the bars drawn in that row (the back and forward
+                // arrows sat under one). The sidebar and each side draw their own bars there.
                 .overlay(alignment: .topLeading) {
                     if model.isFocused {
                         // The one control kept in focus mode: bring the note list back.
@@ -215,12 +206,15 @@ private struct NoteList: View {
                     .padding(.horizontal, 12)
                     .padding(.top, 6)
             }
-            SearchField(text: $model.searchText, isFocused: $searchFocused) {
+            // As tall as a comfortable row, in either density.
+            SearchField(text: $model.searchText, isFocused: $searchFocused, height: VaultModel.SidebarDensity.comfortable.rowHeight) {
                 // Return opens the top result.
                 if let first = model.searchResults?.first { model.selection = first.id }
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            // A point lower than centred, to line up with a selected row in the tree beside it.
+            .padding(.top, 7)
+            .padding(.bottom, 5)
             if let results = model.searchResults {
                 List(results, selection: $model.selection) { result in
                     SearchResultRow(result: result)
@@ -291,14 +285,6 @@ private struct PlaceHeader: View {
     }
 }
 
-/// The toolbar's one, invisible item: it's there so the window has a toolbar's height.
-private struct ToolbarSpacerView: View {
-    var body: some View {
-        Color.clear.frame(width: 1, height: 1)
-            .accessibilityHidden(true)
-    }
-}
-
 extension SidebarPlace {
     var isTag: Bool {
         if case .tag = self { return true }
@@ -327,6 +313,8 @@ extension SidebarPlace {
 private struct SearchField: View {
     @Binding var text: String
     var isFocused: FocusState<Bool>.Binding
+    /// The sidebar's row height, so the field is as tall as a selected row.
+    let height: CGFloat
     let onSubmit: () -> Void
 
     var body: some View {
@@ -348,7 +336,7 @@ private struct SearchField: View {
             }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .frame(height: height)
         .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary.opacity(0.6)))
     }
 }

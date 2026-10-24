@@ -125,6 +125,18 @@ struct AppCommands: Commands {
     }
 
     var body: some Commands {
+        // Undo reopens a tab when closing it was the last thing done; otherwise it undoes as
+        // usual, in whatever has the keyboard.
+        CommandGroup(replacing: .undoRedo) {
+            Button((model?.canReopenClosedTab ?? false) ? "Undo Close Tab" : "Undo") {
+                if model?.reopenClosedTab() != true {
+                    NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
+                }
+            }
+            .keyboardShortcut("z")
+            Button("Redo") { NSApp.sendAction(Selector(("redo:")), to: nil, from: nil) }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+        }
         CommandGroup(replacing: .newItem) {
             Button("New Note") { model?.createNote() }
                 .keyboardShortcut("n")
@@ -149,9 +161,15 @@ struct AppCommands: Commands {
             Button("Open Vault…") { store.chooseVault() }
                 .keyboardShortcut("o")
             Divider()
-            Button("Close Tab") { model?.closeTab() }
-                .keyboardShortcut("w")
-                .disabled(model == nil)
+            // In a note window, closes a tab; in any other window (Settings), closes that.
+            Button("Close Tab") {
+                if let model, NSApp.keyWindow == nil || NSApp.keyWindow === model.window {
+                    model.closeTab()
+                } else {
+                    NSApp.keyWindow?.performClose(nil)
+                }
+            }
+            .keyboardShortcut("w")
             Divider()
             Button("Rename Note…") { model?.renaming = model?.selectedNote }
                 .disabled(model?.selectedNote == nil)

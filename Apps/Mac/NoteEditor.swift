@@ -37,7 +37,7 @@ struct NoteEditor: View {
                 // The header (path, title, properties) is inside the editor, so it scrolls
                 // away with the text instead of taking up room above it.
                 EditorView(session: session, model: model, paneID: paneID, offersTemplates: offersTemplates,
-                           showsMarkdown: model.showsMarkdown, textScale: model.textScale)
+                           showsMarkdown: model.showsMarkdown, textScale: model.textScale, typography: model.store.typography)
             } else {
                 Color.clear
             }
@@ -65,10 +65,8 @@ private struct NoteHeader: View {
                 if model.showsNotePath {
                     NotePath(note: session.note, vault: model.root?.lastPathComponent ?? "Vault")
                 }
-                Text(session.note.title)
-                    .font(.system(size: 24 * model.textScale, weight: .semibold))
-                    .lineLimit(2)
-                    .textSelection(.enabled)
+                // Its file name, which can be edited here to rename the note.
+                TitleField(note: session.note, model: model)
             }
             .padding(.top, 16)
             .padding(.bottom, session.frontmatter == nil ? 12 : 2)
@@ -83,6 +81,47 @@ private struct NoteHeader: View {
                 TemplateChoices()
             }
         }
+    }
+}
+
+/// A note's title, editable: Return (or clicking away) renames the note, and its file, and
+/// updates links to it; Escape puts the title back.
+private struct TitleField: View {
+    let note: Note
+    @ObservedObject var model: VaultModel
+    @State private var draft = ""
+    @FocusState private var isEditing: Bool
+
+    var body: some View {
+        TextField("Title", text: $draft, axis: .vertical)
+            .textFieldStyle(.plain)
+            // The title is 24pt for 15pt text, and follows the text size chosen.
+            .font(.system(size: 24 * model.textScale * model.store.typography.bodySize / 15, weight: .semibold))
+            .lineLimit(1...3)
+            .focused($isEditing)
+            .onSubmit { commit() }
+            .onExitCommand {
+                draft = note.title
+                isEditing = false
+            }
+            .onChange(of: isEditing) { editing in
+                if !editing { commit() }
+            }
+            .onAppear { draft = note.title }
+            .onChange(of: note.title) { title in
+                if !isEditing { draft = title }
+            }
+            .help("Rename")
+    }
+
+    private func commit() {
+        // A title on several lines (pasted, say) is one line of a file name.
+        let title = NoteFiles.sanitizedTitle(draft)
+        guard !title.isEmpty, title != note.title else {
+            draft = note.title
+            return
+        }
+        model.rename(note, to: title)
     }
 }
 
@@ -236,9 +275,12 @@ private struct EditorView: NSViewRepresentable {
     /// Passed as a value, not read from the model, so SwiftUI updates the view when it changes.
     let showsMarkdown: Bool
     let textScale: Double
+    let typography: Typography
 
     func makeNSView(context: Context) -> NSScrollView {
         let (scrollView, textView) = MarkdownTextView.makeScrollable()
+        textView.typography = typography
+        textView.textScale = textScale
         // The keyboard stays in the list after picking a note there, and with two sides it
         // stays with the side being worked on (an editor on the other side, rebuilt when the
         // window splits, mustn't take it).
@@ -259,6 +301,18 @@ private struct EditorView: NSViewRepresentable {
             DispatchQueue.main.async { model?.activate(pane: paneID) }
         }
         textView.completeNoteTitle = { [weak model] partial in model?.titleSuggestions(for: partial) ?? [] }
+        // Typing ends the chance to reopen a just-closed tab with ⌘Z.
+        let onTextChange = textView.onTextChange
+        textView.onTextChange = { [weak model] view in
+            onTextChange?(view)
+            model?.noteEdited()
+        }
+        // Links to notes that don't exist yet are fainter.
+        textView.wikiLinkExists = { [weak model, weak session] target in
+            guard let model, let session else { return true }
+            return model.store.linkResolver.resolve(wikiTarget: target, from: session.note.id) != nil
+        }
+        context.coordinator.notesGeneration = model.store.notesGeneration
         return scrollView
     }
 
@@ -266,7 +320,17 @@ private struct EditorView: NSViewRepresentable {
         guard let textView = scrollView.documentView as? MarkdownTextView else { return }
         textView.showsMarkdown = showsMarkdown
         textView.textScale = textScale
+        textView.typography = typography
+        // A note added, renamed or removed can change which links lead anywhere.
+        if context.coordinator.notesGeneration != model.store.notesGeneration {
+            context.coordinator.notesGeneration = model.store.notesGeneration
+            textView.restyleAll()
+        }
     }
 
-    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: ()) {}
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator {
+        var notesGeneration = 0
+    }
 }
