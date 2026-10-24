@@ -17,6 +17,7 @@ enum DebugSnapshots {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { model.browse(place) }
         }
         trashIfAsked(for: model)
+        formatIfAsked(for: model)
         guard let folder = UserDefaults.standard.string(forKey: "ImprintSnapshots") else { return }
         let directory = URL(fileURLWithPath: folder, isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -34,6 +35,7 @@ enum DebugSnapshots {
                 let host = NSHostingView(rootView: AddPropertySheet().environmentObject(model))
                 host.frame = NSRect(origin: .zero, size: host.fittingSize)
                 let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false // Closed by hand below, and kept by this code.
                 window.contentView = host
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
@@ -47,6 +49,7 @@ enum DebugSnapshots {
                 let host = NSHostingView(rootView: SettingsView().environmentObject(model.store))
                 host.frame = NSRect(x: 0, y: 0, width: 760, height: 540)
                 let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false // Closed by hand below, and kept by this code.
                 window.contentView = host
                 host.layoutSubtreeIfNeeded()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -196,6 +199,40 @@ enum DebugSnapshots {
                 check("gone from the trash", !model.trashedNotes.contains { $0.title == note.title })
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     check("back where it was", model.note(id) != nil)
+                }
+            }
+        }
+    }
+
+    /// `-ImprintFormatTest <note ID>`: opens the note, selects its first word, and runs the
+    /// palette's own Bold, then Block Quote, commands, checking the note's text each time.
+    private static func formatIfAsked(for model: VaultModel) {
+        guard let id = UserDefaults.standard.string(forKey: "ImprintFormatTest") else { return }
+        func check(_ name: String, _ ok: Bool, _ detail: String) { Trace.mark("format test: \(ok ? "PASS" : "FAIL") \(name) \(detail)") }
+        func editor() -> NSTextView? {
+            func find(_ view: NSView) -> NSTextView? {
+                if let text = view as? NSTextView, text.isEditable, text.string.count > 3 { return text }
+                return view.subviews.lazy.compactMap(find).first
+            }
+            return model.window?.contentView.flatMap(find)
+        }
+        func run(_ name: String) { PaletteCommand.all(for: model).first { $0.name == name }?.action() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            model.selection = id
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                guard let text = editor() else { return check("editor found", false, "") }
+                let start = (text.string as NSString).range(of: "Text").location
+                guard start != NSNotFound else { return check("word found", false, text.string) }
+                text.setSelectedRange(NSRange(location: start, length: 4))
+                run("Bold")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    check("Bold", text.string.contains("**Text**"), text.string.replacingOccurrences(of: "\n", with: "⏎"))
+                    run("Block Quote")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        check("Block Quote", text.string.contains("> **Text**"), text.string.replacingOccurrences(of: "\n", with: "⏎"))
+                        text.undoManager?.undo()
+                        text.undoManager?.undo()
+                    }
                 }
             }
         }

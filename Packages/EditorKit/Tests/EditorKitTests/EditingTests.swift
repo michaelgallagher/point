@@ -312,6 +312,20 @@ struct LinkTests {
         #expect(view.string == "text\n- two\n")
     }
 
+    @Test func blockQuoteTogglesOnTheSelectedLines() {
+        let view = editor("‹one\ntwo›\nthree")
+        view.toggleBlockQuote(nil)
+        #expect(view.string == "> one\n> two\nthree")
+        view.toggleBlockQuote(nil)
+        #expect(view.string == "one\ntwo\nthree")
+    }
+
+    @Test func inlineCodeWrapsTheSelection() {
+        let view = editor("call ‹run› now")
+        view.toggleCode(nil)
+        #expect(view.string == "call `run` now")
+    }
+
     @Test func cuttingWithNothingSelectedCutsTheLine() {
         let view = editor("- one\n- t|wo\n- three")
         view.cut(nil)

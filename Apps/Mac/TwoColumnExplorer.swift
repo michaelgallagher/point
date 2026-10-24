@@ -133,6 +133,15 @@ final class ExplorerState: ObservableObject {
         noteIndex = 0
     }
 
+    /// Lists everything again, after something moved, keeping the explorer where it was.
+    func reload() {
+        guard let model else { return }
+        remember()
+        let filter = filter
+        load(model)
+        if !filter.isEmpty { setFilter(filter) }
+    }
+
     private func remember() {
         model?.explorerPlace = currentPlace?.place ?? .allNotes
         model?.explorerInNotes = inNotes
@@ -144,6 +153,11 @@ final class ExplorerState: ObservableObject {
 struct ExplorerColumns: View {
     @ObservedObject var state: ExplorerState
     let open: (Note.ID) -> Void
+    /// Something dragged (a note's ID, or a folder, as the sidebar carries it) dropped on a
+    /// folder ("" for the vault's top level).
+    var drop: (String, String) -> Void = { _, _ in }
+    /// The folder a drag is over, shaded.
+    @State private var dropTarget: String?
 
     var body: some View {
         GeometryReader { geometry in
@@ -175,10 +189,12 @@ struct ExplorerColumns: View {
                             detail: "\(place.count)",
                             indent: CGFloat(place.depth) * 14,
                             isHighlighted: index == state.placeIndex,
-                            isFocused: !state.inNotes
+                            isFocused: !state.inNotes,
+                            isDropTarget: dropTarget == place.id
                         )
                         .id(place.id)
                         .onTapGesture { state.selectPlace(index) }
+                        .modifier(ExplorerFolderDrag(place: place, dropTarget: $dropTarget, drop: drop))
                     }
                 }
                 .padding(6)
@@ -198,6 +214,8 @@ struct ExplorerColumns: View {
                                     isHighlighted: index == state.noteIndex, isFocused: state.inNotes)
                             .id(note.id)
                             .onTapGesture { open(note.id) }
+                            // Drag a note onto a folder on the left to move it there.
+                            .onDrag { NSItemProvider(object: note.id as NSString) }
                     }
                 }
                 .padding(6)
@@ -222,6 +240,8 @@ private struct ExplorerRow: View {
     let isHighlighted: Bool
     /// The column with the keyboard shows its highlight in the accent colour.
     let isFocused: Bool
+    /// A note or folder dragged over this folder would go into it.
+    var isDropTarget = false
 
     private var isAccented: Bool { isHighlighted && isFocused }
 
@@ -245,8 +265,49 @@ private struct ExplorerRow: View {
         .padding(.trailing, 8)
         .padding(.vertical, 5)
         .background(RoundedRectangle(cornerRadius: 6).fill(
-            isAccented ? Color.accentColor : (isHighlighted ? Color.primary.opacity(0.1) : .clear)
+            isDropTarget ? Color.accentColor.opacity(0.25)
+                : isAccented ? Color.accentColor : (isHighlighted ? Color.primary.opacity(0.1) : .clear)
         ))
         .contentShape(Rectangle())
+    }
+}
+
+/// A folder in the explorer: dragged into another folder, or taking notes and folders dropped
+/// on it. The vault's top level takes drops but can't be dragged; tags do neither.
+private struct ExplorerFolderDrag: ViewModifier {
+    let place: ExplorerState.Place
+    @Binding var dropTarget: String?
+    let drop: (String, String) -> Void
+
+    private var folder: String? {
+        switch place.place {
+        case .allNotes: ""
+        case .folder(let path): path
+        default: nil
+        }
+    }
+
+    func body(content: Content) -> some View {
+        if let folder {
+            content
+                .onDrag {
+                    NSItemProvider(object: (folder.isEmpty ? "" : VaultModel.folderDragPrefix + folder) as NSString)
+                }
+                .onDrop(of: [.text], isTargeted: Binding(
+                    get: { dropTarget == place.id },
+                    set: { targeted in
+                        if targeted { dropTarget = place.id } else if dropTarget == place.id { dropTarget = nil }
+                    }
+                )) { providers in
+                    guard let provider = providers.first else { return false }
+                    _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+                        guard let dragged = object as? String, !dragged.isEmpty else { return }
+                        Task { @MainActor in drop(dragged, folder) }
+                    }
+                    return true
+                }
+        } else {
+            content
+        }
     }
 }

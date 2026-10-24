@@ -42,6 +42,8 @@ struct ShortcutsSheet: View {
         ("Formatting", [
             ("⌘B  ⌘I  ⌘U", "Bold, italic, highlight"),
             ("⇧⌘X", "Strikethrough"),
+            ("⌥⌘C", "Inline code"),
+            ("⌘'", "Block quote"),
             ("⌘0 … ⌘6", "Body text, headings 1 to 6"),
             ("⌘L", "Bulleted list"),
             ("⇧⌘L", "Checklist"),

@@ -332,7 +332,11 @@ Features:
 2. **One column: a sort selector** at the top of the list (date edited, date created, title).
 3. **One column, inside a folder with subfolders:** "Folders" and "Notes" labels over the two parts of the list. If none of the folders has subfolders, so there are no unfold arrows, the folders line up with the notes' text.
 
-*Batch 4: the palettes* (bigger)
+*Batch 4: the palettes* (bigger). Done 24 October 2026:
+- **Dragging in the explorer:** notes drag onto folders, and folders onto folders (or the vault's top level), in the ⌘E explorer and on a start page, with the folder under the drag shaded. The explorer lists everything again when the vault changes, keeping its place.
+- **⌘F:** every Format menu command, done to the selection the note had before the palette opened (sent to that note's editor). "Apply Template “name”" for each template, besides Insert Template….
+- **New commands:** Block Quote (⌘') and Inline Code (⌥⌘C), in the Format menu, the palette and the cheat sheet.
+- **Checked:** a debug test ran the palette's own Bold and Block Quote on a note's selection (`-ImprintFormatTest <note>`); the editor tests cover block quote and inline code. Dragging in the explorer needs trying by hand. (The debug picture steps' offscreen windows no longer crash on closing.)
 1. **Dragging in the explorer:** drag notes and folders between folders in the ⌘E explorer (and its start-page version), as in the sidebar, so the sidebar is needed less.
 2. **⌘F as a general command runner:**
    - **Templates:** "Apply Template…" inserts a template into the note.

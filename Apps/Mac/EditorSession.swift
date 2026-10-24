@@ -52,6 +52,7 @@ final class EditorSession: NSObject, ObservableObject {
         center.addObserver(self, selector: #selector(insertText(_:)), name: .imprintInsertText, object: nil)
         center.addObserver(self, selector: #selector(setPropertyFromNotification(_:)), name: .imprintSetProperty, object: nil)
         center.addObserver(self, selector: #selector(addTagFromNotification(_:)), name: .imprintAddTag, object: nil)
+        center.addObserver(self, selector: #selector(editorCommand(_:)), name: .imprintEditorCommand, object: nil)
     }
 
     // MARK: Loading
@@ -190,6 +191,17 @@ final class EditorSession: NSObject, ObservableObject {
               notification.userInfo?["noteID"] as? String == note.id else { return }
         textView.insertText(text, replacementRange: textView.selectedRange())
         textView.window?.makeFirstResponder(textView)
+    }
+
+    // MARK: Commands from the palette
+
+    /// A Format menu command chosen in the palette, for this note: the editor takes the
+    /// keyboard back and does it to the selection it had.
+    @objc private func editorCommand(_ notification: Notification) {
+        guard !isReleased, let textView, notification.userInfo?["noteID"] as? String == note.id,
+              let name = notification.userInfo?["action"] as? String else { return }
+        textView.window?.makeFirstResponder(textView)
+        NSApp.sendAction(NSSelectorFromString(name), to: textView, from: nil)
     }
 
     // MARK: Properties

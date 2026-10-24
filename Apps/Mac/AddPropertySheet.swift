@@ -6,6 +6,9 @@ extension Notification.Name {
     static let imprintAddProperty = Notification.Name("ImprintAddProperty")
     /// Asks the open note to set a property: `userInfo` has "key", "values" and "isList".
     static let imprintSetProperty = Notification.Name("ImprintSetProperty")
+    /// Asks a note's editor to do a Format menu command: `userInfo` has "noteID" and
+    /// "action" (the command's selector, by name).
+    static let imprintEditorCommand = Notification.Name("ImprintEditorCommand")
 }
 
 /// Adds a property to the open note, creating its frontmatter if it has none.

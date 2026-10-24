@@ -160,6 +160,35 @@ extension MarkdownTextView {
         }
     }
 
+    @objc public func toggleCode(_ sender: Any?) { toggleInline("`", kind: .code) }
+
+    /// Quotes the lines the selection touches (`> ` before each), or unquotes them if they're
+    /// all quoted already.
+    @objc public func toggleBlockQuote(_ sender: Any?) {
+        let lines = selectedLineRanges()
+        guard let first = lines.first, let last = lines.last else { return }
+        let text = string as NSString
+        let whole = NSRange(location: first.location, length: NSMaxRange(last) - first.location)
+        let contents = lines.map { text.substring(with: $0) }
+        let allQuoted = contents.allSatisfy { $0.hasPrefix(">") }
+        let rebuilt = contents.map { line -> String in
+            guard allQuoted else { return "> " + line }
+            return String(line.dropFirst(line.hasPrefix("> ") ? 2 : 1))
+        }.joined(separator: "\n")
+        let newLength = (rebuilt as NSString).length
+        let selection = selectedRange()
+        let select: NSRange
+        if lines.count == 1 {
+            // The cursor keeps its place in the text, past the marker added or taken away.
+            let shift = newLength - whole.length
+            let cursor = min(max(selection.location + shift, first.location), first.location + newLength)
+            select = NSRange(location: cursor, length: min(selection.length, first.location + newLength - cursor))
+        } else {
+            select = NSRange(location: first.location, length: newLength)
+        }
+        replace(whole, with: rebuilt, select: select)
+    }
+
     @objc public func toggleBulletList(_ sender: Any?) { toggleList(task: false) }
     @objc public func toggleChecklist(_ sender: Any?) { toggleList(task: true) }
 

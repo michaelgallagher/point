@@ -13,6 +13,7 @@ struct FormatCommands: Commands {
             item("Italic", #selector(MarkdownTextView.toggleItalic(_:)), "i")
             item("Highlight", #selector(MarkdownTextView.toggleHighlight(_:)), "u")
             item("Strikethrough", #selector(MarkdownTextView.toggleStrikethrough(_:)), "x", [.command, .shift])
+            item("Inline Code", #selector(MarkdownTextView.toggleCode(_:)), "c", [.command, .option])
             Divider()
             item("Body Text", #selector(MarkdownTextView.makeBodyText(_:)), "0")
             item("Heading 1", #selector(MarkdownTextView.makeHeading1(_:)), "1")
@@ -24,6 +25,7 @@ struct FormatCommands: Commands {
             Divider()
             item("Bulleted List", #selector(MarkdownTextView.toggleBulletList(_:)), "l")
             item("Checklist", #selector(MarkdownTextView.toggleChecklist(_:)), "l", [.command, .shift])
+            item("Block Quote", #selector(MarkdownTextView.toggleBlockQuote(_:)), "'")
             // ⌘← and ⌘→ stay as the system's start and end of line.
             item("Indent", #selector(MarkdownTextView.indentLines(_:)), .rightArrow, [.command, .option])
             item("Outdent", #selector(MarkdownTextView.outdentLines(_:)), .leftArrow, [.command, .option])

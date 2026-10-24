@@ -1,5 +1,6 @@
 import AppKit
 import IndexKit
+import EditorKit
 import SwiftUI
 import VaultKit
 
@@ -48,7 +49,8 @@ struct CommandPalette: View {
 
             if isExploring {
                 if !isPage { Divider() }
-                ExplorerColumns(state: explorer) { id in open(id, inNewTab: false) }
+                ExplorerColumns(state: explorer, open: { id in open(id, inNewTab: false) },
+                                drop: { dragged, folder in model.drop(dragged, onFolder: folder) })
                     .frame(height: isPage ? nil : Self.listHeight)
                     .frame(maxHeight: isPage ? .infinity : nil)
             } else if !items.isEmpty || !isPage {
@@ -88,6 +90,10 @@ struct CommandPalette: View {
             refresh()
         }
         .onChange(of: query) { _ in refresh() }
+        // Something moved (dragged in the explorer, say): list it where it is now.
+        .onReceive(model.store.$folderTree.dropFirst()) { _ in
+            if isExploring { explorer.reload() }
+        }
         // At launch the palette (or a start page) can appear before the notes have loaded.
         .onChange(of: model.notes.count) { _ in
             if query.isEmpty, !isExploring { refresh() }
@@ -417,6 +423,43 @@ struct PaletteCommand {
                 PaletteCommand(name: "Move Note to Trash", shortcut: nil) { model.moveToTrash(note) },
                 PaletteCommand(name: "Find in Note", shortcut: "⌥⌘F") { FindInNote.show() },
             ]
+        }
+        if let note = model.selectedNote {
+            // Each template, straight into the note.
+            for template in model.templates {
+                commands.append(PaletteCommand(name: "Apply Template “\(template.name)”", shortcut: nil) { model.insertTemplate(at: template.url) })
+            }
+            // Formatting, done to the note's selection, as the Format menu does.
+            let formats: [(String, String?, Selector)] = [
+                ("Bold", "⌘B", #selector(MarkdownTextView.toggleBold(_:))),
+                ("Italic", "⌘I", #selector(MarkdownTextView.toggleItalic(_:))),
+                ("Highlight", "⌘U", #selector(MarkdownTextView.toggleHighlight(_:))),
+                ("Strikethrough", "⇧⌘X", #selector(MarkdownTextView.toggleStrikethrough(_:))),
+                ("Inline Code", "⌥⌘C", #selector(MarkdownTextView.toggleCode(_:))),
+                ("Block Quote", "⌘'", #selector(MarkdownTextView.toggleBlockQuote(_:))),
+                ("Body Text", "⌘0", #selector(MarkdownTextView.makeBodyText(_:))),
+                ("Heading 1", "⌘1", #selector(MarkdownTextView.makeHeading1(_:))),
+                ("Heading 2", "⌘2", #selector(MarkdownTextView.makeHeading2(_:))),
+                ("Heading 3", "⌘3", #selector(MarkdownTextView.makeHeading3(_:))),
+                ("Heading 4", "⌘4", #selector(MarkdownTextView.makeHeading4(_:))),
+                ("Heading 5", "⌘5", #selector(MarkdownTextView.makeHeading5(_:))),
+                ("Heading 6", "⌘6", #selector(MarkdownTextView.makeHeading6(_:))),
+                ("Bulleted List", "⌘L", #selector(MarkdownTextView.toggleBulletList(_:))),
+                ("Checklist", "⇧⌘L", #selector(MarkdownTextView.toggleChecklist(_:))),
+                ("Indent", "⌥⌘→", #selector(MarkdownTextView.indentLines(_:))),
+                ("Outdent", "⌥⌘←", #selector(MarkdownTextView.outdentLines(_:))),
+                ("Move Line Up", "⌥⌘↑", #selector(MarkdownTextView.moveLinesUp(_:))),
+                ("Move Line Down", "⌥⌘↓", #selector(MarkdownTextView.moveLinesDown(_:))),
+                ("Fold", "⌥⌘[", #selector(MarkdownTextView.foldLine(_:))),
+                ("Unfold", "⌥⌘]", #selector(MarkdownTextView.unfoldLine(_:))),
+                ("Add Link…", "⌘K", #selector(MarkdownTextView.addLink(_:))),
+            ]
+            for (name, shortcut, action) in formats {
+                commands.append(PaletteCommand(name: name, shortcut: shortcut) {
+                    NotificationCenter.default.post(name: .imprintEditorCommand, object: nil,
+                                                    userInfo: ["noteID": note.id, "action": NSStringFromSelector(action)])
+                })
+            }
         }
         return commands
     }
