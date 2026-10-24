@@ -372,6 +372,17 @@ Features:
 
 **To do (24 October 2026, separate from H):** the bottom bars line up. The links bar under a note ("1 link here", `ConnectionsBar`) is shorter than the two-column sidebar's sort bars beside it (`SortBar`: 6 points, a 26-point box, 6 points, plus its top line, about 39 in all). Make the links bar exactly the sort bar's height, its top line level with theirs and its text centred, so the three read as one strip along the bottom of the window. Best done by giving both one shared height constant rather than matching by eye, then checking in a picture with the sidebar in two columns.
 
+**To do (24 October 2026, separate from H): moving a big folder hangs the app.** Dragging Projects › Archive (about 1,240 notes) in the ⌘E explorer beach-balls for a while before it finishes. It must not hang: good software is fast software, and where work takes time, the person should see the result at once while the rest finishes in the background.
+- **Why (from the code):** `VaultStore.moveFolder` moves the folder on disk in one step (quick), then updates each note inside it one at a time with `replace(_:with:url:)`. Each update changes `notes`, which rebuilds the folder tree and the link resolver over every note in the vault, publishes a change, and posts a "note moved" notice that every window handles. Each folder-tree change also makes the open explorer list everything again. That's about 1,240 × 5,000 steps on the main thread, plus 1,240 redraws.
+- **The fix:**
+  - **One update, not 1,240:** build the new notes list once and assign it once (one rebuild, one change). Post one "folder moved" notice, which each window uses to remap its tabs, history and selection by path prefix.
+  - **Off the main thread:** move the files with `NSFileCoordinator` and rescan in the background, so the window keeps responding.
+  - **Show it at once:** the explorer and sidebar show the folder in its new place as soon as it's dropped, and correct themselves if the move fails (with a message). Notes open from the folder keep showing throughout.
+  - **No redraw storm:** the explorer's reload on vault changes is coalesced (once per run-loop turn, or debounced), not run on every change.
+- **Check:** time a move of Archive in a copy of a big vault (not the real one) with `-PointTrace`. The drop should return in well under a frame's worth of main-thread time, with the file work after it. Also check moving a single note still feels instant.
+
+**To do (24 October 2026, separate from H): All Notes and Trash in the explorer.** The ⌘E explorer (and its start-page version) lists the same special places as the sidebar, at the top of its left column with no heading: All Notes (every note, in the right column) and Trash. `ExplorerState.load` adds them before Pinned, with the `tray.full` and `trash` symbols. The Trash's right column lists deleted notes with how long ago each went. Return puts the highlighted one back, since a trashed note can't be opened, and the right-click menu has Put Back and Delete Now. Neither takes drops yet (dropping on Trash to delete could come later).
+
 **H. Capsules everywhere** (Mike, 24 October 2026). Not started. Every highlight and box becomes a fully rounded capsule, to match the Liquid Glass controls, even where Finder uses rounded rectangles (Mike finds that mix incoherent). Smallest first:
 
 1. **Our own shapes become capsules** (a line each, `Capsule()` in place of `RoundedRectangle`):
