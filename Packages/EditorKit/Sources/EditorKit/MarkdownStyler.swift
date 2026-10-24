@@ -74,8 +74,7 @@ struct MarkdownStyler {
 
         case .heading(let level):
             let font = theme.headingFont(level: level)
-            let style = paragraphStyle { $0.paragraphSpacingBefore = theme.spaceBeforeHeading(level: level) }
-            storage.addAttributes([.font: font, .paragraphStyle: style], range: range)
+            storage.addAttributes([.font: font, .paragraphStyle: paragraphStyle { _ in }], range: range)
 
         case .blockquote, .callout:
             let style = paragraphStyle {
@@ -97,7 +96,7 @@ struct MarkdownStyler {
 
         case .listItem(let marker, let indent):
             let level = Int((Double(indent) / 4).rounded(.up))
-            let start = theme.indentPerLevel * CGFloat(level) + theme.markerWidth
+            let start = theme.indentPerLevel * CGFloat(level) + theme.markerWidth(for: marker)
             let style = paragraphStyle {
                 $0.firstLineHeadIndent = start
                 $0.headIndent = start

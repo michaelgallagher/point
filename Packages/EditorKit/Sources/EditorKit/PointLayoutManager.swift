@@ -290,7 +290,8 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         switch decoration.marker {
         case .bullet:
             let size: CGFloat = 5
-            let center = NSPoint(x: x + theme.markerWidth / 2 - 3, y: baseline - font.xHeight / 2)
+            // Its left edge is the text's.
+            let center = NSPoint(x: x + size / 2, y: baseline - font.xHeight / 2)
             NSColor.textColor.setFill()
             NSBezierPath(ovalIn: NSRect(x: center.x - size / 2, y: center.y - size / 2, width: size, height: size)).fill()
         case .ordered(let number):

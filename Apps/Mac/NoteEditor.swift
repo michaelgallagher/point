@@ -136,6 +136,9 @@ private struct NoteHeaderHost: View {
     var body: some View {
         NoteHeader(session: session, model: model, offersTemplates: offersTemplates)
             .environmentObject(model)
+            // No SwiftUI animation inside: the editor moves the text and reveals the header
+            // together (see `HeaderHeightAnimator`), and the two animating apart look like a jump.
+            .transaction { $0.animation = nil }
             .fixedSize(horizontal: false, vertical: true)
             .background(GeometryReader { proxy in
                 Color.clear.preference(key: HeaderHeight.self, value: proxy.size.height)
@@ -287,10 +290,17 @@ private struct EditorView: NSViewRepresentable {
         // window splits, mustn't take it).
         let isActivePane = model.paneIndex(paneID) == model.activePane
         session.attach(textView, takesFocus: !model.consumeListFocus() && isActivePane)
+        // Hidden until the header's height is known, so the text doesn't show at the top for a
+        // moment and then move down.
+        textView.alphaValue = 0
         let header = NSHostingView(rootView: NoteHeaderHost(
             session: session, model: model, offersTemplates: offersTemplates,
-            onHeight: { [animator = HeaderHeightAnimator(textView: textView)] height in animator.move(to: height) }
+            onHeight: { [weak textView, animator = HeaderHeightAnimator(textView: textView)] height in
+                animator.move(to: height)
+                textView?.alphaValue = 1
+            }
         ))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak textView] in textView?.alphaValue = 1 }
         header.sizingOptions = [] // The editor sizes it: the full width, at the height it reports.
         textView.headerView = header
         let noteID = session.note.id

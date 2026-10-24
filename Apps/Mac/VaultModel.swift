@@ -282,14 +282,19 @@ final class VaultModel: ObservableObject {
     }
 
     /// Opens a note in the active tab (recording it in the tab's history), unless it's already
-    /// open somewhere, in which case that tab comes forward.
+    /// open on this side, or showing on the other, in which case that tab comes forward. A
+    /// note in a tab behind on the other side moves here: a note is open in one place only.
     private func show(_ id: Note.ID?) {
         let old = selection
         guard id != old else { return }
         if let id, let (p, t) = location(of: id) {
-            activePane = p
-            panes[p].current = t
-            return
+            if p == activePane || panes[p].current == t {
+                activePane = p
+                panes[p].current = t
+                return
+            }
+            // Not the other side's current tab, so that side keeps showing the same one.
+            _ = Self.remove(t, from: &panes[p])
         }
         // The tab's history: the note it showed goes on its back list, and its forward list
         // empties, as in a browser. (Bringing another tab forward isn't history: that tab's

@@ -221,9 +221,14 @@ extension MarkdownTextView {
             let folded = folds.contains(line)
             let configuration = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
                 .applying(NSImage.SymbolConfiguration(paletteColors: [.secondaryLabelColor]))
-            NSImage(systemSymbolName: folded ? "chevron.right" : "chevron.down", accessibilityDescription: folded ? "Unfold" : "Fold")?
-                .withSymbolConfiguration(configuration)?
-                .draw(in: rect.insetBy(dx: 2, dy: 2), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            guard let image = NSImage(systemSymbolName: folded ? "chevron.right" : "chevron.down", accessibilityDescription: folded ? "Unfold" : "Fold")?
+                .withSymbolConfiguration(configuration) else { continue }
+            // At its own proportions, centred in the arrow's place: filling the square stretches it.
+            let box = rect.insetBy(dx: 2, dy: 2)
+            let scale = min(box.width / image.size.width, box.height / image.size.height, 1)
+            let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
+            image.draw(in: NSRect(x: box.midX - size.width / 2, y: box.midY - size.height / 2, width: size.width, height: size.height),
+                       from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
             if folded { drawFoldedMark(afterLine: line) }
         }
     }
