@@ -75,7 +75,8 @@ private struct NoteHeader: View {
             .padding(.horizontal, 28)
             .frame(maxWidth: .infinity)
             if let frontmatter = session.frontmatter {
-                PropertiesStrip(frontmatter: frontmatter, session: session)
+                PropertiesStrip(frontmatter: frontmatter, session: session,
+                                isExpanded: model.store.propertiesOpen[session.note.id] ?? UserDefaults.standard.bool(forKey: "propertiesExpanded"))
             }
             if offersTemplates, session.isEmpty, !model.templates.isEmpty {
                 TemplateChoices()

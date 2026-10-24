@@ -117,6 +117,11 @@ final class ImprintLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
             draw(decoration, at: range.location, storage: storage, container: container, origin: origin)
         }
 
+        storage.enumerateAttribute(.imprintRoundedBackground, in: characters) { value, range, _ in
+            guard let color = value as? NSColor else { return }
+            drawRoundedBackground(color, for: range, storage: storage, container: container, origin: origin)
+        }
+
         storage.enumerateAttribute(.imprintTag, in: characters) { value, range, _ in
             guard value != nil else { return }
             drawTagPill(for: range, storage: storage, container: container, origin: origin)
@@ -141,6 +146,26 @@ final class ImprintLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         }
     }
 
+    /// A highlight's or inline code's background: around the text's own height, not the whole
+    /// line, with slightly rounded corners, on each line it covers.
+    private func drawRoundedBackground(_ color: NSColor, for range: NSRange, storage: NSTextStorage, container: NSTextContainer, origin: NSPoint) {
+        let glyphs = glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+        guard glyphs.length > 0 else { return }
+        color.setFill()
+        enumerateLineFragments(forGlyphRange: glyphs) { [self] line, _, _, lineGlyphs, _ in
+            let part = NSIntersectionRange(glyphs, lineGlyphs)
+            guard part.length > 0 else { return }
+            let bounds = boundingRect(forGlyphRange: part, in: container)
+            guard bounds.width > 0.5 else { return }
+            let character = characterIndexForGlyph(at: part.location)
+            let font = storage.attribute(.font, at: min(character, storage.length - 1), effectiveRange: nil) as? NSFont ?? theme.body
+            let baseline = origin.y + line.minY + location(forGlyphAt: part.location).y
+            let rect = NSRect(x: origin.x + bounds.minX - 2, y: baseline - font.ascender - 1,
+                              width: bounds.width + 4, height: (font.ascender - font.descender + 2).rounded())
+            NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3).fill()
+        }
+    }
+
     /// A tag's background: fully rounded, in the system highlight colour.
     private func drawTagPill(for range: NSRange, storage: NSTextStorage, container: NSTextContainer, origin: NSPoint) {
         let glyphs = glyphRange(forCharacterRange: range, actualCharacterRange: nil)
@@ -150,10 +175,11 @@ final class ImprintLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         let line = lineFragmentRect(forGlyphAt: glyphs.location, effectiveRange: nil)
         let bounds = boundingRect(forGlyphRange: glyphs, in: container)
         let baseline = origin.y + line.minY + location(forGlyphAt: glyphs.location).y
-        let height = (font.ascender - font.descender + 2).rounded()
+        let height = (font.ascender - font.descender + 4).rounded()
         // The glyphs' bounds include the space added after the tag's last letter; leave it out.
         let trailing = storage.attribute(.kern, at: NSMaxRange(range) - 1, effectiveRange: nil) as? CGFloat ?? 0
-        let rect = NSRect(x: origin.x + bounds.minX - 4, y: baseline - font.ascender - 1, width: bounds.width - trailing + 8, height: height)
+        // 6 points either side of the text, and 2 above and below.
+        let rect = NSRect(x: origin.x + bounds.minX - 6, y: baseline - font.ascender - 2, width: bounds.width - trailing + 12, height: height)
         // The highlight colour, a quarter of the way towards the page colour, so pills stay light.
         let fill = NSColor.selectedTextBackgroundColor.blended(withFraction: 0.25, of: .textBackgroundColor) ?? .selectedTextBackgroundColor
         fill.setFill()

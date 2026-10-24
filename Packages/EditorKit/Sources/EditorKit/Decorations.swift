@@ -17,6 +17,9 @@ extension NSAttributedString.Key {
     static let imprintTag = NSAttributedString.Key("imprint.tag")
     /// The last letter of a link to a website, followed by the arrow symbol drawn after it.
     static let imprintWebLink = NSAttributedString.Key("imprint.webLink")
+    /// A background colour (an `NSColor`) drawn with rounded corners behind the text, line by
+    /// line: highlights and inline code.
+    static let imprintRoundedBackground = NSAttributedString.Key("imprint.roundedBackground")
     /// A line-height multiple (CGFloat) overriding the theme's, for example in code blocks.
     static let imprintLineHeight = NSAttributedString.Key("imprint.lineHeight")
 }

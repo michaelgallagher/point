@@ -430,6 +430,9 @@ final class VaultStore: ObservableObject {
     }
     @Published var showsMarkdown = false
     /// Note text size relative to normal, kept between launches (⌘+ / ⌘−).
+    /// Whether each note's properties are open, this session. Not published: each strip
+    /// keeps its own state and only writes here.
+    var propertiesOpen: [Note.ID: Bool] = [:]
     /// The body's size and line height, and each heading's size and style.
     @Published var typography: Typography = UserDefaults.standard.data(forKey: "typography")
         .flatMap { try? JSONDecoder().decode(Typography.self, from: $0) } ?? Typography() {

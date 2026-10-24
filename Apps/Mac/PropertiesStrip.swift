@@ -6,7 +6,16 @@ struct PropertiesStrip: View {
     @EnvironmentObject private var model: VaultModel
     let frontmatter: Frontmatter
     @ObservedObject var session: EditorSession
-    @AppStorage("propertiesExpanded") private var isExpanded = false
+    /// Open or closed for this note only (two notes side by side open and close on their
+    /// own). A note not seen yet this session starts the way properties were last left.
+    @State private var isExpanded: Bool
+    @AppStorage("propertiesExpanded") private var lastExpanded = false
+
+    init(frontmatter: Frontmatter, session: EditorSession, isExpanded: Bool) {
+        self.frontmatter = frontmatter
+        self.session = session
+        _isExpanded = State(initialValue: isExpanded)
+    }
     /// The property being dragged to a new place, and where the pointer is.
     @State private var dragging: String?
     @State private var dragY: CGFloat = 0
@@ -17,6 +26,8 @@ struct PropertiesStrip: View {
         VStack(alignment: .leading, spacing: 8) {
             Button {
                 withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() }
+                model.store.propertiesOpen[session.note.id] = isExpanded
+                lastExpanded = isExpanded
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "chevron.right")
@@ -26,13 +37,14 @@ struct PropertiesStrip: View {
                     Text(summary)
                         .lineLimit(1)
                 }
-                // The chevron hangs in the margin, so the summary lines up with the title.
-                .padding(.leading, -(Self.chevronWidth + 4))
                 .foregroundStyle(.secondary)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help(isExpanded ? "Hide properties" : "Show properties")
+            // The chevron hangs in the margin, so the summary lines up with the title. Moved as
+            // a whole, so the chevron is still part of the button and takes clicks.
+            .offset(x: -(Self.chevronWidth + 4))
 
             if isExpanded {
                 Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 6) {
@@ -74,9 +86,11 @@ struct PropertiesStrip: View {
             }
             // Only while open: a line, the text's width, between the properties and the text.
             // It fades in as they open.
+            // Drawn like a horizontal rule in the note: one point, the separator colour.
             if isExpanded {
-                Divider()
-                    .opacity(0.5)
+                Rectangle()
+                    .fill(Color(nsColor: .separatorColor))
+                    .frame(height: 1)
                     .padding(.top, 4)
                     .transition(.opacity)
             }

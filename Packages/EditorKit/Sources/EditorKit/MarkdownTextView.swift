@@ -168,6 +168,27 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         // Start at the first visible text, never inside hidden frontmatter or markers.
         setSelectionDirectly(NSRange(location: snappedLocation(0, forward: true), length: 0))
         scrollToBeginningOfDocument(nil)
+        completeLayoutGradually()
+    }
+
+    /// Which load the gradual layout belongs to, so a newer note's text stops an older run.
+    private var layoutRun = 0
+
+    /// Lays out the rest of the note, a piece at a time, after it opens. Only what's on
+    /// screen is laid out at first (so long notes open instantly), which leaves the note's
+    /// full height a guess, and a fast scroll could stop at the guessed end.
+    private func completeLayoutGradually() {
+        layoutRun += 1
+        let run = layoutRun
+        func step(from start: Int) {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, run == self.layoutRun, let layoutManager, let storage = textStorage, start < storage.length else { return }
+                let end = min(start + 20_000, storage.length)
+                layoutManager.ensureLayout(forCharacterRange: NSRange(location: start, length: end - start))
+                step(from: end)
+            }
+        }
+        step(from: 0)
     }
 
     /// Swaps in a newer version of the text (for example, edited in Obsidian), replacing only

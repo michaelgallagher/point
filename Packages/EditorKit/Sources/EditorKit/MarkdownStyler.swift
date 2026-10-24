@@ -149,12 +149,13 @@ struct MarkdownStyler {
         case .strikethrough:
             storage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range)
         case .highlight:
-            storage.addAttribute(.backgroundColor, value: NSColor.systemYellow.withAlphaComponent(0.35), range: range)
+            // Drawn by the layout manager, with rounded corners.
+            storage.addAttribute(.imprintRoundedBackground, value: NSColor.systemYellow.withAlphaComponent(0.35), range: range)
         case .code:
             let size = (storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont)?.pointSize ?? theme.bodySize
             storage.addAttributes([
                 .font: NSFont.monospacedSystemFont(ofSize: size * 0.88, weight: .regular),
-                .backgroundColor: NSColor.textColor.withAlphaComponent(0.07),
+                .imprintRoundedBackground: NSColor.textColor.withAlphaComponent(0.07),
             ], range: range)
         case .link(let destination), .image(let destination):
             storage.addAttributes([.foregroundColor: NSColor.linkColor, .cursor: NSCursor.pointingHand], range: range)
@@ -172,9 +173,9 @@ struct MarkdownStyler {
             // Drawn as a pill by the layout manager, with a little room on each side for it.
             storage.addAttributes([.imprintTag: true, .cursor: NSCursor.pointingHand], range: range)
             if range.location > 0, text.character(at: range.location - 1) != 10 {
-                storage.addAttribute(.kern, value: CGFloat(3), range: NSRange(location: range.location - 1, length: 1))
+                storage.addAttribute(.kern, value: Self.tagSpace, range: NSRange(location: range.location - 1, length: 1))
             }
-            storage.addAttribute(.kern, value: CGFloat(3), range: NSRange(location: NSMaxRange(range) - 1, length: 1))
+            storage.addAttribute(.kern, value: Self.tagSpace, range: NSRange(location: NSMaxRange(range) - 1, length: 1))
         case .footnoteReference:
             storage.addAttributes([
                 .font: NSFont.systemFont(ofSize: theme.bodySize * 0.75),
@@ -189,6 +190,9 @@ struct MarkdownStyler {
             storage.addAttribute(.imprintHidden, value: true, range: marker)
         }
     }
+
+    /// Room made on each side of a tag for its pill (which reaches 6 points past the text).
+    static let tagSpace: CGFloat = 6
 
     static func isWebAddress(_ destination: String) -> Bool {
         guard let scheme = URL(string: destination)?.scheme?.lowercased() else { return false }

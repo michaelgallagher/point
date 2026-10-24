@@ -304,7 +304,7 @@ Features:
    - **A note already open in another tab:** a note is open in at most one tab, so two editors never write the same file. Decision needed for going back to such a note. The plan: it moves into this tab, and the other tab goes back to the note before it, or to a start page. To confirm with Mike.
    - **The window-wide history goes:** per-tab history replaces it.
 
-*Batch 1: editor and properties polish* (small, well-defined)
+*Batch 1: editor and properties polish* (small, well-defined). Done 24 October 2026: tag pills 6 points either side and 2 above and below, with matching space around them; highlights and inline code drawn by the layout manager with 3-point corners, the text's height, line by line; the properties arrow is part of the button (the button moves into the margin, not just its label); the properties divider is a one-point separator-colour line, like a rule; properties open and close per note (remembered for the session, a new note starting as they were last left); and after a note opens, the rest of it is laid out in 20,000-character steps, so its true height is known before a fast scroll reaches the end. The scrolling fix couldn't be reproduced here, so needs confirming by hand.
 1. **Tags:** more room inside the colour pill around the text.
 2. **Highlight and inline code:** slightly rounded corners on their colour areas.
 3. **Properties arrow:** clicking the arrow (not just the summary) opens and closes the properties.
