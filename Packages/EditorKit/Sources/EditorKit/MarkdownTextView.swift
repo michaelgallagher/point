@@ -431,6 +431,13 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
 
     /// Keeps the insertion point out of hidden markers, so every arrow press visibly moves it.
     public override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        // Never into hidden frontmatter: what's selected can be deleted.
+        let start = bodyStart
+        let ranges = start == 0 ? ranges : ranges.map { value -> NSValue in
+            let range = value.rangeValue
+            guard range.length > 0, range.location < start else { return value }
+            return NSValue(range: NSRange(location: start, length: max(NSMaxRange(range) - start, 0)))
+        }
         // Moved some other way (a click, undo, find): back to one cursor.
         if !isApplyingToCursors, hasMultipleCursors { collapseCursors() }
         guard !isAdjustingSelection, !stillSelecting, ranges.count == 1, ranges[0].rangeValue.length == 0 else {
@@ -441,6 +448,26 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         let forward = location >= selectedRange().location
         let snapped = snappedLocation(location, forward: forward)
         super.setSelectedRanges([NSValue(range: NSRange(location: snapped, length: 0))], affinity: affinity, stillSelecting: false)
+    }
+
+    // MARK: Protecting the properties
+
+    /// Where the note's body starts while its frontmatter is hidden (its properties are edited
+    /// in the strip above the note, not as text), else 0. Nothing above it can be selected, so
+    /// Select All then Delete clears the body and leaves the properties.
+    var bodyStart: Int {
+        guard !styler.showsMarkdown, let token = tokens.first, token.kind == .frontmatter, token.range.length > 0 else { return 0 }
+        let text = string as NSString
+        let last = min(NSMaxRange(token.range) - 1, text.length - 1)
+        guard last >= 0 else { return 0 }
+        return NSMaxRange(text.lineRange(for: NSRange(location: last, length: 0)))
+    }
+
+    /// The body only, while the frontmatter is hidden.
+    public override func selectAll(_ sender: Any?) {
+        let start = bodyStart
+        guard start > 0 else { return super.selectAll(sender) }
+        setSelectedRange(NSRange(location: start, length: (string as NSString).length - start))
     }
 
     func isHidden(_ index: Int) -> Bool {
@@ -518,6 +545,8 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         }
         let location = selection.location
         guard location > 0 else { return super.deleteBackward(sender) }
+        // Not into the frontmatter's last line, which would join the body to it.
+        if location == bodyStart { return }
 
         if let run = hiddenRun(at: location - 1) {
             if run.location == lineStart(of: run.location), collapsedLine(containing: run.location) == nil {

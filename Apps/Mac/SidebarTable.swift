@@ -530,6 +530,20 @@ final class SidebarTableRowView: NSTableRowView {
         didSet { refreshEmphasis() }
     }
 
+    /// Just before drawing, the cells take the highlight about to be drawn. Whether it's blue
+    /// is worked out as it's drawn (from the window and where the keyboard is), and nothing
+    /// tells the row when that changes in every case: in the two-column view a note's row could
+    /// be drawn blue with its text still black, as for a grey highlight.
+    override func viewWillDraw() {
+        refreshCells()
+        super.viewWillDraw()
+    }
+
+    private func refreshCells() {
+        let style = interiorBackgroundStyle
+        for case let cell as NSTableCellView in subviews where cell.backgroundStyle != style { cell.backgroundStyle = style }
+    }
+
     /// A cell put in the row (new, or reused from another) takes the row's highlight.
     override func didAddSubview(_ subview: NSView) {
         super.didAddSubview(subview)
@@ -539,8 +553,7 @@ final class SidebarTableRowView: NSTableRowView {
     /// Redraws the highlight and tells the cells, after focus moves or the window changes.
     func refreshEmphasis() {
         needsDisplay = true
-        let style = interiorBackgroundStyle
-        for case let cell as NSTableCellView in subviews where cell.backgroundStyle != style { cell.backgroundStyle = style }
+        refreshCells()
     }
 }
 

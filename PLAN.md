@@ -628,8 +628,12 @@ Mike's list, with his answers to the questions asked about it.
 - **Black text (item 9):** likely cause fixed, not reproduced. A reused cell kept the text style of the row it came from. Cells now take their row's highlight when made, when added to a row, and whenever the row's selection changes.
 - **Palette (item 4):** with nothing typed it offers New Note, Move Note, Apply Template and Use File Explorer (the last three need a note open, except Use File Explorer). Move Note is a new palette mode listing folders, filtered as you type, with Return to move. The menu bar's and the sidebar's Move to Folder… still open the old sheet.
 - **Two columns (item 11):** starts 360 wide (one column's 240 × 1.5), split 40/60 with the notes wider. The split is now the app's own side-by-side view, keeping each column's share as the sidebar widens or narrows. HSplitView gave all the extra width to the tree. The divider runs to the window's top, as before: the columns fill the sidebar's height, with the top bar laid over them.
-- **Home button (item 8):** a glass `house` button just past the window buttons, in one column only. It sits in the sidebar, so it hides with it, and it's dimmed at the top level.
+- **Home button (item 8):** a glass `house` button just left of the sidebar button, in one column only. It sits in the sidebar, so it hides with it, and it's dimmed at the top level.
 - **Found on the way:** the sidebar's width was never really remembered. While the window was first laid out (small), the split view squeezed the sidebar to its narrowest, and that was saved as if chosen, so every launch started at the minimum. Widths are now saved only while the divider is dragged, and set again once the window has its size. The bad saved widths were cleared.
+
+**Small fixes (25 October 2026):**
+- **Select All then Delete no longer deletes the properties.** While the frontmatter is hidden (not in Markdown mode), nothing above the body can be selected: Select All selects the body, a selection dragged or extended upwards stops at the body, and Backspace at the body's start does nothing. Tested in EditorKit (`FrontmatterProtectionTests`).
+- **Black text on a selected note in two columns:** each row now syncs its cells' text style with the highlight just before it draws. Whether a highlight is blue is decided at draw time (from the window and where the keyboard is), and not every change to that told the row, so a row could draw blue with black text. Not reproduced by hand.
 
 ## Topics for investigation
 

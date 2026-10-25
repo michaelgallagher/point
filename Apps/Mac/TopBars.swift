@@ -35,7 +35,7 @@ enum TopBar {
 
 /// The sidebar's top bar: room for the window buttons and the sidebar button, which sits at
 /// its trailing edge. Its empty space drags the window. In one column, a home button just
-/// past the window buttons goes back to the top level (it hides with the sidebar, which
+/// left of the sidebar button goes back to the top level (it hides with the sidebar, which
 /// holds it, and is dimmed at the top level).
 struct SidebarTopBar: View {
     @EnvironmentObject private var model: VaultModel
@@ -45,11 +45,12 @@ struct SidebarTopBar: View {
             .frame(height: model.topBarHeight)
             .frame(maxWidth: .infinity)
             .background(WindowDragArea())
-            .overlay(alignment: .leading) {
+            .overlay(alignment: .trailing) {
                 if model.browsingStyle == .singleColumn {
                     BarButton("Home", systemImage: "house", help: "All Notes") { model.browse(.allNotes) }
                         .disabled(model.place == .allNotes)
-                        .padding(.leading, model.windowButtonsInset)
+                        // Clear of the sidebar button, which sits 8 points in from the edge.
+                        .padding(.trailing, TopBar.buttonSpacing + TopBar.sidebarButtonWidth)
                 }
             }
     }
