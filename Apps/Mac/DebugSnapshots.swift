@@ -14,6 +14,8 @@ enum DebugSnapshots {
         clickBackIfAsked(for: model)
         clickTreeIfAsked(for: model)
         cycleSidebarIfAsked(for: model)
+        closeSplitIfAsked(for: model)
+        openSplitIfAsked(for: model)
         if let key = UserDefaults.standard.string(forKey: "PointBrowse"), let place = SidebarPlace(key: key) {
             // `-PointBrowse <place key>`: shows that place in the sidebar.
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { model.browse(place) }
@@ -156,6 +158,40 @@ enum DebugSnapshots {
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { report("\(step + 1)") }
                 }
+            }
+        }
+    }
+
+    /// `-PointCloseSplit <side>`: splits the window if it isn't (opening the first note on the
+    /// new side), then closes that side (0 the left, 1 the right), to watch the other slide
+    /// across.
+    private static func closeSplitIfAsked(for model: VaultModel) {
+        guard let text = UserDefaults.standard.string(forKey: "PointCloseSplit"), let side = Int(text) else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            if !model.isSplit {
+                model.toggleSplit()
+                if let other = model.notes.first(where: { $0.id != model.panes[0].tab.noteID }) { model.selection = other.id }
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.4) {
+            Trace.mark("closing split side \(side)")
+            model.closePane(side)
+        }
+    }
+
+    /// `-PointOpenSplit empty|note`: unsplits the window if it's split, then opens a split,
+    /// empty (⇧⌘S) or with another note on the new side (⌥⌘-click), to watch it slide in.
+    private static func openSplitIfAsked(for model: VaultModel) {
+        guard let kind = UserDefaults.standard.string(forKey: "PointOpenSplit") else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            if model.isSplit { model.mergeIntoTabs() }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.4) {
+            Trace.mark("opening split, \(kind)")
+            if kind == "note", let other = model.notes.first(where: { !model.openNoteIDs.contains($0.id) }) {
+                model.openToTheSide(other.id)
+            } else {
+                model.toggleSplit()
             }
         }
     }

@@ -808,7 +808,7 @@ final class VaultStore: ObservableObject {
         func nodes(under parent: String?) -> [VaultModel.PlaceNode]? {
             let entries = parent.map { tagTree.children(of: $0) } ?? tagTree.entries.filter { $0.depth == 0 }
             guard !entries.isEmpty else { return nil }
-            return sortedTags(entries).map { VaultModel.PlaceNode(place: .tag($0.tag), name: "#" + $0.name, children: nodes(under: $0.tag)) }
+            return sortedTags(entries).map { VaultModel.PlaceNode(place: .tag($0.tag), name: $0.name, children: nodes(under: $0.tag)) }
         }
         return nodes(under: nil) ?? []
     }

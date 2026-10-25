@@ -1,4 +1,5 @@
 import AppKit
+import EditorKit
 import SwiftUI
 
 /// The window's sidebar and notes, side by side, in an AppKit split view that Point owns.
@@ -255,6 +256,62 @@ final class SidebarSplitController: NSSplitViewController {
 
     override func toggleSidebar(_ sender: Any?) {
         if let onToggle { onToggle() } else { super.toggleSidebar(sender) }
+    }
+
+    // MARK: Closing a split
+
+    /// The notes, laid out now with one side where there were two, slide from where the side
+    /// left was (its text where its text was) to where it is: one animation of the whole notes
+    /// area's layer, as nothing in SwiftUI's own animations moves the editor smoothly.
+    func slideNotes(fromSideOnRight onRight: Bool) {
+        guard isViewLoaded, let layer = detailHost.view.layer else { return }
+        let width = detailHost.view.bounds.width
+        let left = SideBySide<EmptyView, EmptyView>.mainWidth(in: width)
+        // Where the text starts in an editor this wide (centred, past its margin).
+        let column = Self.firstEditor(in: detailHost.view)?.maxTextWidth ?? 720
+        func textStart(_ width: CGFloat) -> CGFloat { max(28, ((width - column) / 2).rounded()) }
+        let offset = onRight ? left + 1 + textStart(width - left - 1) - textStart(width) : textStart(left) - textStart(width)
+        guard abs(offset) > 1 else { return }
+        // The note left on the left stays where it is (its bar too: moved, it went under the
+        // window buttons), and only its text slides, from where it started in half the width.
+        // The note left on the right slides across whole, from its half.
+        let moving = onRight ? layer : Self.firstEditor(in: detailHost.view)?.enclosingScrollView?.layer
+        guard let moving else { return }
+        moving.add(Self.slide(from: offset), forKey: "splitClosed")
+    }
+
+    /// As a split opens: slides the left note's text from where it started across the whole
+    /// width to where it starts in its half (if the note stays on the left), and returns how
+    /// far the new right side starts from its place: from the window's edge, or for a note that
+    /// moved from the left to the right, from where its text was.
+    func slideForSplitOpening(leftStays: Bool) -> CGFloat? {
+        guard isViewLoaded else { return nil }
+        let width = detailHost.view.bounds.width
+        let left = SideBySide<EmptyView, EmptyView>.mainWidth(in: width)
+        let column = Self.firstEditor(in: detailHost.view)?.maxTextWidth ?? 720
+        func textStart(_ width: CGFloat) -> CGFloat { max(28, ((width - column) / 2).rounded()) }
+        guard leftStays else { return textStart(width) - (left + 1 + textStart(width - left - 1)) }
+        let offset = textStart(width) - textStart(left)
+        if abs(offset) > 1, let layer = Self.firstEditor(in: detailHost.view)?.enclosingScrollView?.layer {
+            layer.add(Self.slide(from: offset), forKey: "splitOpened")
+        }
+        return width - left - 1
+    }
+
+    /// A slide sideways from `offset` to where a view is, on the sidebar's curve and duration.
+    static func slide(from offset: CGFloat) -> CABasicAnimation {
+        let slide = CABasicAnimation(keyPath: "transform.translation.x")
+        slide.fromValue = offset
+        slide.toValue = 0
+        slide.duration = duration
+        slide.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        return slide
+    }
+
+    private static func firstEditor(in view: NSView) -> MarkdownTextView? {
+        if let editor = view as? MarkdownTextView { return editor }
+        for subview in view.subviews { if let found = firstEditor(in: subview) { return found } }
+        return nil
     }
 
     // MARK: Showing and hiding

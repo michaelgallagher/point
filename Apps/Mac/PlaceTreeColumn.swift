@@ -89,11 +89,12 @@ struct PlaceTreeColumn: View {
                     }
                 }
                 // Stacked (the default): folders, then tags. Otherwise whichever is toggled.
+                // Each sorted from its label, as in one column.
                 if model.treeLayout == .stacked || model.treeKind == .folders {
-                    FoldingSection("Folders") { treeRows(model.folderNodes) }
+                    FoldingSection("Folders", sort: placeSort) { treeRows(model.folderNodes) }
                 }
                 if model.treeLayout == .stacked || model.treeKind == .tags, !model.tagNodes.isEmpty {
-                    FoldingSection("Tags") { treeRows(model.tagNodes) }
+                    FoldingSection("Tags", sort: placeSort) { treeRows(model.tagNodes) }
                 }
             }
             // Sidebar style, without a background of its own, so it sits on the same sidebar
@@ -102,12 +103,15 @@ struct PlaceTreeColumn: View {
             .scrollContentBackground(.hidden)
             // The system's small or medium sidebar rows, which the note list beside it matches.
             .environment(\.sidebarRowSize, model.sidebarDensity == .compact ? .small : .medium)
-
-            SortBar(help: "How folders and tags are sorted", selection: $model.tagOrder,
-                    options: [("Folders and Tags by Name", .name), ("Folders and Tags by Date Modified", .modified)])
         }
         .onChange(of: model.treeLayout) { _ in model.matchPlaceToTree() }
         .onAppear { model.matchPlaceToTree() }
+    }
+
+    /// How folders and tags are sorted (both at once, as in one column).
+    private var placeSort: SortLabel<VaultModel.TagOrder> {
+        SortLabel(help: "How folders and tags are sorted", selection: $model.tagOrder,
+                  options: [("Name", .name), ("Date Modified", .modified)])
     }
 
     private func treeRows(_ nodes: [VaultModel.PlaceNode]) -> some View {
@@ -284,63 +288,78 @@ private struct FolderDragSource: ViewModifier {
 /// A section of the tree that folds away, from macOS 14, and stays as it was left.
 private struct FoldingSection<Content: View>: View {
     let title: String
+    /// The section's sort menu, at the right of its label.
+    var sort: SortLabel<VaultModel.TagOrder>?
     @AppStorage private var isExpanded: Bool
     @ViewBuilder let content: Content
 
-    init(_ title: String, @ViewBuilder content: () -> Content) {
+    init(_ title: String, sort: SortLabel<VaultModel.TagOrder>? = nil, @ViewBuilder content: () -> Content) {
         self.title = title
+        self.sort = sort
         _isExpanded = AppStorage(wrappedValue: true, "treeSectionExpanded." + title)
         self.content = content()
     }
 
+    /// The label folds the section from an arrow just after it, as in one column, leaving the
+    /// right end to the sort menu. (The system's foldable section put its own arrow at the
+    /// right end, over the sort menu.)
+    private var header: some View {
+        HStack(spacing: 4) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(title)
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(isExpanded ? "Hide \(title.lowercased())" : "Show \(title.lowercased())")
+            Spacer(minLength: 4)
+            if let sort { sort }
+        }
+    }
+
     var body: some View {
-        if #available(macOS 14, *) {
-            Section(isExpanded: $isExpanded) { content } header: { Text(title) }
-        } else {
-            Section(title) { content }
+        Section {
+            if isExpanded { content }
+        } header: {
+            header
         }
     }
 }
 
-/// A sort menu along the bottom of a sidebar column, as wide as the column: a box like the
-/// search field's, showing the order chosen, which opens the choices. (The system's pop-up
-/// menu sizes itself to its text, whatever room it's given.)
-struct SortBar<Value: Hashable>: View {
+/// A sort menu drawn as a section label's sort label is in one column: the order's name and
+/// small up and down arrows, in the label's own type, opening the choices.
+struct SortLabel<Value: Hashable>: View {
     let help: String
     @Binding var selection: Value
     let options: [(name: String, value: Value)]
 
     var body: some View {
-        VStack(spacing: 0) {
-            Divider()
-            Menu {
-                Picker(help, selection: $selection) {
-                    ForEach(options, id: \.value) { Text($0.name).tag($0.value) }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            } label: {
-                HStack(spacing: 4) {
-                    Text(options.first { $0.value == selection }?.name ?? "")
-                        .lineLimit(1)
-                    Spacer(minLength: 4)
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-                .font(.callout)
-                .padding(.horizontal, 10)
-                .frame(maxWidth: .infinity)
-                .frame(height: 26)
-                .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary.opacity(0.6)))
-                .contentShape(Rectangle())
+        Menu {
+            Picker(help, selection: $selection) {
+                ForEach(options, id: \.value) { Text($0.name).tag($0.value) }
             }
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .menuIndicator(.hidden)
-            .help(help)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            HStack(spacing: 2) {
+                Text(options.first { $0.value == selection }?.name ?? "")
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .contentShape(Rectangle())
         }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(help)
     }
 }

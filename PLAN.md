@@ -615,7 +615,7 @@ Mike's list, with his answers to the questions asked about it.
    - **Move Note** is new (only Move to Trash exists). The palette switches to a list of folders, filtered as you type, and Return moves the note there. Links to it keep working.
    - **Use File Explorer** opens the ⌘E explorer.
 5. **Tags in the sidebar.** Shown without the "#", with the `number.sign.circle` symbol.
-6. **Filtering in two columns.** Works the same way as in the single column. What's wrong is the search field's placement: in two columns it should sit and behave as it does in one column. To confirm when building: one field across the top of the sidebar, above both columns.
+6. **Sorting in two columns.** Works the same way as in the single column. (Written as "filtering" at first, and misread as the search field.) One column sorts from each section's label: "Folders ⌄ … Name ⌃⌄", the same for Tags and Notes. Two columns use a menu bar along the bottom of each column instead.
 7. **Sidebar vertical spacing.** Even out the space above and below section labels; it's most visible with a section folded (Tags).
 8. **A home button (single column).** Beside the window buttons, it goes back to the top level. Hidden while the sidebar is hidden, and only enabled away from the top level. Its symbol is `house`.
 9. **Black text on a highlighted row.** Sometimes a selected sidebar row has black text instead of white.
@@ -634,6 +634,15 @@ Mike's list, with his answers to the questions asked about it.
 **Small fixes (25 October 2026):**
 - **Select All then Delete no longer deletes the properties.** While the frontmatter is hidden (not in Markdown mode), nothing above the body can be selected: Select All selects the body, a selection dragged or extended upwards stops at the body, and Backspace at the body's start does nothing. Tested in EditorKit (`FrontmatterProtectionTests`).
 - **Black text on a selected note in two columns:** each row now syncs its cells' text style with the highlight just before it draws. Whether a highlight is blue is decided at draw time (from the window and where the keyboard is), and not every change to that told the row, so a row could draw blue with black text. Not reproduced by hand.
+
+**Built (25 October 2026): sorting in two columns, and closing a split slides:**
+- **Sorting in two columns (item 6):** sorted from labels, as in one column. Folders and Tags fold from an arrow just after their labels (the system's foldable section put its arrow at the right end, over the sort menu, so the tree's sections now fold themselves), and have "Name ⌃⌄" at the right of their labels, and the notes column has "Date Edited ⌃⌄" at the right of its title row. The menu bars along the bottom are gone. Tags in the tree column lost their "#" too.
+- **Opening and closing a split slide (item 10).** Opening, however it opens (⇧⌘S, ⌥⌘-click, Move Tab to New Split, a tab dropped on half the page, ⌘Z after closing a side's last tab): the note showing slides to its half (its text, if it stays on the left; all of it, if it moves right), and the new side slides in from the window's edge with its dividing line. The right side is in a view of its own (`SlidingSide`), so it has a layer of its own to slide, and draws the line itself, as a layer above its editor.
+- **Closing,** however it closes (the side's ✕, its last tab closed or moved, or merged into tabs). Done in Core Animation, since SwiftUI's own animations didn't move the editor (its text jumped while the bar slid).
+  - The note left on the right slides across whole, its text starting where it was.
+  - The note left on the left keeps its place and its bar (moving the whole area put the bar under the window buttons); only its text slides from where it started in half the width to where it starts now.
+  - One side or two are now the same view (`SideBySide(showsSide:)`), so the left note's editor survives the right side closing.
+  - Seen in recordings both ways. One frame can show the right-hand note's text missing as it starts to slide (its editor is made afresh).
 
 ## Topics for investigation
 

@@ -65,6 +65,63 @@ extension EnvironmentValues {
     @Entry var topBarCover: CGFloat = 0
 }
 
+/// The right side of a split, in a view of its own (so a layer of its own), which slides in
+/// as the split opens: from the window's edge, or from where its note was.
+struct SlidingSide<Content: View>: NSViewRepresentable {
+    let slideOffset: CGFloat?
+    let content: Content
+
+    func makeNSView(context: Context) -> SideHostingView {
+        let view = SideHostingView(rootView: AnyView(content))
+        view.sizingOptions = []
+        // Placed by the split, not inset for the title bar (the side draws its own bar there).
+        if #available(macOS 13.3, *) { view.safeAreaRegions = [] }
+        view.wantsLayer = true
+        view.slideOffset = slideOffset
+        return view
+    }
+
+    func updateNSView(_ view: SideHostingView, context: Context) {
+        view.rootView = AnyView(content)
+    }
+}
+
+/// Starts its slide once it has its size, before it's first drawn. Draws the dividing line
+/// at its leading edge, so the line slides in with it: a layer above everything in it (drawn
+/// by SwiftUI, the line went under the note's editor).
+final class SideHostingView: NSHostingView<AnyView> {
+    var slideOffset: CGFloat?
+    private let line: CALayer = {
+        let line = CALayer()
+        line.zPosition = 1000
+        return line
+    }()
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        colorLine()
+    }
+
+    private func colorLine() {
+        effectiveAppearance.performAsCurrentDrawingAppearance { line.backgroundColor = NSColor.separatorColor.cgColor }
+    }
+
+    override func layout() {
+        super.layout()
+        if let layer, line.superlayer !== layer {
+            layer.addSublayer(line)
+            colorLine()
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        line.frame = NSRect(x: 0, y: 0, width: 1, height: bounds.height)
+        CATransaction.commit()
+        guard let offset = slideOffset, bounds.width > 0, let layer else { return }
+        slideOffset = nil
+        if abs(offset) > 1 { layer.add(SidebarSplitController.slide(from: offset), forKey: "splitOpened") }
+    }
+}
+
 /// Two views side by side with a divider to drag between them. Unlike HSplitView, it
 /// takes only the width it's offered, so it never squeezes the sidebar.
 struct SideBySide<Main: View, Side: View>: View {
@@ -74,15 +131,23 @@ struct SideBySide<Main: View, Side: View>: View {
     @AppStorage private var fraction: Double
     /// The narrowest each side can be.
     private let minimumWidths: (main: CGFloat, side: CGFloat)
+    /// False for the left side alone, filling the width: the same view as when there are two,
+    /// so the left side's views stay as they are when the right side closes.
+    private let showsSide: Bool
+    /// The side draws the dividing line at its leading edge (so the line moves with it, as the
+    /// notes' right side slides in); here there's only the grip to drag.
+    private let sideDrawsDivider: Bool
 
     /// Kept as a fraction of the width under `key` (`fraction` until dragged), so each side
     /// keeps its share as the whole grows or shrinks.
     init(key: String = "sideBySideFraction", fraction: Double = 0.5, minimumWidths: (main: CGFloat, side: CGFloat) = (240, 240),
-         @ViewBuilder main: () -> Main, @ViewBuilder side: () -> Side) {
+         showsSide: Bool = true, sideDrawsDivider: Bool = false, @ViewBuilder main: () -> Main, @ViewBuilder side: () -> Side) {
         self.main = main()
         self.side = side()
         _fraction = AppStorage(wrappedValue: fraction, key)
         self.minimumWidths = minimumWidths
+        self.showsSide = showsSide
+        self.sideDrawsDivider = sideDrawsDivider
     }
 
     var body: some View {
@@ -90,30 +155,47 @@ struct SideBySide<Main: View, Side: View>: View {
             let width = geometry.size.width
             HStack(spacing: 0) {
                 main
-                    .frame(width: clamp(width * fraction, in: width))
-                Divider()
-                    .overlay {
-                        // A wider grip than the line itself.
-                        Color.clear
-                            .frame(width: 9)
-                            .contentShape(Rectangle())
-                            .onHover { hovering in
-                                if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
-                            }
-                            .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .named("sideBySide"))
-                                .onChanged { value in
-                                    guard width > 0 else { return }
-                                    fraction = clamp(value.location.x, in: width) / width
-                                })
-                    }
-                side
-                    .frame(maxWidth: .infinity)
+                    .frame(width: showsSide ? clamp(width * fraction, in: width) : width)
+                if showsSide {
+                    Divider()
+                        .opacity(sideDrawsDivider ? 0 : 1)
+                        .frame(width: sideDrawsDivider ? 0 : nil)
+                        .overlay {
+                            // A wider grip than the line itself.
+                            Color.clear
+                                .frame(width: 9)
+                                .contentShape(Rectangle())
+                                .onHover { hovering in
+                                    if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                                }
+                                .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .named("sideBySide"))
+                                    .onChanged { value in
+                                        guard width > 0 else { return }
+                                        fraction = clamp(value.location.x, in: width) / width
+                                    })
+                                // Beside the line, when the side draws it: the side's own view
+                                // takes the clicks over itself.
+                                .offset(x: sideDrawsDivider ? -4 : 0)
+                        }
+                    side
+                        .frame(maxWidth: .infinity)
+                }
             }
         }
         .coordinateSpace(name: "sideBySide")
     }
 
+    /// The left side's width in a split of the notes (as last dragged).
+    static func mainWidth(in width: CGFloat) -> CGFloat {
+        let fraction = UserDefaults.standard.object(forKey: "sideBySideFraction") as? Double ?? 0.5
+        return clamp(width * fraction, in: width, minimumWidths: (240, 240))
+    }
+
     private func clamp(_ x: CGFloat, in width: CGFloat) -> CGFloat {
+        Self.clamp(x, in: width, minimumWidths: minimumWidths)
+    }
+
+    private static func clamp(_ x: CGFloat, in width: CGFloat, minimumWidths: (main: CGFloat, side: CGFloat)) -> CGFloat {
         let total = minimumWidths.main + minimumWidths.side
         guard width > total else { return width * minimumWidths.main / total }
         return min(max(x, minimumWidths.main), width - minimumWidths.side).rounded()

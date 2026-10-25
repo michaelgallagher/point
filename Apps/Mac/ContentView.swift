@@ -52,14 +52,16 @@ struct ContentView: View {
     /// The notes: one pane, or two side by side, each with its own tabs.
     private var detail: some View {
         Group {
-            if model.isSplit {
-                SideBySide {
-                    PaneView(paneID: model.panes[0].id)
-                } side: {
-                    PaneView(paneID: model.panes[1].id)
-                }
-            } else {
+            // One side or two, in the same view, so the left side's note stays as it is when
+            // the right side closes (and can slide to its new place).
+            SideBySide(showsSide: model.isSplit, sideDrawsDivider: true) {
                 PaneView(paneID: model.panes[0].id)
+            } side: {
+                if model.isSplit {
+                    SlidingSide(slideOffset: model.sideSlideOffset,
+                                content: PaneView(paneID: model.panes[1].id)
+                                    .environmentObject(model).environmentObject(store))
+                }
             }
         }
         .ignoresSafeArea(.container, edges: .top)
@@ -209,20 +211,18 @@ private struct NoteList: View {
                         .font(.headline)
                         .lineLimit(1)
                     Spacer()
-                    if model.place == .trash { EmptyTrashButton() }
+                    if model.place == .trash {
+                        EmptyTrashButton()
+                    } else {
+                        // How the notes are sorted, as on one column's Notes label.
+                        SortLabel(help: "How notes are sorted", selection: $model.sort,
+                                  options: [("Date Edited", .modified), ("Date Created", .created), ("Title", .title)])
+                    }
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, 6)
             }
-            // As tall as a comfortable row, in either density.
-            SearchField(text: $model.searchText, isFocused: $searchFocused, height: VaultModel.SidebarDensity.comfortable.rowHeight) {
-                // Return opens the top result.
-                if let first = model.searchResults?.first { model.selection = first.id }
-            }
-            .padding(.horizontal, 10)
-            // A point lower than centred, to line up with a selected row in the tree beside it.
-            .padding(.top, 7)
-            .padding(.bottom, 5)
+            searchField
             if let results = model.searchResults {
                 List(results, selection: $model.selection) { result in
                     SearchResultRow(result: result)
@@ -239,12 +239,6 @@ private struct NoteList: View {
             } else {
                 browser
             }
-            // In two columns, the notes' sort order along the bottom, as the folders' is
-            // beside it. (One column has it on the list's Notes label.)
-            if !includesPlaces {
-                SortBar(help: "How notes are sorted", selection: $model.sort,
-                        options: [("Notes by Date Edited", .modified), ("Notes by Date Created", .created), ("Notes by Title", .title)])
-            }
         }
         .onChange(of: model.searchFocusRequest) { _ in searchFocused = true }
         .overlay {
@@ -255,6 +249,18 @@ private struct NoteList: View {
                     .padding()
             }
         }
+    }
+
+    private var searchField: some View {
+        // As tall as a comfortable row, in either density.
+        SearchField(text: $model.searchText, isFocused: $searchFocused, height: VaultModel.SidebarDensity.comfortable.rowHeight) {
+            // Return opens the top result.
+            if let first = model.searchResults?.first { model.selection = first.id }
+        }
+        .padding(.horizontal, 10)
+        // A point lower than centred, to line up with a selected row in the tree beside it.
+        .padding(.top, 7)
+        .padding(.bottom, 5)
     }
 
     /// Pins, folders (or nested tags), tags and notes for the current place.

@@ -137,7 +137,32 @@ final class VaultModel: ObservableObject {
             tracePanes()
             saveWindowState()
             noteRecentTab()
+            if oldValue.count == 2, panes.count == 1 { noteSplitClosed(from: oldValue) }
+            if oldValue.count == 1, panes.count == 2 { noteSplitOpened(from: oldValue) }
         }
+    }
+
+    /// How far the split's new right side starts from where it ends up, as it slides in: set
+    /// as the split opens, read as the side's view is made (see `SlidingSide`).
+    private(set) var sideSlideOffset: CGFloat?
+
+    /// The split just opened: the note that was showing slides to its half (its text, if it
+    /// stays on the left; all of it, if it moves to the right), and the new right side slides
+    /// in from the window's edge.
+    private func noteSplitOpened(from old: [NotePane]) {
+        guard window?.isVisible == true else { return }
+        let staysLeft = panes[0].id == old[0].id
+        sideSlideOffset = sidebarSplit.slideForSplitOpening(leftStays: staysLeft)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.sideSlideOffset = nil }
+    }
+
+    /// The split just closed (a side closed, its last tab closed or moved, or merged into
+    /// tabs): the note left showing slides across to fill the window, rather than jumping.
+    private func noteSplitClosed(from old: [NotePane]) {
+        let left = panes[0]
+        // The same side, or (merged into tabs) the side whose note is still showing.
+        let wasOnRight = left.id == old[1].id || (left.id != old[0].id && old[1].tabs.contains { $0.id == left.tab.id })
+        sidebarSplit.slideNotes(fromSideOnRight: wasOnRight)
     }
     /// The pane last clicked or typed in, which the list, palette and menus act on.
     @Published private(set) var activePane = 0 {
