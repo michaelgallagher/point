@@ -277,6 +277,33 @@ final class VaultModel: ObservableObject {
             topBarHeight = height
         }
         if let inset = TopBar.windowButtonsInset(for: window), inset != windowButtonsInset { windowButtonsInset = inset }
+        let end = TopBar.sidebarButtonEnd(for: window)
+        if end != sidebarButtonEnd { sidebarButtonEnd = end }
+        watchSidebarButton()
+    }
+
+    private weak var watchedSidebarButton: NSView?
+    private var sidebarButtonObserver: NSObjectProtocol?
+
+    /// Measures again whenever the system moves its sidebar button.
+    private func watchSidebarButton() {
+        guard let button = TopBar.sidebarButton(in: window), button !== watchedSidebarButton else { return }
+        if let sidebarButtonObserver { NotificationCenter.default.removeObserver(sidebarButtonObserver) }
+        watchedSidebarButton = button
+        button.postsFrameChangedNotifications = true
+        sidebarButtonObserver = NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: button, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let end = TopBar.sidebarButtonEnd(for: self.window)
+                if end != self.sidebarButtonEnd { self.sidebarButtonEnd = end }
+            }
+        }
+    }
+
+    /// Measures the bars again once the sidebar has finished showing or hiding, which moves
+    /// the system's sidebar button.
+    private func measureAfterSidebarMoves() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in self?.measureTopBar() }
     }
 
     private func windowResized() {
@@ -303,6 +330,8 @@ final class VaultModel: ObservableObject {
     /// How far in from the window's left edge the top bar's contents start, clear of the
     /// window buttons.
     @Published private(set) var windowButtonsInset: CGFloat = 92
+    /// The right edge of the system's sidebar button, once measured.
+    @Published private(set) var sidebarButtonEnd: CGFloat?
 
     /// Where a note is open, if it is.
     private func location(of id: Note.ID) -> (pane: Int, tab: Int)? {
@@ -839,6 +868,7 @@ final class VaultModel: ObservableObject {
         didSet {
             UserDefaults.standard.set(showsNoteList, forKey: "showsNoteList")
             if !isAutoToggling { sidebarAutoHidden = false } // Shown or hidden by hand.
+            measureAfterSidebarMoves()
         }
     }
 

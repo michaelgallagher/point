@@ -19,8 +19,32 @@ enum TopBar {
         return (button.convert(button.bounds, to: nil).maxX + 16).rounded()
     }
 
-    /// The system's sidebar button, just past the window buttons while the sidebar is hidden.
-    static let sidebarButtonWidth: CGFloat = 48
+    /// The system's sidebar button: the round glass platter the window's toolbar draws it in
+    /// (the toolbar holds nothing else). Found by class name, so nil if AppKit changes it.
+    @MainActor static func sidebarButton(in window: NSWindow?) -> NSView? {
+        guard let root = window?.contentView?.superview else { return nil }
+        func find(_ view: NSView) -> NSView? {
+            if String(describing: type(of: view)) == "NSToolbarPlatterView" { return view }
+            for subview in view.subviews { if let found = find(subview) { return found } }
+            return nil
+        }
+        return find(root)
+    }
+
+    /// The right edge of the system's sidebar button, in the window. Where the system puts it
+    /// varies with the window, so the first side's bar starts from it while the sidebar is
+    /// hidden.
+    @MainActor static func sidebarButtonEnd(for window: NSWindow?) -> CGFloat? {
+        guard let button = sidebarButton(in: window), !button.isHiddenOrHasHiddenAncestor else { return nil }
+        return button.convert(button.bounds, to: nil).maxX
+    }
+
+    /// How far the bar starts past the window buttons while the sidebar is hidden, if the
+    /// sidebar button can't be found: room for it, then the gap.
+    static let sidebarButtonWidth: CGFloat = 45
+    /// The gap between buttons in a bar (the HStack's spacing), and how far a side's bar
+    /// starts past the sidebar's edge or the divider, so its buttons never touch either.
+    static let buttonSpacing: CGFloat = 8
 
     /// The top bar's background, in every layout: the page's own colour.
     static let barColor = Color(nsColor: .textBackgroundColor)
@@ -54,8 +78,15 @@ struct PaneTopBar: View {
     /// system's sidebar button.
     private var startsAtWindowEdge: Bool { paneIndex == 0 && (!model.showsNoteList || model.isFocused) }
 
+    /// Past the window buttons and the sidebar button when the sidebar is hidden; otherwise
+    /// just past the sidebar's edge or the divider.
+    private var leadingInset: CGFloat {
+        guard startsAtWindowEdge else { return TopBar.buttonSpacing }
+        return model.sidebarButtonEnd.map { $0 + TopBar.buttonSpacing } ?? model.windowButtonsInset + TopBar.sidebarButtonWidth
+    }
+
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: TopBar.buttonSpacing) {
             BackForwardButtons(pane: pane, paneIndex: paneIndex)
             PanePath(pane: pane, paneIndex: paneIndex)
                 .padding(.horizontal, 4)
@@ -66,8 +97,8 @@ struct PaneTopBar: View {
                 BarButton("Split", systemImage: "rectangle.split.2x1", help: "Split (⇧⌘S)") { model.toggleSplit() }
             }
         }
-        .padding(.leading, startsAtWindowEdge ? model.windowButtonsInset + TopBar.sidebarButtonWidth : 16)
-        .padding(.trailing, 8)
+        .padding(.leading, leadingInset)
+        .padding(.trailing, TopBar.buttonSpacing)
         .frame(height: model.topBarHeight)
         .background(WindowDragArea())
         // A tab (dragged from a tab list) dropped on the bar goes at the end of this side's tabs.
