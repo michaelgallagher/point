@@ -6,12 +6,24 @@ import VaultKit
 /// window buttons centred in it: the sidebar and each side of the split draw their own bar along
 /// the top edge, so a split runs the full height of the window.
 enum TopBar {
-    /// Twice the distance from the window's top to the middle of its close button, so the
-    /// close, minimise and zoom buttons sit centred in the bars. Measured from the window.
-    @MainActor static func height(for window: NSWindow?) -> CGFloat? {
-        guard let window, let button = window.standardWindowButton(.closeButton) else { return nil }
-        let middle = button.convert(button.bounds, to: nil).midY
-        return ((window.frame.height - middle) * 2).rounded()
+    /// How tall the bars are. The window's own title bar is 40 points with an empty toolbar, so
+    /// the window buttons are moved down to sit centred in this.
+    static let height: CGFloat = 44
+
+    /// Moves the close, minimise and zoom buttons so their middles are half the bars' height
+    /// down from the window's top. AppKit puts them back when it lays the title bar out again
+    /// (resizing, full screen), so this is done again then.
+    @MainActor static func alignWindowButtons(in window: NSWindow?) {
+        guard let window else { return }
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = window.standardWindowButton(type), let superview = button.superview else { continue }
+            let middle = button.convert(button.bounds, to: nil).midY
+            // In the window's coordinates, y grows upward; the button's superview may be flipped.
+            let move = (window.frame.height - height / 2) - middle
+            guard abs(move) > 0.5 else { continue }
+            let y = button.frame.origin.y + (superview.isFlipped ? -move : move)
+            button.setFrameOrigin(NSPoint(x: button.frame.origin.x, y: y))
+        }
     }
 
     /// Past the zoom button, with a gap, measured from the window.
@@ -25,6 +37,45 @@ enum TopBar {
     /// The thin lines around and in the tab row: above and below it, after back and forward,
     /// and between tabs.
     static let lineColor = Color.primary.opacity(0.1)
+}
+
+/// Keeps a window's close, minimise and zoom buttons centred in the bars. AppKit puts them
+/// back where it likes whenever it lays the title bar out again (a resize, a new window title,
+/// full screen, coming out of the Dock), so this moves them again as soon as they move, and
+/// on every pass of the window's updates as a backstop.
+@MainActor
+final class WindowButtonAligner {
+    private weak var window: NSWindow?
+    nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
+    private var isAligning = false
+
+    init(window: NSWindow) {
+        self.window = window
+        let center = NotificationCenter.default
+        let types: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
+        for view in types.compactMap({ window.standardWindowButton($0) }) {
+            view.postsFrameChangedNotifications = true
+            observers.append(center.addObserver(forName: NSView.frameDidChangeNotification, object: view, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.align() }
+            })
+        }
+        for name in [NSWindow.didUpdateNotification, NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+                     NSWindow.didResizeNotification, NSWindow.didExitFullScreenNotification, NSWindow.didDeminiaturizeNotification] {
+            observers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.align() }
+            })
+        }
+        align()
+    }
+
+    deinit { observers.forEach(NotificationCenter.default.removeObserver) }
+
+    private func align() {
+        guard !isAligning else { return }
+        isAligning = true
+        defer { isAligning = false }
+        TopBar.alignWindowButtons(in: window)
+    }
 }
 
 /// A thin line, the full height (or width) of the row it's in.

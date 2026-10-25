@@ -241,9 +241,10 @@ final class VaultModel: ObservableObject {
     /// it by hand in between sticks.
     /// The top bars' height and inset, from where the window buttons are.
     private func measureTopBar() {
-        if let height = TopBar.height(for: window), height != topBarHeight {
-            Trace.mark("top bar height \(height)")
-            topBarHeight = height
+        TopBar.alignWindowButtons(in: window)
+        if window != nil, topBarHeight != TopBar.height {
+            Trace.mark("top bar height \(TopBar.height)")
+            topBarHeight = TopBar.height
         }
         if let inset = TopBar.windowButtonsInset(for: window), inset != windowButtonsInset { windowButtonsInset = inset }
     }

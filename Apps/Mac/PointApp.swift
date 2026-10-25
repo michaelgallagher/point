@@ -20,7 +20,7 @@ struct PointApp: App {
             TabRequest()
         }
         .windowStyle(.hiddenTitleBar)
-        .windowToolbarStyle(.unified) // The taller title bar, its window buttons centred in it.
+        .windowToolbarStyle(.unifiedCompact)
         .commands {
             AppCommands(store: store)
             FormatCommands()
@@ -97,6 +97,7 @@ private struct WindowTabbing: NSViewRepresentable {
         var onAttach: ((NSWindow) -> Void)?
         var onBecomeKey: (() -> Void)?
         private var observer: NSObjectProtocol?
+        private var buttonAligner: WindowButtonAligner?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -105,10 +106,11 @@ private struct WindowTabbing: NSViewRepresentable {
             // standard height with the window buttons centred in it; the bars measure from them.
             if window.toolbar == nil {
                 window.toolbar = NSToolbar(identifier: "point.window")
-                window.toolbarStyle = .unified
+                window.toolbarStyle = .unifiedCompact
                 window.titleVisibility = .hidden
                 window.titlebarSeparatorStyle = .none
             }
+            buttonAligner = WindowButtonAligner(window: window)
             onAttach?(window)
             window.tabbingMode = .disallowed
             if let observer { NotificationCenter.default.removeObserver(observer) }
