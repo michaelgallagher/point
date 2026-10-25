@@ -916,10 +916,18 @@ final class VaultModel: ObservableObject {
     /// ⌘F or ⌘E pressed while a start page is showing: the page switches to that mode.
     @Published private(set) var startPageRequest: (mode: PaletteMode, count: Int) = (.search, 0)
 
-    /// Searching (⌘F), browsing folders and tags (⌘E), or only the open tabs (⌃Tab).
-    enum PaletteMode { case search, explorer, tabs }
+    /// Searching (⌘F), browsing folders and tags (⌘E), only the open tabs (⌃Tab), or the
+    /// folders to move the note to (Move Note).
+    enum PaletteMode { case search, explorer, tabs, moveNote }
     /// ⌃Tab pressed again while the tabs palette shows: it moves to the next tab down.
     @Published private(set) var paletteCycleRequest = 0
+
+    /// The palette, listing folders to move the note to.
+    func moveNoteInPalette() {
+        guard selectedNote != nil else { return NSSound.beep() }
+        paletteMode = .moveNote
+        isPaletteShown = true
+    }
 
     /// Shows the palette in a mode, or hides it if it's already showing that.
     func togglePalette(_ mode: PaletteMode) {

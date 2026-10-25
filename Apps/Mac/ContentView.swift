@@ -14,7 +14,8 @@ struct ContentView: View {
             controller: model.sidebarSplit,
             sidebar: AnyView(sidebar.environmentObject(model).environmentObject(store)),
             detail: AnyView(detail.environmentObject(model).environmentObject(store)),
-            widths: twoColumns ? (360, 470, 760) : (180, 240, 400),
+            // Two columns start at half as wide again as one column, split 40/60 (see `sidebar`).
+            widths: twoColumns ? (300, 360, 760) : (180, 240, 400),
             widthKey: twoColumns ? "sidebarWidth.twoColumns" : "sidebarWidth.singleColumn",
             showsSidebar: model.showsNoteList && !model.isFocused
         )
@@ -27,15 +28,17 @@ struct ContentView: View {
             if model.browsingStyle == .twoColumns {
                 // Tree and notes side by side inside one sidebar, so hiding, swiping and
                 // resizing work exactly as in the single column.
-                VStack(spacing: 0) {
-                    SidebarTopBar()
-                    HSplitView {
-                        PlaceTreeColumn()
-                            .frame(minWidth: 150, idealWidth: 200, maxWidth: 320)
-                        NoteList(includesPlaces: false)
-                            .frame(minWidth: 200, idealWidth: 260)
-                    }
+                // 40/60, the notes wider, kept as the sidebar widens or narrows. (HSplitView
+                // gave any extra width to the tree, so it started at half.) The columns, and
+                // the divider between them, run to the window's top, under the top bar.
+                SideBySide(key: "treeColumnFraction", fraction: 0.4, minimumWidths: (120, 180)) {
+                    PlaceTreeColumn()
+                        .padding(.top, model.topBarHeight)
+                } side: {
+                    NoteList(includesPlaces: false)
+                        .padding(.top, model.topBarHeight)
                 }
+                .overlay(alignment: .top) { SidebarTopBar() }
             } else {
                 VStack(spacing: 0) {
                     SidebarTopBar()
@@ -324,19 +327,19 @@ extension SidebarPlace {
         return false
     }
 
-    /// "NHS", "Projects" or "#work/imprint".
+    /// "NHS", "Projects" or "work/imprint" (a tag without its "#": its symbol says it's a tag).
     var title: String {
         switch self {
         case .allNotes: "All Notes"
         case .folder(let path): FolderTree.name(of: path)
-        case .tag(let tag): "#" + tag
+        case .tag(let tag): tag
         case .everything: "All Notes"
         case .bookmarks: "Bookmarks"
         case .trash: "Trash"
         }
     }
 
-    /// The last part only: "imprint" for #work/imprint, under its parent in the tag list.
+    /// The last part only: "imprint" for work/imprint, under its parent in the tag list.
     var shortName: String {
         switch self {
         case .tag(let tag): tag.split(separator: "/").last.map(String.init) ?? tag

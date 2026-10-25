@@ -68,11 +68,22 @@ extension EnvironmentValues {
 /// Two views side by side with a divider to drag between them. Unlike HSplitView, it
 /// takes only the width it's offered, so it never squeezes the sidebar.
 struct SideBySide<Main: View, Side: View>: View {
-    @ViewBuilder let main: Main
-    @ViewBuilder let side: Side
+    let main: Main
+    let side: Side
     /// How much of the width the left side gets.
-    @AppStorage("sideBySideFraction") private var fraction = 0.5
-    private let minimumWidth: CGFloat = 240
+    @AppStorage private var fraction: Double
+    /// The narrowest each side can be.
+    private let minimumWidths: (main: CGFloat, side: CGFloat)
+
+    /// Kept as a fraction of the width under `key` (`fraction` until dragged), so each side
+    /// keeps its share as the whole grows or shrinks.
+    init(key: String = "sideBySideFraction", fraction: Double = 0.5, minimumWidths: (main: CGFloat, side: CGFloat) = (240, 240),
+         @ViewBuilder main: () -> Main, @ViewBuilder side: () -> Side) {
+        self.main = main()
+        self.side = side()
+        _fraction = AppStorage(wrappedValue: fraction, key)
+        self.minimumWidths = minimumWidths
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -103,7 +114,8 @@ struct SideBySide<Main: View, Side: View>: View {
     }
 
     private func clamp(_ x: CGFloat, in width: CGFloat) -> CGFloat {
-        guard width > minimumWidth * 2 else { return width / 2 }
-        return min(max(x, minimumWidth), width - minimumWidth)
+        let total = minimumWidths.main + minimumWidths.side
+        guard width > total else { return width * minimumWidths.main / total }
+        return min(max(x, minimumWidths.main), width - minimumWidths.side).rounded()
     }
 }

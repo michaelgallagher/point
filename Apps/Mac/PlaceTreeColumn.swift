@@ -260,7 +260,7 @@ private struct PlaceLabel: View {
         switch place {
         case .allNotes: "tray"
         case .folder: "folder"
-        case .tag: "number"
+        case .tag: "number.sign.circle"
         case .everything: "tray.full"
         case .bookmarks: "bookmark"
         case .trash: "trash"

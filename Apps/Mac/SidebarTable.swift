@@ -309,6 +309,9 @@ struct SidebarTable: NSViewRepresentable {
             let identifier = NSUserInterfaceItemIdentifier("row")
             let cell = tableView.makeView(withIdentifier: identifier, owner: nil) as? HostingCell ?? HostingCell()
             cell.identifier = identifier
+            // On the row's highlight as it is now: a reused cell keeps the style of the row it
+            // came from, and a selected row could show a cell with black text on blue.
+            if let rowView = tableView.rowView(atRow: row, makeIfNecessary: false) { cell.backgroundStyle = rowView.interiorBackgroundStyle }
             cell.show(SidebarRowView(row: rows[row], model: model, collapsed: parent.collapsed, expanded: parent.expanded))
             return cell
         }
@@ -523,6 +526,16 @@ final class SidebarTableRowView: NSTableRowView {
         isSelected && isEmphasized ? .emphasized : .normal
     }
 
+    override var isSelected: Bool {
+        didSet { refreshEmphasis() }
+    }
+
+    /// A cell put in the row (new, or reused from another) takes the row's highlight.
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        if let cell = subview as? NSTableCellView, cell.backgroundStyle != interiorBackgroundStyle { cell.backgroundStyle = interiorBackgroundStyle }
+    }
+
     /// Redraws the highlight and tells the cells, after focus moves or the window changes.
     func refreshEmphasis() {
         needsDisplay = true
@@ -640,7 +653,8 @@ struct SidebarRowView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             .padding(.leading, 8)
             .padding(.trailing, 8)
-            .padding(.bottom, 3)
+            // As much room below the label as above it, down to the line when it's folded.
+            .padding(.bottom, 5)
             .help(isOpen ? "Hide \(section.rawValue.lowercased())" : "Show \(section.rawValue.lowercased())")
         case .divider:
             // Low in its row: the room above ends the section before it, which otherwise
@@ -773,7 +787,7 @@ extension SidebarPlace {
         switch self {
         case .allNotes: "tray"
         case .folder: "folder"
-        case .tag: "number"
+        case .tag: "number.sign.circle"
         case .everything: "tray.full"
         case .bookmarks: "bookmark"
         case .trash: "trash"

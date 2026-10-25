@@ -126,7 +126,8 @@ enum DebugSnapshots {
     /// `-PointSidebarButton YES` toggles as the system's sidebar button does, instead of ⌘S.
     private static func cycleSidebarIfAsked(for model: VaultModel) {
         let count = UserDefaults.standard.integer(forKey: "PointSidebarCycle")
-        guard count > 0 else { return }
+        // With a count of 0, only places the window (for screenshots).
+        guard count > 0 || UserDefaults.standard.string(forKey: "PointWindowFrame") != nil else { return }
         func notesWidth() -> CGFloat {
             guard let window = model.window else { return 0 }
             return views(of: NSSplitView.self, in: window.contentView).first { ($0.delegate as? NSSplitViewController) != nil }
@@ -141,8 +142,6 @@ enum DebugSnapshots {
                 let parts = text.split(separator: " ").compactMap { Double($0) }
                 if parts.count == 4 { model.window?.setFrame(NSRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3]), display: true) }
             }
-            // In sight, without taking the keyboard: a window out of sight doesn't animate.
-            model.window?.orderFrontRegardless()
             // In sight, without taking the keyboard: a window out of sight doesn't animate.
             model.window?.orderFrontRegardless()
             report("start")

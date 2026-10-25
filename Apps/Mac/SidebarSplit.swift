@@ -160,6 +160,9 @@ final class SidebarSplitController: NSSplitViewController {
     override func viewDidAppear() {
         super.viewDidAppear()
         installToolbar()
+        // At its width now the window has its size: set while the window was first laid out,
+        // small, the split view squeezed it to its narrowest, and it stayed so.
+        if !sidebarItem.isCollapsed, !isResizing { splitView.setPosition(savedWidth, ofDividerAt: 0) }
     }
 
     private func applyWidths() {
@@ -209,7 +212,10 @@ final class SidebarSplitController: NSSplitViewController {
         placeSidebarButton()
         guard !isResizing else { return }
         if sidebarItem.isCollapsed { rest() }
-        guard let width = shownWidth, width >= widths.min else { return }
+        // Only while the mouse is down (the divider being dragged): the split view also squeezes
+        // the sidebar to its narrowest while the window first lays out, small, and that was kept
+        // as if chosen.
+        guard NSEvent.pressedMouseButtons & 1 != 0, let width = shownWidth, width >= widths.min else { return }
         UserDefaults.standard.set(Double(width), forKey: widthKey)
         reportWidth()
     }

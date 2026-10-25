@@ -184,7 +184,7 @@ struct ExplorerColumns: View {
                                 .padding(.bottom, 2)
                         }
                         ExplorerRow(
-                            icon: place.place.isTag ? "number" : (place.place == .allNotes ? "tray" : "folder"),
+                            icon: place.place.isTag ? "number.sign.circle" : (place.place == .allNotes ? "tray" : "folder"),
                             title: place.title,
                             detail: "\(place.count)",
                             indent: CGFloat(place.depth) * 14,

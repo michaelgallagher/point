@@ -622,6 +622,15 @@ Mike's list, with his answers to the questions asked about it.
 10. **Closing a split slides.** The remaining note slides across to fill the window rather than popping into place.
 11. **Two-column default width.** About 150% of the single column's width, split 40/60 with the note list the wider column.
 
+**Built (25 October 2026), the quick ones:**
+- **Tags (item 5):** shown without the "#", with `number.sign.circle`, in both sidebar layouts, the explorer and the palette.
+- **Spacing (item 7):** section labels sit 2 points higher in their rows, so there's as much room below a label as above it (measured: 22 and 18 points before, 20 and 20 now, with Tags folded).
+- **Black text (item 9):** likely cause fixed, not reproduced. A reused cell kept the text style of the row it came from. Cells now take their row's highlight when made, when added to a row, and whenever the row's selection changes.
+- **Palette (item 4):** with nothing typed it offers New Note, Move Note, Apply Template and Use File Explorer (the last three need a note open, except Use File Explorer). Move Note is a new palette mode listing folders, filtered as you type, with Return to move. The menu bar's and the sidebar's Move to Folder… still open the old sheet.
+- **Two columns (item 11):** starts 360 wide (one column's 240 × 1.5), split 40/60 with the notes wider. The split is now the app's own side-by-side view, keeping each column's share as the sidebar widens or narrows. HSplitView gave all the extra width to the tree. The divider runs to the window's top, as before: the columns fill the sidebar's height, with the top bar laid over them.
+- **Home button (item 8):** a glass `house` button just past the window buttons, in one column only. It sits in the sidebar, so it hides with it, and it's dimmed at the top level.
+- **Found on the way:** the sidebar's width was never really remembered. While the window was first laid out (small), the split view squeezed the sidebar to its narrowest, and that was saved as if chosen, so every launch started at the minimum. Widths are now saved only while the divider is dragged, and set again once the window has its size. The bad saved widths were cleared.
+
 ## Topics for investigation
 
 ### Daily notes as a meeting log
