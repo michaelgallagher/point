@@ -104,6 +104,20 @@ struct FrontmatterTests {
         #expect(apply(edit, to: "Body") == "---\ntags:\n  - new\n---\nBody")
     }
 
+    @Test func aOneLineListIsRewrittenWithDashLines() throws {
+        // Point writes lists as Obsidian does, whichever way the note had them.
+        let frontmatter = try #require(Frontmatter.parse(note))
+        let edited = apply(frontmatter.edit(setting: "tags", to: ["imprint", "big idea", "new"]), to: note)
+        #expect(edited.hasPrefix("---\ntags:\n  - imprint\n  - big idea\n  - new\ncreated: 2026-10-17\n"))
+    }
+
+    @Test func tagsWrittenOnOneLineBecomeAList() throws {
+        let text = "---\ntags: work ideas\n---\n"
+        let frontmatter = try #require(Frontmatter.parse(text))
+        let edited = apply(frontmatter.edit(setting: "tags", to: ["work", "ideas", "next"], isList: true), to: text)
+        #expect(edited == "---\ntags:\n  - work\n  - ideas\n  - next\n---\n")
+    }
+
     @Test func quotesValuesThatNeedIt() {
         #expect(Frontmatter.yaml(key: "title", values: ["A: B"], isList: false) == "title: \"A: B\"\n")
     }

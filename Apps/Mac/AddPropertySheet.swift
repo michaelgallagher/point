@@ -11,18 +11,16 @@ extension Notification.Name {
     static let pointEditorCommand = Notification.Name("PointEditorCommand")
 }
 
-/// Adds a property to the open note, creating its frontmatter if it has none.
+/// Adds a property to the open note, creating its frontmatter if it has none. Its type is
+/// the vault's for that name, if it has one (as Obsidian keeps it), and is recorded for the
+/// vault if not.
 struct AddPropertySheet: View {
     @EnvironmentObject private var model: VaultModel
-    enum Kind: String, CaseIterable, Identifiable {
-        case text = "Text", list = "List", tags = "Tags", date = "Date"
-        var id: String { rawValue }
-    }
-
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
-    @State private var kind = Kind.text
+    @State private var type = PropertyType.text
     @State private var text = ""
+    @State private var isOn = false
     @State private var date = Date()
 
     /// The fields' width: the window hugs them, with no empty space beside them.
@@ -39,34 +37,37 @@ struct AddPropertySheet: View {
                         .labelsHidden()
                         .frame(width: Self.fieldWidth)
                         .onChange(of: name) { newName in
-                            // Suggest the kind from familiar names.
-                            if newName.lowercased() == "tags" { kind = .tags }
-                            else if PropertyDate.names.contains(newName.lowercased()) { kind = .date }
+                            // The vault's type for the name, or one suggested by it.
+                            let key = newName.trimmingCharacters(in: .whitespaces)
+                            type = model.store.propertyTypes.type(forKey: key) ?? PropertyType.suggested(forKey: key)
                         }
                 }
                 GridRow {
-                    label("Kind")
-                    Picker("Kind", selection: $kind) {
-                        ForEach(Kind.allCases) { Text($0.rawValue).tag($0) }
+                    label("Type")
+                    Picker("Type", selection: $type) {
+                        ForEach(PropertyType.choosable) { Label($0.name, systemImage: $0.symbol).tag($0) }
                     }
-                    .pickerStyle(.segmented)
                     .labelsHidden()
                     .fixedSize()
                     .frame(width: Self.fieldWidth, alignment: .leading)
                 }
                 GridRow {
-                    label(kind == .list || kind == .tags ? "Values" : "Value")
+                    label(type.isList ? "Values" : "Value")
                     Group {
-                        switch kind {
-                        case .date:
-                            DatePicker("Value", selection: $date, displayedComponents: .date)
+                        switch type {
+                        case .date, .datetime:
+                            DatePicker("Value", selection: $date, displayedComponents: type == .datetime ? [.date, .hourAndMinute] : .date)
                                 .labelsHidden()
                                 .fixedSize()
-                        case .list, .tags:
-                            TextField("Values", text: $text, prompt: Text(kind == .tags ? "work, ideas" : "one, two"))
+                        case .checkbox:
+                            Toggle("", isOn: $isOn)
+                                .toggleStyle(.checkbox)
                                 .labelsHidden()
-                        case .text:
-                            TextField("Value", text: $text)
+                        case .list, .tags, .aliases:
+                            TextField("Values", text: $text, prompt: Text(type == .tags ? "work, ideas" : "one, two"))
+                                .labelsHidden()
+                        case .text, .number:
+                            TextField("Value", text: $text, prompt: Text(type == .number ? "0" : ""))
                                 .labelsHidden()
                         }
                     }
@@ -79,7 +80,7 @@ struct AddPropertySheet: View {
                     .keyboardShortcut(.cancelAction)
                 Button("Add", action: add)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(key.isEmpty)
+                    .disabled(key.isEmpty || type == .number && !text.isEmpty && Double(text.trimmingCharacters(in: .whitespaces)) == nil)
             }
         }
         .padding(20)
@@ -99,17 +100,17 @@ struct AddPropertySheet: View {
 
     private func add() {
         let values: [String]
-        switch kind {
-        case .date: values = [PropertyDate.format(date, like: nil)]
-        case .list, .tags:
-            values = text.split(separator: ",")
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .map { kind == .tags && $0.hasPrefix("#") ? String($0.dropFirst()) : $0 }
-                .filter { !$0.isEmpty }
-        case .text: values = [text.trimmingCharacters(in: .whitespaces)]
+        switch type {
+        case .date, .datetime: values = [PropertyDate.format(date, like: PropertyDate.Value(date: date, hasTime: type == .datetime))]
+        case .checkbox: values = [isOn ? "true" : "false"]
+        case .list, .tags, .aliases: values = type.convert([text], from: .text)
+        case .text, .number:
+            let value = text.trimmingCharacters(in: .whitespaces)
+            values = value.isEmpty ? [] : [value]
         }
+        if model.store.propertyTypes.type(forKey: key) == nil { model.store.setPropertyType(type, forKey: key) }
         NotificationCenter.default.post(name: .pointSetProperty, object: nil,
-                                        userInfo: ["key": key, "values": values, "isList": kind == .list || kind == .tags,
+                                        userInfo: ["key": key, "values": values, "isList": type.isList,
                                                    "noteID": model.selection ?? ""])
         dismiss()
     }

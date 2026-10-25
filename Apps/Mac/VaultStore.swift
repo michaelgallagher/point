@@ -92,6 +92,7 @@ final class VaultStore: ObservableObject {
             }.value
             folders = scanned.folders
             notes = scanned.notes.sorted(by: sort)
+            propertyTypes = PropertyTypes.load(vault: root) // Obsidian may have changed them.
             errorMessage = nil
             refreshTags()
             updateIndex()
@@ -128,6 +129,7 @@ final class VaultStore: ObservableObject {
         folders = []
         notes = []
         settings = ObsidianSettings.load(vault: url)
+        propertyTypes = PropertyTypes.load(vault: url)
         indexedTags = [:]
         tagTree = TagTree(tagsByNote: [])
         pins = (UserDefaults.standard.stringArray(forKey: "pins." + Self.vaultKey(url)) ?? []).compactMap(SidebarPlace.init(key:))
@@ -727,6 +729,42 @@ final class VaultStore: ObservableObject {
     }
 
     func isPinned(_ place: SidebarPlace) -> Bool { pins.contains(place) }
+
+    // MARK: Property types
+
+    /// The vault's property types, shared with Obsidian (`.obsidian/types.json`).
+    @Published private(set) var propertyTypes = PropertyTypes()
+
+    func setPropertyType(_ type: PropertyType, forKey key: String) {
+        guard propertyTypes.type(forKey: key) != type, let root else { return }
+        propertyTypes.set(type, forKey: key)
+        save(propertyTypes, in: root)
+    }
+
+    /// A property renamed in a note: its type goes with the new name, for that name.
+    func renamePropertyType(_ key: String, to newKey: String) {
+        guard let root else { return }
+        let before = propertyTypes
+        propertyTypes.rename(key, to: newKey)
+        if propertyTypes != before { save(propertyTypes, in: root) }
+    }
+
+    private func save(_ types: PropertyTypes, in root: URL) {
+        do { try types.save(vault: root) } catch {
+            errorMessage = "Couldn't save property types: \(error.localizedDescription)"
+        }
+    }
+
+    /// Tags in the vault starting with (or containing) what's typed, for completing a tag.
+    func tagSuggestions(for partial: String, excluding: [String] = []) -> [String] {
+        let typed = partial.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "# "))
+        guard !typed.isEmpty else { return [] }
+        let taken = Set(excluding.map { $0.lowercased() })
+        let tags = tagTree.entries.map(\.tag).filter { !taken.contains($0.lowercased()) }
+        let starting = tags.filter { $0.lowercased().hasPrefix(typed) }
+        let containing = tags.filter { !$0.lowercased().hasPrefix(typed) && $0.lowercased().contains(typed) }
+        return Array((starting.sorted() + containing.sorted()).prefix(6))
+    }
 
     /// Notes bookmarked, in the order they were bookmarked, for the vault. Kept by ID, so a
     /// bookmark to a note moved outside Point (or deleted) is simply not listed.

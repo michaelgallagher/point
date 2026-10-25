@@ -52,8 +52,8 @@ struct PropertiesStrip: View {
                                 Color.clear.preference(key: RowFrames.self, value: [property.key: proxy.frame(in: .named(Self.space))])
                             })
                     }
-                    HStack(spacing: 12) {
-                        Color.clear.frame(width: keyWidth, height: 1)
+                    HStack(spacing: Self.columnSpacing) {
+                        Color.clear.frame(width: Self.iconWidth + Self.columnSpacing + keyWidth - Self.columnSpacing, height: 1)
                         Button {
                             NotificationCenter.default.post(name: .pointAddProperty, object: model)
                         } label: {
@@ -67,6 +67,15 @@ struct PropertiesStrip: View {
                 }
                 .coordinateSpace(name: Self.space)
                 .onPreferenceChange(RowFrames.self) { rowFrames = $0 }
+                // A selected row takes the keyboard: ⌫ deletes it, Escape lets it go.
+                .background {
+                    if let key = selectedKey {
+                        PropertyKeys(delete: { delete(key) }, deselect: { selectedKey = nil })
+                    }
+                }
+                .onChange(of: frontmatter.properties.map(\.key)) { keys in
+                    if let selectedKey, !keys.contains(selectedKey) { self.selectedKey = nil }
+                }
                 .overlay(alignment: .topLeading) { dropIndicator }
                 .overlay(alignment: .topLeading) { draggedRow }
                 // The rows' backgrounds reach into the margin; their text lines up with the summary.
@@ -92,12 +101,17 @@ struct PropertiesStrip: View {
 
     private static let space = "properties"
     private static let chevronWidth: CGFloat = 12
+    /// The type icon's column, and the gap between columns.
+    private static let iconWidth: CGFloat = 18
+    private static let columnSpacing: CGFloat = 8
     /// Room around each row's text, inside its hover background.
     private static let rowInset: CGFloat = 6
     private static let rowPadding: CGFloat = 4
 
     /// The property under the pointer, shaded so it's clear it can be clicked.
     @State private var hoveredKey: String?
+    /// The property picked by clicking its row (not a field in it): ⌫ deletes it.
+    @State private var selectedKey: String?
     /// The property whose name is being edited, and the name as typed.
     @State private var renamingKey: String?
     @State private var newName = ""
@@ -110,9 +124,24 @@ struct PropertiesStrip: View {
         return min(max(ceil(widest) + 4, 60), 180)
     }
 
-    /// One property: its name (click to rename, drag to reorder), then its value.
+    /// One property: its type (click to change it), its name (click to rename, drag to
+    /// reorder), its value, edited to suit its type, and a menu on hover. Click the row's
+    /// empty space to select it, and ⌫ deletes it.
     private func row(for property: Frontmatter.Property) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+        let type = model.store.propertyTypes.type(of: property)
+        let isSelected = selectedKey == property.key
+        return HStack(alignment: .firstTextBaseline, spacing: Self.columnSpacing) {
+            Menu {
+                typePicker(for: property, current: type)
+            } label: {
+                Image(systemName: type.symbol)
+                    .foregroundStyle(.secondary)
+                    .frame(width: Self.iconWidth)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("\(type.name): click to change the type")
             Group {
                 if renamingKey == property.key {
                     TextField("Name", text: $newName)
@@ -134,18 +163,68 @@ struct PropertiesStrip: View {
                         .help("Click to rename, drag to reorder")
                 }
             }
-            .frame(width: keyWidth, alignment: .leading)
-            PropertyField(property: property, session: session)
+            .frame(width: keyWidth - Self.columnSpacing, alignment: .leading)
+            PropertyValue(property: property, type: type, session: session)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Menu {
+                Button("Rename") { startRenaming(property.key) }
+                Menu("Change Type") { typePicker(for: property, current: type) }
+                Divider()
+                Button("Delete", role: .destructive) { delete(property.key) }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 16)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("More")
+            .opacity(hoveredKey == property.key || isSelected ? 1 : 0)
         }
         .padding(.horizontal, Self.rowInset)
         .padding(.vertical, Self.rowPadding)
         .background {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color.primary.opacity(hoveredKey == property.key && dragging == nil ? 0.05 : 0))
+                .fill(isSelected ? Color.accentColor.opacity(0.15)
+                      : Color.primary.opacity(hoveredKey == property.key && dragging == nil ? 0.05 : 0))
         }
+        // The row's empty space (fields take their own clicks) selects it.
+        .contentShape(Rectangle())
+        .onTapGesture { selectedKey = isSelected ? nil : property.key }
         .onHover { hovering in
             if hovering { hoveredKey = property.key } else if hoveredKey == property.key { hoveredKey = nil }
         }
+        .contextMenu {
+            Button("Rename") { startRenaming(property.key) }
+            Menu("Change Type") { typePicker(for: property, current: type) }
+            Divider()
+            Button("Delete") { delete(property.key) }
+        }
+    }
+
+    /// The types to choose from, the current one ticked.
+    @ViewBuilder private func typePicker(for property: Frontmatter.Property, current: PropertyType) -> some View {
+        ForEach(PropertyType.choosable) { type in
+            Button {
+                changeType(of: property, from: current, to: type)
+            } label: {
+                if type == current { Label(type.name, systemImage: "checkmark") } else { Text(type.name) }
+            }
+        }
+    }
+
+    /// Sets a property's type for the vault (as Obsidian keeps it), and carries this note's
+    /// value over to it.
+    private func changeType(of property: Frontmatter.Property, from old: PropertyType, to type: PropertyType) {
+        guard type != old else { return }
+        model.store.setPropertyType(type, forKey: property.key)
+        session.setProperty(property.key, to: type.convert(PropertyValue.items(of: property, as: old), from: old), isList: type.isList)
+    }
+
+    private func delete(_ key: String) {
+        if selectedKey == key { selectedKey = nil }
+        withAnimation(.easeOut(duration: 0.15)) { session.removeProperty(key) }
     }
 
     private func startRenaming(_ key: String) {
@@ -157,6 +236,7 @@ struct PropertiesStrip: View {
     private func finishRenaming() {
         guard let key = renamingKey else { return }
         renamingKey = nil
+        model.store.renamePropertyType(key, to: newName.trimmingCharacters(in: .whitespaces))
         session.renameProperty(key, to: newName)
     }
 
@@ -238,67 +318,317 @@ private struct RowFrames: PreferenceKey {
     }
 }
 
-/// One editable value. Lists are edited as comma-separated text. Values Point doesn't
-/// understand (nested YAML) are shown but can only be changed in raw Markdown.
-private struct PropertyField: View {
+/// One property's value, edited to suit its type: text or a number in a field, a checkbox,
+/// a date picker, or a list (tags included) as tokens. Values Point doesn't understand
+/// (nested YAML) are shown but can only be changed in raw Markdown.
+private struct PropertyValue: View {
+    @EnvironmentObject private var model: VaultModel
     let property: Frontmatter.Property
+    let type: PropertyType
     @ObservedObject var session: EditorSession
-    @State private var text = ""
-    @FocusState private var isFocused: Bool
 
-    private var isEditable: Bool { property.isList || property.values.count <= 1 && !isNested }
     private var isNested: Bool { !property.isList && property.values.isEmpty && property.range.length > property.key.count + 3 }
 
-    /// The value as a date, if it is one (or the property is named like one and is empty).
-    private var date: PropertyDate.Value? {
-        guard !property.isList, property.values.count <= 1 else { return nil }
-        if let value = property.values.first { return PropertyDate.parse(value) }
-        return PropertyDate.names.contains(property.key.lowercased()) ? PropertyDate.Value(date: Date(), hasTime: false, separator: "T", hasSeconds: false) : nil
+    /// The items of a list, however the note writes it: tags written on one line (`tags: a b`)
+    /// or as one comma-separated value are split into their items.
+    static func items(of property: Frontmatter.Property, as type: PropertyType) -> [String] {
+        guard type.isList, !property.isList else { return property.values }
+        let separators: Set<Character> = type == .tags ? [",", " "] : [","]
+        return property.values.flatMap { $0.split(whereSeparator: { separators.contains($0) }) }
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .map { type == .tags && $0.hasPrefix("#") ? String($0.dropFirst()) : $0 }
+            .filter { !$0.isEmpty }
     }
 
     var body: some View {
-        Group {
-            if isNested {
-                Text("Edit in Markdown")
-                    .foregroundStyle(.tertiary)
-            } else if let date {
-                DatePicker("", selection: Binding(
-                    get: { date.date },
-                    set: { newDate in
-                        let style = property.values.isEmpty ? nil : date
-                        session.setProperty(property.key, to: [PropertyDate.format(newDate, like: style)], isList: false)
-                    }
-                ), displayedComponents: date.hasTime ? [.date, .hourAndMinute] : [.date])
+        if isNested {
+            Text("Edit in Markdown")
+                .foregroundStyle(.tertiary)
+        } else {
+            switch type {
+            case .list, .tags, .aliases:
+                TokenEditor(items: Self.items(of: property, as: type), isTags: type == .tags,
+                            suggestions: { typed, items in type == .tags ? model.store.tagSuggestions(for: typed, excluding: items) : [] },
+                            commit: { set($0) })
+            case .checkbox:
+                Toggle("", isOn: Binding(
+                    get: { property.values.first?.lowercased() == "true" },
+                    set: { set([$0 ? "true" : "false"]) }
+                ))
+                .toggleStyle(.checkbox)
                 .labelsHidden()
-                .datePickerStyle(.compact)
-                .fixedSize()
-                .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                TextField("Empty", text: $text)
-                    .textFieldStyle(.plain)
-                    .focused($isFocused)
-                    .onSubmit(commit)
-                    .onChange(of: isFocused) { focused in
-                        if !focused { commit() }
-                    }
-                    .disabled(!isEditable)
+            case .date, .datetime:
+                DateValue(property: property, hasTime: type == .datetime, set: set)
+            case .text, .number:
+                TextValue(property: property, isNumber: type == .number, set: set)
             }
-        }
-        .onAppear { text = displayed }
-        .onChange(of: property) { _ in
-            if !isFocused { text = displayed }
         }
     }
 
-    private var displayed: String {
-        property.values.joined(separator: ", ")
+    private func set(_ values: [String]) {
+        session.setProperty(property.key, to: values, isList: type.isList)
+    }
+}
+
+/// Text, or a number, in a field: Return or clicking away saves it.
+private struct TextValue: View {
+    let property: Frontmatter.Property
+    let isNumber: Bool
+    let set: ([String]) -> Void
+    @State private var text = ""
+    @FocusState private var isFocused: Bool
+
+    private var displayed: String { property.values.joined(separator: ", ") }
+
+    var body: some View {
+        TextField("Empty", text: $text)
+            .textFieldStyle(.plain)
+            .focused($isFocused)
+            .onSubmit(commit)
+            .onChange(of: isFocused) { focused in
+                if !focused { commit() }
+            }
+            .onAppear { text = displayed }
+            .onChange(of: property) { _ in
+                if !isFocused { text = displayed }
+            }
     }
 
     private func commit() {
-        guard text != displayed else { return }
-        let values = property.isList
-            ? text.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-            : [text.trimmingCharacters(in: .whitespaces)]
-        session.setProperty(property.key, to: values, isList: property.isList)
+        let value = text.trimmingCharacters(in: .whitespaces)
+        guard value != displayed else { return }
+        // A number must read as one; anything else goes back to what it was.
+        if isNumber, !value.isEmpty, Double(value) == nil {
+            NSSound.beep()
+            text = displayed
+            return
+        }
+        set(value.isEmpty ? [] : [value])
+    }
+}
+
+/// A date, or a date and time, in the system's compact picker. An empty one shows a button
+/// that sets it to today.
+private struct DateValue: View {
+    let property: Frontmatter.Property
+    let hasTime: Bool
+    let set: ([String]) -> Void
+
+    private var value: PropertyDate.Value? { property.values.first.flatMap { PropertyDate.parse($0) } }
+
+    var body: some View {
+        if let value {
+            DatePicker("", selection: Binding(
+                get: { value.date },
+                set: { set([PropertyDate.format($0, like: PropertyDate.Value(date: $0, hasTime: hasTime, separator: value.separator, hasSeconds: value.hasSeconds))]) }
+            ), displayedComponents: hasTime ? [.date, .hourAndMinute] : [.date])
+            .labelsHidden()
+            .datePickerStyle(.compact)
+            .fixedSize()
+        } else {
+            Button(property.values.first ?? "Empty") {
+                let now = Date()
+                set([PropertyDate.format(now, like: PropertyDate.Value(date: now, hasTime: hasTime))])
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.tertiary)
+            .help("Set to now")
+        }
+    }
+}
+
+/// A list's items as tokens, each with a remove button, then a field to add more: Return or
+/// a comma adds what's typed. Tags complete from the vault's tags.
+private struct TokenEditor: View {
+    let items: [String]
+    let isTags: Bool
+    let suggestions: (String, [String]) -> [String]
+    let commit: ([String]) -> Void
+    @State private var draft = ""
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            FlowLayout(spacing: 4) {
+                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                    Token(text: item, isTag: isTags) {
+                        commit(items.enumerated().filter { $0.offset != index }.map(\.element))
+                    }
+                }
+                field
+            }
+            // Matching tags from the vault while typing one.
+            let matches = isFocused ? suggestions(draft, items) : []
+            if !matches.isEmpty {
+                FlowLayout(spacing: 4) {
+                    ForEach(matches, id: \.self) { tag in
+                        Button {
+                            draft = ""
+                            commit(items + [tag])
+                        } label: {
+                            Text(tag)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 1)
+                                .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.4)))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var field: some View {
+        let base = TextField(items.isEmpty ? "Empty" : "Add…", text: $draft)
+            .textFieldStyle(.plain)
+            .frame(minWidth: 60, maxWidth: 160)
+            .fixedSize(horizontal: false, vertical: true)
+            .focused($isFocused)
+            .onSubmit { add() }
+            .onChange(of: draft) { text in
+                if text.contains(",") { add() }
+            }
+            .onChange(of: isFocused) { focused in
+                if !focused { add() }
+            }
+        if #available(macOS 14, *) {
+            // ⌫ in an empty field removes the last item.
+            base.onKeyPress(.delete) {
+                guard draft.isEmpty, !items.isEmpty else { return .ignored }
+                commit(Array(items.dropLast()))
+                return .handled
+            }
+        } else {
+            base
+        }
+    }
+
+    /// Adds what's typed (several, if commas separate them), skipping any already there.
+    private func add() {
+        let typed = draft.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .map { isTags && $0.hasPrefix("#") ? String($0.dropFirst()) : $0 }
+            .filter { !$0.isEmpty }
+        draft = ""
+        let new = typed.filter { item in !items.contains { $0.caseInsensitiveCompare(item) == .orderedSame } }
+        guard !new.isEmpty else { return }
+        commit(items + new)
+    }
+}
+
+/// One item of a list: a rounded label with a remove button.
+private struct Token: View {
+    let text: String
+    let isTag: Bool
+    let remove: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Text(text)
+                .lineLimit(1)
+            Button(action: remove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .frame(width: 12, height: 12)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .opacity(isHovering ? 1 : 0.5)
+            .help("Remove")
+        }
+        .padding(.leading, 7)
+        .padding(.trailing, 4)
+        .padding(.vertical, 1)
+        .background(Capsule().fill(isTag ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.07)))
+        .onHover { isHovering = $0 }
+    }
+}
+
+/// Lays its views out in rows, left to right, wrapping when a row is full.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 4
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = arrange(subviews, width: proposal.width ?? .infinity)
+        let width = rows.map { $0.width }.max() ?? 0
+        let height = rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(rows.count - 1, 0))
+        return CGSize(width: proposal.width ?? width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in arrange(subviews, width: bounds.width) {
+            var x = bounds.minX
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: y + (row.height - size.height) / 2), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    private struct Row { var indices: [Int] = []; var width: CGFloat = 0; var height: CGFloat = 0 }
+
+    private func arrange(_ subviews: Subviews, width: CGFloat) -> [Row] {
+        var rows: [Row] = [Row()]
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            let needed = rows[rows.count - 1].indices.isEmpty ? size.width : rows[rows.count - 1].width + spacing + size.width
+            if needed > width, !rows[rows.count - 1].indices.isEmpty {
+                rows.append(Row())
+            }
+            var row = rows[rows.count - 1]
+            row.width = row.indices.isEmpty ? size.width : row.width + spacing + size.width
+            row.height = max(row.height, size.height)
+            row.indices.append(index)
+            rows[rows.count - 1] = row
+        }
+        return rows
+    }
+}
+
+/// While a property is selected, takes the keyboard: ⌫ or ⌦ deletes it, Escape (or clicking
+/// elsewhere) lets it go.
+private struct PropertyKeys: NSViewRepresentable {
+    let delete: () -> Void
+    let deselect: () -> Void
+
+    func makeNSView(context: Context) -> KeyView { KeyView() }
+
+    func updateNSView(_ view: KeyView, context: Context) {
+        view.delete = delete
+        view.deselect = deselect
+    }
+
+    final class KeyView: NSView {
+        var delete: () -> Void = {}
+        var deselect: () -> Void = {}
+
+        override var acceptsFirstResponder: Bool { true }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let window else { return }
+                window.makeFirstResponder(self)
+            }
+        }
+
+        override func keyDown(with event: NSEvent) {
+            switch event.keyCode {
+            case 51, 117: delete() // ⌫, ⌦
+            case 53: deselect() // Escape
+            default: super.keyDown(with: event)
+            }
+        }
+
+        override func resignFirstResponder() -> Bool {
+            DispatchQueue.main.async { [weak self] in self?.deselect() }
+            return true
+        }
     }
 }
