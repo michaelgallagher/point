@@ -8,28 +8,25 @@
         {
           "fill-specializations" : [
             {
-              "value" : {
-                "solid" : "srgb:0.10588,0.05882,0.30196,1.00000"
-              }
-            },
-            {
               "appearance" : "dark",
-              "value" : {
-                "solid" : "srgb:0.98431,0.98431,0.89412,1.00000"
-              }
+              "value" : "none"
             }
           ],
           "image-name" : "dot.svg",
           "name" : "dot"
+        },
+        {
+          "image-name" : "app-icon.png",
+          "name" : "app-icon"
         }
       ],
       "shadow" : {
-        "kind" : "none",
-        "opacity" : 0
+        "kind" : "neutral",
+        "opacity" : 0.5
       },
       "translucency" : {
-        "enabled" : false,
-        "value" : 0
+        "enabled" : true,
+        "value" : 0.3
       }
     }
   ],
