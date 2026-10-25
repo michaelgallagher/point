@@ -592,7 +592,9 @@ private struct FlowLayout: Layout {
 }
 
 /// While a property is selected, takes the keyboard: ⌫ or ⌦ deletes it, Escape (or clicking
-/// elsewhere) lets it go.
+/// elsewhere) lets it go. Every other key, and Select All, Cut, Copy and Paste, stop here: the
+/// strip is inside the note's text view, so anything passed on went to the note's text (a
+/// letter typed over its selection, ⌘A selecting all of it).
 private struct PropertyKeys: NSViewRepresentable {
     let delete: () -> Void
     let deselect: () -> Void
@@ -622,9 +624,15 @@ private struct PropertyKeys: NSViewRepresentable {
             switch event.keyCode {
             case 51, 117: delete() // ⌫, ⌦
             case 53: deselect() // Escape
-            default: super.keyDown(with: event)
+            default: break
             }
         }
+
+        override func selectAll(_ sender: Any?) {}
+        @objc func cut(_ sender: Any?) {}
+        @objc func copy(_ sender: Any?) {}
+        @objc func paste(_ sender: Any?) {}
+        @objc func delete(_ sender: Any?) { delete() }
 
         override func resignFirstResponder() -> Bool {
             DispatchQueue.main.async { [weak self] in self?.deselect() }

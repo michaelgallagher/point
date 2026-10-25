@@ -75,18 +75,36 @@ struct PaneTopBar: View {
         return model.windowButtonsInset + TopBar.sidebarButtonWidth
     }
 
-    var body: some View {
+    /// The bar's contents. Too narrow for them all, the bookmark and tab buttons go first, then
+    /// the path, so nothing overlaps (in a narrow split, the buttons went under the sidebar
+    /// button and the divider).
+    private func contents(showsTabButtons: Bool, showsPath: Bool) -> some View {
         HStack(spacing: TopBar.buttonSpacing) {
             BackForwardButtons(pane: pane, paneIndex: paneIndex)
-            PanePath(pane: pane, paneIndex: paneIndex)
-                .padding(.horizontal, 4)
-            BookmarkAndTabButtons(pane: pane)
+            if showsPath {
+                PanePath(pane: pane, paneIndex: paneIndex)
+                    .padding(.horizontal, 4)
+                    // Room for at least a short name, for deciding what fits.
+                    .frame(minWidth: 80)
+            } else {
+                Spacer(minLength: 0)
+            }
+            if showsTabButtons { BookmarkAndTabButtons(pane: pane) }
             if model.isSplit {
                 BarButton("Close This Side", systemImage: "xmark", help: "Close This Side") { model.closePane(paneIndex) }
             } else {
                 BarButton("Split", systemImage: "rectangle.split.2x1", help: "Split (⇧⌘S)") { model.toggleSplit() }
             }
         }
+    }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            contents(showsTabButtons: true, showsPath: true)
+            contents(showsTabButtons: false, showsPath: true)
+            contents(showsTabButtons: false, showsPath: false)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.leading, leadingInset)
         // As the sidebar slides, on the window's own curve and duration, so the bar's contents
         // glide with the notes, staying clear of the window buttons, rather than jumping. (Only
@@ -253,7 +271,7 @@ struct PanePath: View {
     }
 
     /// The longest form of the path that fits: every folder; then the first folder, "…" and
-    /// fewer and fewer of the rest; then the first folder, "…" and the name, cut to fit.
+    /// fewer and fewer of the rest; then "…" and the name; then the name alone, cut to fit.
     static func parts(of note: Note, toFit available: CGFloat) -> [Part] {
         let names = note.id.split(separator: "/").dropLast().map(String.init)
         let paths = names.indices.map { names[...$0].joined(separator: "/") }
@@ -275,8 +293,13 @@ struct PanePath: View {
                 if fits(parts) { return parts }
             }
         }
+        // Still too long: the first folder folds too ("… / Tabs idea"), and at last the name
+        // stands alone, cut in its middle. (Keeping the first folder whole squeezed the "…"
+        // and the name to nothing in a narrow side: "Projects / /".)
         let first = folders.count > 1 ? [folders[0], .folded(Array(paths[1...]))] : [folders[0]]
-        return joined(first + [.name(note.title, fits: false)])
+        if fits(joined(first + [name])) { return joined(first + [name]) }
+        if fits(joined([.folded(paths), name])) { return joined([.folded(paths), name]) }
+        return [.name(note.title, fits: false)]
     }
 }
 

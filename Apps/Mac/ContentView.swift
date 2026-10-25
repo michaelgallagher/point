@@ -54,7 +54,7 @@ struct ContentView: View {
         Group {
             // One side or two, in the same view, so the left side's note stays as it is when
             // the right side closes (and can slide to its new place).
-            SideBySide(showsSide: model.isSplit, sideDrawsDivider: true) {
+            SideBySide(minimumWidths: model.notesSplitMinimums, showsSide: model.isSplit, sideDrawsDivider: true) {
                 PaneView(paneID: model.panes[0].id)
             } side: {
                 if model.isSplit {

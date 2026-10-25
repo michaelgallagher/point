@@ -56,8 +56,16 @@ final class SidebarSplitController: NSSplitViewController {
             applyWidths()
         }
     }
-    /// Where the sidebar's width is kept between launches, for the sidebar layout in use.
-    var widthKey = "sidebarWidth"
+    /// Where the sidebar's width is kept between launches, for the sidebar layout in use. Read
+    /// again when it changes: the window sets it after the split view has loaded, which first
+    /// read the width under the default key, and the window's minimum and the auto-hide width
+    /// then used the wrong width.
+    var widthKey = "sidebarWidth" {
+        didSet {
+            guard widthKey != oldValue else { return }
+            applyWidths()
+        }
+    }
 
     /// Whether the sidebar is sliding in or out: SwiftUI doesn't lay anything out again during
     /// the window's animation, so views that would change on the way hold still till it ends.
@@ -69,6 +77,8 @@ final class SidebarSplitController: NSSplitViewController {
     /// The sidebar button, in place of the split view's own toggle, so it shows and hides the
     /// sidebar as ⌘S does.
     var onToggle: (() -> Void)?
+    /// The narrowest each side of a split of the notes can be (see `VaultModel`).
+    var notesSplitMinimums: (() -> (main: CGFloat, side: CGFloat))?
     /// The sidebar hidden (true) or shown by dragging its divider.
     var collapsedByDragging: ((Bool) -> Void)?
     /// Whether the sidebar was hidden, as last known here (set by every show or hide).
@@ -123,7 +133,18 @@ final class SidebarSplitController: NSSplitViewController {
         applyWidths()
         NotificationCenter.default.addObserver(self, selector: #selector(splitViewResized(_:)),
                                                name: NSSplitView.didResizeSubviewsNotification, object: splitView)
+        // A drag of the divider ends with the mouse's release.
+        mouseUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+            self?.widthAtDragStart = nil
+            return event
+        }
     }
+
+    private var mouseUpMonitor: Any?
+    /// The sidebar's width when the divider was picked up, kept if the drag hides the sidebar:
+    /// the widths it passed through on the way, down to its narrowest, were saved as it went,
+    /// and it reopened at its narrowest.
+    private var widthAtDragStart: CGFloat?
 
     override func viewDidLayout() {
         super.viewDidLayout()
@@ -249,18 +270,24 @@ final class SidebarSplitController: NSSplitViewController {
         placeSidebarButton()
         placeDividerGrip()
         guard !isResizing else { return }
+        let isDragging = NSEvent.pressedMouseButtons & 1 != 0
+        if isDragging, widthAtDragStart == nil, !sidebarItem.isCollapsed { widthAtDragStart = savedWidth }
         // Hidden or shown by dragging the divider, not by this: the contents rest at the
         // sidebar's size while hidden, and fill it again once it's dragged open (they stayed at
         // the size they rested at, and didn't follow the divider), and the window hears of it.
         if sidebarItem.isCollapsed { rest() } else { sidebarContainer.release() }
         if sidebarItem.isCollapsed != reportedCollapsed {
             reportedCollapsed = sidebarItem.isCollapsed
+            if sidebarItem.isCollapsed, let width = widthAtDragStart {
+                UserDefaults.standard.set(Double(width), forKey: widthKey)
+                reportWidth()
+            }
             collapsedByDragging?(sidebarItem.isCollapsed)
         }
         // Only while the mouse is down (the divider being dragged): the split view also squeezes
         // the sidebar to its narrowest while the window first lays out, small, and that was kept
         // as if chosen.
-        guard NSEvent.pressedMouseButtons & 1 != 0, let width = shownWidth, width >= widths.min else { return }
+        guard isDragging, let width = shownWidth, width >= widths.min else { return }
         UserDefaults.standard.set(Double(width), forKey: widthKey)
         reportWidth()
     }
@@ -310,7 +337,7 @@ final class SidebarSplitController: NSSplitViewController {
     func slideNotes(fromSideOnRight onRight: Bool) {
         guard isViewLoaded, let layer = detailHost.view.layer else { return }
         let width = detailHost.view.bounds.width
-        let left = SideBySide<EmptyView, EmptyView>.mainWidth(in: width)
+        let left = SideBySide<EmptyView, EmptyView>.mainWidth(in: width, minimumWidths: notesSplitMinimums?() ?? (240, 240))
         // Where the text starts in an editor this wide (centred, past its margin).
         let column = Self.firstEditor(in: detailHost.view)?.maxTextWidth ?? 720
         func textStart(_ width: CGFloat) -> CGFloat { max(28, ((width - column) / 2).rounded()) }
@@ -331,7 +358,7 @@ final class SidebarSplitController: NSSplitViewController {
     func slideForSplitOpening(leftStays: Bool) -> CGFloat? {
         guard isViewLoaded else { return nil }
         let width = detailHost.view.bounds.width
-        let left = SideBySide<EmptyView, EmptyView>.mainWidth(in: width)
+        let left = SideBySide<EmptyView, EmptyView>.mainWidth(in: width, minimumWidths: notesSplitMinimums?() ?? (240, 240))
         let column = Self.firstEditor(in: detailHost.view)?.maxTextWidth ?? 720
         func textStart(_ width: CGFloat) -> CGFloat { max(28, ((width - column) / 2).rounded()) }
         guard leftStays else { return textStart(width) - (left + 1 + textStart(width - left - 1)) }

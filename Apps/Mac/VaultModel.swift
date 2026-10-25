@@ -275,6 +275,7 @@ final class VaultModel: ObservableObject {
         let split = SidebarSplitController()
         split.slidingChanged = { [weak self] sliding in self?.isSidebarSliding = sliding }
         split.sidebarWidthChanged = { [weak self] width in self?.sidebarWidth = width }
+        split.notesSplitMinimums = { [weak self] in self?.notesSplitMinimums ?? (240, 240) }
         // Dragged closed or open: the sidebar's state follows, without resizing the window.
         split.collapsedByDragging = { [weak self] collapsed in
             guard let self, !self.isFocused, self.showsNoteList == collapsed else { return }
@@ -290,6 +291,13 @@ final class VaultModel: ObservableObject {
 
     /// The width the sidebar shows at.
     @Published private(set) var sidebarWidth: CGFloat = 240
+
+    /// The narrowest each side of a split can be: the first wider while the sidebar's hidden,
+    /// to leave its bar room beside the window buttons and the sidebar button.
+    var notesSplitMinimums: (main: CGFloat, side: CGFloat) {
+        let clearance = !showsNoteList || isFocused ? windowButtonsInset + TopBar.sidebarButtonWidth - TopBar.buttonSpacing : 0
+        return (240 + clearance, 240)
+    }
 
     /// The narrowest the window can be: the notes' narrowest, plus the sidebar while it shows.
     var minimumWindowWidth: CGFloat {

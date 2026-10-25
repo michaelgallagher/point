@@ -186,9 +186,9 @@ struct SideBySide<Main: View, Side: View>: View {
     }
 
     /// The left side's width in a split of the notes (as last dragged).
-    static func mainWidth(in width: CGFloat) -> CGFloat {
+    static func mainWidth(in width: CGFloat, minimumWidths: (main: CGFloat, side: CGFloat)) -> CGFloat {
         let fraction = UserDefaults.standard.object(forKey: "sideBySideFraction") as? Double ?? 0.5
-        return clamp(width * fraction, in: width, minimumWidths: (240, 240))
+        return clamp(width * fraction, in: width, minimumWidths: minimumWidths)
     }
 
     private func clamp(_ x: CGFloat, in width: CGFloat) -> CGFloat {
