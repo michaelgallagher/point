@@ -244,9 +244,13 @@ final class VaultModel: ObservableObject {
         id.flatMap { id in notes.first { $0.id == id } }
     }
 
+    /// Shows and hides the sidebar by widening and narrowing the window (see `SidebarSizing`).
+    let sidebarSizing = SidebarSizing()
+
     /// The window this model shows in.
     weak var window: NSWindow? {
         didSet {
+            sidebarSizing.window = window
             measureTopBar()
             // Again once the window has its toolbar (the sidebar button's), which can come
             // after the window does and makes the top row taller.
@@ -269,6 +273,10 @@ final class VaultModel: ObservableObject {
     /// The sidebar was hidden by narrowing the window, so widening it brings it back.
     private var sidebarAutoHidden = false
     private var isAutoToggling = false
+    /// Whether the sidebar last showed or hid because the window crossed the set width, which
+    /// doesn't resize the window (the person is resizing it). Kept until the next change, as
+    /// the view reacts to the change after it's made.
+    private(set) var lastToggleWasAutomatic = false
 
     /// Hides the sidebar as the window narrows past the set width, and shows it again as it
     /// widens past it, if narrowing hid it. Only on crossing the width, so showing or hiding
@@ -314,7 +322,8 @@ final class VaultModel: ObservableObject {
         guard let window else { return }
         let width = window.frame.width, limit = CGFloat(store.sidebarAutoHideWidth)
         defer { lastWidth = width }
-        guard store.autoHidesSidebar, !isFocused else { return }
+        // Not while the window is resizing itself to show or hide the sidebar.
+        guard store.autoHidesSidebar, !isFocused, !sidebarSizing.isResizing else { return }
         if lastWidth >= limit, width < limit, showsNoteList {
             setSidebarAutomatically(false)
             sidebarAutoHidden = true
@@ -870,6 +879,7 @@ final class VaultModel: ObservableObject {
     @Published var showsNoteList = UserDefaults.standard.object(forKey: "showsNoteList") == nil || UserDefaults.standard.bool(forKey: "showsNoteList") {
         didSet {
             UserDefaults.standard.set(showsNoteList, forKey: "showsNoteList")
+            lastToggleWasAutomatic = isAutoToggling
             if !isAutoToggling { sidebarAutoHidden = false } // Shown or hidden by hand.
             measureAfterSidebarMoves()
         }

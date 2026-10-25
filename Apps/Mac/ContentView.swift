@@ -58,9 +58,20 @@ struct ContentView: View {
         .ignoresSafeArea(.container, edges: .top)
     }
 
-    private func updateColumns() {
+    /// Shows or hides the sidebar. Shown or hidden by hand (⌘S, the sidebar button, a swipe),
+    /// the window widens or narrows by the sidebar's width so the notes keep theirs; in focus
+    /// mode, when the window's width hid it, or where the window can't resize, the notes take
+    /// the space instead.
+    private func updateColumns(resizingWindow: Bool = false) {
         let visible = model.showsNoteList && !model.isFocused
-        withAnimation(.easeOut(duration: 0.15)) { columns = visible ? .all : .detailOnly }
+        let target: NavigationSplitViewVisibility = visible ? .all : .detailOnly
+        // Once settled, SwiftUI's record of the columns follows, unless the sidebar has been
+        // toggled again since.
+        if resizingWindow, model.sidebarSizing.setSidebar(shown: visible, done: {
+            if (model.showsNoteList && !model.isFocused) == visible { columns = target }
+        }) { return }
+        if columns != target { model.sidebarSizing.willToggleWithoutResizing() }
+        withAnimation(.easeOut(duration: 0.15)) { columns = target }
     }
 
     /// In the sidebar's part of the toolbar, beside the button that hides it.
@@ -103,9 +114,10 @@ struct ContentView: View {
                     withAnimation(.easeInOut(duration: 0.2)) { columns = .all } // Search needs the list.
                 }
                 .onChange(of: model.isFocused) { _ in updateColumns() }
-                // The window keeps its size: the notes take the list's space, and their
-                // text column (which has a maximum width) slides over to recentre.
-                .onChange(of: model.showsNoteList) { _ in updateColumns() }
+                // Shown or hidden by hand, the window widens or narrows instead of the notes.
+                .onChange(of: model.showsNoteList) { _ in
+                    updateColumns(resizingWindow: !model.lastToggleWasAutomatic && !model.isFocused)
+                }
 
                 .onChange(of: columns) { visibility in
                     // Showing the sidebar (with the system's button) leaves focus mode.
@@ -117,10 +129,12 @@ struct ContentView: View {
         }
         // Minimal is meant to sit beside other windows, so it can be narrow.
         // With the sidebar hidden, a window is one compact note that can sit beside others.
-        .frame(minWidth: model.showsNoteList && !model.isFocused ? 600 : 420, minHeight: 400)
+        .frame(minWidth: model.showsNoteList && !model.isFocused ? SidebarSizing.minimumWidth.shown : SidebarSizing.minimumWidth.hidden,
+               minHeight: 400)
         .onAppear {
             model.startSwipeTracking()
-            // Open the way the last window was left: with or without the sidebar.
+            // Open the way the last window was left: with or without the sidebar, at its size.
+            model.sidebarSizing.willToggleWithoutResizing()
             columns = model.showsNoteList ? .all : .detailOnly
         }
         .overlay(alignment: .top) {

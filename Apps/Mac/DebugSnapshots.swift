@@ -13,6 +13,7 @@ enum DebugSnapshots {
         scrollNoteIfAsked(for: model)
         clickBackIfAsked(for: model)
         clickTreeIfAsked(for: model)
+        cycleSidebarIfAsked(for: model)
         if let key = UserDefaults.standard.string(forKey: "PointBrowse"), let place = SidebarPlace(key: key) {
             // `-PointBrowse <place key>`: shows that place in the sidebar.
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { model.browse(place) }
@@ -119,6 +120,50 @@ enum DebugSnapshots {
     /// `-PointClickBack YES`: tries the back and forward arrows on the first side's bar
     /// with real mouse events sent through the window, as a person's clicks would go, and
     /// notes in the trace whether each step did what it should.
+    /// `-PointSidebarCycle <n>`: hides and shows the sidebar n times (as ⌘S does), tracing the
+    /// window's frame and the notes' width after each, to check the window ends where it began.
+    /// `-PointWindowFrame "x y w h"` first places the window (to test the screen's edges);
+    /// `-PointSidebarButton YES` toggles as the system's sidebar button does, instead of ⌘S.
+    private static func cycleSidebarIfAsked(for model: VaultModel) {
+        let count = UserDefaults.standard.integer(forKey: "PointSidebarCycle")
+        guard count > 0 else { return }
+        func notesWidth() -> CGFloat {
+            guard let window = model.window else { return 0 }
+            return views(of: NSSplitView.self, in: window.contentView).first { ($0.delegate as? NSSplitViewController) != nil }
+                .flatMap { $0.arrangedSubviews.last?.frame.width } ?? 0
+        }
+        func report(_ label: String) {
+            guard let window = model.window else { return }
+            Trace.mark("sidebar cycle \(label): sidebar \(model.showsNoteList ? "shown" : "hidden"), frame \(window.frame), notes \(notesWidth())")
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            if let text = UserDefaults.standard.string(forKey: "PointWindowFrame") {
+                let parts = text.split(separator: " ").compactMap { Double($0) }
+                if parts.count == 4 { model.window?.setFrame(NSRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3]), display: true) }
+            }
+            // In sight, without taking the keyboard: a window out of sight doesn't animate.
+            model.window?.orderFrontRegardless()
+            report("start")
+            for step in 0..<(count * 2) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5 + Double(step) * 0.6) {
+                    if UserDefaults.standard.bool(forKey: "PointSidebarButton") {
+                        // As the system's sidebar button does.
+                        let split = views(of: NSSplitView.self, in: model.window?.contentView).first { ($0.delegate as? NSSplitViewController) != nil }
+                        (split?.delegate as? NSSplitViewController)?.toggleSidebar(nil)
+                    } else {
+                        model.showsNoteList.toggle()
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { report("\(step + 1)") }
+                }
+            }
+        }
+    }
+
+    private static func views<T: NSView>(of type: T.Type, in view: NSView?) -> [T] {
+        guard let view else { return [] }
+        return ((view as? T).map { [$0] } ?? []) + view.subviews.flatMap { views(of: type, in: $0) }
+    }
+
     /// `-PointClickTree YES`: in the two-column view, clicks a note in the list (a real mouse
     /// event), then picks a folder in the tree (by selecting its row, as AppKit does after a
     /// click: synthetic clicks don't reach SwiftUI's rows), tracing where the keyboard goes.

@@ -530,7 +530,7 @@ Buy the developer account first.
 - **Add Property:** every type, starting from the vault's type for the name typed (or tags, or date for date-like names); a new name's type is recorded for the vault.
 - **Checked:** VaultKit tests for types (guessing, the vault's type winning, converting, saving without losing the rest of the file) and for rewriting lists; a picture of a note with one property of each type. Not tried by hand yet: every interaction (Point's windows couldn't be clicked while Mike's own copy was running).
 
-## Plan: the sidebar widens the window (25 October 2026, not started)
+## Plan: the sidebar widens the window (25 October 2026; step 1 built)
 
 **The aim (Mike):** showing or hiding the sidebar changes the window's width, not the notes': the notes area stays the same width, as long as the window fits on the screen, with graceful fallbacks when it doesn't.
 
@@ -555,6 +555,13 @@ Buy the developer account first.
 - **Unchanged:** dragging the sidebar's divider (the notes give and take, as in Finder), a split's two sides (they keep their proportions, as the notes' total width doesn't change), new windows (they open as the last one was left, at their saved size).
 
 **Order:** (1) measuring and the animated resize for ⌘S, the button and the current swipe trigger, with the screen fallbacks; (2) the swipe following the fingers, the riskiest part, as it drives SwiftUI's split view from AppKit (if it can't be made smooth, the trigger stays); (3) auto-hide at the end of a drag.
+
+**Step 1, built (25 October 2026, uncommitted):** `SidebarSizing` (one per window, on `VaultModel`). ⌘S, the swipe and the system's sidebar button widen or narrow the window by the sidebar's width; auto-hide and focus mode don't (auto-hide is step 3). As planned, plus:
+- **The width** comes from the sidebar as shown, or the width a collapsed sidebar keeps, so it's right the first time; after showing, any difference is corrected.
+- **Undone exactly:** how far the window slid left and how much the notes' width had to change (positive when the screen was too narrow, negative when the window couldn't go below its 420-point minimum) are both undone at the next show or hide, unless the window was moved or resized in between. The window's minimum is lowered before a resize so the old one can't stop it.
+- **The system's button** collapses the sidebar itself before the app hears of it, so the sidebar's collapsed state is watched (KVO) and the window starts resizing with it; the app's own changes without resizing (at launch, focus mode, auto-hide) are ignored for a moment so they aren't taken for the button.
+- **Each resize settles once,** at the end of its animation or, if that doesn't come (a window out of sight, or a locked screen, doesn't run animations), shortly after it should have, by setting the frame. A completion arriving after the sidebar has been toggled again is ignored; before this, one could toggle it back and loop.
+- **Checked** with a debug hook (`-PointSidebarCycle n`, with `-PointWindowFrame "x y w h"` and `-PointSidebarButton YES`) tracing the window's frame after each toggle: twenty cycles end exactly where they began; a window near the right edge slides left and back; one too wide for the screen takes the screen's width and gets the notes' width back on hiding; one at its minimum width; the two-column sidebar; launch doesn't resize. Not seen yet: the animation itself (the screen was locked for the later runs, so they fell back to setting the frame), and the system's button with real clicks.
 
 **To check by hand:** a window near the right edge of the screen, one wider than the screen with the sidebar, two displays, full screen, a split, the two-column sidebar (470 points wide), and that showing and hiding fifty times leaves the window where it started.
 
