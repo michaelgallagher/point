@@ -47,8 +47,12 @@ struct EditorTheme {
     var paragraphSpacing: CGFloat = 0
     var indentPerLevel: CGFloat = 22
     var markerWidth: CGFloat = 22
-    /// A bullet is small and sits at the text's left edge, so its text starts closer.
-    var bulletWidth: CGFloat = 15
+    /// Where bullets and checkboxes are centred across their marker column, from its start, so
+    /// they line up with each other, and with the guide under an item with nested items.
+    var markerAxis: CGFloat { markerWidth / 2 - 3 }
+    /// A bullet is smaller than a checkbox, so its text starts closer: the same gap after the
+    /// dot as after a checkbox.
+    var bulletWidth: CGFloat = 17
     func markerWidth(for marker: ListMarker) -> CGFloat {
         if case .bullet = marker { return bulletWidth }
         return markerWidth

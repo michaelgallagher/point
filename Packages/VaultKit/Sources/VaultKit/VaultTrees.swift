@@ -117,6 +117,8 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
     case tag(String)
     /// Every note, in one list, whatever folder it's in.
     case everything
+    /// The notes bookmarked, in one list.
+    case bookmarks
     /// Notes deleted, kept for a while before they go for good.
     case trash
 
@@ -127,6 +129,7 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
         case .folder(let path): "folder:" + path
         case .tag(let tag): "tag:" + tag
         case .everything: "everything"
+        case .bookmarks: "bookmarks"
         case .trash: "trash"
         }
     }
@@ -134,6 +137,7 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
     public init?(key: String) {
         if key == "all" { self = .allNotes }
         else if key == "everything" { self = .everything }
+        else if key == "bookmarks" { self = .bookmarks }
         else if key == "trash" { self = .trash }
         else if key.hasPrefix("folder:") { self = .folder(String(key.dropFirst(7))) }
         else if key.hasPrefix("tag:") { self = .tag(String(key.dropFirst(4))) }
@@ -143,7 +147,7 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
     /// Where the back arrow goes: a folder's parent folder, a tag's parent tag, else All Notes.
     public var parent: SidebarPlace {
         switch self {
-        case .allNotes, .everything, .trash: .allNotes
+        case .allNotes, .everything, .bookmarks, .trash: .allNotes
         case .folder(let path):
             FolderTree.parent(of: path).isEmpty ? .allNotes : .folder(FolderTree.parent(of: path))
         case .tag(let tag):

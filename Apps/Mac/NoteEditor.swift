@@ -37,7 +37,8 @@ struct NoteEditor: View {
                 // The header (path, title, properties) is inside the editor, so it scrolls
                 // away with the text instead of taking up room above it.
                 EditorView(session: session, model: model, paneID: paneID, offersTemplates: offersTemplates,
-                           showsMarkdown: model.showsMarkdown, textScale: model.textScale, typography: model.store.typography)
+                           showsMarkdown: model.showsMarkdown, textScale: model.textScale, typography: model.store.typography,
+                           textColumnWidth: model.store.textColumnWidth)
             } else {
                 Color.clear
             }
@@ -66,12 +67,13 @@ private struct NoteHeader: View {
                 TitleField(note: session.note, model: model)
             }
             .padding(.top, 16)
-            .padding(.bottom, session.frontmatter == nil ? 12 : 2)
+            .padding(.bottom, session.frontmatter == nil || model.showsMarkdown ? 12 : 2)
             .padding(.leading, 5) // Lines up with the text, which is inset a little.
-            .frame(maxWidth: 720, alignment: .leading)
+            .frame(maxWidth: model.store.textColumnWidth, alignment: .leading)
             .padding(.horizontal, 28)
             .frame(maxWidth: .infinity)
-            if let frontmatter = session.frontmatter {
+            // In Markdown mode the properties are in the text, as written, so not shown twice.
+            if let frontmatter = session.frontmatter, !model.showsMarkdown {
                 PropertiesStrip(frontmatter: frontmatter, session: session,
                                 isExpanded: model.store.propertiesOpen[session.note.id] ?? UserDefaults.standard.bool(forKey: "propertiesExpanded"))
             }
@@ -217,7 +219,7 @@ private struct TemplateChoices: View {
         .font(.callout)
         .padding(.horizontal, 28)
         .padding(.vertical, 10)
-        .frame(maxWidth: 720, alignment: .leading)
+        .frame(maxWidth: model.store.textColumnWidth, alignment: .leading)
         .frame(maxWidth: .infinity)
     }
 }
@@ -277,11 +279,13 @@ private struct EditorView: NSViewRepresentable {
     let showsMarkdown: Bool
     let textScale: Double
     let typography: Typography
+    let textColumnWidth: Double
 
     func makeNSView(context: Context) -> NSScrollView {
         let (scrollView, textView) = MarkdownTextView.makeScrollable()
         textView.typography = typography
         textView.textScale = textScale
+        textView.maxTextWidth = textColumnWidth
         // The keyboard stays in the list after picking a note there, and with two sides it
         // stays with the side being worked on (an editor on the other side, rebuilt when the
         // window splits, mustn't take it).
@@ -329,6 +333,7 @@ private struct EditorView: NSViewRepresentable {
         textView.showsMarkdown = showsMarkdown
         textView.textScale = textScale
         textView.typography = typography
+        textView.maxTextWidth = textColumnWidth
         // A note added, renamed or removed can change which links lead anywhere.
         if context.coordinator.notesGeneration != model.store.notesGeneration {
             context.coordinator.notesGeneration = model.store.notesGeneration

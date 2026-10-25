@@ -90,7 +90,7 @@ struct PaneTopBar: View {
             BackForwardButtons(pane: pane, paneIndex: paneIndex)
             PanePath(pane: pane, paneIndex: paneIndex)
                 .padding(.horizontal, 4)
-            TabListButton(pane: pane)
+            BookmarkAndTabButtons(pane: pane)
             if model.isSplit {
                 BarButton("Close This Side", systemImage: "xmark", help: "Close This Side") { model.closePane(paneIndex) }
             } else {
@@ -322,9 +322,10 @@ private struct PathRenameField: View {
 
 // MARK: The tab list
 
-/// Lists the side's tabs in a small menu. Dimmed with only one tab, rather than hidden, so
-/// the bar doesn't shift.
-private struct TabListButton: View {
+/// The side's note's bookmark, joined with the button that lists the side's tabs. The tab
+/// button shows how many tabs there are, and is dimmed with only one, rather than hidden,
+/// so the bar doesn't shift.
+private struct BookmarkAndTabButtons: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
     /// When the menu last closed, so the click outside that closes it, if it lands on this
@@ -342,30 +343,38 @@ private struct TabListButton: View {
                     closedAt = Date()
                 }
             })
-        BarButton("Tabs", systemImage: "square.stack", help: "Show Tab List (⇧⌘T)") {
-            guard Date().timeIntervalSince(closedAt) > 0.3 else { return }
-            isShown.wrappedValue.toggle()
-        }
-        .disabled(pane.tabs.count < 2)
-        // How many tabs this side has open, once there's more than one.
-        .overlay(alignment: .topTrailing) {
-            if pane.tabs.count > 1 {
-                Text("\(pane.tabs.count)")
-                    .font(.system(size: 10, weight: .semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 4)
-                    .frame(minWidth: 16, minHeight: 16)
-                    .background(Capsule().fill(Color.accentColor))
-                    .offset(x: 4, y: -2)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
+        let noteID = pane.tab.noteID
+        let isBookmarked = noteID.map(model.isBookmarked) ?? false
+        JoinedButtons {
+            CapsuleIcon(symbol: isBookmarked ? "bookmark.fill" : "bookmark", label: isBookmarked ? "Remove Bookmark" : "Bookmark",
+                        help: isBookmarked ? "Remove Bookmark" : "Bookmark", enabled: noteID != nil,
+                        tint: isBookmarked ? .accentColor : nil) {
+                if let noteID { model.toggleBookmark(noteID) }
             }
-        }
-        .accessibilityValue("\(pane.tabs.count) tabs")
-        .popover(isPresented: isShown, arrowEdge: .bottom) {
-            TabMenu(paneID: pane.id)
-                .environmentObject(model)
+            CapsuleIcon(symbol: "square.stack", label: "Tabs", help: "Show Tab List (⇧⌘T)", enabled: pane.tabs.count > 1) {
+                guard Date().timeIntervalSince(closedAt) > 0.3 else { return }
+                isShown.wrappedValue.toggle()
+            }
+            // How many tabs this side has open, once there's more than one.
+            .overlay(alignment: .topTrailing) {
+                if pane.tabs.count > 1 {
+                    Text("\(pane.tabs.count)")
+                        .font(.system(size: 10, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 4)
+                        .frame(minWidth: 16, minHeight: 16)
+                        .background(Capsule().fill(Color.accentColor))
+                        .offset(x: 8, y: -6)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+            .accessibilityValue("\(pane.tabs.count) tabs")
+            .popover(isPresented: isShown, arrowEdge: .bottom) {
+                TabMenu(paneID: pane.id)
+                    .environmentObject(model)
+            }
         }
     }
 }
@@ -642,44 +651,64 @@ private struct TabMenuDropTarget: ViewModifier {
     }
 }
 
-/// Back and forward through the side's current tab's history, together, before the tabs: a glass
-/// capsule from macOS 26. Clicks are taken by AppKit views under the arrows, as the tabs'
-/// are: in the title bar's area, the window takes a click on a SwiftUI button and moves
-/// itself instead.
+/// Back and forward through the side's current tab's history, together, before the path.
 private struct BackForwardButtons: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
     let paneIndex: Int
 
     var body: some View {
-        let pair = HStack(spacing: 0) {
-            arrow("chevron.left", label: "Back", help: "Back (⌘[)", enabled: model.canTravel(back: true, inPane: paneIndex)) {
+        JoinedButtons {
+            CapsuleIcon(symbol: "chevron.left", label: "Back", help: "Back (⌘[)", enabled: model.canTravel(back: true, inPane: paneIndex)) {
                 model.travel(back: true, inPane: paneIndex)
             }
-            arrow("chevron.right", label: "Forward", help: "Forward (⌘])", enabled: model.canTravel(back: false, inPane: paneIndex)) {
+            CapsuleIcon(symbol: "chevron.right", label: "Forward", help: "Forward (⌘])", enabled: model.canTravel(back: false, inPane: paneIndex)) {
                 model.travel(back: false, inPane: paneIndex)
             }
         }
+    }
+}
+
+/// Icon buttons joined in one glass capsule (from macOS 26), 36 points tall like the round
+/// bar buttons.
+struct JoinedButtons<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        let row = HStack(spacing: 0) { content }
         if #available(macOS 26, *) {
-            pair
+            row
                 .padding(.horizontal, 4)
                 .frame(height: 36)
                 .glassEffect(.regular, in: Capsule())
         } else {
-            pair
+            row
         }
     }
+}
 
-    private func arrow(_ symbol: String, label: String, help: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+/// One icon in a joined capsule. Clicks are taken by an AppKit view under it: in the title
+/// bar's area, the window takes a click on a SwiftUI button and moves itself instead.
+struct CapsuleIcon: View {
+    let symbol: String
+    let label: String
+    let help: String
+    var enabled = true
+    /// A colour for the icon, such as for a bookmark that's set.
+    var tint: Color?
+    let action: () -> Void
+
+    var body: some View {
         Image(systemName: symbol)
             .font(.system(size: 14, weight: .medium))
-            .foregroundStyle(enabled ? .primary : .tertiary)
+            .foregroundStyle(!enabled ? AnyShapeStyle(.tertiary) : tint.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.primary))
             .frame(width: 28, height: 28)
             .allowsHitTesting(false) // The click area below takes the clicks.
             .background(ClickArea(enabled: enabled, help: help, action: action))
             .accessibilityElement()
             .accessibilityLabel(label)
             .accessibilityAddTraits(.isButton)
+            .accessibilityAction { if enabled { action() } }
     }
 }
 

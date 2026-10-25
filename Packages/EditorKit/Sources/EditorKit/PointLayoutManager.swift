@@ -112,6 +112,8 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
             draw(block, rect: rect(forCharacters: full, in: container, origin: origin), range: full, storage: storage)
         }
 
+        drawListGuides(in: characters, storage: storage, container: container, origin: origin)
+
         storage.enumerateAttribute(.pointListMarker, in: characters) { value, range, _ in
             guard let decoration = value as? ListMarkerDecoration else { return }
             draw(decoration, at: range.location, storage: storage, container: container, origin: origin)
@@ -289,11 +291,8 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
 
         switch decoration.marker {
         case .bullet:
-            let size: CGFloat = 5
-            // Its left edge is the text's.
-            let center = NSPoint(x: x + size / 2, y: baseline - font.xHeight / 2)
             NSColor.textColor.setFill()
-            NSBezierPath(ovalIn: NSRect(x: center.x - size / 2, y: center.y - size / 2, width: size, height: size)).fill()
+            NSBezierPath(ovalIn: bulletRect(x: x, baseline: baseline, font: font)).fill()
         case .ordered(let number):
             let label = "\(number)." as NSString
             let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.secondaryLabelColor]
@@ -312,9 +311,104 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         }
     }
 
+    // MARK: List guides
+
+    /// A thin vertical line under each list item that has items nested beneath it, centred
+    /// on its marker, so a sub-list reads as belonging to the item above it. It starts the
+    /// same distance below the item's marker as it stops above the next marker down (the
+    /// next item after the nested ones, or where one would be when the list ends there).
+    private func drawListGuides(in visible: NSRange, storage: NSTextStorage, container: NSTextContainer, origin: NSPoint) {
+        // Every item in the note, as a nested item can start above what's being drawn.
+        var items: [(index: Int, decoration: ListMarkerDecoration)] = []
+        storage.enumerateAttribute(.pointListMarker, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+            if let decoration = value as? ListMarkerDecoration { items.append((range.location, decoration)) }
+        }
+        guard items.count > 1 else { return }
+        let text = storage.string as NSString
+        let gap: CGFloat = 4
+        NSColor.separatorColor.setFill()
+        for (i, item) in items.enumerated() {
+            // The items after it nested deeper, up to the next at its level or above, or a
+            // paragraph that ends the list.
+            var last: Int?
+            var j = i + 1
+            while j < items.count, items[j].decoration.level > item.decoration.level,
+                  Self.onlyContinues(text, from: items[j - 1].index, to: items[j].index) {
+                last = j
+                j += 1
+            }
+            guard let last else { continue }
+            let lastLine = text.lineRange(for: NSRange(location: items[last].index, length: 0))
+            let span = NSRange(location: item.index, length: NSMaxRange(lastLine) - item.index)
+            guard NSIntersectionRange(span, visible).length > 0 || NSLocationInRange(visible.location, span) else { continue }
+
+            let marker = markerRect(for: item, storage: storage, container: container, origin: origin)
+            let top = marker.maxY + gap
+            let bottom: CGFloat
+            if j < items.count, items[j].decoration.level <= item.decoration.level,
+               Self.onlyContinues(text, from: items[last].index, to: items[j].index) {
+                // The next item, at this item's level: stop as far above its marker.
+                bottom = markerRect(for: items[j], storage: storage, container: container, origin: origin).minY - gap
+            } else {
+                // The list ends: stop where this item's marker would be on the line after.
+                let lastRect = lineRect(containing: max(NSMaxRange(lastLine) - 1, items[last].index), storage: storage)
+                let itemLine = lineRect(containing: item.index, storage: storage)
+                bottom = origin.y + lastRect.maxY + (marker.minY - (origin.y + itemLine.minY)) - gap
+            }
+            guard bottom > top else { continue }
+            let width: CGFloat = 1
+            NSRect(x: (marker.midX - width / 2).rounded(), y: top.rounded(), width: width, height: (bottom - top).rounded()).fill()
+        }
+    }
+
+    /// Where an item's marker is drawn, in the view.
+    private func markerRect(for item: (index: Int, decoration: ListMarkerDecoration), storage: NSTextStorage,
+                            container: NSTextContainer, origin: NSPoint) -> NSRect {
+        let line = lineRect(containing: item.index, storage: storage)
+        let font = textFont(near: item.index, storage: storage)
+        let first = firstVisibleCharacter(onLineOf: item.index, storage: storage) ?? item.index
+        let baseline = origin.y + line.minY + location(forGlyphAt: glyphIndexForCharacter(at: first)).y
+        let x = origin.x + container.lineFragmentPadding + theme.indentPerLevel * CGFloat(item.decoration.level)
+        return markerRect(item.decoration.marker, x: x, baseline: baseline, font: font)
+    }
+
+    /// Whether only an item's own continuation lies between two items' lines: blank lines,
+    /// or lines indented under the item, not a paragraph that ends the list.
+    private static func onlyContinues(_ text: NSString, from previous: Int, to next: Int) -> Bool {
+        let previousLine = text.lineRange(for: NSRange(location: previous, length: 0))
+        let nextLine = text.lineRange(for: NSRange(location: next, length: 0))
+        var position = NSMaxRange(previousLine)
+        while position < nextLine.location {
+            let line = text.lineRange(for: NSRange(location: position, length: 0))
+            let content = text.substring(with: line)
+            if !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               !(content.hasPrefix(" ") || content.hasPrefix("\t")) { return false }
+            position = NSMaxRange(line)
+        }
+        return true
+    }
+
     func checkboxRect(x: CGFloat, baseline: CGFloat, font: NSFont) -> NSRect {
         let size = (font.pointSize * 1.05).rounded()
-        return NSRect(x: x + theme.markerWidth / 2 - size / 2 - 3, y: baseline - font.capHeight / 2 - size / 2, width: size, height: size)
+        return NSRect(x: x + theme.markerAxis - size / 2, y: baseline - font.capHeight / 2 - size / 2, width: size, height: size)
+    }
+
+    /// A bullet's dot: centred on the same axis as a checkbox, at the middle of the x-height.
+    func bulletRect(x: CGFloat, baseline: CGFloat, font: NSFont) -> NSRect {
+        let size: CGFloat = 5
+        return NSRect(x: x + theme.markerAxis - size / 2, y: baseline - font.xHeight / 2 - size / 2, width: size, height: size)
+    }
+
+    /// Where a list item's marker is drawn, for its line's baseline and font.
+    private func markerRect(_ marker: ListMarker, x: CGFloat, baseline: CGFloat, font: NSFont) -> NSRect {
+        switch marker {
+        case .bullet: return bulletRect(x: x, baseline: baseline, font: font)
+        case .task: return checkboxRect(x: x, baseline: baseline, font: font)
+        case .ordered(let number):
+            // The number, right-aligned before the text, from its cap height to the baseline.
+            let width = ("\(number)." as NSString).size(withAttributes: [.font: font]).width
+            return NSRect(x: x + theme.markerWidth - 6 - width, y: baseline - font.capHeight, width: width, height: font.capHeight)
+        }
     }
 
     /// The font of the first visible character on a line, for sizing its marker.

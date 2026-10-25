@@ -12,6 +12,12 @@ enum SidebarRow: Hashable {
     case note(Note.ID)
     /// A note in the trash.
     case trashed(VaultTrash.Item)
+
+    /// The note a row opens, if it's a note's row.
+    var noteID: Note.ID? {
+        if case .note(let id) = self { return id }
+        return nil
+    }
 }
 
 /// The sidebar's sections at the vault's top level, each of which can be folded away.
@@ -26,7 +32,7 @@ extension VaultModel {
         switch place {
         case .folder(let path): path
         case .tag(let tag): "#" + tag
-        case .allNotes, .everything, .trash: ""
+        case .allNotes, .everything, .bookmarks, .trash: ""
         }
     }
 
@@ -48,7 +54,7 @@ extension VaultModel {
         let subplaces = subplaces(of: place)
         if place == .allNotes {
             // Special places first, with no heading: every note, and the trash.
-            sections.append([.place(.everything, depth: 0), .place(.trash, depth: 0)])
+            sections.append([.place(.everything, depth: 0), .place(.bookmarks, depth: 0), .place(.trash, depth: 0)])
             if !pins.isEmpty { sections.append(section(.pinned, pins.map { .place($0, depth: 0) })) }
             if !subplaces.isEmpty { sections.append(section(.folders, folderRows(subplaces, depth: 0))) }
             if !tagTree.entries.isEmpty {
@@ -179,6 +185,7 @@ struct SidebarTable: NSViewRepresentable {
         /// going deeper, from the left when going back up.
         func update(animated: Bool) {
             guard let table else { return }
+            watchFocus(in: table.window)
             let newRows = model.sidebarRows(collapsed: parent.collapsed, expanded: parent.expanded, includesPlaces: parent.includesPlaces)
             let place = model.place
             let placeChanged = shownPlace != nil && shownPlace != place
@@ -223,7 +230,7 @@ struct SidebarTable: NSViewRepresentable {
             func depth(_ place: SidebarPlace) -> Int {
                 switch place {
                 case .allNotes: 0
-                case .everything, .trash: 1
+                case .everything, .bookmarks, .trash: 1
                 case .folder(let path), .tag(let path): path.split(separator: "/").count
                 }
             }
@@ -257,7 +264,7 @@ struct SidebarTable: NSViewRepresentable {
         }
 
         func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
-            guard case .note(let id) = rows[row] else { return false }
+            guard let id = rows[row].noteID else { return false }
             // ⌥⌘-click opens the note beside this one; ⌘-click opens it in a new tab.
             let modifiers = NSApp.currentEvent?.modifierFlags.intersection([.command, .option, .shift, .control]) ?? []
             if modifiers == [.command, .option] {
@@ -273,6 +280,31 @@ struct SidebarTable: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool { false }
 
+        func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { SidebarTableRowView() }
+
+        // MARK: Emphasis
+
+        private var focusObservation: NSKeyValueObservation?
+        private var keyObservers: [NSObjectProtocol] = []
+
+        /// Watches where the keyboard is and whether the window is in front, which decide
+        /// whether the selection is blue.
+        func watchFocus(in window: NSWindow?) {
+            guard let window, focusObservation == nil else { return }
+            focusObservation = window.observe(\.firstResponder) { [weak self] _, _ in
+                DispatchQueue.main.async { self?.refreshEmphasis() }
+            }
+            for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+                keyObservers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.refreshEmphasis() }
+                })
+            }
+        }
+
+        private func refreshEmphasis() {
+            table?.enumerateAvailableRowViews { rowView, _ in (rowView as? SidebarTableRowView)?.refreshEmphasis() }
+        }
+
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
             let identifier = NSUserInterfaceItemIdentifier("row")
             let cell = tableView.makeView(withIdentifier: identifier, owner: nil) as? HostingCell ?? HostingCell()
@@ -282,7 +314,7 @@ struct SidebarTable: NSViewRepresentable {
         }
 
         func tableViewSelectionDidChange(_ notification: Notification) {
-            guard !isSyncingSelection, let table, table.selectedRow >= 0, case .note(let id) = rows[table.selectedRow] else { return }
+            guard !isSyncingSelection, let table, table.selectedRow >= 0, let id = rows[table.selectedRow].noteID else { return }
             model.selectFromList(id)
         }
 
@@ -394,6 +426,7 @@ struct SidebarTable: NSViewRepresentable {
                 menu.addItem(item("Open in New Tab") { $0.newTab(noteID: note.id) })
                 menu.addItem(item("Open to the Side") { $0.openToTheSide(note.id) })
                 menu.addItem(.separator())
+                menu.addItem(item(model.isBookmarked(id) ? "Remove Bookmark" : "Add Bookmark") { $0.toggleBookmark(id) })
                 menu.addItem(item("Rename…") { $0.renaming = note })
                 menu.addItem(item("Move to Folder…") { $0.moving = note })
                 menu.addItem(item("Add Tag…") { $0.tagging = note })
@@ -472,6 +505,32 @@ final class SidebarTableView: NSTableView {
     }
 }
 
+/// A sidebar row. Its selection is blue whenever the window is in front, unless another list
+/// (the two-column view's tree) has the keyboard: the note open is the thing picked, whether
+/// the keyboard is in the list or in the note. (A table's own rule, blue only while it has
+/// the keyboard, made the open note grey as soon as it was being edited.)
+final class SidebarTableRowView: NSTableRowView {
+    override var isEmphasized: Bool {
+        get {
+            guard let window, window.isKeyWindow else { return false }
+            if let list = window.firstResponder as? NSTableView, list !== superview { return false }
+            return true
+        }
+        set { super.isEmphasized = newValue }
+    }
+
+    override var interiorBackgroundStyle: NSView.BackgroundStyle {
+        isSelected && isEmphasized ? .emphasized : .normal
+    }
+
+    /// Redraws the highlight and tells the cells, after focus moves or the window changes.
+    func refreshEmphasis() {
+        needsDisplay = true
+        let style = interiorBackgroundStyle
+        for case let cell as NSTableCellView in subviews where cell.backgroundStyle != style { cell.backgroundStyle = style }
+    }
+}
+
 final class PassthroughHostingView<Content: View>: NSHostingView<Content> {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
@@ -479,8 +538,20 @@ final class PassthroughHostingView<Content: View>: NSHostingView<Content> {
 /// A table cell showing a SwiftUI view.
 final class HostingCell: NSTableCellView {
     private var hosting: PassthroughHostingView<SidebarRowView>?
+    private var view: SidebarRowView?
+
+    /// Set by the row: emphasized when it's selected on the blue highlight.
+    override var backgroundStyle: NSView.BackgroundStyle {
+        didSet {
+            guard backgroundStyle != oldValue, let view else { return }
+            show(view)
+        }
+    }
 
     func show(_ view: SidebarRowView) {
+        self.view = view
+        var view = view
+        view.isEmphasized = backgroundStyle == .emphasized
         if let hosting {
             hosting.rootView = view
         } else {
@@ -511,6 +582,8 @@ struct SidebarRowView: View {
     let collapsed: Set<SidebarSection>
     /// Folders unfolded to show their subfolders.
     var expanded: Set<String> = []
+    /// Selected, on the blue highlight: text and icons go white.
+    var isEmphasized = false
     /// Where a folder's or tag's row starts (its icon), indented by depth.
     static func placeStart(depth: Int) -> CGFloat { 8 + CGFloat(depth) * 14 }
     static let iconWidth: CGFloat = 16
@@ -534,6 +607,15 @@ struct SidebarRowView: View {
     }
 
     var body: some View {
+        // Dark's colours are white and light grey, as on the system's blue highlight.
+        if isEmphasized {
+            content.environment(\.colorScheme, .dark)
+        } else {
+            content
+        }
+    }
+
+    @ViewBuilder private var content: some View {
         switch row {
         case .header(let section):
             let isOpen = !collapsed.contains(section)
@@ -693,6 +775,7 @@ extension SidebarPlace {
         case .folder: "folder"
         case .tag: "number"
         case .everything: "tray.full"
+        case .bookmarks: "bookmark"
         case .trash: "trash"
         }
     }

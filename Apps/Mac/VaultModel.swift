@@ -65,6 +65,9 @@ final class VaultModel: ObservableObject {
     func noteCount(of place: SidebarPlace) -> Int { store.noteCount(of: place) }
     func isPinned(_ place: SidebarPlace) -> Bool { store.isPinned(place) }
     func togglePin(_ place: SidebarPlace) { store.togglePin(place) }
+    var bookmarkedNotes: [Note] { store.bookmarkedNotes }
+    func isBookmarked(_ id: Note.ID) -> Bool { store.isBookmarked(id) }
+    func toggleBookmark(_ id: Note.ID) { store.toggleBookmark(id) }
     func titleSuggestions(for partial: String) -> [String] { store.titleSuggestions(for: partial) }
     func makeTextBigger() { store.makeTextBigger() }
     func makeTextSmaller() { store.makeTextSmaller() }

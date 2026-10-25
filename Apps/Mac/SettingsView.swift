@@ -240,6 +240,17 @@ struct SettingsView: View {
                             .disabled(store.textScale == 1)
                     }
                 }
+                Setting("Maximum line width") {
+                    HStack {
+                        Slider(value: $store.textColumnWidth, in: VaultStore.textColumnWidths, step: 20)
+                            .frame(width: 200)
+                        Text("\(Int(store.textColumnWidth)) pt")
+                            .monospacedDigit()
+                            .frame(width: 56, alignment: .leading)
+                        Button("Reset") { store.textColumnWidth = 720 }
+                            .disabled(store.textColumnWidth == 720)
+                    }
+                }
             }
     }
 }

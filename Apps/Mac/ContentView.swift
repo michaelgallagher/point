@@ -284,7 +284,7 @@ private struct PlaceHeader: View {
             Spacer()
             if model.place == .trash {
                 EmptyTrashButton()
-            } else if model.place != .everything {
+            } else if model.place != .everything && model.place != .bookmarks {
                 Button { model.togglePin(model.place) } label: {
                     Image(systemName: model.isPinned(model.place) ? "pin.fill" : "pin")
                 }
@@ -329,6 +329,7 @@ extension SidebarPlace {
         case .folder(let path): FolderTree.name(of: path)
         case .tag(let tag): "#" + tag
         case .everything: "All Notes"
+        case .bookmarks: "Bookmarks"
         case .trash: "Trash"
         }
     }

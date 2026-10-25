@@ -177,6 +177,10 @@ struct AppCommands: Commands {
                 .disabled(model?.selectedNote == nil)
             Button("Add Tag…") { model?.tagging = model?.selectedNote }
                 .disabled(model?.selectedNote == nil)
+            Button(model.flatMap { m in m.selection.map(m.isBookmarked) } == true ? "Remove Bookmark" : "Add Bookmark") {
+                if let model, let id = model.selection { model.toggleBookmark(id) }
+            }
+            .disabled(model?.selectedNote == nil)
             Button("Show in Finder") { if let model, let note = model.selectedNote { model.showInFinder(note) } }
                 .keyboardShortcut("r", modifiers: [.command, .option])
                 .disabled(model?.selectedNote == nil)

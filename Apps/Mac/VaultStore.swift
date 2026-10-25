@@ -131,6 +131,7 @@ final class VaultStore: ObservableObject {
         indexedTags = [:]
         tagTree = TagTree(tagsByNote: [])
         pins = (UserDefaults.standard.stringArray(forKey: "pins." + Self.vaultKey(url)) ?? []).compactMap(SidebarPlace.init(key:))
+        bookmarks = UserDefaults.standard.stringArray(forKey: "bookmarks." + Self.vaultKey(url)) ?? []
         openIndex(for: url)
         watcher = VaultWatcher(root: url) { [weak self] urls in
             Task { @MainActor in self?.filesChanged(urls) }
@@ -241,6 +242,11 @@ final class VaultStore: ObservableObject {
                                 modified: note.modified, created: note.created, isDownloaded: true)
         }
         if untitled.remove(note.id) != nil { untitled.insert(newID) }
+        // A bookmark follows its note.
+        if let index = bookmarks.firstIndex(of: note.id) {
+            bookmarks[index] = newID
+            saveBookmarks()
+        }
         NotificationCenter.default.post(name: .pointNoteMoved, object: self, userInfo: ["old": note.id, "new": newID])
     }
 
@@ -515,6 +521,12 @@ final class VaultStore: ObservableObject {
         .flatMap { try? JSONDecoder().decode(Typography.self, from: $0) } ?? Typography() {
         didSet { UserDefaults.standard.set(try? JSONEncoder().encode(typography), forKey: "typography") }
     }
+    /// The widest a note's text column gets, in points (Settings › Text). Wider windows
+    /// centre it.
+    @Published var textColumnWidth: Double = UserDefaults.standard.object(forKey: "textColumnWidth") as? Double ?? 720 {
+        didSet { UserDefaults.standard.set(textColumnWidth, forKey: "textColumnWidth") }
+    }
+    static let textColumnWidths: ClosedRange<Double> = 480...1200
     @Published var textScale: Double = UserDefaults.standard.object(forKey: "textScale") as? Double ?? 1 {
         didSet { UserDefaults.standard.set(textScale, forKey: "textScale") }
     }
@@ -639,6 +651,7 @@ final class VaultStore: ObservableObject {
         switch place {
         case .allNotes: notes.filter { !$0.id.contains("/") }
         case .everything: notes
+        case .bookmarks: bookmarkedNotes
         case .trash: []
         case .folder(let path): notes.filter { FolderTree.folder(of: $0.id) == path }
         case .tag(let tag): notes.filter { TagTree.tags(indexedTags[$0.id] ?? [], include: tag) }
@@ -649,7 +662,7 @@ final class VaultStore: ObservableObject {
     func subplaces(of place: SidebarPlace) -> [SidebarPlace] {
         switch place {
         case .allNotes: sortedFolders(folderTree.subfolders(of: "")).map(SidebarPlace.folder)
-        case .everything, .trash: []
+        case .everything, .bookmarks, .trash: []
         case .folder(let path): sortedFolders(folderTree.subfolders(of: path)).map(SidebarPlace.folder)
         case .tag(let tag): sortedTags(tagTree.children(of: tag)).map { .tag($0.tag) }
         }
@@ -707,12 +720,34 @@ final class VaultStore: ObservableObject {
         switch place {
         case .allNotes, .everything: notes.count
         case .trash: trashedNotes.count
+        case .bookmarks: bookmarkedNotes.count
         case .folder(let path): folderTree.noteCounts[path] ?? 0
         case .tag(let tag): tagTree.entries.first { $0.id == tag.lowercased() }?.count ?? 0
         }
     }
 
     func isPinned(_ place: SidebarPlace) -> Bool { pins.contains(place) }
+
+    /// Notes bookmarked, in the order they were bookmarked, for the vault. Kept by ID, so a
+    /// bookmark to a note moved outside Point (or deleted) is simply not listed.
+    @Published private(set) var bookmarks: [Note.ID] = []
+
+    /// The bookmarked notes that exist.
+    var bookmarkedNotes: [Note] {
+        let byID = Dictionary(notes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return bookmarks.compactMap { byID[$0] }
+    }
+
+    func isBookmarked(_ id: Note.ID) -> Bool { bookmarks.contains(id) }
+
+    func toggleBookmark(_ id: Note.ID) {
+        if let index = bookmarks.firstIndex(of: id) { bookmarks.remove(at: index) } else { bookmarks.append(id) }
+        saveBookmarks()
+    }
+
+    private func saveBookmarks() {
+        if let root { UserDefaults.standard.set(bookmarks, forKey: "bookmarks." + Self.vaultKey(root)) }
+    }
 
     func togglePin(_ place: SidebarPlace) {
         if let index = pins.firstIndex(of: place) { pins.remove(at: index) } else { pins.append(place) }

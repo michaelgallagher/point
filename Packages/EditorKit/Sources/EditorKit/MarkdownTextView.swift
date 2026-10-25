@@ -69,6 +69,17 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         }
     }
 
+    /// The widest the text column gets; wider views centre it (from Settings).
+    public var maxTextWidth: CGFloat {
+        get { styler.theme.maxTextWidth }
+        set {
+            guard newValue != styler.theme.maxTextWidth else { return }
+            styler.theme.maxTextWidth = newValue
+            pointLayoutManager?.theme = styler.theme
+            updateInsets()
+        }
+    }
+
     private func themeChanged() {
         pointLayoutManager?.theme = styler.theme
         typingAttributes = styler.baseAttributes

@@ -85,7 +85,7 @@ struct PropertiesStrip: View {
         .padding(.top, 6)
         .padding(.bottom, 10)
         .padding(.leading, 5) // Lines up with the title and the text, which are inset a little.
-        .frame(maxWidth: 720, alignment: .leading)
+        .frame(maxWidth: model.store.textColumnWidth, alignment: .leading)
         .padding(.horizontal, 28)
         .frame(maxWidth: .infinity)
     }
