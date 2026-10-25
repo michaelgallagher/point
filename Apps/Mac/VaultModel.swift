@@ -275,6 +275,11 @@ final class VaultModel: ObservableObject {
         let split = SidebarSplitController()
         split.slidingChanged = { [weak self] sliding in self?.isSidebarSliding = sliding }
         split.sidebarWidthChanged = { [weak self] width in self?.sidebarWidth = width }
+        // Dragged closed or open: the sidebar's state follows, without resizing the window.
+        split.collapsedByDragging = { [weak self] collapsed in
+            guard let self, !self.isFocused, self.showsNoteList == collapsed else { return }
+            self.setSidebarAutomatically(!collapsed)
+        }
         split.onToggle = { [weak self] in
             guard let self else { return }
             // As the system's button did: out of focus mode, else show or hide the sidebar.

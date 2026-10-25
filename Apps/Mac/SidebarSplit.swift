@@ -69,6 +69,10 @@ final class SidebarSplitController: NSSplitViewController {
     /// The sidebar button, in place of the split view's own toggle, so it shows and hides the
     /// sidebar as ⌘S does.
     var onToggle: (() -> Void)?
+    /// The sidebar hidden (true) or shown by dragging its divider.
+    var collapsedByDragging: ((Bool) -> Void)?
+    /// Whether the sidebar was hidden, as last known here (set by every show or hide).
+    private var reportedCollapsed: Bool?
 
     /// The narrowest the notes can be, so the narrowest a window can be without the sidebar.
     /// With it, the window's at least this plus the sidebar: so hiding the sidebar can always
@@ -124,6 +128,37 @@ final class SidebarSplitController: NSSplitViewController {
     override func viewDidLayout() {
         super.viewDidLayout()
         placeSidebarButton()
+        placeDividerGrip()
+    }
+
+    /// Over the divider and a few points either side, above the panes: shows the resize pointer
+    /// there, which the note's text area beside it otherwise took. The split view takes the
+    /// drag itself (see the effective rect below).
+    private lazy var dividerGrip: ResizeGrip = {
+        let grip = ResizeGrip()
+        grip.passesClicksThrough = true
+        return grip
+    }()
+
+    private func placeDividerGrip() {
+        let shows = !sidebarItem.isCollapsed && !isResizing
+        dividerGrip.isHidden = !shows
+        guard shows else { return }
+        if dividerGrip.superview !== splitView || splitView.subviews.last !== dividerGrip {
+            splitView.addSubview(dividerGrip, positioned: .above, relativeTo: nil)
+        }
+        let edge = sidebarContainer.view.convert(sidebarContainer.view.bounds, to: splitView).maxX
+        let frame = NSRect(x: (edge - ResizeGrip.width / 2).rounded(), y: 0, width: ResizeGrip.width, height: splitView.bounds.height)
+        if dividerGrip.frame != frame {
+            dividerGrip.frame = frame
+            splitView.window?.invalidateCursorRects(for: dividerGrip)
+        }
+    }
+
+    /// The divider takes the pointer (showing the resize pointer) and a drag a few points either
+    /// side of its line: its own area was a point or two.
+    override func splitView(_ splitView: NSSplitView, effectiveRect proposedEffectiveRect: NSRect, forDrawnRect drawnRect: NSRect, ofDividerAt dividerIndex: Int) -> NSRect {
+        drawnRect.insetBy(dx: -ResizeGrip.width / 2, dy: 0)
     }
 
     /// Just past the window buttons, or against the sidebar's edge, whichever is further right;
@@ -192,6 +227,7 @@ final class SidebarSplitController: NSSplitViewController {
     func setInitially(shown: Bool) {
         guard isViewLoaded else { return }
         sidebarItem.isCollapsed = !shown
+        reportedCollapsed = !shown
         if shown { splitView.setPosition(savedWidth, ofDividerAt: 0) } else { rest() }
     }
 
@@ -211,8 +247,16 @@ final class SidebarSplitController: NSSplitViewController {
     /// sliding), to show it at next time.
     @objc private func splitViewResized(_ notification: Notification) {
         placeSidebarButton()
+        placeDividerGrip()
         guard !isResizing else { return }
-        if sidebarItem.isCollapsed { rest() }
+        // Hidden or shown by dragging the divider, not by this: the contents rest at the
+        // sidebar's size while hidden, and fill it again once it's dragged open (they stayed at
+        // the size they rested at, and didn't follow the divider), and the window hears of it.
+        if sidebarItem.isCollapsed { rest() } else { sidebarContainer.release() }
+        if sidebarItem.isCollapsed != reportedCollapsed {
+            reportedCollapsed = sidebarItem.isCollapsed
+            collapsedByDragging?(sidebarItem.isCollapsed)
+        }
         // Only while the mouse is down (the divider being dragged): the split view also squeezes
         // the sidebar to its narrowest while the window first lays out, small, and that was kept
         // as if chosen.
@@ -463,8 +507,10 @@ final class SidebarSplitController: NSSplitViewController {
     private func end(_ count: Int) {
         guard animationCount == count else { return }
         isResizing = false
+        reportedCollapsed = sidebarItem.isCollapsed
         sidebarContainer.release()
         if sidebarItem.isCollapsed { rest() }
+        placeDividerGrip()
         placeSidebarButton()
         slidingChanged?(false)
     }
@@ -472,6 +518,64 @@ final class SidebarSplitController: NSSplitViewController {
     /// Frames equal to within half a point (AppKit rounds them).
     private static func same(_ a: NSRect, _ b: NSRect) -> Bool {
         abs(a.minX - b.minX) < 0.5 && abs(a.minY - b.minY) < 0.5 && abs(a.width - b.width) < 0.5 && abs(a.height - b.height) < 0.5
+    }
+}
+
+/// A strip over a divider that shows the resize pointer wherever it is, whatever's beneath
+/// (an editor's I-beam, a list's arrow), and takes the mouse to drag the divider.
+final class ResizeGrip: NSView {
+    static let width: CGFloat = 10
+    /// Only shows the pointer, leaving the clicks to the views beneath (a split view, which
+    /// runs its own drag).
+    var passesClicksThrough = false
+    /// The drag: how far the pointer has moved from the press, and whether it's the press
+    /// (zero) or a move.
+    var onDrag: ((_ distance: CGFloat, _ isStart: Bool) -> Void)?
+    private var start: CGFloat = 0
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .resizeLeftRight)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.cursorUpdate, .mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self))
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        passesClicksThrough ? nil : super.hitTest(point)
+    }
+
+    override func cursorUpdate(with event: NSEvent) { NSCursor.resizeLeftRight.set() }
+    override func mouseEntered(with event: NSEvent) { NSCursor.resizeLeftRight.set() }
+    override func mouseMoved(with event: NSEvent) { NSCursor.resizeLeftRight.set() }
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        start = event.locationInWindow.x
+        onDrag?(0, true)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        NSCursor.resizeLeftRight.set()
+        onDrag?(event.locationInWindow.x - start, false)
+    }
+}
+
+/// A `ResizeGrip` in SwiftUI.
+struct ResizeGripView: NSViewRepresentable {
+    let onDrag: (_ distance: CGFloat, _ isStart: Bool) -> Void
+
+    func makeNSView(context: Context) -> ResizeGrip {
+        let grip = ResizeGrip()
+        grip.onDrag = onDrag
+        return grip
+    }
+
+    func updateNSView(_ grip: ResizeGrip, context: Context) {
+        grip.onDrag = onDrag
     }
 }
 

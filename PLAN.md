@@ -644,6 +644,13 @@ Mike's list, with his answers to the questions asked about it.
   - One side or two are now the same view (`SideBySide(showsSide:)`), so the left note's editor survives the right side closing.
   - Seen in recordings both ways. One frame can show the right-hand note's text missing as it starts to slide (its editor is made afresh).
 
+**Dividers and dragging the sidebar (25 October 2026):**
+- **Both dividers can now be grabbed, with the resize pointer showing, across 10 points.** The cause: mouse moves go to whichever view has the keyboard, usually the note's editor, and it set its I-beam wherever the pointer was, over a divider too. The editor now only sets its pointer over itself.
+  - The sidebar's divider takes the pointer and the drag 5 points either side of its line (the split view's effective rect), with a pointer-only strip over it, above the note's text area.
+  - The notes' divider is an AppKit grip (`ResizeGrip`) laid over everything, replacing a SwiftUI one that the editors beside it covered.
+  - Checked with real mouse events and a probe of the pointer (`-PointCursorProbe YES`).
+- **Dragging the sidebar closed, then opening it, works:** its contents had stayed at the size they rest at while hidden and didn't follow the divider. They now fill the sidebar again once it's open. Hiding or showing it by dragging also updates the window's own state (it thought the sidebar was still showing), without resizing the window.
+
 ## Topics for investigation
 
 ### Daily notes as a meeting log

@@ -303,6 +303,13 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     }
 
     public override func mouseMoved(with event: NSEvent) {
+        // Only while the pointer is over the text itself. Mouse moves come to the text view
+        // wherever the pointer is (it has the keyboard), and its I-beam replaced the resize
+        // pointer over a divider beside it, which then could hardly be found.
+        if let hit = window?.contentView?.superview?.hitTest(event.locationInWindow), hit !== self, !hit.isDescendant(of: self) {
+            updateHoveredFoldLine(at: nil)
+            return
+        }
         super.mouseMoved(with: event)
         updateHoveredFoldLine(at: convert(event.locationInWindow, from: nil))
     }

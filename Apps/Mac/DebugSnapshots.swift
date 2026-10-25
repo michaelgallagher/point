@@ -16,6 +16,7 @@ enum DebugSnapshots {
         cycleSidebarIfAsked(for: model)
         closeSplitIfAsked(for: model)
         openSplitIfAsked(for: model)
+        probeCursorIfAsked(for: model)
         if let key = UserDefaults.standard.string(forKey: "PointBrowse"), let place = SidebarPlace(key: key) {
             // `-PointBrowse <place key>`: shows that place in the sidebar.
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { model.browse(place) }
@@ -192,6 +193,27 @@ enum DebugSnapshots {
                 model.openToTheSide(other.id)
             } else {
                 model.toggleSplit()
+            }
+        }
+    }
+
+    /// `-PointCursorProbe YES`: traces the pointer's shape whenever it or the pointer's place
+    /// changes, to check where the resize pointer shows.
+    private static func probeCursorIfAsked(for model: VaultModel) {
+        guard UserDefaults.standard.bool(forKey: "PointCursorProbe") else { return }
+        var last = ""
+        Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+            MainActor.assumeIsolated {
+                guard let window = model.window else { return }
+                let cursor = NSCursor.current
+                let name = cursor == .resizeLeftRight ? "resize" : cursor == .iBeam ? "ibeam" : cursor == .arrow ? "arrow" : "other"
+                let point = window.mouseLocationOutsideOfEventStream
+                let hit = window.contentView?.superview?.hitTest(point)
+                var chain = "", view = hit
+                for _ in 0..<12 { guard let v = view else { break }; chain += String(describing: type(of: v)).prefix(30) + "\(v.frame.integral) < "; view = v.superview }
+                let grips = views(of: ResizeGrip.self, in: window.contentView?.superview).map { "\($0.convert($0.bounds, to: nil).integral) hidden \($0.isHiddenOrHasHiddenAncestor)" }
+                let line = "x \(Int(point.x)) \(name) hit \(chain.prefix(40)) grips \(grips)"
+                if line != last { last = line; Trace.mark("cursor " + line + " key \(window.isKeyWindow)") }
             }
         }
     }

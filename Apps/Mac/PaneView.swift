@@ -137,6 +137,8 @@ struct SideBySide<Main: View, Side: View>: View {
     /// The side draws the dividing line at its leading edge (so the line moves with it, as the
     /// notes' right side slides in); here there's only the grip to drag.
     private let sideDrawsDivider: Bool
+    /// The left side's width when the divider was picked up.
+    @State private var dragStart: CGFloat = 0
 
     /// Kept as a fraction of the width under `key` (`fraction` until dragged), so each side
     /// keeps its share as the whole grows or shrinks.
@@ -153,36 +155,34 @@ struct SideBySide<Main: View, Side: View>: View {
     var body: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
+            let mainWidth = showsSide ? clamp(width * fraction, in: width) : width
             HStack(spacing: 0) {
                 main
-                    .frame(width: showsSide ? clamp(width * fraction, in: width) : width)
+                    .frame(width: mainWidth)
                 if showsSide {
+                    // The line (unless the side draws it, so it moves with the side).
                     Divider()
                         .opacity(sideDrawsDivider ? 0 : 1)
                         .frame(width: sideDrawsDivider ? 0 : nil)
-                        .overlay {
-                            // A wider grip than the line itself.
-                            Color.clear
-                                .frame(width: 9)
-                                .contentShape(Rectangle())
-                                .onHover { hovering in
-                                    if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
-                                }
-                                .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .named("sideBySide"))
-                                    .onChanged { value in
-                                        guard width > 0 else { return }
-                                        fraction = clamp(value.location.x, in: width) / width
-                                    })
-                                // Beside the line, when the side draws it: the side's own view
-                                // takes the clicks over itself.
-                                .offset(x: sideDrawsDivider ? -4 : 0)
-                        }
                     side
                         .frame(maxWidth: .infinity)
                 }
             }
+            // The grip, over the line and either side of it, above everything (an AppKit view,
+            // so the editors either side don't take the pointer, as they did from a SwiftUI one).
+            .overlay(alignment: .topLeading) {
+                if showsSide {
+                    ResizeGripView { distance, isStart in
+                        if isStart { dragStart = mainWidth }
+                        guard width > 0 else { return }
+                        fraction = clamp(dragStart + distance, in: width) / width
+                    }
+                    .frame(width: ResizeGrip.width)
+                    .frame(maxHeight: .infinity)
+                    .offset(x: mainWidth - ResizeGrip.width / 2)
+                }
+            }
         }
-        .coordinateSpace(name: "sideBySide")
     }
 
     /// The left side's width in a split of the notes (as last dragged).
