@@ -26,6 +26,8 @@ struct ShortcutsSheet: View {
             ("⌃⌘T", "New tab on the other side"),
             ("⌘W", "Close tab"),
             ("⇧⌘[  ⇧⌘]", "Previous, next tab"),
+            ("⌃Tab", "Switch to a tab (in the palette)"),
+            ("⇧⌘O", "Show this side's tab list"),
             ("⇧⌘S", "Split, or merge both sides into tabs"),
             ("⌥⌘N", "New window"),
             ("⌘-click a link", "Open it in a new tab"),

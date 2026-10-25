@@ -24,7 +24,7 @@ enum TopBar {
 
     /// The top bar's background, in every layout: the page's own colour.
     static let barColor = Color(nsColor: .textBackgroundColor)
-    /// The selected tab: a little darker than the bar.
+    /// Shading under something hovered in a bar or the tab list: a little darker than the bar.
     static let selectedTabColor = Color.primary.opacity(0.07)
 
 }
@@ -42,7 +42,9 @@ struct SidebarTopBar: View {
     }
 }
 
-/// One side's top bar: its tabs, and a button for the split.
+/// One side's top bar: back and forward, where the side's note is ("Projects / Point / Tabs
+/// idea"), then a button listing the side's tabs and a button for the split. Tabs aren't
+/// shown as tabs: they're reached from that list, the palette (⌃Tab) and ⇧⌘[ / ⇧⌘].
 struct PaneTopBar: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
@@ -52,32 +54,26 @@ struct PaneTopBar: View {
     /// system's sidebar button.
     private var startsAtWindowEdge: Bool { paneIndex == 0 && (!model.showsNoteList || model.isFocused) }
 
-    /// A tab dragged over the bar's empty space, which would go at the end.
-    @State private var isAppendTarget = false
-
     var body: some View {
         HStack(spacing: 8) {
             BackForwardButtons(pane: pane, paneIndex: paneIndex)
-            // Always tabs, even just one: the note's path is above its title, in the page.
-            NoteTabs(pane: pane, paneIndex: paneIndex, isAppendTarget: isAppendTarget)
-            Spacer(minLength: 0)
+            PanePath(pane: pane, paneIndex: paneIndex)
+                .padding(.horizontal, 4)
+            TabListButton(pane: pane)
             if model.isSplit {
                 BarButton("Close This Side", systemImage: "xmark", help: "Close This Side") { model.closePane(paneIndex) }
             } else {
                 BarButton("Split", systemImage: "rectangle.split.2x1", help: "Split (⇧⌘S)") { model.toggleSplit() }
             }
         }
-        // Less the tab row's own inset (room for the drop marker at its ends).
-        .padding(.leading, (startsAtWindowEdge ? model.windowButtonsInset + TopBar.sidebarButtonWidth : 16) - NoteTabs.inset)
+        .padding(.leading, startsAtWindowEdge ? model.windowButtonsInset + TopBar.sidebarButtonWidth : 16)
         .padding(.trailing, 8)
         .frame(height: model.topBarHeight)
         .background(WindowDragArea())
-        // A tab dropped past the last one goes at the end.
+        // A tab (dragged from a tab list) dropped on the bar goes at the end of this side's tabs.
         .background(TabDropArea { id, _, _ in
-            isAppendTarget = id.map { model.location(ofTab: $0) != nil } ?? false
-            return isAppendTarget
+            id.map { model.location(ofTab: $0) != nil } ?? false
         } drop: { id, _, _ in
-            isAppendTarget = false
             guard model.location(ofTab: id) != nil, model.panes.indices.contains(paneIndex) else { return false }
             model.moveTab(id, toPane: paneIndex, at: model.panes[paneIndex].tabs.count)
             return true
@@ -95,8 +91,508 @@ struct PaneTopBar: View {
                 .overlay(alignment: .bottom) { Divider().opacity(0.5) }
         }
     }
+}
 
+// MARK: The path
 
+/// Where a side's note is in the vault, then its name: "Projects / Point / Tabs idea". The
+/// folders are dimmed, and clicking one shows it (in the sidebar, or the explorer); clicking
+/// the name renames the note. When it doesn't fit, the folders after the first fold into "…"
+/// one at a time; only then is the name cut, in its middle. With a split, the side not being
+/// worked on is dimmed.
+struct PanePath: View {
+    @EnvironmentObject private var model: VaultModel
+    let pane: VaultModel.NotePane
+    let paneIndex: Int
+    @State private var isRenaming = false
+
+    var body: some View {
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                if let note = model.note(pane.tab.noteID) {
+                    let parts = Self.parts(of: note, toFit: geometry.size.width)
+                    ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
+                        segment(part, note: note)
+                    }
+                } else {
+                    Text("New Tab")
+                        .font(Self.font(.name))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .padding(.horizontal, Self.padding)
+                }
+            }
+            .frame(maxHeight: .infinity)
+            .help(model.note(pane.tab.noteID)?.id ?? "")
+        }
+        .opacity(model.isSplit && paneIndex != model.activePane ? 0.55 : 1)
+        .onChange(of: pane.tab.noteID) { _ in isRenaming = false }
+    }
+
+    /// A piece of the path, as laid out.
+    enum Part: Equatable {
+        case folder(name: String, path: String)
+        /// Folders folded away, by path.
+        case folded([String])
+        case separator
+        /// The note's name, cut in its middle if `fits` is false.
+        case name(String, fits: Bool)
+    }
+
+    @ViewBuilder private func segment(_ part: Part, note: Note) -> some View {
+        switch part {
+        case .folder(let name, let path):
+            PathButton(text: name, style: .folder, help: "Show “\(name)”") { model.reveal(folder: path) }
+        case .folded(let paths):
+            Text("…")
+                .font(Self.font(.folder))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, Self.padding)
+                .help(paths.joined(separator: "\n"))
+        case .separator:
+            Text("/")
+                .font(Self.font(.folder))
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, Self.separatorPadding)
+        case .name(let name, let fits):
+            if isRenaming {
+                PathRenameField(note: note, isRenaming: $isRenaming)
+            } else {
+                PathButton(text: name, style: .name, cutsInMiddle: !fits, help: "Rename") { isRenaming = true }
+            }
+        }
+    }
+
+    // MARK: Fitting
+
+    enum Style { case folder, name }
+
+    static func font(_ style: Style) -> Font {
+        style == .name ? .system(size: nsFontSize, weight: .medium) : .system(size: nsFontSize)
+    }
+
+    private static let nsFontSize: CGFloat = 13
+    /// Around each folder and the name: room for the shading on hover.
+    static let padding: CGFloat = 5
+    static let separatorPadding: CGFloat = 1
+
+    private static func width(_ text: String, _ style: Style) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: nsFontSize, weight: style == .name ? .medium : .regular)
+        return ceil((text as NSString).size(withAttributes: [.font: font]).width)
+    }
+
+    private static func width(of part: Part) -> CGFloat {
+        switch part {
+        case .folder(let name, _): width(name, .folder) + padding * 2
+        case .folded: width("…", .folder) + padding * 2
+        case .separator: width("/", .folder) + separatorPadding * 2
+        case .name(let name, _): width(name, .name) + padding * 2
+        }
+    }
+
+    /// The longest form of the path that fits: every folder; then the first folder, "…" and
+    /// fewer and fewer of the rest; then the first folder, "…" and the name, cut to fit.
+    static func parts(of note: Note, toFit available: CGFloat) -> [Part] {
+        let names = note.id.split(separator: "/").dropLast().map(String.init)
+        let paths = names.indices.map { names[...$0].joined(separator: "/") }
+        let folders = zip(names, paths).map { Part.folder(name: $0, path: $1) }
+        let name = Part.name(note.title, fits: true)
+
+        func joined(_ pieces: [Part]) -> [Part] {
+            pieces.enumerated().flatMap { index, piece in index == 0 ? [piece] : [.separator, piece] }
+        }
+        func fits(_ parts: [Part]) -> Bool { parts.map(width(of:)).reduce(0, +) <= available }
+
+        let whole = joined(folders + [name])
+        if fits(whole) || folders.isEmpty { return fits(whole) ? whole : [.name(note.title, fits: false)] }
+        // Fold the folders after the first, one more each time, from the second on.
+        if folders.count > 1 {
+            for hidden in 1..<folders.count {
+                let kept = folders.dropFirst(1 + hidden)
+                let parts = joined([folders[0], .folded(Array(paths[1...hidden]))] + kept + [name])
+                if fits(parts) { return parts }
+            }
+        }
+        let first = folders.count > 1 ? [folders[0], .folded(Array(paths[1...]))] : [folders[0]]
+        return joined(first + [.name(note.title, fits: false)])
+    }
+}
+
+/// A folder or the note's name in a side's path, taking clicks in AppKit (as the bar's other
+/// controls do), shaded on hover.
+private struct PathButton: View {
+    let text: String
+    let style: PanePath.Style
+    var cutsInMiddle = false
+    let help: String
+    let action: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Text(text)
+            .font(PanePath.font(style))
+            .foregroundStyle(style == .name ? .primary : .secondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .fixedSize(horizontal: !cutsInMiddle, vertical: false)
+            .padding(.horizontal, PanePath.padding)
+            .padding(.vertical, 3)
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isHovering ? TopBar.selectedTabColor : .clear)
+            }
+            .layoutPriority(style == .name ? 0 : 1) // The name is what's cut.
+            .allowsHitTesting(false)
+            .background(ClickArea(help: help, action: action))
+            .onHover { isHovering = $0 }
+            .accessibilityElement()
+            .accessibilityLabel(text)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { action() }
+    }
+}
+
+/// The note's name in a side's path, being renamed: Return or clicking away renames the note
+/// (and its file, updating links), Escape puts it back, as with the title on the page.
+private struct PathRenameField: View {
+    @EnvironmentObject private var model: VaultModel
+    let note: Note
+    @Binding var isRenaming: Bool
+    @State private var draft = ""
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        TextField("Name", text: $draft)
+            .textFieldStyle(.plain)
+            .font(PanePath.font(.name))
+            .padding(.horizontal, PanePath.padding)
+            .padding(.vertical, 3)
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(TopBar.selectedTabColor))
+            .frame(minWidth: 120, maxWidth: 360)
+            .focused($isFocused)
+            .onSubmit { commit() }
+            .onExitCommand { isRenaming = false }
+            .onChange(of: isFocused) { focused in
+                if !focused, isRenaming { commit() }
+            }
+            .onAppear {
+                draft = note.title
+                DispatchQueue.main.async { isFocused = true }
+            }
+    }
+
+    private func commit() {
+        isRenaming = false
+        let title = NoteFiles.sanitizedTitle(draft)
+        guard !title.isEmpty, title != note.title else { return }
+        model.rename(note, to: title)
+    }
+}
+
+// MARK: The tab list
+
+/// Lists the side's tabs in a small menu. Dimmed with only one tab, rather than hidden, so
+/// the bar doesn't shift.
+private struct TabListButton: View {
+    @EnvironmentObject private var model: VaultModel
+    let pane: VaultModel.NotePane
+    /// When the menu last closed, so the click outside that closes it, if it lands on this
+    /// button, doesn't open it straight away again.
+    @State private var closedAt = Date.distantPast
+
+    var body: some View {
+        let isShown = Binding(
+            get: { model.tabMenuPane == pane.id },
+            set: { shown in
+                if shown {
+                    model.tabMenuPane = pane.id
+                } else if model.tabMenuPane == pane.id {
+                    model.tabMenuPane = nil
+                    closedAt = Date()
+                }
+            })
+        BarButton("Tabs", systemImage: "square.stack", help: "Show Tab List (⇧⌘O)") {
+            guard Date().timeIntervalSince(closedAt) > 0.3 else { return }
+            isShown.wrappedValue.toggle()
+        }
+        .disabled(pane.tabs.count < 2)
+        .popover(isPresented: isShown, arrowEdge: .bottom) {
+            TabMenu(paneID: pane.id)
+                .environmentObject(model)
+        }
+    }
+}
+
+/// A side's tabs, in order, the current one ticked. Click one to go to it; hover for its
+/// close button, right-click for more. Drag a row up or down to reorder, onto the page to
+/// split the window or onto the other side. Keys: ↑↓ move, Return goes to the tab, ⌫ or ⌘W
+/// closes it, Escape closes the menu.
+struct TabMenu: View {
+    @EnvironmentObject private var model: VaultModel
+    let paneID: VaultModel.NotePane.ID
+    /// The row picked with the arrow keys, by tab.
+    @State private var highlighted: VaultModel.NoteTab.ID?
+
+    static let rowHeight: CGFloat = 28
+    static let width: CGFloat = 280
+
+    var body: some View {
+        if let p = model.paneIndex(paneID) {
+            let pane = model.panes[p]
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
+                            TabMenuRow(
+                                id: tab.id,
+                                title: model.note(tab.noteID)?.title ?? "New Tab",
+                                isCurrent: index == pane.current,
+                                isHighlighted: highlighted == tab.id,
+                                select: { go(to: index, inPane: p) },
+                                close: { model.closeTab(index, inPane: p) },
+                                menu: { menu(for: index, tab: tab, inPane: p) },
+                                draggedOut: { model.tabMenuPane = nil }
+                            )
+                            .modifier(TabMenuDropTarget(paneIndex: p, index: index))
+                        }
+                    }
+                    .padding(6)
+                }
+                .frame(height: min(CGFloat(pane.tabs.count) * Self.rowHeight + 12, 360))
+                Divider()
+                NewTabRow { model.tabMenuPane = nil; model.newTab(inPane: p) }
+                    .padding(6)
+            }
+            .frame(width: Self.width)
+            .background(TabMenuKeys(
+                move: { step in move(step, in: pane) },
+                choose: {
+                    guard let index = highlightedIndex(in: pane) else { return }
+                    go(to: index, inPane: p)
+                },
+                close: {
+                    guard let index = highlightedIndex(in: pane) else { return }
+                    // Highlight its neighbour, so ⌫ can be pressed again.
+                    let next = pane.tabs.indices.contains(index + 1) ? index + 1 : index - 1
+                    highlighted = pane.tabs.indices.contains(next) ? pane.tabs[next].id : nil
+                    model.closeTab(index, inPane: p)
+                },
+                dismiss: { model.tabMenuPane = nil }
+            ))
+            // Down to one tab, there's nothing to switch to, and ⌫ again would close the
+            // window's last tab (and the window).
+            .onChange(of: pane.tabs.count) { count in
+                if count < 2 { model.tabMenuPane = nil }
+            }
+        }
+    }
+
+    private func highlightedIndex(in pane: VaultModel.NotePane) -> Int? {
+        pane.tabs.firstIndex { $0.id == highlighted }
+    }
+
+    /// The first arrow press starts from the current tab.
+    private func move(_ step: Int, in pane: VaultModel.NotePane) {
+        let from = highlightedIndex(in: pane) ?? pane.current
+        let to = highlighted == nil ? pane.current + step : from + step
+        highlighted = pane.tabs[max(0, min(to, pane.tabs.count - 1))].id
+    }
+
+    private func go(to index: Int, inPane p: Int) {
+        model.tabMenuPane = nil
+        model.selectTab(index, inPane: p)
+    }
+
+    /// A row's right-click menu: what a tab's menu used to offer.
+    private func menu(for index: Int, tab: VaultModel.NoteTab, inPane p: Int) -> NSMenu {
+        let menu = NSMenu()
+        menu.addItem(BlockMenuItem("Close Tab") { model.closeTab(index, inPane: p) })
+        menu.addItem(BlockMenuItem("Close Other Tabs") { model.closeOtherTabs(index, inPane: p) })
+        menu.addItem(.separator())
+        menu.addItem(BlockMenuItem(model.isSplit ? "Move to Other Side" : "Move to New Split") {
+            model.tabMenuPane = nil
+            model.moveTabToOtherSide(index, inPane: p)
+        })
+        if model.isSplit {
+            menu.addItem(BlockMenuItem("Merge Both Sides into Tabs") {
+                model.tabMenuPane = nil
+                model.mergeIntoTabs()
+            })
+        }
+        if let id = tab.noteID {
+            menu.addItem(BlockMenuItem("Open in New Window") {
+                model.tabMenuPane = nil
+                model.closeTab(index, inPane: p)
+                model.openWindowHandler?(id)
+            })
+        }
+        return menu
+    }
+}
+
+private struct TabMenuRow: View {
+    let id: VaultModel.NoteTab.ID
+    let title: String
+    let isCurrent: Bool
+    let isHighlighted: Bool
+    let select: () -> Void
+    let close: () -> Void
+    let menu: () -> NSMenu
+    let draggedOut: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "checkmark")
+                .font(.system(size: 11, weight: .semibold))
+                .frame(width: 14)
+                .opacity(isCurrent ? 1 : 0)
+                .allowsHitTesting(false)
+            Text(title)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .allowsHitTesting(false) // Clicks go to the row's mouse area, below.
+            // Clicked through the row's mouse area, which knows where it is (a SwiftUI button
+            // here doesn't reliably get the click before the AppKit view behind it).
+            Image(systemName: "xmark")
+                .font(.system(size: 9, weight: .bold))
+                .frame(width: Self.closeWidth, height: 18)
+                .foregroundStyle(isHighlighted ? .white : .secondary)
+                .opacity(isHovering || isHighlighted ? 1 : 0)
+                .allowsHitTesting(false)
+        }
+        .foregroundStyle(isHighlighted ? .white : .primary)
+        .padding(.horizontal, 8)
+        .frame(height: TabMenu.rowHeight)
+        .background {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(isHighlighted ? Color.accentColor : isHovering ? TopBar.selectedTabColor : .clear)
+                .allowsHitTesting(false)
+        }
+        .background(TabMouseArea(id: id, title: title, select: select, close: close, closeWidth: Self.closeWidth + 8,
+                                 menu: menu, draggedOut: draggedOut, isHovering: $isHovering))
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { select() }
+        .accessibilityAction(named: "Close Tab") { close() }
+    }
+
+    static let closeWidth: CGFloat = 18
+}
+
+private struct NewTabRow: View {
+    let action: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 14)
+                Text("New Tab")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text("⌘T")
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: TabMenu.rowHeight)
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isHovering ? TopBar.selectedTabColor : .clear)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+    }
+}
+
+/// The tab menu's keys, taken by an AppKit view that holds the keyboard while the menu shows.
+private struct TabMenuKeys: NSViewRepresentable {
+    let move: (Int) -> Void
+    let choose: () -> Void
+    let close: () -> Void
+    let dismiss: () -> Void
+
+    func makeNSView(context: Context) -> KeyView { KeyView() }
+
+    func updateNSView(_ view: KeyView, context: Context) {
+        view.move = move
+        view.choose = choose
+        view.close = close
+        view.dismiss = dismiss
+    }
+
+    final class KeyView: NSView {
+        var move: (Int) -> Void = { _ in }
+        var choose: () -> Void = {}
+        var close: () -> Void = {}
+        var dismiss: () -> Void = {}
+
+        override var acceptsFirstResponder: Bool { true }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let window else { return }
+                window.makeFirstResponder(self)
+            }
+        }
+
+        override func keyDown(with event: NSEvent) {
+            switch event.keyCode {
+            case 126: move(-1) // ↑
+            case 125: move(1) // ↓
+            case 36, 76: choose() // Return, Enter
+            case 51, 117: close() // ⌫, ⌦
+            case 53: dismiss() // Escape
+            default: super.keyDown(with: event)
+            }
+        }
+
+        /// ⌘W closes the highlighted tab, rather than reaching the File menu.
+        override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+               event.charactersIgnoringModifiers == "w" {
+                close()
+                return true
+            }
+            return super.performKeyEquivalent(with: event)
+        }
+    }
+}
+
+/// A row dropped on another row goes above or below it, whichever half it's over. The tab
+/// shown doesn't change.
+private struct TabMenuDropTarget: ViewModifier {
+    @EnvironmentObject private var model: VaultModel
+    let paneIndex: Int
+    let index: Int
+    @State private var edge: VerticalEdge?
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: edge == .top ? .top : .bottom) {
+                if edge != nil {
+                    Capsule()
+                        .fill(Color.accentColor)
+                        .frame(height: 2)
+                        .padding(.horizontal, 4)
+                        .offset(y: edge == .top ? -1 : 1)
+                }
+            }
+            .background(TabDropArea { id, point, size in
+                edge = id.flatMap { model.location(ofTab: $0) } == nil ? nil : (point.y < size.height / 2 ? .top : .bottom)
+                return edge != nil
+            } drop: { id, point, size in
+                edge = nil
+                guard model.location(ofTab: id) != nil else { return false }
+                model.moveTab(id, toPane: paneIndex, at: point.y < size.height / 2 ? index : index + 1, selects: false)
+                return true
+            })
+    }
 }
 
 /// Back and forward through the side's current tab's history, together, before the tabs: a glass
@@ -216,161 +712,17 @@ struct BarButton: View {
     }
 }
 
-/// A side's tabs, drawn by Point: the current tab a raised, page-coloured tab (it is the
-/// page below), the others plain titles that shade on hover, each with a close button on
-/// hover, at its leading edge as in Safari and Finder. Right-click a tab for its menu.
-struct NoteTabs: View {
-    @EnvironmentObject private var model: VaultModel
-    let pane: VaultModel.NotePane
-    let paneIndex: Int
-    /// Shows where a tab dropped past the last one would go.
-    var isAppendTarget = false
-
-    /// A tab is as wide as its whole title, never cut off, and no narrower than this. When
-    /// they don't all fit, the row scrolls.
-    static let narrowest: CGFloat = 80
-    static let spacing: CGFloat = 2
-    /// Room at each end of the row, for the drop marker.
-    static let inset: CGFloat = 4
-
-    var body: some View {
-        GeometryReader { geometry in
-            let titles = pane.tabs.map { model.note($0.noteID)?.title ?? "New Tab" }
-            let widths = titles.map(Self.width(for:))
-            let rowWidth = widths.reduce(0, +) + Self.spacing * CGFloat(max(widths.count - 1, 0)) + Self.inset * 2
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: Self.spacing) {
-                        ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
-                            NoteTab(
-                                id: tab.id,
-                                title: titles[index],
-                                isCurrent: index == pane.current,
-                                width: widths[index],
-                                select: { model.selectTab(index, inPane: paneIndex) },
-                                close: { model.closeTab(index, inPane: paneIndex) },
-                                menu: { menu(for: index, tab: tab) }
-                            )
-                            // Drag a tab along the bar, to the other side's bar or page, or to
-                            // one half of the page to split the window.
-                            .modifier(TabDropTarget(paneIndex: paneIndex, index: index))
-                            .id(tab.id)
-                        }
-                    }
-                    .overlay(alignment: .trailing) {
-                        if isAppendTarget { DropMarker().offset(x: 2) }
-                    }
-                    .padding(.horizontal, Self.inset)
-                    .frame(height: geometry.size.height)
-                }
-                // Only as wide as the tabs, so the bar's empty space still moves the window.
-                .frame(width: min(rowWidth, geometry.size.width))
-                // The current tab always in view.
-                .onAppear { proxy.scrollTo(pane.tab.id) }
-                .onChange(of: pane.tab.id) { id in
-                    withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id) }
-                }
-                .onChange(of: geometry.size.width) { _ in proxy.scrollTo(pane.tab.id) }
-            }
-        }
-    }
-
-    static func width(for title: String) -> CGFloat {
-        max(titleWidth(title) + chrome, narrowest)
-    }
-
-    /// The close button, its balance on the other side, and padding.
-    private static let chrome: CGFloat = 6 * 2 + 16 * 2 + 2 * 2
-
-    private static func titleWidth(_ title: String) -> CGFloat {
-        // The current tab's weight, so a tab doesn't change width when picked.
-        let size = NSFont.preferredFont(forTextStyle: .callout).pointSize
-        let font = NSFont.systemFont(ofSize: size, weight: .medium)
-        return ceil((title as NSString).size(withAttributes: [.font: font]).width)
-    }
-
-    /// The tab's right-click menu.
-    private func menu(for index: Int, tab: VaultModel.NoteTab) -> NSMenu {
-        let menu = NSMenu()
-        menu.addItem(BlockMenuItem("Close Tab") { model.closeTab(index, inPane: paneIndex) })
-        menu.addItem(BlockMenuItem("Close Other Tabs") { model.closeOtherTabs(index, inPane: paneIndex) })
-        menu.addItem(.separator())
-        menu.addItem(BlockMenuItem(model.isSplit ? "Move to Other Side" : "Move to New Split") {
-            model.moveTabToOtherSide(index, inPane: paneIndex)
-        })
-        if model.isSplit {
-            menu.addItem(BlockMenuItem("Merge Both Sides into Tabs") { model.mergeIntoTabs() })
-        }
-        if let id = tab.noteID {
-            menu.addItem(BlockMenuItem("Open in New Window") {
-                model.closeTab(index, inPane: paneIndex)
-                model.openWindowHandler?(id)
-            })
-        }
-        return menu
-    }
-}
-
-private struct NoteTab: View {
-    let id: VaultModel.NoteTab.ID
-    let title: String
-    let isCurrent: Bool
-    let width: CGFloat
-    let select: () -> Void
-    let close: () -> Void
-    let menu: () -> NSMenu
-    @State private var isHovering = false
-
-    var body: some View {
-        HStack(spacing: 2) {
-            Button(action: close) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
-                    .frame(width: 16, height: 16)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .help("Close Tab")
-            .opacity(isHovering ? 1 : 0)
-            Text(title)
-                .lineLimit(1)
-                .fixedSize() // Never cut off: the tab is sized to fit it.
-                .font(.callout.weight(isCurrent ? .medium : .regular))
-                .foregroundStyle(isCurrent ? .primary : .secondary)
-                .frame(maxWidth: .infinity)
-                .allowsHitTesting(false) // Clicks go to the tab's mouse area, below.
-            Color.clear.frame(width: 16, height: 16) // Balances the close button.
-        }
-        .padding(.horizontal, 6)
-        .frame(width: width)
-        // As tall as a selected row in the comfortable sidebar, in either density.
-        .frame(height: VaultModel.SidebarDensity.comfortable.rowHeight)
-        .background {
-            let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
-            Group {
-                if isCurrent {
-                    shape.fill(TopBar.selectedTabColor)
-                } else if isHovering {
-                    shape.fill(TopBar.selectedTabColor.opacity(0.6))
-                }
-            }
-            .allowsHitTesting(false)
-        }
-        // Clicks, drags, hover and the menu are handled in AppKit: the tabs sit where a
-        // title bar would, and there the window takes any drag SwiftUI doesn't claim
-        // first and moves itself.
-        .background(TabMouseArea(id: id, title: title, select: select, menu: menu, isHovering: $isHovering))
-    }
-}
-
-/// A tab's mouse handling: a click selects it, a drag picks it up, a right-click shows its
-/// menu. Unlike the bar around it, it never moves the window.
+/// A tab list row's mouse handling: a click selects it, a drag picks it up, a right-click
+/// shows its menu. Dropped outside the list, the list closes.
 private struct TabMouseArea: NSViewRepresentable {
     let id: VaultModel.NoteTab.ID
     let title: String
     let select: () -> Void
+    /// A click this close to the trailing edge, where the close button is, closes the tab.
+    let close: () -> Void
+    let closeWidth: CGFloat
     let menu: () -> NSMenu
+    let draggedOut: () -> Void
     @Binding var isHovering: Bool
 
     func makeNSView(context: Context) -> TabMouseView { TabMouseView() }
@@ -379,7 +731,10 @@ private struct TabMouseArea: NSViewRepresentable {
         view.tabID = id
         view.title = title
         view.select = select
+        view.close = close
+        view.closeWidth = closeWidth
         view.makeMenu = menu
+        view.draggedOut = draggedOut
         view.onHover = { isHovering = $0 }
     }
 
@@ -387,7 +742,10 @@ private struct TabMouseArea: NSViewRepresentable {
         var tabID: VaultModel.NoteTab.ID?
         var title = ""
         var select: () -> Void = {}
+        var close: () -> Void = {}
+        var closeWidth: CGFloat = 0
         var makeMenu: () -> NSMenu = { NSMenu() }
+        var draggedOut: () -> Void = {}
         var onHover: (Bool) -> Void = { _ in }
         private var mouseDownAt: NSPoint?
 
@@ -399,13 +757,18 @@ private struct TabMouseArea: NSViewRepresentable {
 
         /// Checks where the pointer actually is. Entered and exited events alone leave a tab
         /// shaded when it moves out from under a still pointer (a tab closed or moved, the
-        /// row scrolled) and miss the tab that moves in.
-        private func syncHover(leaving: Bool = false) {
+        /// row scrolled) and miss the tab that moves in. `always` tells SwiftUI even if nothing
+        /// seems to have changed: a row moved by a drag can get a fresh view, whose own record
+        /// differs from the row's.
+        private func syncHover(leaving: Bool = false, always: Bool = false) {
             var inside = false
             if !leaving, let window, !isHiddenOrHasHiddenAncestor {
-                inside = visibleRect.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
+                // Its bounds as well as what's visible: in a scrolling list, the visible rect
+                // can come back as the whole list's.
+                let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+                inside = bounds.contains(point) && visibleRect.contains(point)
             }
-            guard inside != isInside else { return }
+            guard always || inside != isInside else { return }
             isInside = inside
             // Not in the middle of SwiftUI laying out the row, which this can be called from.
             DispatchQueue.main.async { [weak self] in
@@ -424,16 +787,23 @@ private struct TabMouseArea: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             syncHover()
+            NotificationCenter.default.removeObserver(self, name: Self.dragEnded, object: nil)
+            if window != nil {
+                NotificationCenter.default.addObserver(self, selector: #selector(otherDragEnded), name: Self.dragEnded, object: nil)
+            }
         }
+
+        /// A row was dragged: the rows it passed over missed the pointer leaving them (a drag
+        /// takes the mouse events), so all of them look again.
+        private static let dragEnded = Notification.Name("org.mikegallagher.point.tabRowDragEnded")
+
+        @objc private func otherDragEnded() { syncHover(always: true) }
 
         override func mouseEntered(with event: NSEvent) { syncHover() }
         override func mouseMoved(with event: NSEvent) { syncHover() }
         override func mouseExited(with event: NSEvent) { syncHover(leaving: true) }
 
-        override func mouseDown(with event: NSEvent) {
-            mouseDownAt = event.locationInWindow
-            select() // On mouse down, as tabs do.
-        }
+        override func mouseDown(with event: NSEvent) { mouseDownAt = event.locationInWindow }
 
         override func mouseDragged(with event: NSEvent) {
             guard let start = mouseDownAt, let tabID else { return }
@@ -449,7 +819,14 @@ private struct TabMouseArea: NSViewRepresentable {
             session.animatesToStartingPositionsOnCancelOrFail = true
         }
 
-        override func mouseUp(with event: NSEvent) { mouseDownAt = nil }
+        /// On mouse up, as in a menu, so a row can be dragged without going to its tab.
+        override func mouseUp(with event: NSEvent) {
+            guard mouseDownAt != nil else { return }
+            mouseDownAt = nil
+            let point = convert(event.locationInWindow, from: nil)
+            guard bounds.contains(point) else { return }
+            if point.x > bounds.maxX - closeWidth { close() } else { select() }
+        }
 
         override func menu(for event: NSEvent) -> NSMenu? { makeMenu() }
 
@@ -458,7 +835,10 @@ private struct TabMouseArea: NSViewRepresentable {
         }
 
         func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-            syncHover()
+            // After the drop has rearranged the rows.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { NotificationCenter.default.post(name: Self.dragEnded, object: nil) }
+            // Taken somewhere outside the list (the page, the other side's bar): close it.
+            if operation != [], let window, !window.frame.contains(screenPoint) { draggedOut() }
         }
 
         /// The tab as drawn, to drag.
@@ -547,39 +927,6 @@ struct TabDropArea: NSViewRepresentable {
     }
 }
 
-/// The line showing where a dragged tab would go.
-private struct DropMarker: View {
-    var body: some View {
-        Capsule()
-            .fill(Color.accentColor)
-            .frame(width: 2, height: 20)
-    }
-}
-
-/// A tab dropped on another tab goes before it or after it, whichever half it's over.
-private struct TabDropTarget: ViewModifier {
-    @EnvironmentObject private var model: VaultModel
-    let paneIndex: Int
-    let index: Int
-    @State private var edge: HorizontalEdge?
-
-    func body(content: Content) -> some View {
-        content
-            .overlay(alignment: edge == .leading ? .leading : .trailing) {
-                if edge != nil { DropMarker().offset(x: edge == .leading ? -2 : 2) }
-            }
-            .background(TabDropArea { id, point, size in
-                edge = id.flatMap { model.location(ofTab: $0) } == nil ? nil : (point.x < size.width / 2 ? .leading : .trailing)
-                return edge != nil
-            } drop: { id, point, size in
-                edge = nil
-                guard model.location(ofTab: id) != nil else { return false }
-                model.moveTab(id, toPane: paneIndex, at: point.x < size.width / 2 ? index : index + 1)
-                return true
-            })
-    }
-}
-
 /// Where on a side's page a dragged tab would go.
 enum PaneDropZone {
     /// One half of an unsplit window: a new side, there.
@@ -630,23 +977,6 @@ struct PaneDropHighlight: View {
         }
         .allowsHitTesting(false)
         .animation(.easeOut(duration: 0.12), value: zone)
-    }
-}
-
-/// Where a note is in the vault, above its title: the vault, then its folders, in the
-/// properties' size and colour ("MG notes › Projects › Archive").
-struct NotePath: View {
-    let note: Note
-    let vault: String
-
-    var body: some View {
-        let folders = note.id.split(separator: "/").dropLast().map(String.init)
-        Text(([vault] + folders).joined(separator: " › "))
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .truncationMode(.head)
-            .help(note.id)
     }
 }
 

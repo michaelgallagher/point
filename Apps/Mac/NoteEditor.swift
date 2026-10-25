@@ -51,9 +51,9 @@ struct NoteEditor: View {
     }
 }
 
-/// Above the text, scrolling with it: where the note lives (if turned on), its title (its file name: most
-/// notes don't start with a heading), its properties, and for a new note, templates. A
-/// hairline always separates it from the text.
+/// Above the text, scrolling with it: the note's title (its file name: most notes don't
+/// start with a heading), its properties, and for a new note, templates. Where the note
+/// lives is in the side's top bar. A hairline always separates it from the text.
 private struct NoteHeader: View {
     @ObservedObject var session: EditorSession
     @ObservedObject var model: VaultModel
@@ -62,9 +62,6 @@ private struct NoteHeader: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
-                if model.showsNotePath {
-                    NotePath(note: session.note, vault: model.root?.lastPathComponent ?? "Vault")
-                }
                 // Its file name, which can be edited here to rename the note.
                 TitleField(note: session.note, model: model)
             }

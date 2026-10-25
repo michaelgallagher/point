@@ -49,7 +49,6 @@ final class VaultModel: ObservableObject {
     var listDate: ListDate { get { store.listDate } set { store.listDate = newValue } }
     var showsTagsInList: Bool { get { store.showsTagsInList } set { store.showsTagsInList = newValue } }
     var showsMarkdown: Bool { get { store.showsMarkdown } set { store.showsMarkdown = newValue } }
-    var showsNotePath: Bool { get { store.showsNotePath } set { store.showsNotePath = newValue } }
     var textScale: Double { get { store.textScale } set { store.textScale = newValue } }
     var browsingStyle: BrowsingStyle { get { store.browsingStyle } set { store.browsingStyle = newValue } }
     var tagOrder: TagOrder { get { store.tagOrder } set { store.tagOrder = newValue } }
@@ -134,6 +133,7 @@ final class VaultModel: ObservableObject {
         didSet {
             tracePanes()
             saveWindowState()
+            noteRecentTab()
         }
     }
     /// The pane last clicked or typed in, which the list, palette and menus act on.
@@ -141,6 +141,37 @@ final class VaultModel: ObservableObject {
         didSet {
             tracePanes()
             saveWindowState()
+            noteRecentTab()
+        }
+    }
+
+    /// The tabs, most recently shown first, for ⌃Tab.
+    private(set) var recentTabs: [NoteTab.ID] = []
+
+    private func noteRecentTab() {
+        // Skips the moment in the middle of a change (a tab removed, its side's current one
+        // not yet moved back) when the indices don't line up.
+        guard panes.indices.contains(activePane), panes[activePane].tabs.indices.contains(panes[activePane].current) else { return }
+        let id = panes[activePane].tab.id
+        guard recentTabs.first != id else { return }
+        recentTabs.removeAll { $0 == id }
+        recentTabs.insert(id, at: 0)
+        if recentTabs.count > 100 { recentTabs.removeLast() }
+    }
+
+    /// The side whose tab menu is showing, if any.
+    @Published var tabMenuPane: NotePane.ID?
+
+    /// ⇧⌘O: shows (or hides) the active side's tab menu. It lists nothing to switch to with
+    /// only one tab, so it doesn't open then.
+    func toggleTabMenu() {
+        let pane = panes[activePane]
+        if tabMenuPane != nil {
+            tabMenuPane = nil
+        } else if pane.tabs.count > 1 {
+            tabMenuPane = pane.id
+        } else {
+            NSSound.beep()
         }
     }
 
@@ -335,6 +366,17 @@ final class VaultModel: ObservableObject {
         activePane = p
     }
 
+    /// Goes to the tab a note is open in, wherever it is (unlike `selection`, which moves a
+    /// note from behind the other side into this one).
+    func goToTab(of id: Note.ID) {
+        if let (p, t) = location(of: id) { selectTab(t, inPane: p) }
+    }
+
+    /// Closes the tab a note is open in.
+    func closeTab(of id: Note.ID) {
+        if let (p, t) = location(of: id) { closeTab(t, inPane: p) }
+    }
+
     /// ⌃⌘T: a new tab (a start page) on the other side, splitting the window if needed.
     func newTabOnOtherSide() {
         if isSplit { newTab(inPane: 1 - activePane) } else { toggleSplit() }
@@ -521,15 +563,17 @@ final class VaultModel: ObservableObject {
     }
 
     /// A tab dropped among a side's tabs (`at` counts the tabs there before the drop). A side
-    /// left with no tabs closes.
-    func moveTab(_ id: NoteTab.ID, toPane target: Int, at index: Int) {
+    /// left with no tabs closes. It becomes the side's current tab unless `selects` is false
+    /// and it stays on the same side (reordering in the tab menu doesn't change the note shown).
+    func moveTab(_ id: NoteTab.ID, toPane target: Int, at index: Int, selects: Bool = true) {
         guard let (p, t) = location(ofTab: id), panes.indices.contains(target) else { return }
         var panes = panes
+        let showing = panes[target].tab.id
         let moving = Self.remove(t, from: &panes[p])
         // The tab's own removal shifts the places after it along by one.
         let dest = min(p == target && index > t ? index - 1 : index, panes[target].tabs.count)
         panes[target].tabs.insert(moving, at: dest)
-        panes[target].current = dest
+        panes[target].current = !selects && p == target ? panes[target].tabs.firstIndex { $0.id == showing } ?? dest : dest
         commitMove(panes, target: target)
     }
 
@@ -821,10 +865,24 @@ final class VaultModel: ObservableObject {
     /// ⌘F or ⌘E pressed while a start page is showing: the page switches to that mode.
     @Published private(set) var startPageRequest: (mode: PaletteMode, count: Int) = (.search, 0)
 
-    enum PaletteMode { case search, explorer }
+    /// Searching (⌘F), browsing folders and tags (⌘E), or only the open tabs (⌃Tab).
+    enum PaletteMode { case search, explorer, tabs }
+    /// ⌃Tab pressed again while the tabs palette shows: it moves to the next tab down.
+    @Published private(set) var paletteCycleRequest = 0
 
     /// Shows the palette in a mode, or hides it if it's already showing that.
     func togglePalette(_ mode: PaletteMode) {
+        if mode == .tabs {
+            if isPaletteShown && paletteMode == .tabs {
+                paletteCycleRequest += 1
+            } else if openNoteIDs.isEmpty {
+                NSSound.beep()
+            } else {
+                paletteMode = .tabs
+                isPaletteShown = true
+            }
+            return
+        }
         // On a start page, ⌘F and ⌘E switch the page itself between searching and
         // exploring, rather than opening a palette on top of it.
         if selection == nil, !isPaletteShown {
@@ -846,6 +904,23 @@ final class VaultModel: ObservableObject {
     func focusSearch() {
         isFocused = false
         searchFocusRequest += 1
+    }
+
+    /// Shows a folder (clicked in a side's path): in the sidebar if it's showing, otherwise in
+    /// the explorer, with the note open there highlighted.
+    func reveal(folder path: String) {
+        if showsNoteList && !isFocused {
+            browse(.folder(path))
+            return
+        }
+        explorerPlace = .folder(path)
+        explorerNote = selection.flatMap { id in notes(in: .folder(path)).contains { $0.id == id } ? id : nil }
+        explorerInNotes = explorerNote != nil
+        isPaletteShown = false
+        DispatchQueue.main.async { [weak self] in
+            self?.paletteMode = .explorer
+            self?.isPaletteShown = true
+        }
     }
 
     /// Searches for a tag, for example after a tag is clicked in a note.

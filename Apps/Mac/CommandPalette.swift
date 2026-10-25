@@ -6,6 +6,7 @@ import VaultKit
 
 /// ⌘F: one place to open notes, search tags and run commands, all from the keyboard.
 /// ⌘E: the same palette as a two-column explorer of folders, tags and their notes.
+/// ⌃Tab: only the open tabs, most recently shown first, to switch between them.
 /// An empty tab shows the same palette as a page: the start page.
 struct CommandPalette: View {
     @EnvironmentObject private var model: VaultModel
@@ -23,6 +24,7 @@ struct CommandPalette: View {
     @State private var pageExplores = false
 
     private var isExploring: Bool { isPage ? pageExplores : model.paletteMode == .explorer }
+    private var isSwitchingTabs: Bool { !isPage && model.paletteMode == .tabs }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,7 +33,7 @@ struct CommandPalette: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 20)
                 PaletteField(text: $query, placeholder: placeholder, fontSize: isPage ? 22 : 18,
-                             onMove: move, onSubmit: run, onCancel: cancel,
+                             onMove: move, onSubmit: run, onCancel: cancel, onCloseItem: closeHighlightedTab,
                              onLeft: isExploring ? { explorerLeft() } : nil, onRight: isExploring ? { explorerRight() } : nil)
             }
             .font(isPage ? .title2 : .title3)
@@ -59,7 +61,9 @@ struct CommandPalette: View {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(Array(items.enumerated()), id: \.element.id) { offset, item in
-                                PaletteRow(item: item, isHighlighted: offset == highlighted, isOpen: openIDs.contains(item.noteID ?? ""))
+                                // Every row is an open tab when switching tabs, so none is marked.
+                                PaletteRow(item: item, isHighlighted: offset == highlighted,
+                                           isOpen: !isSwitchingTabs && openIDs.contains(item.noteID ?? ""))
                                     .contentShape(Rectangle())
                                     .onTapGesture {
                                         highlighted = offset
@@ -104,6 +108,10 @@ struct CommandPalette: View {
             if isExploring { explorer.load(model) }
             refresh()
         }
+        // ⌃Tab again: the next tab down.
+        .onChange(of: model.paletteCycleRequest) { _ in
+            if isSwitchingTabs { move(1) }
+        }
         .onChange(of: model.startPageRequest.count) { _ in
             // ⌘F or ⌘E on a start page switches the page itself.
             guard isPage else { return }
@@ -116,6 +124,7 @@ struct CommandPalette: View {
 
     private var placeholder: String {
         if isExploring { return explorer.inNotes ? "Filter notes" : "Filter folders and tags" }
+        if isSwitchingTabs { return "Switch to a tab" }
         return isPage ? "Search notes, #tags or >commands" : "Search notes, #tags or >commands"
     }
 
@@ -151,13 +160,16 @@ struct CommandPalette: View {
 
     // MARK: Results
 
-    private func refresh() {
+    /// Lists what matches what's typed. `keeping` keeps the highlight at that row (or the
+    /// last one) rather than going back to the top, as after closing a tab from the list.
+    private func refresh(keeping: Int? = nil) {
         searchTask?.cancel()
         let query = query
         if isExploring {
             explorer.setFilter(query)
             return
         }
+        if isSwitchingTabs { return refreshTabs(keeping: keeping) }
         let commands = PaletteCommand.all(for: model)
         // Notes open in tabs come first, marked as open.
         let openNotes = model.openNoteIDs.compactMap { model.note($0) }
@@ -200,8 +212,37 @@ struct CommandPalette: View {
             }
             guard !Task.isCancelled else { return }
             items = notes + tagItems + commandItems
-            highlighted = 0
+            highlighted = keeping.map { max(0, min($0, items.count - 1)) } ?? 0
         }
+    }
+
+    /// The open tabs' notes, most recently shown first (both sides), filtered by what's typed.
+    /// With nothing typed, the one shown before this is highlighted, so ⌃Tab and Return flip
+    /// between two notes.
+    private func refreshTabs(keeping: Int?) {
+        let tabs = model.panes.flatMap(\.tabs)
+        let order = model.recentTabs + tabs.map(\.id).filter { !model.recentTabs.contains($0) }
+        var notes = order.compactMap { id in tabs.first { $0.id == id }?.noteID }.compactMap { model.note($0) }
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty { notes = Self.rank(notes, by: trimmed, name: \.title) }
+        openIDs = Set(notes.map(\.id))
+        items = notes.map { PaletteItem.note($0.id, $0.title, nil) }
+        if let keeping {
+            highlighted = max(0, min(keeping, items.count - 1))
+        } else {
+            highlighted = trimmed.isEmpty && items.count > 1 && items.first?.noteID == model.selection ? 1 : 0
+        }
+    }
+
+    /// ⌘⌫ on a note open in a tab closes that tab, and the palette stays open. Returns false
+    /// for anything else, so ⌘⌫ deletes what's typed as usual.
+    private func closeHighlightedTab() -> Bool {
+        guard !isExploring, items.indices.contains(highlighted), let id = items[highlighted].noteID,
+              openIDs.contains(id), model.openNoteIDs.contains(id) else { return false }
+        let row = highlighted
+        model.closeTab(of: id)
+        refresh(keeping: row)
+        return true
     }
 
     static func rank<T>(_ things: [T], by query: String, name: KeyPath<T, String>) -> [T] {
@@ -228,6 +269,8 @@ struct CommandPalette: View {
         let item = items[highlighted]
         if !isPage { close() }
         switch item {
+        case .note(let id, _, _) where isSwitchingTabs:
+            model.goToTab(of: id)
         case .note(let id, _, _):
             open(id, inNewTab: inNewTab)
         case .tag(let tag, _): model.search(tag: tag)
@@ -382,7 +425,6 @@ struct PaletteCommand {
             PaletteCommand(name: "Smaller Text", shortcut: "⌘−") { model.makeTextSmaller() },
             PaletteCommand(name: model.isFocused ? "Leave Focus" : "Focus", shortcut: "⇧⌘\\") { model.isFocused.toggle() },
             PaletteCommand(name: model.showsMarkdown ? "Hide Markdown" : "Show Markdown", shortcut: "⇧⌘M") { model.showsMarkdown.toggle() },
-            PaletteCommand(name: model.showsNotePath ? "Hide File Path" : "Show File Path", shortcut: nil) { model.showsNotePath.toggle() },
             PaletteCommand(name: model.showsDateInList ? "Hide Dates in List" : "Show Dates in List", shortcut: nil) { model.showsDateInList.toggle() },
             PaletteCommand(name: model.showsTagsInList ? "Hide Tags in List" : "Show Tags in List", shortcut: nil) { model.showsTagsInList.toggle() },
             PaletteCommand(name: "Sort by Date Edited", shortcut: nil) { model.sort = .modified },
@@ -398,6 +440,11 @@ struct PaletteCommand {
             PaletteCommand(name: "New Tab", shortcut: "⌘T") { model.newTab() },
             PaletteCommand(name: "New Tab on Other Side", shortcut: "⌃⌘T") { model.newTabOnOtherSide() },
             PaletteCommand(name: "Close Tab", shortcut: "⌘W") { model.closeTab() },
+            PaletteCommand(name: "Switch to Tab…", shortcut: "⌃Tab") {
+                // After the palette running this has closed.
+                DispatchQueue.main.async { model.togglePalette(.tabs) }
+            },
+            PaletteCommand(name: "Show Tab List", shortcut: "⇧⌘O") { model.toggleTabMenu() },
         ]
         commands += [
             PaletteCommand(name: model.isSplit ? "Merge Split into Tabs" : "Split", shortcut: "⇧⌘S") { model.toggleSplit() },
@@ -474,6 +521,9 @@ private struct PaletteField: NSViewRepresentable {
     let onMove: (Int) -> Void
     let onSubmit: () -> Void
     let onCancel: () -> Void
+    /// ⌘⌫: closes the highlighted tab, if it is one (returning true); otherwise the text
+    /// field deletes to the start of the line as usual.
+    var onCloseItem: (() -> Bool)?
     /// ← at the start of the text, and → at its end (or ⌫ with nothing typed): for the
     /// explorer to go up a level or into one.
     var onLeft: (() -> Void)?
@@ -516,6 +566,8 @@ private struct PaletteField: NSViewRepresentable {
             // ⌘Return reaches a text field as "noop:"; it opens the note in a new tab.
             case NSSelectorFromString("noop:") where NSApp.currentEvent?.keyCode == 36: parent.onSubmit()
             case #selector(NSResponder.cancelOperation(_:)): parent.onCancel()
+            case #selector(NSResponder.deleteToBeginningOfLine(_:)) where NSApp.currentEvent?.modifierFlags.contains(.command) == true:
+                return parent.onCloseItem?() ?? false
             case #selector(NSResponder.moveLeft(_:)) where parent.onLeft != nil && textView.selectedRange() == NSRange(location: 0, length: 0):
                 parent.onLeft?()
             case #selector(NSResponder.deleteBackward(_:)) where parent.onLeft != nil && textView.string.isEmpty:

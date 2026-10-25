@@ -229,7 +229,6 @@ struct SettingsView: View {
 
     @ViewBuilder private var textPage: some View {
             SettingsSection("Text") {
-                Toggle("Show each note's folders above its title", isOn: $store.showsNotePath)
                 Setting("Size") {
                     HStack {
                         Text("\(Int((store.textScale * 100).rounded()))%")

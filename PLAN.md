@@ -459,7 +459,7 @@ Buy the developer account first.
 
 ## Exploration: no visible tabs (branch `no-visible-tabs`)
 
-**The question** (Mike, 25 October 2026). Can Point keep several notes open without showing tabs at all? The header shows only where you are, and you reach the other open notes through the command palette and a small menu of tabs. The model doesn't change (windows, sides, tabs, one shared history); only how tabs are shown and reached does. Designed 25 October 2026. Not started.
+**The question** (Mike, 25 October 2026). Can Point keep several notes open without showing tabs at all? The header shows only where you are, and you reach the other open notes through the command palette and a small menu of tabs. The model doesn't change (windows, sides, tabs and their history); only how tabs are shown and reached does. Designed and built 25 October 2026 (see "Built" below).
 
 **The header (one per side of a split, as now):**
 1. **Left to right:** back and forward, then the note's path. On the right: the tab button (`square.stack`), then Split, or Close This Side with a split. The New Tab (+) button goes; New Tab moves into the tab menu (and ⌘T stays).
@@ -486,6 +486,13 @@ Buy the developer account first.
 **Unchanged:** ⇧⌘[ / ⇧⌘] move to the previous and next tab; ⌘W, ⌘T, ⌃⌘T and ⌘Z (reopen the tab just closed) work as now.
 
 **Settled (25 October 2026):** the page's own path goes (header item 7); the header's folders open in the sidebar or explorer (header item 5); the tab menu keeps tab order rather than most recent first (tab menu item 2).
+
+**Built (25 October 2026, uncommitted on `no-visible-tabs`):**
+- **Where:** `TopBars.swift` (`PaneTopBar`, `PanePath`, `TabListButton`, `TabMenu`); `VaultModel` (`tabMenuPane`, `toggleTabMenu`, `recentTabs`, `goToTab(of:)`, `closeTab(of:)`, `reveal(folder:)`, palette mode `.tabs`); `CommandPalette` (the tabs list, ⌘⌫). The tab row (`NoteTabs`) and `NotePath` are gone, and so is the Show File Path setting (Settings, View menu, palette).
+- **Small additions:** a start page's header says "New Tab", dimmed. "…" shows the folded folders as a tooltip. The list closes itself when a side is down to one tab, so ⌫ can't go on to close the window. Reordering in the list doesn't change the note shown. View has Show Tab List (⇧⌘O) and Switch to Tab… (⌃Tab); both are in the palette and the shortcuts sheet.
+- **Checked in the app** (debug build, a test vault with deep folders): the path folding as the window and sidebar change; clicking a folder (opens the explorer there with the sidebar hidden); renaming from the header; the list by mouse (click, ×, drag to reorder, drag onto the page to split) and by keys (⇧⌘O, arrows, Return, ⌫); ⌃Tab (opens on the note before, again moves down) and ⌘⌫ in it; the other side's path dimmed in a split.
+- **Fixed along the way:** a crash when closing a tab before the current one (the recent-tabs record read a side mid-change); the list's × now takes clicks through the row's AppKit mouse area, because a SwiftUI button there missed them; after a drag, rows checked the pointer against the whole list's visible area, which left every row shaded.
+- **Not checked yet:** clicking a folder with the sidebar showing, right-click menus on rows, dragging a row onto the other side's bar, macOS before 26.
 
 ## Topics for investigation
 

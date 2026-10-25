@@ -257,10 +257,16 @@ struct AppCommands: Commands {
             Button("Show Previous Tab") { model?.cycleTab(-1) }
                 .keyboardShortcut("[", modifiers: [.command, .shift])
                 .disabled(model == nil)
+            // Tabs aren't shown as tabs: these list them.
+            Button("Show Tab List") { model?.toggleTabMenu() }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
+                .disabled(model == nil)
+            Button("Switch to Tab…") { model?.togglePalette(.tabs) }
+                .keyboardShortcut(.tab, modifiers: .control)
+                .disabled(model == nil || store.root == nil)
             Divider()
             Toggle("Show Markdown", isOn: $store.showsMarkdown)
                 .keyboardShortcut("m", modifiers: [.command, .shift])
-            Toggle("Show File Path", isOn: $store.showsNotePath)
             Toggle("Focus", isOn: bind(\.isFocused, false))
                 .keyboardShortcut("\\", modifiers: [.command, .shift])
                 .disabled(model == nil)
