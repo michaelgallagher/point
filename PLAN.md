@@ -651,6 +651,36 @@ Mike's list, with his answers to the questions asked about it.
   - Checked with real mouse events and a probe of the pointer (`-PointCursorProbe YES`).
 - **Dragging the sidebar closed, then opening it, works:** its contents had stayed at the size they rest at while hidden and didn't follow the divider. They now fill the sidebar again once it's open. Hiding or showing it by dragging also updates the window's own state (it thought the sidebar was still showing), without resizing the window.
 
+## App review (25 October 2026)
+
+A code review of the branch's changes (17 commits, about 3,600 lines: the sidebar split, the slides, panes, the top bars, the sidebar table and tree, properties, the palette), then each area driven with real mouse and keyboard events, screenshots, recordings and traces. Nothing below is fixed yet.
+
+**Most of the little bugs come from three things:**
+1. **State kept in two places drifts apart:** the model and the split view each hold whether the sidebar shows and how wide it is; the saved width is read before its key is set.
+2. **SwiftUI and AppKit both own the same views:** the properties strip lives inside the editor's text view, so keys the strip doesn't handle go to the editor; editors set the pointer over dividers; SwiftUI animations don't move AppKit views.
+3. **Layouts with no floor:** a narrow pane's top bar and path have no minimum, so they overflow rather than giving way.
+
+**High**
+- **H1. The window thinks the sidebar is a different width from what it is.** At launch, the split view reads the saved width under its default key before the window sets the layout's key, and it doesn't read it again when the key changes. Seen: a 320-point sidebar reported as 240. So the window's minimum (sidebar + 420) and the auto-hide width use the wrong number, and a window can be narrowed until the notes are below 420. Fix: apply the widths again when `widthKey` changes.
+- **H2. A narrow side's top bar overflows.** In a split with the sidebar hidden, at a window width of 751, the left side's bar doesn't fit: the back and forward buttons slide under the sidebar button, and its ✕ is cut by the divider. Its minimum width (240) doesn't allow for the window buttons and the sidebar button (136 more), and the bar has no way to give way (the path should shrink first, then the bookmark and tabs buttons). Fix: a minimum for the first side that includes the window-button clearance, a leading-aligned bar that clips at its end, and buttons that drop out before anything overlaps.
+
+**Medium**
+- **M1. In a narrow side, the path shows "Projects / /":** the "…" and the note's name are squeezed to nothing. The last fallback keeps the first folder at full width. Fix: fold everything ("… / Name"), then show the name alone, with a minimum width for the name.
+- **M2. Keys can reach the note's text from the properties strip.** The strip is inside the editor's text view, so it's in the editor's responder chain. While a property row is selected (its key catcher has the keyboard), any key it doesn't handle (a letter, ⌘A) goes to the editor. Seen nearly: clicking a property while the strip was still opening put the click in the body, and ⌘A then typing replaced the whole body (6 KB) with the typed word, saved at once. Fix: the key catcher swallows everything but ⌫, ⌦ and Escape (and Select All, Cut, Paste); clicks during the strip's opening go to the strip, not the text.
+- **M3. Dragging the sidebar closed makes it reopen at its narrowest:** the width is saved as it's dragged, down to the minimum, before the split view collapses it. Fix: remember the width when the drag starts, and keep that if the drag ends in a collapse.
+
+**Low**
+- **L1.** The two-column tree column starts at 144 points (40% of 360), which cuts short names like "Projects" ("Projec…"). The 60/40 split may want a larger total or a minimum for the tree.
+- **L2.** With many tabs open, the palette's four default actions sit below Open Tabs and Bookmarks, at the bottom of the list. Should they come first?
+- **L3.** Small robustness gaps in `SidebarSplitController`: `setSidebar` without a window doesn't rest the hidden sidebar or record its state; a split closing doesn't check that the window is on screen; the sidebar's contents, wider than their pane while sliding, still take clicks outside it (hit testing ignores the pane's clipping).
+- **L4.** Known from before: the header's side-to-side jitter during the sidebar's slide (SwiftUI and AppKit animations on separate clocks), and a possible one-frame gap when the right-hand note slides across as a split closes.
+
+**Checked and working:** showing and hiding the sidebar (⌘S, button); focus mode; auto-hide on narrowing and widening; both dividers' pointer and dragging; dragging the sidebar closed and reopening; two-column folder and note selection (selecting a note open on the other side moves there, as designed); two-column fold arrows; splitting, merging, new tab, tab list, ⌃Tab, closing a tab and ⌘Z; the palette's ">" commands, Move Note (folder list, filtering), the explorer; property editing; typing doesn't rebuild the window (10 keystrokes, 4 updates, from saving).
+
+**Not covered:** full screen (⌃⌘F isn't its shortcut here; needs a debug hook), swipes, a second display, tab dragging, the sort menus' contents (menus are separate windows, not in the screenshots).
+
+**For testing:** each test launch makes the test app active, so typing elsewhere at that moment lands in it (a stray "t" and "po" in the test vault). Tests should run when no one's typing.
+
 ## Topics for investigation
 
 ### Daily notes as a meeting log

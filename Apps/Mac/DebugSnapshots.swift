@@ -212,7 +212,8 @@ enum DebugSnapshots {
                 var chain = "", view = hit
                 for _ in 0..<12 { guard let v = view else { break }; chain += String(describing: type(of: v)).prefix(30) + "\(v.frame.integral) < "; view = v.superview }
                 let grips = views(of: ResizeGrip.self, in: window.contentView?.superview).map { "\($0.convert($0.bounds, to: nil).integral) hidden \($0.isHiddenOrHasHiddenAncestor)" }
-                let line = "x \(Int(point.x)) \(name) hit \(chain.prefix(40)) grips \(grips)"
+                let responder = window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+                let line = "x \(Int(point.x)) \(name) hit \(chain.prefix(40)) grips \(grips.count) responder \(responder)"
                 if line != last { last = line; Trace.mark("cursor " + line + " key \(window.isKeyWindow)") }
             }
         }
