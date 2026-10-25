@@ -20,6 +20,22 @@ struct PlaceTreeColumn: View {
         expandedFolders = places.sorted().joined(separator: "\n")
     }
 
+    /// Gives the tree the keyboard once something's picked in it, so its selection is blue,
+    /// as the last thing picked. A click on a row doesn't always do it: the row's own drag
+    /// handling (folders can be dragged) can take the click first, leaving the keyboard in
+    /// the note list, so the tree's selection stayed grey.
+    private func focusTree() {
+        DispatchQueue.main.async { [weak model] in
+            guard let window = model?.window, let root = window.contentView else { return }
+            func tree(in view: NSView) -> NSOutlineView? {
+                if let outline = view as? NSOutlineView { return outline }
+                for subview in view.subviews { if let found = tree(in: subview) { return found } }
+                return nil
+            }
+            if let tree = tree(in: root), window.firstResponder !== tree { window.makeFirstResponder(tree) }
+        }
+    }
+
     /// The tree's rows in order, with the children of each unfolded node beneath it.
     private func rows(_ nodes: [VaultModel.PlaceNode], depth: Int = 0) -> [(node: VaultModel.PlaceNode, depth: Int)] {
         let expanded = expanded
@@ -45,6 +61,7 @@ struct PlaceTreeColumn: View {
                       let place = SidebarPlace(key: String(id[id.index(after: colon)...])) else { return }
                 pickedFromPins = id.hasPrefix("pin:")
                 model.browse(place)
+                focusTree()
             }
         )
     }

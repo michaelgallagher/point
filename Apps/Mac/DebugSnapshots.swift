@@ -12,6 +12,7 @@ enum DebugSnapshots {
     static func runIfAsked(for model: VaultModel) {
         scrollNoteIfAsked(for: model)
         clickBackIfAsked(for: model)
+        clickTreeIfAsked(for: model)
         if let key = UserDefaults.standard.string(forKey: "PointBrowse"), let place = SidebarPlace(key: key) {
             // `-PointBrowse <place key>`: shows that place in the sidebar.
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { model.browse(place) }
@@ -118,6 +119,57 @@ enum DebugSnapshots {
     /// `-PointClickBack YES`: tries the back and forward arrows on the first side's bar
     /// with real mouse events sent through the window, as a person's clicks would go, and
     /// notes in the trace whether each step did what it should.
+    /// `-PointClickTree YES`: in the two-column view, clicks a note in the list (a real mouse
+    /// event), then picks a folder in the tree (by selecting its row, as AppKit does after a
+    /// click: synthetic clicks don't reach SwiftUI's rows), tracing where the keyboard goes.
+    /// Brings the app to the front.
+    private static func clickTreeIfAsked(for model: VaultModel) {
+        guard UserDefaults.standard.bool(forKey: "PointClickTree") else { return }
+        func views<T: NSView>(_ type: T.Type, in view: NSView) -> [T] {
+            ((view as? T).map { [$0] } ?? []) + view.subviews.flatMap { views(type, in: $0) }
+        }
+        func describe(_ responder: NSResponder?) -> String {
+            guard let responder else { return "nil" }
+            return String(describing: type(of: responder))
+        }
+        func click(_ view: NSView, row: Int) {
+            guard let window = model.window, let table = view as? NSTableView, row < table.numberOfRows else { return Trace.mark("tree test: no row \(row)") }
+            let rect = table.convert(table.rect(ofRow: row), to: nil)
+            let point = NSPoint(x: rect.midX, y: rect.midY)
+            let hit = window.contentView?.superview?.hitTest(window.contentView!.superview!.convert(point, from: nil))
+            Trace.mark("tree test: clicking \(type(of: table)) row \(row) at \(point), hits \(hit.map { String(describing: type(of: $0)) } ?? "nil")")
+            func event(_ type: NSEvent.EventType) -> NSEvent? {
+                NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                   windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+            }
+            // The mouse-up waits in the queue, for whatever tracks the mouse after the down.
+            if let up = event(.leftMouseUp) { NSApp.postEvent(up, atStart: false) }
+            if let down = event(.leftMouseDown) { window.sendEvent(down) }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            guard let root = model.window?.contentView?.superview else { return }
+            let lists = views(SidebarTableView.self, in: root)
+            let trees = views(NSOutlineView.self, in: root) + views(NSTableView.self, in: root).filter { !($0 is SidebarTableView) && !($0 is NSOutlineView) }
+            Trace.mark("tree test: lists \(lists.count) trees \(trees.map { String(describing: type(of: $0)) })")
+            guard let list = lists.first, let tree = trees.first else { return }
+            NSApp.activate(ignoringOtherApps: true)
+            model.window?.makeKeyAndOrderFront(nil)
+            click(list, row: 0)
+            for delay in [0.2, 0.6] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { Trace.mark("tree test: after note click +\(delay): first responder \(describe(model.window?.firstResponder))") }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                // As AppKit does after a click on a row (synthetic clicks don't reach SwiftUI's rows).
+                (tree as? NSTableView)?.selectRowIndexes([7], byExtendingSelection: false)
+                for delay in [0.05, 0.3, 0.8, 1.5] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                        Trace.mark("tree test: after tree click +\(delay): first responder \(describe(model.window?.firstResponder)) tree selected row \((tree as? NSTableView)?.selectedRow ?? -9) place \(model.place.key)")
+                    }
+                }
+            }
+        }
+    }
+
     private static func clickBackIfAsked(for model: VaultModel) {
         guard UserDefaults.standard.bool(forKey: "PointClickBack") else { return }
         func check(_ name: String, _ ok: Bool, _ detail: String = "") {
