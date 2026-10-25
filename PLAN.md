@@ -597,6 +597,31 @@ Also removed: the measuring of the system's sidebar button (it no longer exists)
 
 **To check by hand:** a window near the right edge of the screen, one wider than the screen with the sidebar, two displays, full screen, a split, the two-column sidebar (470 points wide), and that showing and hiding fifty times leaves the window where it started.
 
+## Next batch (25 October 2026)
+
+Mike's list, with his answers to the questions asked about it.
+
+1. **Links footer as a glass button.** The footer's links become a Liquid Glass button reading "1 link" or "3 links" ("here" goes). Clicking it opens a panel over the note, scrolling inside itself when the list is long.
+   - **Shows backlinks and unlinked mentions:** notes linking here, then notes that mention this note's title without linking. The button counts both.
+   - Each mention shows its sentence. Clicking it opens the note there, and a **Link** button turns that mention into a `[[link]]`.
+2. **Templates: how they behave and are applied.** Today a template is inserted, filled in, at the cursor (⌥⌘T, or "Apply Template" in the palette). The daily note uses its own template, and an empty new note in Minimal offers templates. To add:
+   - **New note from a template:** choose a template when making a note, so the note starts as the template, filled in.
+   - **Merging properties:** applying a template to a note merges the template's properties into the note's frontmatter, rather than pasting a second block at the cursor. Keys the note already has keep their values, lists (tags) are combined, and the template's body goes in at the cursor.
+   - **Managing them in Settings:** a Templates page holding the templates folder, the list of templates, the daily note's template, and a reference for the variables (`{{title}}`, `{{date}}` and so on). Templates are still edited as notes.
+3. **A properties view.** An overview of properties across the vault: for vault maintenance (finding inconsistent keys, types and values), and to see the notes from another angle.
+   - **Keys, then values:** a list of every key with its type and how many notes use it. Choosing a key shows its values, each with the notes that use it. A key can be renamed, and its type fixed, across the vault from there.
+   - **A place in the sidebar:** "Properties", beside All Notes, Bookmarks and Trash, browsed in the sidebar with notes opening beside it.
+4. **Default palette actions.** With nothing typed, the command palette lists: New Note, Move Note, Apply Template, Use File Explorer.
+   - **Move Note** is new (only Move to Trash exists). The palette switches to a list of folders, filtered as you type, and Return moves the note there. Links to it keep working.
+   - **Use File Explorer** opens the ⌘E explorer.
+5. **Tags in the sidebar.** Shown without the "#", with the `number.sign.circle` symbol.
+6. **Filtering in two columns.** Works the same way as in the single column. What's wrong is the search field's placement: in two columns it should sit and behave as it does in one column. To confirm when building: one field across the top of the sidebar, above both columns.
+7. **Sidebar vertical spacing.** Even out the space above and below section labels; it's most visible with a section folded (Tags).
+8. **A home button (single column).** Beside the window buttons, it goes back to the top level. Hidden while the sidebar is hidden, and only enabled away from the top level. Its symbol is `house`.
+9. **Black text on a highlighted row.** Sometimes a selected sidebar row has black text instead of white.
+10. **Closing a split slides.** The remaining note slides across to fill the window rather than popping into place.
+11. **Two-column default width.** About 150% of the single column's width, split 40/60 with the note list the wider column.
+
 ## Topics for investigation
 
 ### Daily notes as a meeting log
