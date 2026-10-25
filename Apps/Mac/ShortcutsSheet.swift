@@ -8,7 +8,6 @@ struct ShortcutsSheet: View {
     private static let groups: [(String, [(String, String)])] = [
         ("Notes", [
             ("⌘N", "New note"),
-            ("⇧⌘T", "Today's note"),
             ("⌥⌘T", "Insert template"),
             ("⇧⌘N", "New folder"),
             ("⌥⌘R", "Show in Finder"),
@@ -27,7 +26,7 @@ struct ShortcutsSheet: View {
             ("⌘W", "Close tab"),
             ("⇧⌘[  ⇧⌘]", "Previous, next tab"),
             ("⌃Tab", "Switch to a tab (in the palette)"),
-            ("⇧⌘O", "Show this side's tab list"),
+            ("⇧⌘T", "Show this side's tab list"),
             ("⇧⌘S", "Split, or merge both sides into tabs"),
             ("⌥⌘N", "New window"),
             ("⌘-click a link", "Open it in a new tab"),

@@ -123,7 +123,7 @@ A single flat list of notes won't scale, so the sidebar browses folders and tags
 | ⌘S | Hide or show the note list |
 | ⌘T | New tab |
 | ⇧⌘N | New folder, inside the folder being browsed (also "New Folder Inside…" on a folder's right-click menu) |
-| ⇧⌘T | Today's note |
+| ⇧⌘T | Show the tab list (Today's Note has no shortcut for now; 25 October 2026) |
 | ⌘-click | Open a note or link in a new tab |
 | ⌘, | Settings |
 
@@ -476,7 +476,7 @@ Buy the developer account first.
 3. **Closing:** an × on each row on hover. Right-click a row: Close Tab, Close Other Tabs, Move to Other Side, Merge Both Sides into Tabs (the actions the tabs' own menu has today).
 4. **A New Tab row** at the bottom.
 5. **Dragging rows:** drag a row up or down to reorder the tabs. Drag it out of the menu onto the page or onto the other side's header to split or move it, as dragging a tab does today (an unsplit window's left or right half splits, the other side's page takes it as its current tab, a side left without tabs closes).
-6. **Keyboard:** ⇧⌘O opens it for the active side. ↑↓ move, Return goes to the tab, ⌫ or ⌘W closes the highlighted tab, Escape closes the menu.
+6. **Keyboard:** ⇧⌘T opens it (⇧⌘O at first; changed 25 October 2026, and Today's Note lost ⇧⌘T) for the active side. ↑↓ move, Return goes to the tab, ⌫ or ⌘W closes the highlighted tab, Escape closes the menu.
 
 **The command palette:**
 1. **Unchanged:** open tabs are listed first, marked "Open".
@@ -489,10 +489,20 @@ Buy the developer account first.
 
 **Built (25 October 2026, uncommitted on `no-visible-tabs`):**
 - **Where:** `TopBars.swift` (`PaneTopBar`, `PanePath`, `TabListButton`, `TabMenu`); `VaultModel` (`tabMenuPane`, `toggleTabMenu`, `recentTabs`, `goToTab(of:)`, `closeTab(of:)`, `reveal(folder:)`, palette mode `.tabs`); `CommandPalette` (the tabs list, ⌘⌫). The tab row (`NoteTabs`) and `NotePath` are gone, and so is the Show File Path setting (Settings, View menu, palette).
-- **Small additions:** a start page's header says "New Tab", dimmed. "…" shows the folded folders as a tooltip. The list closes itself when a side is down to one tab, so ⌫ can't go on to close the window. Reordering in the list doesn't change the note shown. View has Show Tab List (⇧⌘O) and Switch to Tab… (⌃Tab); both are in the palette and the shortcuts sheet.
-- **Checked in the app** (debug build, a test vault with deep folders): the path folding as the window and sidebar change; clicking a folder (opens the explorer there with the sidebar hidden); renaming from the header; the list by mouse (click, ×, drag to reorder, drag onto the page to split) and by keys (⇧⌘O, arrows, Return, ⌫); ⌃Tab (opens on the note before, again moves down) and ⌘⌫ in it; the other side's path dimmed in a split.
+- **Small additions:** a start page's header says "New Tab", dimmed. "…" shows the folded folders as a tooltip. The list closes itself when a side is down to one tab, so ⌫ can't go on to close the window. Reordering in the list doesn't change the note shown. View has Show Tab List (⇧⌘T) and Switch to Tab… (⌃Tab); both are in the palette and the shortcuts sheet.
+- **Checked in the app** (debug build, a test vault with deep folders): the path folding as the window and sidebar change; clicking a folder (opens the explorer there with the sidebar hidden); renaming from the header; the list by mouse (click, ×, drag to reorder, drag onto the page to split) and by keys (⇧⌘T, arrows, Return, ⌫); ⌃Tab (opens on the note before, again moves down) and ⌘⌫ in it; the other side's path dimmed in a split.
 - **Fixed along the way:** a crash when closing a tab before the current one (the recent-tabs record read a side mid-change); the list's × now takes clicks through the row's AppKit mouse area, because a SwiftUI button there missed them; after a drag, rows checked the pointer against the whole list's visible area, which left every row shaded.
 - **Not checked yet:** clicking a folder with the sidebar showing, right-click menus on rows, dragging a row onto the other side's bar, macOS before 26.
+
+**Mike's notes (25 October 2026), built the same day:**
+- **Properties:** the summary's chevron no longer hangs in the margin; it lines up with the title.
+- **Sidebar sections fold per place:** folding Notes at the top level leaves it open inside a folder. Saved as place and section (`folder:Projects|Notes`); a plain name from before counts as the top level.
+- **Folders and tags unfold from a chevron after their name,** like the section labels, so their icons line up with the section label. There's no arrow column any more. The table works out where the chevron is from the name's width, since it takes the clicks.
+- **Folder icons are blue** (the accent colour), as in Finder, in both sidebar layouts; tags stay grey.
+- **Header buttons:** Split, Close This Side and the tab button are 36 points, like the back and forward capsule and the sidebar button. The tab button shows how many tabs the side has (a small badge, from two).
+- **⇧⌘T** shows the tab list; Today's Note has no shortcut for now.
+- **The edge under the bars:** the hairline and the blur show only once the note scrolls under the bar. The hairline is one device pixel of the separator colour. The blur is now a real one: a Core Image Gaussian blur (radius 8) on what's behind a view inside the scroll view, clipped to the bar (unclipped, it blurred the whole page), under the page's colour at 45%. The within-window material it replaces either hid the text or, faded, showed it unblurred (`MarkdownScrollView`).
+- **Checked:** in pictures of the debug build (the sidebar, the badge, folding per place, the scrolled edge). Not tried by hand: clicking the new chevrons, the blur's strength against the system's.
 
 ## Topics for investigation
 

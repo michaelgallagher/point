@@ -152,8 +152,8 @@ struct AppCommands: Commands {
                 .disabled(model == nil)
             Button("New Window") { openWindow(id: "main", value: TabRequest()) }
                 .keyboardShortcut("n", modifiers: [.command, .option])
+            // No shortcut for now: ⇧⌘T shows the tab list.
             Button("Today's Note") { model?.openTodaysNote() }
-                .keyboardShortcut("t", modifiers: [.command, .shift])
                 .disabled(model == nil || store.root == nil)
             Button("Insert Template…") { model?.isChoosingTemplate = true }
                 .keyboardShortcut("t", modifiers: [.command, .option])
@@ -259,7 +259,7 @@ struct AppCommands: Commands {
                 .disabled(model == nil)
             // Tabs aren't shown as tabs: these list them.
             Button("Show Tab List") { model?.toggleTabMenu() }
-                .keyboardShortcut("o", modifiers: [.command, .shift])
+                .keyboardShortcut("t", modifiers: [.command, .shift])
                 .disabled(model == nil)
             Button("Switch to Tab…") { model?.togglePalette(.tabs) }
                 .keyboardShortcut(.tab, modifiers: .control)

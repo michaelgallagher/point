@@ -1,5 +1,6 @@
 #if canImport(AppKit)
 import AppKit
+import CoreImage
 import MarkdownKit
 
 /// The note editor: plain Markdown text, displayed as rich text with the markers hidden.
@@ -642,23 +643,34 @@ private final class FlippedView: NSView {
 }
 
 /// The editor's scroll view. Where the window's top bars cover its top (its top content
-/// inset, from the window), it blurs the text scrolling beneath them, with a hairline at the
-/// edge, like the system's hard scroll edge effect. (The system's own effect needs a title
-/// bar that isn't transparent, which takes the top bars' clicks and drops; and a blur from
-/// outside the scroll view doesn't pick up the text.)
+/// inset, from the window), it blurs the text scrolling beneath them under a light wash of
+/// the page's colour, with a one-pixel hairline at the edge, like the system's scroll edge
+/// effect; both show only once the text has scrolled under the bars. The blur is a Core
+/// Image filter on what's behind a view inside the scroll view, above the text. (The
+/// system's own effect needs a title bar that isn't transparent, which takes the top bars'
+/// clicks and drops; a blur from outside the scroll view doesn't pick up the text; and a
+/// within-window material either hides the text or, faded, shows it unblurred.)
 final class MarkdownScrollView: NSScrollView {
-    private let edgeBlur: NSVisualEffectView = {
-        let view = NSVisualEffectView()
-        view.material = .headerView
-        view.blendingMode = .withinWindow
-        view.state = .active
+    private let edgeBlur: NSView = {
+        let view = NSView()
+        view.wantsLayer = true
+        view.layerUsesCoreImageFilters = true
+        view.layer?.masksToBounds = true // Otherwise the filter reaches the whole page.
+        if let blur = CIFilter(name: "CIGaussianBlur") {
+            blur.setValue(8, forKey: kCIInputRadiusKey)
+            view.backgroundFilters = [blur]
+        }
+        view.alphaValue = 0
         return view
     }()
-    private let edgeLine: NSBox = {
-        let line = NSBox()
-        line.boxType = .separator
+    private let edgeLine: NSView = {
+        let line = NSView()
+        line.wantsLayer = true
+        line.alphaValue = 0
         return line
     }()
+
+    private var isScrolledUnder = false
 
     override func tile() {
         super.tile()
@@ -674,6 +686,44 @@ final class MarkdownScrollView: NSScrollView {
         }
         let top = isFlipped ? 0 : bounds.height - height
         edgeBlur.frame = NSRect(x: 0, y: top, width: bounds.width, height: height)
-        edgeLine.frame = NSRect(x: 0, y: isFlipped ? height - 1 : top, width: bounds.width, height: 1)
+        // One device pixel, as the system draws its hairlines.
+        let pixel = 1 / (window?.backingScaleFactor ?? 2)
+        edgeLine.frame = NSRect(x: 0, y: isFlipped ? height - pixel : top, width: bounds.width, height: pixel)
+        updateEdge(animated: false)
+    }
+
+    override func reflectScrolledClipView(_ clipView: NSClipView) {
+        super.reflectScrolledClipView(clipView)
+        updateEdge(animated: true)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateEdge(animated: false)
+    }
+
+    /// Shows the blur and the line once the text has scrolled under the bars (the clip view's
+    /// origin is past where the inset starts it), and hides them at the top.
+    private func updateEdge(animated: Bool) {
+        guard edgeBlur.superview != nil else { return }
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            // The page's colour over the blur, so the bar's controls stay readable.
+            edgeBlur.layer?.backgroundColor = NSColor.textBackgroundColor.withAlphaComponent(0.45).cgColor
+            edgeLine.layer?.backgroundColor = NSColor.separatorColor.cgColor
+        }
+        let scrolled = contentView.bounds.minY > -contentInsets.top + 0.5
+        guard scrolled != isScrolledUnder || !animated else { return }
+        isScrolledUnder = scrolled
+        let blur: CGFloat = scrolled ? 1 : 0, line: CGFloat = scrolled ? 1 : 0
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.15
+                edgeBlur.animator().alphaValue = blur
+                edgeLine.animator().alphaValue = line
+            }
+        } else {
+            edgeBlur.alphaValue = blur
+            edgeLine.alphaValue = line
+        }
     }
 }

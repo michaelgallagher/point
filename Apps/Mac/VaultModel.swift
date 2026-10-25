@@ -162,7 +162,7 @@ final class VaultModel: ObservableObject {
     /// The side whose tab menu is showing, if any.
     @Published var tabMenuPane: NotePane.ID?
 
-    /// ⇧⌘O: shows (or hides) the active side's tab menu. It lists nothing to switch to with
+    /// ⇧⌘T: shows (or hides) the active side's tab menu. It lists nothing to switch to with
     /// only one tab, so it doesn't open then.
     func toggleTabMenu() {
         let pane = panes[activePane]

@@ -417,7 +417,7 @@ struct PaletteCommand {
     @MainActor static func all(for model: VaultModel) -> [PaletteCommand] {
         var commands = [
             PaletteCommand(name: "New Note", shortcut: "⌘N", isSuggested: true) { model.createNote() },
-            PaletteCommand(name: "Today's Note", shortcut: "⇧⌘T", isSuggested: true) { model.openTodaysNote() },
+            PaletteCommand(name: "Today's Note", shortcut: nil, isSuggested: true) { model.openTodaysNote() },
             PaletteCommand(name: "Explorer", shortcut: "⌘E", isSuggested: true) { model.togglePalette(.explorer) },
             PaletteCommand(name: "New Folder…", shortcut: "⇧⌘N") { model.newFolder() },
             PaletteCommand(name: model.showsNoteList ? "Hide Note List" : "Show Note List", shortcut: "⌘S") { model.showsNoteList.toggle() },
@@ -444,7 +444,7 @@ struct PaletteCommand {
                 // After the palette running this has closed.
                 DispatchQueue.main.async { model.togglePalette(.tabs) }
             },
-            PaletteCommand(name: "Show Tab List", shortcut: "⇧⌘O") { model.toggleTabMenu() },
+            PaletteCommand(name: "Show Tab List", shortcut: "⇧⌘T") { model.toggleTabMenu() },
         ]
         commands += [
             PaletteCommand(name: model.isSplit ? "Merge Split into Tabs" : "Split", shortcut: "⇧⌘S") { model.toggleSplit() },

@@ -311,11 +311,27 @@ private struct TabListButton: View {
                     closedAt = Date()
                 }
             })
-        BarButton("Tabs", systemImage: "square.stack", help: "Show Tab List (⇧⌘O)") {
+        BarButton("Tabs", systemImage: "square.stack", help: "Show Tab List (⇧⌘T)") {
             guard Date().timeIntervalSince(closedAt) > 0.3 else { return }
             isShown.wrappedValue.toggle()
         }
         .disabled(pane.tabs.count < 2)
+        // How many tabs this side has open, once there's more than one.
+        .overlay(alignment: .topTrailing) {
+            if pane.tabs.count > 1 {
+                Text("\(pane.tabs.count)")
+                    .font(.system(size: 10, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 4)
+                    .frame(minWidth: 16, minHeight: 16)
+                    .background(Capsule().fill(Color.accentColor))
+                    .offset(x: 4, y: -2)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .accessibilityValue("\(pane.tabs.count) tabs")
         .popover(isPresented: isShown, arrowEdge: .bottom) {
             TabMenu(paneID: pane.id)
                 .environmentObject(model)
@@ -686,12 +702,13 @@ struct BarButton: View {
 
     var body: some View {
         if #available(macOS 26, *) {
-            // A round glass button, as in a toolbar.
+            // A round glass button, as in a toolbar: 36 points, as tall as the back and
+            // forward capsule and the system's sidebar button.
             Button(action: action) {
                 Label(title, systemImage: systemImage)
                     .labelStyle(.iconOnly)
-                    .font(.system(size: 14))
-                    .frame(width: 20, height: 20)
+                    .font(.system(size: 15))
+                    .frame(width: 24, height: 24)
             }
             .buttonStyle(.glass)
             .buttonBorderShape(.circle)

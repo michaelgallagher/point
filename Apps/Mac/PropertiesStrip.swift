@@ -42,9 +42,6 @@ struct PropertiesStrip: View {
             }
             .buttonStyle(.plain)
             .help(isExpanded ? "Hide properties" : "Show properties")
-            // The chevron hangs in the margin, so the summary lines up with the title. Moved as
-            // a whole, so the chevron is still part of the button and takes clicks.
-            .offset(x: -(Self.chevronWidth + 4))
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: 2) {

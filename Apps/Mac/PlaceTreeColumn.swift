@@ -115,8 +115,9 @@ private struct PlaceLabel: View {
 
     var body: some View {
         HStack(spacing: 6) {
+            // Blue, as in Finder's sidebar; tags stay grey.
             Image(systemName: icon)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(place.isTag ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.accentColor))
                 .frame(width: 16)
             Text(name)
                 .font(.body) // The note list's size, even in small (compact) rows.
