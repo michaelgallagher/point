@@ -466,11 +466,13 @@ Buy the developer account first.
 2. **The path** is the folders inside the vault, then the note's name: `Projects / Point / Tabs idea`, without `.md`. Folders are dimmed; the note's name is in full weight. A note at the vault's root shows only its name; a start page shows nothing (or "New Tab").
 3. **When it doesn't fit,** the folders in the middle fold into `…` one at a time, keeping the first folder and the note's name (`Projects / … / Point / Tabs idea`, then `Projects / … / Tabs idea`). Only then is the note's name cut, in its middle.
 4. **Renaming:** clicking the note's name in the header renames it, as the title at the top of the page does (Return or clicking away renames, Escape puts it back).
-5. **With a split,** each side's header shows its own note; the other side's is dimmed, as now.
+5. **Clicking a folder** in the path shows it: in the sidebar if it's showing, otherwise in the ⌘E explorer, opened at that folder.
+6. **With a split,** each side's header shows its own note; the other side's is dimmed, as now.
+7. **The page loses its path:** the path above the title at the top of each note (item 4 of the minimal exploration) goes, since the header shows it. The page starts with the title.
 
 **The tab menu (`square.stack`):**
 1. **Always shown,** but dimmed and disabled with only one tab on that side, so the header never shifts.
-2. **Lists that side's tabs only,** in tab order, the current one marked. Clicking a row goes to that tab.
+2. **Lists that side's tabs only,** in tab order (the order ⇧⌘[ / ⇧⌘] follow, set by dragging rows), the current one marked. Clicking a row goes to that tab.
 3. **Closing:** an × on each row on hover. Right-click a row: Close Tab, Close Other Tabs, Move to Other Side, Merge Both Sides into Tabs (the actions the tabs' own menu has today).
 4. **A New Tab row** at the bottom.
 5. **Dragging rows:** drag a row up or down to reorder the tabs. Drag it out of the menu onto the page or onto the other side's header to split or move it, as dragging a tab does today (an unsplit window's left or right half splits, the other side's page takes it as its current tab, a side left without tabs closes).
@@ -483,10 +485,7 @@ Buy the developer account first.
 
 **Unchanged:** ⇧⌘[ / ⇧⌘] move to the previous and next tab; ⌘W, ⌘T, ⌃⌘T and ⌘Z (reopen the tab just closed) work as now.
 
-**To decide while building:**
-- The path above the title at the top of each note (item 4 of the minimal exploration) repeats the header's path. Keep it, or drop it now that the header shows it?
-- Whether the header's folders do anything when clicked (for now they're plain text).
-- The order of rows in the tab menu: tab order (as above), or most recent first like ⌃Tab.
+**Settled (25 October 2026):** the page's own path goes (header item 7); the header's folders open in the sidebar or explorer (header item 5); the tab menu keeps tab order rather than most recent first (tab menu item 2).
 
 ## Topics for investigation
 
