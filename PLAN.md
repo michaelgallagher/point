@@ -530,6 +530,34 @@ Buy the developer account first.
 - **Add Property:** every type, starting from the vault's type for the name typed (or tags, or date for date-like names); a new name's type is recorded for the vault.
 - **Checked:** VaultKit tests for types (guessing, the vault's type winning, converting, saving without losing the rest of the file) and for rewriting lists; a picture of a note with one property of each type. Not tried by hand yet: every interaction (Point's windows couldn't be clicked while Mike's own copy was running).
 
+## Plan: the sidebar widens the window (25 October 2026, not started)
+
+**The aim (Mike):** showing or hiding the sidebar changes the window's width, not the notes': the notes area stays the same width, as long as the window fits on the screen, with graceful fallbacks when it doesn't.
+
+**Today:** the window keeps its size and the notes give up or take the sidebar's space. The two-finger swipe is a trigger: once a sideways swipe is 10% under way, the sidebar toggles and animates on its own. Narrowing the window past 760 points hides the sidebar, and widening it past that brings it back.
+
+**Learned before (Part F):** an earlier version widened and narrowed the window by remembered amounts, and drifted whenever a resize was cut short (the minimum width, the screen's edge, full screen), sometimes leaving the window wider than the screen. So nothing here relies on a remembered amount alone: every resize is worked out from the sidebar's real width at the time.
+
+**Decided (Mike):**
+1. **The window grows rightwards:** its left edge stays, the sidebar appears there and the notes move right; the right edge moves out. Hiding pulls the right edge back in.
+2. **When there isn't room:** first slide the window left so it stays on its screen, growing as much as the screen allows; only if it would be wider than the screen do the notes give up the rest, as today.
+3. **The swipe follows the fingers:** the sidebar and the window's right edge move with the swipe, and settle open or closed on release, like swiping between pages.
+4. **The same for ⌘S and the sidebar button,** and for **auto-hide** when narrowing or widening the window. Focus mode is unchanged (the notes take the space).
+
+**How it would work:**
+- **Measuring:** the sidebar's width is read from the split view (the window's `NSSplitView`, its first pane) when it hides, and kept per window as the width to show it at next. After showing, the real width is read again and the window corrected by any difference, so the notes end exactly as wide as before.
+- **Showing:** target width = window width + sidebar width. If the right edge would pass the screen's visible frame, the window slides left (its left edge no lower than the screen's). If the target is wider than the screen's visible width, the window takes the screen's width and the notes give up the difference, which is noted (the shortfall).
+- **Hiding:** target width = window width − sidebar width + any shortfall (so notes that gave up room get it back, if the screen allows). The shortfall is forgotten if the window is resized by hand in between, since the notes' width is then the person's choice. The window's minimum width (600 with the sidebar, 420 without) changes only after the resize, so it never blocks one.
+- **Animating together:** the window's frame and the sidebar's collapse animate in one AppKit animation group (`NSWindow.animator().setFrame` with the split view item's `animator().isCollapsed`), driven directly rather than through SwiftUI's column visibility, which is kept in step afterwards. The two separate animations are what would make the notes jitter.
+- **When not to resize:** full screen, zoomed to fill the screen, or Stage Manager's tiling: the window can't or shouldn't change size there, so the notes take the space, as today.
+- **The interactive swipe:** while tracking (`trackSwipeEvent`, which gives a running amount from 0 to 1), the sidebar's minimum width is lowered to 0 for the gesture, its divider set to amount × width, and the window's width to base + amount × width, every frame. On release it finishes the rest of the way, or springs back, with the same animation as above; the minimum width returns once it settles.
+- **Auto-hide:** a window can't be resized while its edge is being dragged, so this happens when the drag ends: if the sidebar hid during the drag, the window then narrows by the sidebar's width (the notes keep the width they had when it hid); if it reappeared, the window widens by it. This may feel like a jump on release; to be judged once built, with today's behaviour (no resize) to fall back to.
+- **Unchanged:** dragging the sidebar's divider (the notes give and take, as in Finder), a split's two sides (they keep their proportions, as the notes' total width doesn't change), new windows (they open as the last one was left, at their saved size).
+
+**Order:** (1) measuring and the animated resize for ⌘S, the button and the current swipe trigger, with the screen fallbacks; (2) the swipe following the fingers, the riskiest part, as it drives SwiftUI's split view from AppKit (if it can't be made smooth, the trigger stays); (3) auto-hide at the end of a drag.
+
+**To check by hand:** a window near the right edge of the screen, one wider than the screen with the sidebar, two displays, full screen, a split, the two-column sidebar (470 points wide), and that showing and hiding fifty times leaves the window where it started.
+
 ## Topics for investigation
 
 ### Daily notes as a meeting log
