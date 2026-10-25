@@ -457,6 +457,37 @@ Buy the developer account first.
 
 **Later:** windows that snap together; auto-hiding the sidebar below a set window width (see Topics for investigation).
 
+## Exploration: no visible tabs (branch `no-visible-tabs`)
+
+**The question** (Mike, 25 October 2026). Can Point keep several notes open without showing tabs at all? The header shows only where you are, and you reach the other open notes through the command palette and a small menu of tabs. The model doesn't change (windows, sides, tabs, one shared history); only how tabs are shown and reached does. Designed 25 October 2026. Not started.
+
+**The header (one per side of a split, as now):**
+1. **Left to right:** back and forward, then the note's path. On the right: the tab button (`square.stack`), then Split, or Close This Side with a split. The New Tab (+) button goes; New Tab moves into the tab menu (and ⌘T stays).
+2. **The path** is the folders inside the vault, then the note's name: `Projects / Point / Tabs idea`, without `.md`. Folders are dimmed; the note's name is in full weight. A note at the vault's root shows only its name; a start page shows nothing (or "New Tab").
+3. **When it doesn't fit,** the folders in the middle fold into `…` one at a time, keeping the first folder and the note's name (`Projects / … / Point / Tabs idea`, then `Projects / … / Tabs idea`). Only then is the note's name cut, in its middle.
+4. **Renaming:** clicking the note's name in the header renames it, as the title at the top of the page does (Return or clicking away renames, Escape puts it back).
+5. **With a split,** each side's header shows its own note; the other side's is dimmed, as now.
+
+**The tab menu (`square.stack`):**
+1. **Always shown,** but dimmed and disabled with only one tab on that side, so the header never shifts.
+2. **Lists that side's tabs only,** in tab order, the current one marked. Clicking a row goes to that tab.
+3. **Closing:** an × on each row on hover. Right-click a row: Close Tab, Close Other Tabs, Move to Other Side, Merge Both Sides into Tabs (the actions the tabs' own menu has today).
+4. **A New Tab row** at the bottom.
+5. **Dragging rows:** drag a row up or down to reorder the tabs. Drag it out of the menu onto the page or onto the other side's header to split or move it, as dragging a tab does today (an unsplit window's left or right half splits, the other side's page takes it as its current tab, a side left without tabs closes).
+6. **Keyboard:** ⇧⌘O opens it for the active side. ↑↓ move, Return goes to the tab, ⌫ or ⌘W closes the highlighted tab, Escape closes the menu.
+
+**The command palette:**
+1. **Unchanged:** open tabs are listed first, marked "Open".
+2. **Tabs only:** ⌃Tab opens the palette listing just the open tabs (both sides), most recent first, with the one before the current note highlighted, so ⌃Tab then Return flips between two notes. Typing filters. (⌃Tab normally moves the keyboard out of a text view; Point takes it over, as Safari does.)
+3. **Closing from the palette:** ⌘⌫ on an "Open" row closes that tab, and the palette stays open.
+
+**Unchanged:** ⇧⌘[ / ⇧⌘] move to the previous and next tab; ⌘W, ⌘T, ⌃⌘T and ⌘Z (reopen the tab just closed) work as now.
+
+**To decide while building:**
+- The path above the title at the top of each note (item 4 of the minimal exploration) repeats the header's path. Keep it, or drop it now that the header shows it?
+- Whether the header's folders do anything when clicked (for now they're plain text).
+- The order of rows in the tab menu: tab order (as above), or most recent first like ⌃Tab.
+
 ## Topics for investigation
 
 ### Daily notes as a meeting log
