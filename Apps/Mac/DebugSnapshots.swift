@@ -134,13 +134,15 @@ enum DebugSnapshots {
         }
         func report(_ label: String) {
             guard let window = model.window else { return }
-            Trace.mark("sidebar cycle \(label): sidebar \(model.showsNoteList ? "shown" : "hidden"), frame \(window.frame), notes \(notesWidth())")
+            Trace.mark("sidebar cycle \(label): sidebar \(model.showsNoteList ? "shown" : "hidden"), frame \(window.frame), notes \(notesWidth()), sidebar's view \(model.sidebarSplit.sidebarHost.view.frame), min \(window.minSize) content min \(window.contentMinSize)")
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
             if let text = UserDefaults.standard.string(forKey: "PointWindowFrame") {
                 let parts = text.split(separator: " ").compactMap { Double($0) }
                 if parts.count == 4 { model.window?.setFrame(NSRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3]), display: true) }
             }
+            // In sight, without taking the keyboard: a window out of sight doesn't animate.
+            model.window?.orderFrontRegardless()
             // In sight, without taking the keyboard: a window out of sight doesn't animate.
             model.window?.orderFrontRegardless()
             report("start")

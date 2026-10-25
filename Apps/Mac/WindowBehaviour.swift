@@ -51,7 +51,11 @@ final class SwipeToToggleNoteList {
                 fired = true
                 stop.pointee = true
                 Trace.mark("swipe fired: amount \(amount), phase \(phase.rawValue)")
-                onSwipe(amount < 0)
+                // Once the swipe's tracking has stopped, back in the normal run loop: started
+                // from inside it, the sidebar's animation ran while the swipe still held the
+                // run loop.
+                let toTheLeft = amount < 0
+                DispatchQueue.main.async { onSwipe(toTheLeft) }
             }
             return
         }

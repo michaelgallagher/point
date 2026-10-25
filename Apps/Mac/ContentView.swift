@@ -4,16 +4,29 @@ import VaultKit
 
 struct ContentView: View {
     @EnvironmentObject private var model: VaultModel
-    @State private var columns = NavigationSplitViewVisibility.all
+    @EnvironmentObject private var store: VaultStore
     @State private var isAddingProperty = false
 
+    /// The sidebar and the notes, in the window's own split view (see `SidebarSplitController`).
+    private var splitView: some View {
+        let twoColumns = model.browsingStyle == .twoColumns
+        return SidebarSplitView(
+            controller: model.sidebarSplit,
+            sidebar: AnyView(sidebar.environmentObject(model).environmentObject(store)),
+            detail: AnyView(detail.environmentObject(model).environmentObject(store)),
+            widths: twoColumns ? (360, 470, 760) : (180, 240, 400),
+            widthKey: twoColumns ? "sidebarWidth.twoColumns" : "sidebarWidth.singleColumn",
+            showsSidebar: model.showsNoteList && !model.isFocused
+        )
+        .ignoresSafeArea(.container, edges: .top)
+    }
+
     /// One column (folders, tags and notes together) or two (folders and tags beside notes).
-    @ViewBuilder private var splitView: some View {
-        if model.browsingStyle == .twoColumns {
-            // Tree and notes side by side inside one sidebar, so hiding, swiping and resizing
-            // work exactly as in the single column. (SwiftUI's three-column split view on the
-            // Mac won't hide both side columns from code.)
-            NavigationSplitView(columnVisibility: $columns) {
+    @ViewBuilder private var sidebar: some View {
+        Group {
+            if model.browsingStyle == .twoColumns {
+                // Tree and notes side by side inside one sidebar, so hiding, swiping and
+                // resizing work exactly as in the single column.
                 VStack(spacing: 0) {
                     SidebarTopBar()
                     HSplitView {
@@ -23,23 +36,14 @@ struct ContentView: View {
                             .frame(minWidth: 200, idealWidth: 260)
                     }
                 }
-                .ignoresSafeArea(.container, edges: .top)
-                .navigationSplitViewColumnWidth(min: 360, ideal: 470, max: 760)
-            } detail: {
-                detail
-            }
-        } else {
-            NavigationSplitView(columnVisibility: $columns) {
+            } else {
                 VStack(spacing: 0) {
                     SidebarTopBar()
                     NoteList()
                 }
-                .ignoresSafeArea(.container, edges: .top)
-                .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 400)
-            } detail: {
-                detail
             }
         }
+        .ignoresSafeArea(.container, edges: .top)
     }
 
     /// The notes: one pane, or two side by side, each with its own tabs.
@@ -62,19 +66,10 @@ struct ContentView: View {
     /// the window widens or narrows by the sidebar's width so the notes keep theirs; in focus
     /// mode, when the window's width hid it, or where the window can't resize, the notes take
     /// the space instead.
-    private func updateColumns(resizingWindow: Bool = false) {
-        let visible = model.showsNoteList && !model.isFocused
-        let target: NavigationSplitViewVisibility = visible ? .all : .detailOnly
-        // Once settled, SwiftUI's record of the columns follows, unless the sidebar has been
-        // toggled again since.
-        if resizingWindow, model.sidebarSizing.setSidebar(shown: visible, done: {
-            if (model.showsNoteList && !model.isFocused) == visible { columns = target }
-        }) { return }
-        if columns != target { model.sidebarSizing.willToggleWithoutResizing() }
-        withAnimation(.easeOut(duration: 0.15)) { columns = target }
+    private func updateSidebar(resizingWindow: Bool) {
+        model.sidebarSplit.setSidebar(shown: model.showsNoteList && !model.isFocused, resizingWindow: resizingWindow)
     }
 
-    /// In the sidebar's part of the toolbar, beside the button that hides it.
     /// The note being worked on (in the active pane), else the vault's name.
     private var windowTitle: String {
         model.selectedNote?.title ?? model.root?.lastPathComponent ?? "Point"
@@ -90,9 +85,9 @@ struct ContentView: View {
                 }
                 .navigationTitle(windowTitle)
                 // The window's toolbar holds only the system's sidebar button (the split view
-                // adds it), which gives the top row its standard height and puts the button
-                // where macOS does. No other toolbar items: an item, even an invisible one,
-                // takes the clicks meant for the bars drawn in that row (the back and forward
+                // controller adds it), which gives the top row its standard height and puts the
+                // button where macOS does. No other toolbar items: an item, even an invisible
+                // one, takes the clicks meant for the bars drawn in that row (the back and forward
                 // arrows sat under one). The sidebar and each side draw their own bars there.
                 .overlay(alignment: .topLeading) {
                     if model.isFocused {
@@ -111,31 +106,24 @@ struct ContentView: View {
                     }
                 }
                 .onChange(of: model.searchFocusRequest) { _ in
-                    withAnimation(.easeInOut(duration: 0.2)) { columns = .all } // Search needs the list.
+                    if !model.showsNoteList { model.showsNoteList = true } // Search needs the list.
                 }
-                .onChange(of: model.isFocused) { _ in updateColumns() }
+                .onChange(of: model.isFocused) { focused in
+                    model.sidebarSplit.hidesSidebarButton = focused
+                    updateSidebar(resizingWindow: false)
+                }
                 // Shown or hidden by hand, the window widens or narrows instead of the notes.
                 .onChange(of: model.showsNoteList) { _ in
-                    updateColumns(resizingWindow: !model.lastToggleWasAutomatic && !model.isFocused)
-                }
-
-                .onChange(of: columns) { visibility in
-                    // Showing the sidebar (with the system's button) leaves focus mode.
-                    if model.isFocused, visibility != .detailOnly { model.isFocused = false }
-                    // The toolbar's sidebar button changes the columns directly; keep ⌘S in step.
-                    if !model.isFocused { model.showsNoteList = visibility != .detailOnly }
+                    updateSidebar(resizingWindow: !model.lastToggleWasAutomatic && !model.isFocused)
                 }
             }
         }
         // Minimal is meant to sit beside other windows, so it can be narrow.
         // With the sidebar hidden, a window is one compact note that can sit beside others.
-        .frame(minWidth: model.showsNoteList && !model.isFocused ? SidebarSizing.minimumWidth.shown : SidebarSizing.minimumWidth.hidden,
+        .frame(minWidth: model.minimumWindowWidth,
                minHeight: 400)
         .onAppear {
             model.startSwipeTracking()
-            // Open the way the last window was left: with or without the sidebar, at its size.
-            model.sidebarSizing.willToggleWithoutResizing()
-            columns = model.showsNoteList ? .all : .detailOnly
         }
         .overlay(alignment: .top) {
             if model.isPaletteShown {

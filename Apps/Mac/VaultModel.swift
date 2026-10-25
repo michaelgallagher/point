@@ -244,13 +244,36 @@ final class VaultModel: ObservableObject {
         id.flatMap { id in notes.first { $0.id == id } }
     }
 
-    /// Shows and hides the sidebar by widening and narrowing the window (see `SidebarSizing`).
-    let sidebarSizing = SidebarSizing()
+    /// The window's sidebar and notes, side by side; shows and hides the sidebar by widening
+    /// and narrowing the window (see `SidebarSplitController`).
+    lazy var sidebarSplit: SidebarSplitController = {
+        let split = SidebarSplitController()
+        split.slidingChanged = { [weak self] sliding in self?.isSidebarSliding = sliding }
+        split.sidebarWidthChanged = { [weak self] width in self?.sidebarWidth = width }
+        split.onToggle = { [weak self] in
+            guard let self else { return }
+            // As the system's button did: out of focus mode, else show or hide the sidebar.
+            if self.isFocused { self.isFocused = false } else { self.showsNoteList.toggle() }
+        }
+        return split
+    }()
+
+    /// The width the sidebar shows at.
+    @Published private(set) var sidebarWidth: CGFloat = 240
+
+    /// The narrowest the window can be: the notes' narrowest, plus the sidebar while it shows.
+    var minimumWindowWidth: CGFloat {
+        SidebarSplitController.minimumNotesWidth + (showsNoteList && !isFocused ? sidebarWidth : 0)
+    }
+
+    /// While the sidebar slides in or out (see `SidebarSplitController.slidingChanged`).
+    @Published private(set) var isSidebarSliding = false
+    /// Counts the sidebar's toggles by hand, so a fallback for one leaves later ones alone.
+    private var slideToggles = 0
 
     /// The window this model shows in.
     weak var window: NSWindow? {
         didSet {
-            sidebarSizing.window = window
             measureTopBar()
             // Again once the window has its toolbar (the sidebar button's), which can come
             // after the window does and makes the top row taller.
@@ -278,9 +301,6 @@ final class VaultModel: ObservableObject {
     /// the view reacts to the change after it's made.
     private(set) var lastToggleWasAutomatic = false
 
-    /// Hides the sidebar as the window narrows past the set width, and shows it again as it
-    /// widens past it, if narrowing hid it. Only on crossing the width, so showing or hiding
-    /// it by hand in between sticks.
     /// The top bars' height and inset, from where the window buttons are.
     private func measureTopBar() {
         if let height = TopBar.height(for: window), height != topBarHeight {
@@ -288,46 +308,25 @@ final class VaultModel: ObservableObject {
             topBarHeight = height
         }
         if let inset = TopBar.windowButtonsInset(for: window), inset != windowButtonsInset { windowButtonsInset = inset }
-        let end = TopBar.sidebarButtonEnd(for: window)
-        if end != sidebarButtonEnd { sidebarButtonEnd = end }
-        watchSidebarButton()
     }
 
-    private weak var watchedSidebarButton: NSView?
-    private var sidebarButtonObserver: NSObjectProtocol?
-
-    /// Measures again whenever the system moves its sidebar button.
-    private func watchSidebarButton() {
-        guard let button = TopBar.sidebarButton(in: window), button !== watchedSidebarButton else { return }
-        if let sidebarButtonObserver { NotificationCenter.default.removeObserver(sidebarButtonObserver) }
-        watchedSidebarButton = button
-        button.postsFrameChangedNotifications = true
-        sidebarButtonObserver = NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: button, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                let end = TopBar.sidebarButtonEnd(for: self.window)
-                if end != self.sidebarButtonEnd { self.sidebarButtonEnd = end }
-            }
-        }
-    }
-
-    /// Measures the bars again once the sidebar has finished showing or hiding, which moves
-    /// the system's sidebar button.
-    private func measureAfterSidebarMoves() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in self?.measureTopBar() }
-    }
-
+    /// Hides the sidebar as the window narrows past the set width, and shows it again as it
+    /// widens past it, if narrowing hid it. Only on crossing the width, so showing or hiding
+    /// it by hand in between sticks.
     private func windowResized() {
         measureTopBar()
         guard let window else { return }
-        let width = window.frame.width, limit = CGFloat(store.sidebarAutoHideWidth)
+        // The set width, or the narrowest the window can be with the sidebar if that's wider
+        // (the window can't narrow past it): narrowed to it, the sidebar hides.
+        let width = window.frame.width
+        let limit = max(CGFloat(store.sidebarAutoHideWidth), SidebarSplitController.minimumNotesWidth + sidebarWidth)
         defer { lastWidth = width }
         // Not while the window is resizing itself to show or hide the sidebar.
-        guard store.autoHidesSidebar, !isFocused, !sidebarSizing.isResizing else { return }
-        if lastWidth >= limit, width < limit, showsNoteList {
+        guard store.autoHidesSidebar, !isFocused, !sidebarSplit.isResizing else { return }
+        if lastWidth > limit, width <= limit, showsNoteList {
             setSidebarAutomatically(false)
             sidebarAutoHidden = true
-        } else if lastWidth < limit, width >= limit, sidebarAutoHidden {
+        } else if lastWidth <= limit, width > limit, sidebarAutoHidden {
             setSidebarAutomatically(true)
         }
     }
@@ -342,8 +341,6 @@ final class VaultModel: ObservableObject {
     /// How far in from the window's left edge the top bar's contents start, clear of the
     /// window buttons.
     @Published private(set) var windowButtonsInset: CGFloat = 92
-    /// The right edge of the system's sidebar button, once measured.
-    @Published private(set) var sidebarButtonEnd: CGFloat?
 
     /// Where a note is open, if it is.
     private func location(of id: Note.ID) -> (pane: Int, tab: Int)? {
@@ -881,7 +878,18 @@ final class VaultModel: ObservableObject {
             UserDefaults.standard.set(showsNoteList, forKey: "showsNoteList")
             lastToggleWasAutomatic = isAutoToggling
             if !isAutoToggling { sidebarAutoHidden = false } // Shown or hidden by hand.
-            measureAfterSidebarMoves()
+            // Sliding from now, before anything is laid out for the change (the split view says
+            // when it has finished; in case it doesn't animate at all, not for long).
+            if !isAutoToggling && !isFocused {
+                isSidebarSliding = true
+                slideToggles += 1
+                let toggle = slideToggles
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                    // Only for this toggle: not one made since, which may be sliding now.
+                    guard let self, self.slideToggles == toggle, !self.sidebarSplit.isResizing else { return }
+                    self.isSidebarSliding = false
+                }
+            }
         }
     }
 
