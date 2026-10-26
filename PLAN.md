@@ -681,6 +681,54 @@ A code review of the branch's changes (17 commits, about 3,600 lines: the sideba
 
 **For testing:** each test launch makes the test app active, so typing elsewhere at that moment lands in it (a stray "t" and "po" in the test vault). Tests should run when no one's typing.
 
+**The close flash came back (25 October 2026), and the sidebar out of step with the window.** Fixed; all three causes reproduced and checked on recordings:
+1. **Stale pane sizes.** The split view keeps the sizes from its own last layout. After the window was resized by code (macOS restoring it at launch, say), the first hide's change of holding priorities laid the panes out at those stale sizes for a frame: the notes narrower, the sidebar at its widest, its contents in the middle. Reproduced 4 out of 4 (open at 1300, resize to 1500 by code, hide). Now the current sizes are set again before the priorities change.
+2. **A stalled first frame.** The slide was started in the middle of SwiftUI's update for the toggle, and it set the "sliding" state again (already set), so every view watching the window was laid out again during the slide's first frame. The window's clock ran on, and its first frame came a third to four-fifths of the way through (seen: 1180 → 1434 of 1500). Now the slide starts on the next turn of the run loop, after everything for the toggle is laid out and drawn, and the state is only set when it changes. First frames now move 1–27 points.
+3. **The sidebar shown in the window's state but hidden on screen** (Mike's screenshot: the bar under the window buttons). The drag fix took the split view's first layouts at launch for a drag, and flipped the window's state. Now only a change while the mouse is down counts.
+
+Checked on recordings with the stale-size setup: 5 runs in one column and 3 in two columns (one with a split): every hide and show is smooth, with no frame going backwards, and the sidebar stays still while the notes slide over it.
+
+## Plan: using Point safely with the live vault (26 October 2026; not started)
+
+A focused piece of work, to do before relying on Point for the real vault. Goal: know exactly what Point writes, prove each write does only what it should, and fix whatever doesn't, before any of it touches the real files.
+
+**What Point writes, besides the text typed into a note** (the things to test):
+- **Saving a note:** `NoteWriter` writes only if the file on disk is still what Point last read; if it changed elsewhere, a conflict banner offers Keep Mine or Use Theirs (`EditorSession`), and leaving the note with a conflict pending saves a conflict copy. A note changed elsewhere with no unsaved edits here is reloaded.
+- **Properties:** edits rewrite only the changed property's lines; anything `Frontmatter` doesn't understand is meant to be kept as it is. Lists are written as `- item` lines (a note that used `[a, b]` changes format on its first edit). Types go into `.obsidian/types.json`, keeping the rest of the file.
+- **Renames and moves:** update `[[links]]` to the note across the vault (`LinkUpdater`), writing every note that links to it.
+- **Untitled notes:** renamed from their first line when left.
+- **Trash:** moved into the vault's `.trash` folder (as Obsidian's own trash does), with Point's own record of where each came from; Empty Trash deletes for good.
+- **Daily notes and templates:** created from Obsidian's settings (`.obsidian/daily-notes.json`, `templates.json`).
+
+**Ground rules**
+- Nothing is tried on the real vault until phase 4. Phases 1–3 read the real vault, or work on a copy of it.
+- Every write test runs on a copy kept in git (outside the vault), so each operation's effect is one `git diff`, and anything beyond what it should do shows.
+- The real vault gets a snapshot (Time Machine, or a git repository outside the vault, never a `.git` inside it, which Obsidian and iCloud would sync) before phase 4.
+
+**Phase 1: read-only audit of the real vault** (a small command-line tool on VaultKit, or a test target, that only reads)
+1. **Frontmatter round trip:** for every note, parse the frontmatter and check that a no-op edit (setting a property to the value it has) gives back the identical text. List every note where it doesn't.
+2. **Frontmatter shapes:** count and list the forms that need care: nested maps, multi-line strings (`|`, `>`), comments, quoted keys and values, anchors, flow lists (`[a, b]`), empty values, duplicate keys, frontmatter not at the very top, a BOM, CRLF line endings.
+3. **Text round trip:** load each note into the editor's text model and back, unedited; check the bytes are the same (line endings, trailing newline, tabs, Unicode normalisation).
+4. **Names and links:** notes with the same name in different folders, names differing only in case, characters Obsidian or iCloud treat specially; link forms in use (`[[note]]`, `[[folder/note]]`, `[[note|alias]]`, `[[note#heading]]`, `[[note#^block]]`, embeds `![[...]]`, Markdown links, links inside frontmatter); and the vault's link settings (`.obsidian/app.json`: new-link format, wikilinks or Markdown).
+5. **Settings read:** daily notes, templates, attachments folder, types: what Point reads, and whether it matches what Obsidian does.
+
+The output is a report: the shapes found, how many notes each, and which notes fail a round trip. It decides what phase 2 must cover.
+
+**Phase 2: write tests on a copy** (each operation, then `git diff` checked against what it should be)
+1. **Property edits** on notes of every shape from phase 1: set, add, remove, rename, reorder, change type, tags tokens. Only the intended lines may change.
+2. **Renames and moves**, compared with Obsidian doing the same on a second copy (diff the two results): every link form from phase 1, notes with the same name in two folders, case-only renames, links to a note from inside its own folder, moving into and out of the vault root.
+3. **Editing:** open, type, undo, save; only the typed region changes. Select All then Delete keeps the frontmatter.
+4. **Untitled notes:** named from the first line; a name already taken; a first line with characters a filename can't have.
+5. **Trash:** move to trash, put back, Empty Trash; compare `.trash` with what Obsidian does, and check Obsidian still sees and restores items Point trashed.
+6. **Side by side with Obsidian:** the same note open in both; edit in Obsidian with no unsaved edits in Point (reloads, keeping the cursor); with unsaved edits in Point (conflict banner; both choices); leave the note with a conflict pending (conflict copy). A rename or move in Point while Obsidian has a linking note open, and the other way round.
+7. **Sync:** with iCloud (and Obsidian Sync, if it's still on the vault: the plan is to turn it off, as two sync engines on one folder conflict): an edit on two devices; that iCloud conflict versions are shown, never dropped.
+
+**Phase 3: fix what's found.** Each finding gets a VaultKit test (from the actual note that showed it, made anonymous) before the fix. Likely candidates, from reading the code: frontmatter shapes `Frontmatter` doesn't understand; `[a, b]` lists rewritten as lines (a choice to confirm: keep each note's own list style instead); link forms `LinkUpdater` misses; writes to linking notes that are open in an editor (should go through the editor, not around it).
+
+**Phase 4: trial on the real vault**, after a snapshot. For a week, compare the vault with the snapshot each day (`git diff` from the outside repository) and read every change Point made. Keep using Obsidian alongside.
+
+**Done when:** phase 1 shows every note round-trips (or the exceptions are understood and safe); every phase 2 operation diffs as it should; a week of phase 4 shows no change Point shouldn't have made.
+
 ## Topics for investigation
 
 ### Daily notes as a meeting log
