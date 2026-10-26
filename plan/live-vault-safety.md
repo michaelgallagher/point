@@ -45,6 +45,42 @@ The output is a report: the shapes found, how many notes each, and which notes f
 6. **Side by side with Obsidian:** the same note open in both; edit in Obsidian with no unsaved edits in Point (reloads, keeping the cursor); with unsaved edits in Point (conflict banner; both choices); leave the note with a conflict pending (conflict copy). A rename or move in Point while Obsidian has a linking note open, and the other way round.
 7. **Sync:** with iCloud (and Obsidian Sync, if it's still on the vault: the plan is to turn it off, as two sync engines on one folder conflict): an edit on two devices; that iCloud conflict versions are shown, never dropped.
 
+**Phase 2 results so far (26 October 2026, on a copy of the live vault).** Done with `VaultWriteAudit` (VaultKit tests; runs only with `POINT_AUDIT_COPY` set, and changes that copy: property edits and template merges in memory, renames, moves and the trash on the copy's files) and `VaultRoundTripAudit` (EditorKit tests; reads only). Each operation is checked automatically: links resolve as before, nothing outside a link changes, values read back as set. Without commits (Mike's rule covers every repository), so not in git: a working copy and an untouched copy, compared directly.
+- **Editing:** all 3,403 notes loaded into the editor and back, byte for byte the same.
+- **Property edits:** 11,635 (every property of every note set to a new value, removed, renamed): nothing else in any note changed. Found and fixed: a single-quoted value with `''` in it (YAML's escaped quote) was read with both quotes, and written back doubled; `''` now reads as one quote, and `\"` in double quotes as a quote (`QuotedValueTests`).
+- **Template merges:** 51,045 (each of the vault's 15 templates applied to every note): the note's values always kept, apart from the note with a duplicate key (below).
+- **Renames:** 8 notes (the "Onboarding" pair, the most linked, the most linked from frontmatter, and ones linked with an alias, a heading and a folder path). Found and fixed: **renames didn't update links in frontmatter** (661 left pointing at the old name), as the Markdown parser leaves frontmatter alone; and **a renamed note's links to itself** weren't updated (it was looked for under its old name). After the fixes (`FrontmatterLinkTests`), all 8 renames update 758 notes, with every link leading where it did, no other link changed, and nothing outside links touched. Links inside inline code are rightly left alone.
+- **Moves:** 4 notes, including ones linked by folder path: links updated, nothing else changed. Path links in frontmatter are now updated too.
+- **Trash:** 3 notes trashed and put back: back in place, byte for byte.
+- **Still open:** the duplicate `read:` keys (2 notes): Point shows and edits the first, YAML takes the last. A decision: show the last, or warn.
+- **Still to do, needing Obsidian (or Mike):** compare renames with Obsidian doing the same on a second copy, above all for the shared name "Onboarding" (Point picks the note in the linking note's folder, then the shortest path; whether Obsidian does the same is untested); the two apps open side by side on the same note (the conflict banner, reloads); untitled notes named from odd first lines; and sync (iCloud and Obsidian Sync both on).
+
+**Checklist for Mike: the comparisons with Obsidian** (on a copy, `build/ObsidianCheck`, with Obsidian Sync turned off in it so it can't reach the real vault). Afterwards, Claude can compare the copy with an untouched one to see exactly what each app wrote.
+
+*Set up*
+1. Build Point from the current working tree (the fixes aren't in older builds).
+2. Obsidian: Open folder as vault › `build/ObsidianCheck`. Check Settings › Core plugins › Sync is off.
+3. Point: File › Open Vault… › the same folder.
+
+*A. Which note a shared name means* (reading only). In Obsidian, open each note below and hover over, or click, its `[[Onboarding]]` link: which Onboarding opens? Point says `Sources/Onboarding` for all seven.
+- `NHS/Archive/2024-02-08 - Farhana Yeasmin`
+- `NHS/Archive/2024-02-12 - Sarah Robson`
+- `NHS/Archive/2024-05-01 - Sarah Robson onboarding`
+- `NHS/Management/UCD management`
+- `Sources/Defra design handbook`
+- `Sources/Must-haves when starting or joining a product team`
+- And `2026-10-23 - 7-day review`: its `[[Draft - What I should have said - outline]]`. Point says the one at the top level, not the one in `Blog`.
+
+*B. A rename in Point, seen in Obsidian.* In Obsidian, open `NHS/Management/UCD management` and note how many backlinks it has. In Point, rename it to `UCD management renamed`. In Obsidian: the same number of backlinks, under the new name; and in a few of the notes linking to it (`NHS/Archive/2026-10-19 - UCD work in flight`, `Sources/What I do as a head of design`), the link in their properties shows the new name and isn't shown as a missing note.
+
+*C. Both apps on one note.* Open the same note in both.
+1. Type a line in Obsidian. Within a second or two, Point shows it, without the cursor jumping.
+2. Type a line in Point, then switch to Obsidian: it shows it.
+
+*D. A new note's name from an odd first line.* In Point, ⌘N, type `Plan: Q4 / review #1?` as the first line, then click another note. What is the new note called in Point's list, and in Obsidian's file list? Does it open in Obsidian?
+
+Tell Claude what you see for each. (Point's conflict banner, for a note changed elsewhere while it has unsaved edits, can't be reached by hand, as Point saves on switching apps; Claude will test it with a debug hook.)
+
 **Phase 3: fix what's found.** Each finding gets a VaultKit test (from the actual note that showed it, made anonymous) before the fix. Likely candidates, from reading the code: frontmatter shapes `Frontmatter` doesn't understand; `[a, b]` lists rewritten as lines (a choice to confirm: keep each note's own list style instead); link forms `LinkUpdater` misses; writes to linking notes that are open in an editor (should go through the editor, not around it).
 
 **Phase 4: trial on the real vault**, after a snapshot. For a week, compare the vault with the snapshot each day (`git diff` from the outside repository) and read every change Point made. Keep using Obsidian alongside.

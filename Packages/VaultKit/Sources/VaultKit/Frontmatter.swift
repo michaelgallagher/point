@@ -96,11 +96,13 @@ public struct Frontmatter: Equatable, Sendable {
         }
     }
 
+    /// A value without its quotes, as YAML reads it: `''` in single quotes is one quote, and
+    /// `\"` and `\\` in double quotes are a quote and a backslash.
     private static func unquote(_ value: String) -> String {
-        if value.count >= 2, let first = value.first, first == "\"" || first == "'", value.last == first {
-            return String(value.dropFirst().dropLast())
-        }
-        return value
+        guard value.count >= 2, let first = value.first, first == "\"" || first == "'", value.last == first else { return value }
+        let inside = String(value.dropFirst().dropLast())
+        if first == "'" { return inside.replacingOccurrences(of: "''", with: "'") }
+        return inside.replacingOccurrences(of: "\\\\", with: "\u{0}").replacingOccurrences(of: "\\\"", with: "\"").replacingOccurrences(of: "\u{0}", with: "\\")
     }
 
     /// The tags listed under `tags:` (or Obsidian's older `tag:`), without `#`.

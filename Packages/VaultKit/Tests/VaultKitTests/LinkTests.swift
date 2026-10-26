@@ -60,3 +60,44 @@ struct LinkRewriteTests {
         #expect(rewrite("`[[Imprint]]` in code") == nil)
     }
 }
+
+/// From the live vault's phase 2: renames missed every link in frontmatter (661 of them).
+struct FrontmatterLinkTests {
+    let renamed = note("Projects/Imprint.md")
+    var resolver: LinkResolver { LinkResolver(notes: [renamed, note("Inbox.md"), note("Other/Imprint plan.md")]) }
+
+    @Test func renamesUpdateLinksInFrontmatter() {
+        let text = "---\nproject: \"[[Imprint]]\"\npeople:\n  - \"[[Imprint|the app]]\"\n  - \"[[Imprint plan]]\"\n---\nSee [[Imprint]].\n"
+        #expect(LinkUpdater.rewrite(text, in: "Inbox.md", renamed: renamed, newTitle: "Imprint App", resolver: resolver)
+                == "---\nproject: \"[[Imprint App]]\"\npeople:\n  - \"[[Imprint App|the app]]\"\n  - \"[[Imprint plan]]\"\n---\nSee [[Imprint App]].\n")
+    }
+
+    @Test func movesUpdatePathLinksInFrontmatter() {
+        let text = "---\nproject: \"[[Projects/Imprint]]\"\nother: \"[[Imprint]]\"\n---\n"
+        #expect(LinkUpdater.rewrite(text, in: "Inbox.md", moved: renamed, newID: "Archive/Imprint.md", resolver: resolver)
+                == "---\nproject: \"[[Archive/Imprint]]\"\nother: \"[[Imprint]]\"\n---\n")
+    }
+
+    @Test func aRenamedNotesLinksToItselfAreUpdated() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("Old.md")
+        try Data("See [[Old#Top]].\n".utf8).write(to: url)
+        let old = Note(id: "Old.md", url: url, title: "Old", modified: .distantPast, created: .distantPast, isDownloaded: true)
+        let renamedURL = try NoteFiles.rename(url, to: "New")
+        _ = LinkUpdater.updateLinks(to: old, newTitle: "New", notes: [old])
+        #expect(try String(contentsOf: renamedURL, encoding: .utf8) == "See [[New#Top]].\n")
+        try? FileManager.default.removeItem(at: root)
+    }
+}
+
+struct QuotedValueTests {
+    @Test func singleQuotesAreUnescaped() {
+        let text = "---\ntitle: 'It''s here'\nother: \"Say \\\"hi\\\"\"\n---\n"
+        let frontmatter = Frontmatter.parse(text)!
+        #expect(frontmatter.properties[0].values == ["It's here"])
+        #expect(frontmatter.properties[1].values == ["Say \"hi\""])
+        let edit = frontmatter.edit(setting: "title", to: ["It's there"])
+        #expect(edit.1 == "title: 'It''s there'\n")
+    }
+}

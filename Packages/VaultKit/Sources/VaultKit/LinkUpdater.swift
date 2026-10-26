@@ -17,11 +17,13 @@ public enum LinkUpdater {
         let needle = renamed.title.lowercased()
         let encodedNeedle = (renamed.title.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? renamed.title).lowercased()
         for note in notes {
-            guard let text = try? NoteReader.read(contentsOf: note.url) else { continue }
+            // The renamed note itself is under its new name now (its links to itself change too).
+            let url = note.id == renamed.id ? renamed.url.deletingLastPathComponent().appendingPathComponent(newTitle + ".md") : note.url
+            guard let text = try? NoteReader.read(contentsOf: url) else { continue }
             let lowered = text.lowercased()
             guard lowered.contains(needle) || lowered.contains(encodedNeedle) else { continue }
             guard let rewritten = rewrite(text, in: note.id, renamed: renamed, newTitle: newTitle, resolver: resolver) else { continue }
-            switch try? NoteWriter.write(rewritten, to: note.url, expecting: text, ifChanged: .report) {
+            switch try? NoteWriter.write(rewritten, to: url, expecting: text, ifChanged: .report) {
             case .saved?: result.updatedNotes.append(note.id)
             default: result.skippedNotes.append(note.id)
             }
@@ -29,26 +31,54 @@ public enum LinkUpdater {
         return result
     }
 
+    /// The wikilinks and embeds in a note: where each one's target starts (after `[[`), and the
+    /// target (with any `#heading`, without `|alias`). Those in the frontmatter too, which the
+    /// Markdown parser leaves alone, written as Obsidian writes links in properties
+    /// (`people: "[[Ann]]"`): renames missed them all.
+    static func wikiLinks(in text: String) -> [(location: Int, target: String)] {
+        var links: [(location: Int, target: String)] = []
+        let tokens = MarkdownParser.parse(text)
+        for token in tokens {
+            switch token.kind {
+            case .wikiLink(let target), .embed(let target):
+                links.append((NSMaxRange(token.syntax[0]), target))
+            default:
+                continue
+            }
+        }
+        if let frontmatter = Frontmatter.parse(text) {
+            let ns = text as NSString
+            for match in frontmatterLink.matches(in: text, range: frontmatter.range) {
+                let target = match.range(at: 1)
+                links.append((target.location, ns.substring(with: target)))
+            }
+        }
+        return links
+    }
+
+    private static let frontmatterLink = try! NSRegularExpression(pattern: #"\[\[([^\[\]\n|]+)"#)
+
     /// `text` with its links to `renamed` pointing at `newTitle`, or nil if it has none.
     public static func rewrite(_ text: String, in sourceID: String, renamed: Note, newTitle: String, resolver: LinkResolver) -> String? {
         let ns = text as NSString
         var replacements: [(NSRange, String)] = []
+        for link in wikiLinks(in: text) {
+            let target = link.target
+            guard resolver.resolve(wikiTarget: target, from: sourceID)?.id == renamed.id else { continue }
+            // The target sits between `[[` (or `![[`) and `|`, `]]`; replace just its name part.
+            let targetRange = NSRange(location: link.location, length: (target as NSString).length)
+            let subpath = LinkResolver.stripSubpath(target)
+            var name = subpath
+            let hadExtension = name.lowercased().hasSuffix(".md")
+            if hadExtension { name = String(name.dropLast(3)) }
+            let folder = (name as NSString).deletingLastPathComponent
+            var replacement = folder.isEmpty ? newTitle : folder + "/" + newTitle
+            if hadExtension { replacement += ".md" }
+            let nameRange = NSRange(location: targetRange.location, length: (subpath as NSString).length)
+            replacements.append((nameRange, replacement))
+        }
         for token in MarkdownParser.parse(text) {
             switch token.kind {
-            case .wikiLink(let target), .embed(let target):
-                guard resolver.resolve(wikiTarget: target, from: sourceID)?.id == renamed.id else { continue }
-                // The target sits between `[[` (or `![[`) and `|`, `]]`; replace just its name part.
-                let open = token.syntax[0]
-                let targetRange = NSRange(location: NSMaxRange(open), length: (target as NSString).length)
-                let subpath = LinkResolver.stripSubpath(target)
-                var name = subpath
-                let hadExtension = name.lowercased().hasSuffix(".md")
-                if hadExtension { name = String(name.dropLast(3)) }
-                let folder = (name as NSString).deletingLastPathComponent
-                var replacement = folder.isEmpty ? newTitle : folder + "/" + newTitle
-                if hadExtension { replacement += ".md" }
-                let nameRange = NSRange(location: targetRange.location, length: (subpath as NSString).length)
-                replacements.append((nameRange, replacement))
             case .link(let destination), .image(let destination):
                 guard resolver.resolve(markdownDestination: destination, from: sourceID)?.id == renamed.id else { continue }
                 let destinationRange = ns.range(of: destination, options: [], range: token.range)
@@ -115,14 +145,15 @@ public enum LinkUpdater {
         let ns = text as NSString
         let newPath = LinkResolver.pathWithoutExtension(newID)
         var replacements: [(NSRange, String)] = []
+        for link in wikiLinks(in: text) {
+            let name = LinkResolver.stripSubpath(link.target)
+            guard name.contains("/"), resolver.resolve(wikiTarget: link.target, from: sourceID)?.id == moved.id else { continue }
+            let hadExtension = name.lowercased().hasSuffix(".md")
+            let replacement = (name.hasPrefix("/") ? "/" : "") + newPath + (hadExtension ? ".md" : "")
+            replacements.append((NSRange(location: link.location, length: (name as NSString).length), replacement))
+        }
         for token in MarkdownParser.parse(text) {
             switch token.kind {
-            case .wikiLink(let target), .embed(let target):
-                let name = LinkResolver.stripSubpath(target)
-                guard name.contains("/"), resolver.resolve(wikiTarget: target, from: sourceID)?.id == moved.id else { continue }
-                let hadExtension = name.lowercased().hasSuffix(".md")
-                let replacement = (name.hasPrefix("/") ? "/" : "") + newPath + (hadExtension ? ".md" : "")
-                replacements.append((NSRange(location: NSMaxRange(token.syntax[0]), length: (name as NSString).length), replacement))
             case .link(let destination), .image(let destination):
                 guard resolver.resolve(markdownDestination: destination, from: sourceID)?.id == moved.id else { continue }
                 let range = ns.range(of: destination, options: [], range: token.range)
