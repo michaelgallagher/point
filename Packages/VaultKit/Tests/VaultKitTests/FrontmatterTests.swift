@@ -105,10 +105,11 @@ struct FrontmatterTests {
     }
 
     @Test func aOneLineListIsRewrittenWithDashLines() throws {
-        // Point writes lists as Obsidian does, whichever way the note had them.
+        // Point writes lists as Obsidian does, whichever way the note had them, each item that
+        // was there written as it was (quotes and all).
         let frontmatter = try #require(Frontmatter.parse(note))
         let edited = apply(frontmatter.edit(setting: "tags", to: ["imprint", "big idea", "new"]), to: note)
-        #expect(edited.hasPrefix("---\ntags:\n  - imprint\n  - big idea\n  - new\ncreated: 2026-10-17\n"))
+        #expect(edited.hasPrefix("---\ntags:\n  - imprint\n  - \"big idea\"\n  - new\ncreated: 2026-10-17\n"))
     }
 
     @Test func tagsWrittenOnOneLineBecomeAList() throws {
@@ -120,5 +121,58 @@ struct FrontmatterTests {
 
     @Test func quotesValuesThatNeedIt() {
         #expect(Frontmatter.yaml(key: "title", values: ["A: B"], isList: false) == "title: \"A: B\"\n")
+    }
+}
+
+/// Setting a property writes only what changed, the way the note already writes it (from the
+/// live vault's audit: 1,958 properties changed when set to the value they had).
+struct FrontmatterRewriteTests {
+    /// The note after setting `key` to `values`.
+    private func set(_ key: String, to values: [String], isList: Bool? = nil, in note: String) -> String {
+        let frontmatter = Frontmatter.parse(note)!
+        let edit = frontmatter.edit(setting: key, to: values, isList: isList)
+        return (note as NSString).replacingCharacters(in: edit.0, with: edit.1)
+    }
+
+    /// Every property set to the value it has: the note doesn't change at all.
+    @Test(arguments: [
+        "---\npeople:\ntopics:\n---\n",
+        "---\nsource: https://example.com/a?b=c&d=e\n---\n",
+        "---\ntitle: \"Carely — Ending the 8am Scramble\"\n---\n",
+        "---\ntitle: 'Single quoted'\n---\n",
+        "---\nteam: []\n---\n",
+        "---\ntags: [a, \"b c\"]\n---\n",
+        "---\nauthor:\n  - \"[[Ann Smith]]\"\n  - Bo\n---\n",
+        "---\npublished: \"2011\"\n---\n",
+        "---\ncount: 3\ndone: true\n---\n",
+    ])
+    func aNoOpEditChangesNothing(note: String) {
+        for property in Frontmatter.parse(note)!.properties {
+            #expect(set(property.key, to: property.values, isList: property.isList, in: note) == note, "\(property.key)")
+        }
+    }
+
+    @Test func anEmptyValueHasNoTrailingSpace() {
+        #expect(set("status", to: [], isList: false, in: "---\nstatus: draft\n---\n") == "---\nstatus:\n---\n")
+        #expect(Frontmatter.yaml(key: "status", values: [], isList: false) == "status:\n")
+    }
+
+    @Test func aChangedValueKeepsTheQuotes() {
+        #expect(set("title", to: ["New title"], in: "---\ntitle: \"Old title\"\n---\n") == "---\ntitle: \"New title\"\n---\n")
+        #expect(set("title", to: ["It's new"], in: "---\ntitle: 'Old'\n---\n") == "---\ntitle: 'It''s new'\n---\n")
+        #expect(set("title", to: ["Plain"], in: "---\ntitle: Old\n---\n") == "---\ntitle: Plain\n---\n")
+    }
+
+    @Test func quotesOnlyWhatYAMLWouldMisread() {
+        #expect(set("source", to: ["https://example.com/x"], in: "---\nsource: old\n---\n") == "---\nsource: https://example.com/x\n---\n")
+        #expect(set("note", to: ["a: b"], in: "---\nnote: old\n---\n") == "---\nnote: \"a: b\"\n---\n")
+        #expect(set("note", to: ["#hash"], in: "---\nnote: old\n---\n") == "---\nnote: \"#hash\"\n---\n")
+        #expect(set("note", to: ["[[Link]]"], in: "---\nnote: old\n---\n") == "---\nnote: \"[[Link]]\"\n---\n")
+        #expect(set("note", to: ["ends with #tag"], in: "---\nnote: old\n---\n") == "---\nnote: \"ends with #tag\"\n---\n")
+    }
+
+    @Test func listItemsKeepHowTheyWereWritten() {
+        let note = "---\nauthor:\n  - \"[[Ann Smith]]\"\n  - Bo\n---\n"
+        #expect(set("author", to: ["[[Ann Smith]]", "Bo", "[[Cy]]"], in: note) == "---\nauthor:\n  - \"[[Ann Smith]]\"\n  - Bo\n  - \"[[Cy]]\"\n---\n")
     }
 }

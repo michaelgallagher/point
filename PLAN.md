@@ -9,7 +9,7 @@ The plan is in several documents, in [`plan/`](plan/). This page says where thin
 Branch `no-visible-tabs`. Recently built: tabless headers, the redesigned properties, the sidebar that widens the window, links as a glass button and panel, and templates (applying merges properties, new note from a template, a Settings page).
 
 **Next:**
-1. **Using Point with the live vault:** phase 1 (a read-only audit) is done. Next, fix how properties are rewritten, then phase 2 (write tests on a copy). Also a decision for Mike: Obsidian Sync and iCloud both sync the vault. See [Live vault safety](plan/live-vault-safety.md).
+1. **Using Point with the live vault:** phase 1 (a read-only audit) is done, and so is its first fix (properties rewritten for nothing). Next, phase 2 (write tests on a copy). Also a decision for Mike: Obsidian Sync and iCloud both sync the vault. See [Live vault safety](plan/live-vault-safety.md).
 2. **The properties view,** the last item of the [25 October batch](plan/batch-2026-10-25.md).
 3. **The sidebar's remaining steps:** the swipe follows the fingers, and auto-hide resizes the window at the end of a drag. See [The sidebar widens the window](plan/sidebar-widens-window.md).
 4. **When the screen is free for recordings:** the header's jitter as the sidebar slides, and full screen. See [App review](plan/app-review-2026-10-25.md).

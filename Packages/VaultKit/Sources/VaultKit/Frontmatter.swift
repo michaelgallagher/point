@@ -13,6 +13,10 @@ public struct Frontmatter: Equatable, Sendable {
         public var isList: Bool
         /// Where the property's lines are in the note (UTF-16 offsets), including line breaks.
         public var range: NSRange
+        /// Its lines as the note writes them, and each value as written (with any quotes), so
+        /// setting it writes only what changed, in the note's own way.
+        public var written = ""
+        public var rawValues: [String] = []
         public var id: String { key }
     }
 
@@ -58,7 +62,9 @@ public struct Frontmatter: Equatable, Sendable {
                 guard var last = properties.popLast() else { continue }
                 let item = content.trimmingCharacters(in: .whitespaces)
                 if item.hasPrefix("- ") || item == "-" {
-                    last.values.append(unquote(String(item.dropFirst(item == "-" ? 1 : 2))))
+                    let raw = String(item.dropFirst(item == "-" ? 1 : 2)).trimmingCharacters(in: .whitespaces)
+                    last.values.append(unquote(raw))
+                    last.rawValues.append(raw)
                     last.isList = true
                 }
                 last.range = NSUnionRange(last.range, line)
@@ -71,17 +77,23 @@ public struct Frontmatter: Equatable, Sendable {
             var property = Property(key: key, values: [], isList: false, range: line)
             if value.hasPrefix("["), value.hasSuffix("]") {
                 property.isList = true
-                property.values = value.dropFirst().dropLast().split(separator: ",")
-                    .map { unquote($0.trimmingCharacters(in: .whitespaces)) }
+                property.rawValues = value.dropFirst().dropLast().split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
                     .filter { !$0.isEmpty }
+                property.values = property.rawValues.map(unquote)
             } else if !value.isEmpty {
                 property.values = [unquote(value)]
+                property.rawValues = [value]
             } else {
                 property.isList = false // `key:` alone; becomes a list if items follow.
             }
             properties.append(property)
         }
-        return properties
+        return properties.map { property in
+            var property = property
+            property.written = text.substring(with: property.range)
+            return property
+        }
     }
 
     private static func unquote(_ value: String) -> String {
@@ -101,25 +113,54 @@ public struct Frontmatter: Equatable, Sendable {
 
     // MARK: Editing
 
-    /// The text of a property, written the way Obsidian writes it.
-    public static func yaml(key: String, values: [String], isList: Bool) -> String {
-        if isList {
-            return "\(key):\n" + values.map { "  - \(quoteIfNeeded($0))\n" }.joined()
+    /// The text of a property, written the way Obsidian writes it: a list as `- item` lines,
+    /// an empty value as `key:` alone. Written like `existing` (a value it has keeps how it was
+    /// written; a new one takes its quotes, if it used them), else quoted only where YAML would
+    /// misread the value.
+    public static func yaml(key: String, values: [String], isList: Bool, like existing: Property? = nil) -> String {
+        let quote = existing?.rawValues.first?.first.flatMap { $0 == "\"" || $0 == "'" ? $0 : nil }
+        func written(_ value: String) -> String {
+            if let existing, let index = existing.values.firstIndex(of: value), existing.rawValues.indices.contains(index) {
+                return existing.rawValues[index]
+            }
+            return quoted(value, preferring: quote)
         }
-        return "\(key): \(values.first.map(quoteIfNeeded) ?? "")\n"
+        if isList {
+            return "\(key):\n" + values.map { "  - \(written($0))\n" }.joined()
+        }
+        guard let value = values.first, !value.isEmpty else { return "\(key):\n" }
+        return "\(key): \(written(value))\n"
     }
 
-    static func quoteIfNeeded(_ value: String) -> String {
-        let special = CharacterSet(charactersIn: ":#[]{},&*!|>'\"%@`")
-        let needsQuotes = value.unicodeScalars.contains { special.contains($0) } || value.hasPrefix(" ") || value.hasSuffix(" ")
-        return needsQuotes ? "\"\(value.replacingOccurrences(of: "\"", with: "\\\""))\"" : value
+    /// A value in quotes, if `quote` is given (as the note wrote the value before) or YAML
+    /// would misread it plain.
+    static func quoted(_ value: String, preferring quote: Character? = nil) -> String {
+        switch quote ?? (needsQuotes(value) ? "\"" : nil) {
+        case "'": return "'" + value.replacingOccurrences(of: "'", with: "''") + "'"
+        case "\"": return "\"" + value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
+        default: return value
+        }
     }
 
-    /// The edit that sets a property's values: the range to replace and its new text.
-    /// A new property goes at the end of the block.
+    /// Whether YAML would read a plain value as something else: starting with one of its
+    /// indicators, holding `: ` or ` #`, ending with `:`, or with space at either end. (A URL,
+    /// with its `:` not followed by a space, is fine plain.)
+    static func needsQuotes(_ value: String) -> Bool {
+        guard let first = value.first else { return false }
+        if value.first?.isWhitespace == true || value.last?.isWhitespace == true { return true }
+        if ",[]{}#&*!|>'\"%@`".contains(first) { return true }
+        if "-?:".contains(first), value.count == 1 || value.dropFirst().first == " " { return true }
+        return value.contains(": ") || value.contains(" #") || value.hasSuffix(":")
+    }
+
+    /// The edit that sets a property's values: the range to replace and its new text, written
+    /// as the note writes it (`yaml(key:values:isList:like:)`); for the values it has already,
+    /// its lines exactly as they are. A new property goes at the end of the block.
     public func edit(setting key: String, to values: [String], isList: Bool? = nil) -> (NSRange, String) {
         if let existing = properties.first(where: { $0.key == key }) {
-            return (existing.range, Self.yaml(key: key, values: values, isList: isList ?? existing.isList))
+            let isList = isList ?? existing.isList
+            if values == existing.values, isList == existing.isList { return (existing.range, existing.written) }
+            return (existing.range, Self.yaml(key: key, values: values, isList: isList, like: existing))
         }
         let closingFence = closingFenceLocation
         return (NSRange(location: closingFence, length: 0), Self.yaml(key: key, values: values, isList: isList ?? (values.count > 1)))
