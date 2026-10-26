@@ -273,7 +273,13 @@ final class VaultModel: ObservableObject {
     /// and narrowing the window (see `SidebarSplitController`).
     lazy var sidebarSplit: SidebarSplitController = {
         let split = SidebarSplitController()
-        split.slidingChanged = { [weak self] sliding in self?.isSidebarSliding = sliding }
+        // Only when it changes: set again (it's set already as a toggle by hand begins), every
+        // view watching the window was laid out again in the slide's first frames, which
+        // stalled it, and the window jumped a third of the way in its first frame.
+        split.slidingChanged = { [weak self] sliding in
+            guard let self, self.isSidebarSliding != sliding else { return }
+            self.isSidebarSliding = sliding
+        }
         split.sidebarWidthChanged = { [weak self] width in self?.sidebarWidth = width }
         split.notesSplitMinimums = { [weak self] in self?.notesSplitMinimums ?? (240, 240) }
         // Dragged closed or open: the sidebar's state follows, without resizing the window.

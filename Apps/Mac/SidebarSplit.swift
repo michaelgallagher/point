@@ -277,12 +277,18 @@ final class SidebarSplitController: NSSplitViewController {
         // the size they rested at, and didn't follow the divider), and the window hears of it.
         if sidebarItem.isCollapsed { rest() } else { sidebarContainer.release() }
         if sidebarItem.isCollapsed != reportedCollapsed {
+            let wasKnown = reportedCollapsed != nil
             reportedCollapsed = sidebarItem.isCollapsed
-            if sidebarItem.isCollapsed, let width = widthAtDragStart {
-                UserDefaults.standard.set(Double(width), forKey: widthKey)
-                reportWidth()
+            // Only a drag's (the mouse down on the divider): the split view's own first layouts,
+            // as the window opened, were taken for one, and the window then thought the sidebar
+            // showed while it was hidden (its bar laid out under the window buttons).
+            if wasKnown, isDragging {
+                if sidebarItem.isCollapsed, let width = widthAtDragStart {
+                    UserDefaults.standard.set(Double(width), forKey: widthKey)
+                    reportWidth()
+                }
+                collapsedByDragging?(sidebarItem.isCollapsed)
             }
-            collapsedByDragging?(sidebarItem.isCollapsed)
         }
         // Only while the mouse is down (the divider being dragged): the split view also squeezes
         // the sidebar to its narrowest while the window first lays out, small, and that was kept
@@ -469,6 +475,14 @@ final class SidebarSplitController: NSSplitViewController {
             // over the window's: a window at its narrowest didn't move, then jumped.)
             if window.minSize.width > frame.width { window.minSize.width = frame.width }
             if window.contentMinSize.width > frame.width { window.contentMinSize.width = frame.width }
+            // The panes as they are now, first. The split view keeps sizes from its last layout
+            // of its own, and a window resized since by code (restored at launch, say) left
+            // them stale: changing the priorities below laid the panes out at those for a
+            // frame, the notes narrower and the sidebar at its widest, which flashed.
+            if !sidebarItem.isCollapsed, let current = shownWidth {
+                splitView.setPosition(current, ofDividerAt: 0)
+                splitView.layoutSubtreeIfNeeded()
+            }
             // While it moves, a change in the window's width goes to the sidebar, down to none,
             // without the split view taking a sidebar at no width for a collapsed one.
             sidebarItem.minimumThickness = 0
@@ -480,6 +494,7 @@ final class SidebarSplitController: NSSplitViewController {
                 // at what the notes have to give up), in the same pass, before it's drawn.
                 sidebarItem.isCollapsed = false
                 splitView.setPosition(newAdjustment, ofDividerAt: 0)
+                splitView.layoutSubtreeIfNeeded()
             }
             let finish: @MainActor @Sendable () -> Void = { [self] in
                 guard animationCount == count, isResizing else { return }
@@ -497,6 +512,11 @@ final class SidebarSplitController: NSSplitViewController {
                 frameAfterResize = window.frame
                 end(count)
             }
+            // Everything that changes as it starts laid out and drawn now, before the window
+            // moves: done in the animation's first frame, it held that frame up, and the window
+            // jumped part of the way.
+            window.contentView?.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = Self.duration
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -524,11 +544,15 @@ final class SidebarSplitController: NSSplitViewController {
         return animationCount
     }
 
-    /// Runs the animation (once the held sidebar has been laid out at its width), unless
-    /// another has started since.
+    /// Runs the animation once what started it has finished (unless another has started since):
+    /// a toggle comes in the middle of SwiftUI's update for it, and the rest of that update,
+    /// run after the window's animation had begun, held up its first frame, and the window
+    /// jumped part of the way.
     private func afterHolding(_ count: Int, _ work: @escaping @MainActor () -> Void) {
-        guard animationCount == count else { return }
-        work()
+        DispatchQueue.main.async { [self] in
+            guard animationCount == count else { return }
+            work()
+        }
     }
 
     private func end(_ count: Int) {
