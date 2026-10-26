@@ -42,8 +42,9 @@ struct NoteEditor: View {
             } else {
                 Color.clear
             }
-            ConnectionsBar(connections: connections)
         }
+        // Over the note, the button at its bottom right, growing into its panel within the note.
+        .overlay { LinksButton(connections: connections) }
         .task {
             await session.load()
             connections.refresh()
@@ -286,6 +287,7 @@ private struct EditorView: NSViewRepresentable {
         textView.typography = typography
         textView.textScale = textScale
         textView.maxTextWidth = textColumnWidth
+        textView.extraBottomSpace = LinksButton.roomBelowText
         // The keyboard stays in the list after picking a note there, and with two sides it
         // stays with the side being worked on (an editor on the other side, rebuilt when the
         // window splits, mustn't take it).

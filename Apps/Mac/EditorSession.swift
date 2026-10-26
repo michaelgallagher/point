@@ -11,6 +11,8 @@ extension Notification.Name {
     static let pointSaveNow = Notification.Name("PointSaveNow")
     /// Asks the open note to insert `userInfo["text"]` at its cursor.
     static let pointInsertText = Notification.Name("PointInsertText")
+    /// Asks note `userInfo["note"]` to select and show `userInfo["range"]` (see `EditorSession.reveal`).
+    static let pointRevealRange = Notification.Name("PointRevealRange")
 }
 
 /// One open note: loading it, saving edits, and keeping it in step with changes made
@@ -50,6 +52,7 @@ final class EditorSession: NSObject, ObservableObject {
         center.addObserver(self, selector: #selector(releaseFile(_:)), name: .pointReleaseFile, object: nil)
         center.addObserver(self, selector: #selector(appWillResignActive), name: .pointSaveNow, object: nil)
         center.addObserver(self, selector: #selector(insertText(_:)), name: .pointInsertText, object: nil)
+        center.addObserver(self, selector: #selector(revealFromNotification(_:)), name: .pointRevealRange, object: nil)
         center.addObserver(self, selector: #selector(setPropertyFromNotification(_:)), name: .pointSetProperty, object: nil)
         center.addObserver(self, selector: #selector(addTagFromNotification(_:)), name: .pointAddTag, object: nil)
         center.addObserver(self, selector: #selector(editorCommand(_:)), name: .pointEditorCommand, object: nil)
@@ -65,6 +68,7 @@ final class EditorSession: NSObject, ObservableObject {
             message = nil
             isLoaded = true
             textView?.load(text)
+            applyPendingReveal()
             frontmatter = Frontmatter.parse(text)
             checkICloudConflicts()
         } catch NoteReader.ReadError.notDownloaded {
@@ -84,11 +88,37 @@ final class EditorSession: NSObject, ObservableObject {
     func attach(_ textView: MarkdownTextView, takesFocus: Bool = true) {
         self.textView = textView
         textView.load(initialText)
+        if isLoaded { applyPendingReveal() }
         isEmpty = initialText.isEmpty
         textView.onTextChange = { [weak self] _ in self?.textDidChange() }
         if takesFocus {
             DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) }
         }
+    }
+
+    // MARK: Showing a place in the note
+
+    /// Places to show in notes about to open, by note: taken as each one's text view arrives.
+    private static var pendingReveals: [Note.ID: NSRange] = [:]
+
+    /// Opens at `range` in note `id`: at once if it's open, or as soon as it opens.
+    static func reveal(_ range: NSRange, in id: Note.ID) {
+        pendingReveals[id] = range
+        NotificationCenter.default.post(name: .pointRevealRange, object: nil, userInfo: ["note": id, "range": NSValue(range: range)])
+    }
+
+    /// Once the note's text is in its view (loading puts the cursor back at the top).
+    private func applyPendingReveal() {
+        guard let textView, let range = Self.pendingReveals.removeValue(forKey: note.id) else { return }
+        // After the header has its height, which moves the text down.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { textView.reveal(range) }
+    }
+
+    @objc private func revealFromNotification(_ notification: Notification) {
+        guard notification.userInfo?["note"] as? Note.ID == note.id, isLoaded, let textView,
+              let range = (notification.userInfo?["range"] as? NSValue)?.rangeValue else { return }
+        Self.pendingReveals[note.id] = nil
+        textView.reveal(range)
     }
 
     // MARK: Saving

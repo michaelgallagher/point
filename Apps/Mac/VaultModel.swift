@@ -846,6 +846,12 @@ final class VaultModel: ObservableObject {
 
     /// Follows a clicked link: notes open in the pane (missing ones are created, as in
     /// Obsidian), in a new tab, or on the other side; web addresses open in the browser.
+    /// Opens a note scrolled to a place in it, selected (a link or mention found there).
+    func open(_ id: Note.ID, revealing range: NSRange) {
+        EditorSession.reveal(range, in: id)
+        selection = id
+    }
+
     func open(_ link: LinkTarget, from sourceID: Note.ID, inPane paneID: NotePane.ID, as destination: LinkDestination = .here) {
         let resolver = LinkResolver(notes: notes)
         func show(_ id: Note.ID) {

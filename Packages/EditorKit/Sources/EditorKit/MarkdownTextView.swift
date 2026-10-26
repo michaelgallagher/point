@@ -366,9 +366,36 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         return NSPoint(x: origin.x, y: origin.y + headerHeight)
     }
 
-    /// Makes room for the header when the view grows or shrinks to fit its text.
+    /// Room below the text, past its margin, for something floating over the bottom of the
+    /// note (the links button), so the last line can scroll clear of it.
+    public var extraBottomSpace: CGFloat = 0 {
+        didSet {
+            guard extraBottomSpace != oldValue else { return }
+            sizeToFit()
+        }
+    }
+
+    /// Makes room for the header (and any space below) when the view grows or shrinks to fit
+    /// its text.
     public override func setConstrainedFrameSize(_ desiredSize: NSSize) {
-        super.setConstrainedFrameSize(NSSize(width: desiredSize.width, height: desiredSize.height + headerHeight))
+        super.setConstrainedFrameSize(NSSize(width: desiredSize.width, height: desiredSize.height + headerHeight + extraBottomSpace))
+    }
+
+    /// Selects a range and scrolls it into the middle of the view, with the system's brief
+    /// highlight, as Find does: for opening a note at a link or mention in it.
+    public func reveal(_ range: NSRange) {
+        guard NSMaxRange(range) <= (string as NSString).length else { return }
+        setSelectedRange(range)
+        layoutManager?.ensureLayout(forCharacterRange: range)
+        if let layoutManager, let textContainer {
+            let glyphs = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            var rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
+            rect.origin.x += textContainerOrigin.x
+            rect.origin.y += textContainerOrigin.y
+            let visible = enclosingScrollView?.contentView.bounds.height ?? bounds.height
+            scrollToVisible(rect.insetBy(dx: 0, dy: -max(0, (visible - rect.height) / 2)))
+        }
+        showFindIndicator(for: range)
     }
 
     private func layoutHeader() {

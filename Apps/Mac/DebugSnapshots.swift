@@ -17,6 +17,14 @@ enum DebugSnapshots {
         closeSplitIfAsked(for: model)
         openSplitIfAsked(for: model)
         probeCursorIfAsked(for: model)
+        if let spec = UserDefaults.standard.string(forKey: "PointRevealAt"), let bar = spec.firstIndex(of: "|") {
+            // `-PointRevealAt "note id|text"`: opens the note at the first place the text is.
+            let id = String(spec[..<bar]), target = String(spec[spec.index(after: bar)...])
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                guard let note = model.note(id), let text = try? NoteReader.read(contentsOf: note.url) else { return }
+                model.open(id, revealing: (text as NSString).range(of: target))
+            }
+        }
         if let key = UserDefaults.standard.string(forKey: "PointBrowse"), let place = SidebarPlace(key: key) {
             // `-PointBrowse <place key>`: shows that place in the sidebar.
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { model.browse(place) }
