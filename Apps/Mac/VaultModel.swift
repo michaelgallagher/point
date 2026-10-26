@@ -159,6 +159,7 @@ final class VaultModel: ObservableObject {
     /// The split just closed (a side closed, its last tab closed or moved, or merged into
     /// tabs): the note left showing slides across to fill the window, rather than jumping.
     private func noteSplitClosed(from old: [NotePane]) {
+        guard window?.isVisible == true else { return }
         let left = panes[0]
         // The same side, or (merged into tabs) the side whose note is still showing.
         let wasOnRight = left.id == old[1].id || (left.id != old[0].id && old[1].tabs.contains { $0.id == left.tab.id })

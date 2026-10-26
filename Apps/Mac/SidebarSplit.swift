@@ -405,7 +405,8 @@ final class SidebarSplitController: NSSplitViewController {
     /// can't resize, the notes take the space.
     func setSidebar(shown: Bool, resizingWindow: Bool) {
         guard isViewLoaded, view.window != nil else {
-            if isViewLoaded { sidebarItem.isCollapsed = !shown }
+            // Not in a window yet: at once, as the window opens.
+            setInitially(shown: shown)
             return
         }
         guard sidebarItem.isCollapsed == shown || isResizing else { return } // Already so.
