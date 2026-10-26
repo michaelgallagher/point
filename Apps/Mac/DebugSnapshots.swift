@@ -17,6 +17,35 @@ enum DebugSnapshots {
         closeSplitIfAsked(for: model)
         openSplitIfAsked(for: model)
         probeCursorIfAsked(for: model)
+        if UserDefaults.standard.bool(forKey: "PointNewNote") {
+            // `-PointNewNote YES`: makes a new note (as ⌘N does), three seconds in.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                Trace.mark("new note")
+                model.createNote()
+            }
+        }
+        if let which = UserDefaults.standard.string(forKey: "PointTemplateSheet") {
+            // `-PointTemplateSheet apply|new`: shows the template sheet, for checking it.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                if which == "new" { model.isCreatingFromTemplate = true } else { model.applyTemplateInPalette() }
+            }
+        }
+        if let name = UserDefaults.standard.string(forKey: "PointTemplateTest") {
+            // `-PointTemplateTest <template name>`: applies that template to the note open,
+            // then starts a note from it, named "From <name>".
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                guard let template = model.templates.first(where: { $0.name == name }) else { return Trace.mark("template test: no template \(name)") }
+                model.applyTemplate(at: template.url)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    if UserDefaults.standard.bool(forKey: "PointTemplateUndo") {
+                        // With `-PointTemplateUndo YES`: one undo instead, which should take it all back.
+                        model.window?.firstResponder?.undoManager?.undo()
+                    } else {
+                        model.createNote(fromTemplate: template.url, titled: "From \(name)")
+                    }
+                }
+            }
+        }
         if let spec = UserDefaults.standard.string(forKey: "PointRevealAt"), let bar = spec.firstIndex(of: "|") {
             // `-PointRevealAt "note id|text"`: opens the note at the first place the text is.
             let id = String(spec[..<bar]), target = String(spec[spec.index(after: bar)...])

@@ -149,7 +149,7 @@ struct ContentView: View {
         .sheet(item: $model.creatingFolder) { request in
             NewFolderSheet(parent: request.parent)
         }
-        .sheet(isPresented: $model.isChoosingTemplate) {
+        .sheet(isPresented: $model.isCreatingFromTemplate) {
             TemplatePicker()
         }
         .sheet(isPresented: $model.isShowingShortcuts) {
@@ -501,45 +501,64 @@ private struct NewFolderSheet: View {
     }
 }
 
+/// Choosing a template to start a new note from, with a name. (Applying one to a note is
+/// done in the palette.)
 private struct TemplatePicker: View {
     @EnvironmentObject private var model: VaultModel
     @Environment(\.dismiss) private var dismiss
     @State private var selection: URL?
+    @State private var name = ""
+
+    /// The sheet's width; everything in it spans it, inside even margins.
+    private static let width: CGFloat = 400
+    private static let margin: CGFloat = 20
 
     var body: some View {
         let templates = model.templates
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Insert Template")
+        let density = model.sidebarDensity
+        VStack(alignment: .leading, spacing: 14) {
+            Text("New Note from Template")
                 .font(.headline)
             if templates.isEmpty {
                 Text(model.settings.templatesFolder.isEmpty
-                     ? "No templates folder is set. Choose one in Obsidian's Templates settings."
+                     ? "No templates folder is set. Choose one in Settings, under Templates."
                      : "There are no templates in “\(model.settings.templatesFolder)”.")
                     .foregroundStyle(.secondary)
-                    .frame(width: 320, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
             } else {
+                // As the sidebar's list: its row size (compact or comfortable) and its selection.
                 List(templates, id: \.url, selection: $selection) { template in
-                    Text(template.name)
+                    Label(template.name, systemImage: "doc.text")
                 }
-                .frame(width: 320, height: 220)
+                .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
+                .environment(\.sidebarRowSize, density == .compact ? .small : .medium)
+                .contextMenu(forSelectionType: URL.self, menu: { _ in }, primaryAction: { _ in choose() })
+                // As tall as its rows, up to about eight; then it scrolls.
+                .frame(height: min(CGFloat(templates.count), 8) * density.rowHeight + 16)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.quaternary.opacity(0.5)))
                 .onAppear { selection = templates.first?.url }
+                TextField("Name (or leave it to the first line)", text: $name)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(choose)
             }
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("Insert", action: insert)
+                Button("Create", action: choose)
                     .keyboardShortcut(.defaultAction)
                     .disabled(selection == nil)
             }
         }
-        .padding(20)
+        .padding(Self.margin)
+        .frame(width: Self.width)
     }
 
-    private func insert() {
+    private func choose() {
         guard let selection else { return }
         dismiss()
-        model.insertTemplate(at: selection)
+        model.createNote(fromTemplate: selection, titled: name)
     }
 }
 

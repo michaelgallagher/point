@@ -504,6 +504,14 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         setSelectedRange(NSRange(location: start, length: (string as NSString).length - start))
     }
 
+    /// Where text put in "at the cursor" as whole lines (a template's body) should go: the start
+    /// of the cursor's line when only hidden markers come before the cursor on it (the cursor
+    /// rests after a heading's "# "), else the cursor.
+    public func insertionPointForLines(at location: Int) -> Int {
+        let start = lineStart(of: location)
+        return (start..<location).allSatisfy(isHidden) ? start : location
+    }
+
     func isHidden(_ index: Int) -> Bool {
         guard let storage = textStorage, index >= 0, index < storage.length else { return false }
         return storage.attribute(.pointHidden, at: index, effectiveRange: nil) != nil

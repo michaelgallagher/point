@@ -28,11 +28,12 @@ struct CommandPalette: View {
     private var isExploring: Bool { isPage ? pageExplores : model.paletteMode == .explorer }
     private var isSwitchingTabs: Bool { !isPage && model.paletteMode == .tabs }
     private var isMovingNote: Bool { !isPage && model.paletteMode == .moveNote }
+    private var isApplyingTemplate: Bool { !isPage && model.paletteMode == .applyTemplate }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: isExploring || isMovingNote ? "folder" : "magnifyingglass")
+                Image(systemName: isExploring || isMovingNote ? "folder" : isApplyingTemplate ? "doc.on.doc" : "magnifyingglass")
                     .foregroundStyle(.secondary)
                     .frame(width: 20)
                 PaletteField(text: $query, placeholder: placeholder, fontSize: isPage ? 22 : 18,
@@ -131,6 +132,7 @@ struct CommandPalette: View {
         if isExploring { return explorer.inNotes ? "Filter notes" : "Filter folders and tags" }
         if isSwitchingTabs { return "Switch to a tab" }
         if isMovingNote { return "Move “\(model.selectedNote?.title ?? "")” to…" }
+        if isApplyingTemplate { return model.templates.isEmpty ? "No templates (choose a folder in Settings, under Templates)" : "Apply a template to “\(model.selectedNote?.title ?? "")”" }
         return isPage ? "Search notes, #tags or >commands" : "Search notes, #tags or >commands"
     }
 
@@ -177,6 +179,7 @@ struct CommandPalette: View {
         }
         if isSwitchingTabs { return refreshTabs(keeping: keeping) }
         if isMovingNote { return refreshFolders() }
+        if isApplyingTemplate { return refreshTemplates() }
         let commands = PaletteCommand.all(for: model)
         // Notes open in tabs come first, marked as open.
         let openNotes = model.openNoteIDs.compactMap { model.note($0) }
@@ -266,6 +269,16 @@ struct CommandPalette: View {
     }
 
     /// Every folder ("" is the vault's top level) but the note's own, filtered by what's typed.
+    /// The vault's templates, filtered by what's typed.
+    private func refreshTemplates() {
+        var templates = model.templates
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty { templates = Self.rank(templates, by: trimmed, name: \.name) }
+        items = templates.map { PaletteItem.template($0.name, $0.url) }
+        headers = [:]
+        highlighted = 0
+    }
+
     private func refreshFolders() {
         let current = model.selectedNote.map { FolderTree.folder(of: $0.id) }
         let all = [""] + model.folderTree.noteCounts.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
@@ -321,6 +334,8 @@ struct CommandPalette: View {
         case .command(let command): command.action()
         case .folder(let folder):
             if let note = model.selectedNote { model.move(noteID: note.id, toFolder: folder) }
+        case .template(_, let url):
+            model.applyTemplate(at: url)
         }
     }
 
@@ -337,6 +352,8 @@ enum PaletteItem: Identifiable {
     case command(PaletteCommand)
     /// A folder to move the note to, by path ("" for the vault's top level).
     case folder(String)
+    /// A template to apply to the note.
+    case template(String, URL)
 
     var noteID: Note.ID? {
         if case .note(let id, _, _) = self { return id }
@@ -350,6 +367,7 @@ enum PaletteItem: Identifiable {
         case .create(let title): "create:\(title)"
         case .command(let command): "command:\(command.name)"
         case .folder(let folder): "folder:\(folder)"
+        case .template(_, let url): "template:\(url.path)"
         }
     }
 
@@ -361,6 +379,7 @@ enum PaletteItem: Identifiable {
         case .create(let title): title
         case .command(let command): command.name
         case .folder(let folder): folder
+        case .template(let name, _): name
         }
     }
 }
@@ -394,7 +413,7 @@ private struct PaletteChrome: ViewModifier {
 }
 
 /// A label above a section of the palette's list: open tabs, bookmarks, notes, tags, commands.
-private struct PaletteSectionHeader: View {
+struct PaletteSectionHeader: View {
     let title: String
     let isFirst: Bool
 
@@ -409,7 +428,7 @@ private struct PaletteSectionHeader: View {
     }
 }
 
-private struct PaletteRow: View {
+struct PaletteRow: View {
     let item: PaletteItem
     let isHighlighted: Bool
 
@@ -448,6 +467,7 @@ private struct PaletteRow: View {
         case .create: "plus"
         case .command: "command"
         case .folder: "folder"
+        case .template: "doc.on.doc"
         }
     }
 
@@ -458,6 +478,7 @@ private struct PaletteRow: View {
         case .create(let title): "New Note “\(title)”"
         case .command(let command): command.name
         case .folder(let folder): folder.isEmpty ? "Vault (top level)" : folder
+        case .template(let name, _): name
         }
     }
 
@@ -465,7 +486,7 @@ private struct PaletteRow: View {
         switch item {
         case .note: nil
         case .tag(_, let count): "\(count) \(count == 1 ? "note" : "notes")"
-        case .create, .folder: nil
+        case .create, .folder, .template: nil
         case .command(let command): command.shortcut
         }
     }
@@ -483,6 +504,7 @@ struct PaletteCommand {
         var commands = [
             PaletteCommand(name: "New Note", shortcut: "⌘N", isSuggested: true) { model.createNote() },
             PaletteCommand(name: "Today's Note", shortcut: nil) { model.openTodaysNote() },
+            PaletteCommand(name: "New Note from Template…", shortcut: nil) { model.isCreatingFromTemplate = true },
             PaletteCommand(name: "New Folder…", shortcut: "⇧⌘N") { model.newFolder() },
             PaletteCommand(name: model.showsNoteList ? "Hide Note List" : "Show Note List", shortcut: "⌘S") { model.showsNoteList.toggle() },
             PaletteCommand(name: "Bigger Text", shortcut: "⌘=") { model.makeTextBigger() },
@@ -529,7 +551,10 @@ struct PaletteCommand {
                     // After the palette running this has closed.
                     DispatchQueue.main.async { model.moveNoteInPalette() }
                 },
-                PaletteCommand(name: "Apply Template…", shortcut: "⌥⌘T", isSuggested: true) { model.isChoosingTemplate = true },
+                PaletteCommand(name: "Apply Template…", shortcut: "⌥⌘T", isSuggested: true) {
+                    // After the palette running this has closed.
+                    DispatchQueue.main.async { model.applyTemplateInPalette() }
+                },
                 PaletteCommand(name: "Add Property…", shortcut: nil) { NotificationCenter.default.post(name: .pointAddProperty, object: model) },
                 PaletteCommand(name: "Rename Note…", shortcut: nil) { model.renaming = note },
                 PaletteCommand(name: "Add Tag…", shortcut: nil) { model.tagging = note },
@@ -547,7 +572,7 @@ struct PaletteCommand {
         if let note = model.selectedNote {
             // Each template, straight into the note.
             for template in model.templates {
-                commands.append(PaletteCommand(name: "Apply Template “\(template.name)”", shortcut: nil) { model.insertTemplate(at: template.url) })
+                commands.append(PaletteCommand(name: "Apply Template “\(template.name)”", shortcut: nil) { model.applyTemplate(at: template.url) })
             }
             // Formatting, done to the note's selection, as the Format menu does.
             let formats: [(String, String?, Selector)] = [

@@ -832,11 +832,12 @@ final class VaultModel: ObservableObject {
         if let id = store.todaysNote() { selection = id }
     }
 
-    /// Inserts a template, filled in, at the cursor in this window's note.
-    func insertTemplate(at url: URL) {
+    /// Applies a template, filled in, to this window's note: its properties merged into the
+    /// note's, its body at the cursor.
+    func applyTemplate(at url: URL) {
         guard let note = selectedNote, let template = try? NoteReader.read(contentsOf: url) else { return NSSound.beep() }
         let text = Templates.render(template, title: note.title, settings: settings)
-        NotificationCenter.default.post(name: .pointInsertText, object: self, userInfo: ["text": text, "noteID": note.id])
+        NotificationCenter.default.post(name: .pointApplyTemplate, object: self, userInfo: ["text": text, "noteID": note.id])
     }
 
     // MARK: Links
@@ -911,8 +912,18 @@ final class VaultModel: ObservableObject {
     }
     @Published var moving: Note?
     @Published var tagging: Note?
-    /// Whether the Insert Template picker is showing.
-    @Published var isChoosingTemplate = false
+    /// Whether the New Note from Template sheet is showing.
+    @Published var isCreatingFromTemplate = false
+
+    /// A new note that starts as a template, filled in (with the name given, if any, as its
+    /// title), in the folder being browsed.
+    func createNote(fromTemplate url: URL, titled title: String?) {
+        guard let template = try? NoteReader.read(contentsOf: url) else { return NSSound.beep() }
+        let name = title.map(NoteFiles.sanitizedTitle).flatMap { $0.isEmpty ? nil : $0 }
+        createNote(text: Templates.render(template, title: name ?? "", settings: settings), titled: name)
+        // Started from a template already: no offer of templates.
+        freshNoteID = nil
+    }
     /// The keyboard shortcuts sheet (⌘/).
     @Published var isShowingShortcuts = false
 
@@ -969,11 +980,18 @@ final class VaultModel: ObservableObject {
 
     /// Searching (⌘F), browsing folders and tags (⌘E), only the open tabs (⌃Tab), or the
     /// folders to move the note to (Move Note).
-    enum PaletteMode { case search, explorer, tabs, moveNote }
+    enum PaletteMode { case search, explorer, tabs, moveNote, applyTemplate }
     /// ⌃Tab pressed again while the tabs palette shows: it moves to the next tab down.
     @Published private(set) var paletteCycleRequest = 0
 
     /// The palette, listing folders to move the note to.
+    /// The palette, listing templates to apply to the note.
+    func applyTemplateInPalette() {
+        guard selectedNote != nil else { return NSSound.beep() }
+        paletteMode = .applyTemplate
+        isPaletteShown = true
+    }
+
     func moveNoteInPalette() {
         guard selectedNote != nil else { return NSSound.beep() }
         paletteMode = .moveNote

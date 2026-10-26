@@ -10,7 +10,7 @@ struct SettingsView: View {
     @AppStorage("settingsPage") private var page = Page.sidebar
 
     enum Page: String, CaseIterable, Identifiable {
-        case sidebar, notes, text, typography
+        case sidebar, notes, text, typography, templates
         var id: Self { self }
 
         var title: String {
@@ -19,6 +19,7 @@ struct SettingsView: View {
             case .notes: "Notes"
             case .text: "Text"
             case .typography: "Typography"
+            case .templates: "Templates"
             }
         }
 
@@ -28,6 +29,7 @@ struct SettingsView: View {
             case .notes: "list.bullet"
             case .text: "doc.text"
             case .typography: "textformat.size"
+            case .templates: "doc.on.doc"
             }
         }
     }
@@ -51,6 +53,7 @@ struct SettingsView: View {
                     case .notes: notesPage
                     case .text: textPage
                     case .typography: TypographySettings(typography: $store.typography)
+                    case .templates: TemplatesSettings()
                     }
                 }
                 .padding(28)
@@ -370,6 +373,129 @@ private struct SettingsWindowStyle: NSViewRepresentable {
 }
 
 /// A titled group of settings.
+/// The vault's templates, kept in Obsidian's settings so both apps use the same ones: where
+/// they are, which one daily notes start from, the templates themselves, and what can go in them.
+private struct TemplatesSettings: View {
+    @EnvironmentObject private var store: VaultStore
+
+    var body: some View {
+        let settings = store.settings
+        let templates = store.templates
+        SettingsSection("Templates") {
+            Setting("Folder") {
+                Picker("Folder", selection: Binding(get: { settings.templatesFolder },
+                                                    set: { store.setObsidianSetting(.templatesFolder, to: $0) })) {
+                    Text("None").tag("")
+                    ForEach(store.folderPaths, id: \.self) { Text($0).tag($0) }
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+            if !settings.templatesFolder.isEmpty {
+                Setting("In “\(settings.templatesFolder)”") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if templates.isEmpty {
+                            Text("No templates yet.")
+                                .foregroundStyle(.secondary)
+                        }
+                        ForEach(templates, id: \.url) { template in
+                            HStack {
+                                Text(template.name)
+                                Spacer()
+                                Button("Open") { open(template.url) }
+                                    .buttonStyle(.link)
+                            }
+                            .frame(maxWidth: 320)
+                        }
+                        Button("New Template") { store.createTemplate() }
+                            .padding(.top, 4)
+                    }
+                }
+            }
+            Setting("Daily notes start from") {
+                Picker("Daily notes start from", selection: Binding(get: { settings.dailyNotesTemplate },
+                                                                    set: { store.setObsidianSetting(.dailyNotesTemplate, to: $0) })) {
+                    Text("Nothing (an empty note)").tag("")
+                    ForEach(templates, id: \.url) { template in
+                        Text(template.name).tag(Self.path(of: template.url, in: store.root))
+                    }
+                    // One set in Obsidian outside the templates folder, kept.
+                    if !settings.dailyNotesTemplate.isEmpty,
+                       !templates.contains(where: { Self.path(of: $0.url, in: store.root) == settings.dailyNotesTemplate }) {
+                        Text(settings.dailyNotesTemplate).tag(settings.dailyNotesTemplate)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+        }
+        SettingsSection("What a template can contain") {
+            Text("Filled in when a template is applied or a note starts from one, as Obsidian does. Properties in a template are added to the note's: a note keeps its own values, and lists (such as tags) gain the template's.")
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 460, alignment: .leading)
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+                variable("{{title}}", "The note's name")
+                variable("{{date}}", MomentFormat(settings.templatesDateFormat).string(from: Date()))
+                variable("{{time}}", MomentFormat(settings.templatesTimeFormat).string(from: Date()))
+                variable("{{date:dddd D MMMM}}", MomentFormat("dddd D MMMM").string(from: Date()))
+                variable("{{time:h:mm A}}", MomentFormat("h:mm A").string(from: Date()))
+            }
+            Setting("Date format, for {{date}}") {
+                FormatField(value: settings.templatesDateFormat, placeholder: "YYYY-MM-DD") {
+                    store.setObsidianSetting(.templatesDateFormat, to: $0)
+                }
+            }
+            Setting("Time format, for {{time}}") {
+                FormatField(value: settings.templatesTimeFormat, placeholder: "HH:mm") {
+                    store.setObsidianSetting(.templatesTimeFormat, to: $0)
+                }
+            }
+        }
+    }
+
+    private func variable(_ name: String, _ example: String) -> some View {
+        GridRow {
+            Text(name)
+                .font(.system(.body, design: .monospaced))
+                .textSelection(.enabled)
+            Text(example)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// A template's path as Obsidian keeps it: from the vault, without ".md".
+    static func path(of url: URL, in root: URL?) -> String {
+        guard let root else { return url.deletingPathExtension().lastPathComponent }
+        let full = url.deletingPathExtension().standardizedFileURL.path
+        let base = root.standardizedFileURL.path
+        return full.hasPrefix(base + "/") ? String(full.dropFirst(base.count + 1)) : url.deletingPathExtension().lastPathComponent
+    }
+
+    private func open(_ url: URL) {
+        guard let window = store.activeWindow, let note = store.notes.first(where: { $0.url.standardizedFileURL == url.standardizedFileURL }) else { return NSSound.beep() }
+        window.selection = note.id
+        window.window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+/// A date or time format, saved when Return is pressed.
+private struct FormatField: View {
+    let value: String
+    let placeholder: String
+    let save: (String) -> Void
+    @State private var draft = ""
+
+    var body: some View {
+        TextField(placeholder, text: $draft)
+            .frame(maxWidth: 200)
+            .font(.system(.body, design: .monospaced))
+            .onAppear { draft = value }
+            .onChange(of: value) { draft = $0 }
+            .onSubmit { save(draft) }
+    }
+}
+
 private struct SettingsSection<Content: View>: View {
     let title: String
     @ViewBuilder let content: Content

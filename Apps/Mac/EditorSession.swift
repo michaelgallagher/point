@@ -11,6 +11,9 @@ extension Notification.Name {
     static let pointSaveNow = Notification.Name("PointSaveNow")
     /// Asks the open note to insert `userInfo["text"]` at its cursor.
     static let pointInsertText = Notification.Name("PointInsertText")
+    /// Asks note `userInfo["noteID"]` to apply the filled-in template `userInfo["text"]`
+    /// (see `Templates.merge`).
+    static let pointApplyTemplate = Notification.Name("PointApplyTemplate")
     /// Asks note `userInfo["note"]` to select and show `userInfo["range"]` (see `EditorSession.reveal`).
     static let pointRevealRange = Notification.Name("PointRevealRange")
 }
@@ -52,6 +55,7 @@ final class EditorSession: NSObject, ObservableObject {
         center.addObserver(self, selector: #selector(releaseFile(_:)), name: .pointReleaseFile, object: nil)
         center.addObserver(self, selector: #selector(appWillResignActive), name: .pointSaveNow, object: nil)
         center.addObserver(self, selector: #selector(insertText(_:)), name: .pointInsertText, object: nil)
+        center.addObserver(self, selector: #selector(applyTemplate(_:)), name: .pointApplyTemplate, object: nil)
         center.addObserver(self, selector: #selector(revealFromNotification(_:)), name: .pointRevealRange, object: nil)
         center.addObserver(self, selector: #selector(setPropertyFromNotification(_:)), name: .pointSetProperty, object: nil)
         center.addObserver(self, selector: #selector(addTagFromNotification(_:)), name: .pointAddTag, object: nil)
@@ -220,6 +224,37 @@ final class EditorSession: NSObject, ObservableObject {
         guard !isReleased, let text = notification.userInfo?["text"] as? String, let textView,
               notification.userInfo?["noteID"] as? String == note.id else { return }
         textView.insertText(text, replacementRange: textView.selectedRange())
+        textView.window?.makeFirstResponder(textView)
+    }
+
+    /// A template applied to this note: its properties merged into the note's (rather than a
+    /// second block pasted at the cursor), and its body inserted at the cursor. One step to undo.
+    @objc private func applyTemplate(_ notification: Notification) {
+        guard !isReleased, let rendered = notification.userInfo?["text"] as? String, let textView,
+              notification.userInfo?["noteID"] as? String == note.id else { return }
+        let application = Templates.merge(rendered, into: textView.string)
+        // The body goes at the cursor, or after the frontmatter if the cursor is in it.
+        var at = textView.selectedRange()
+        if let block = Frontmatter.parse(textView.string)?.range, at.location <= NSMaxRange(block) {
+            let length = (textView.string as NSString).length
+            let after = min(NSMaxRange(block) + 1, length)
+            at = NSRange(location: after, length: 0)
+        } else if at.length == 0 {
+            at.location = textView.insertionPointForLines(at: at.location)
+        }
+        var body = application.body
+        // At the start of a line with text on it, that text stays on a line of its own.
+        let ns = textView.string as NSString
+        if at.location < ns.length, at.location == textView.insertionPointForLines(at: at.location),
+           ns.character(at: at.location) != 0x0A, !body.isEmpty, !body.hasSuffix("\n") { body += "\n" }
+        textView.undoManager?.beginUndoGrouping()
+        // The body first: it comes after the frontmatter, so the block's range stays right.
+        if !body.isEmpty { textView.insertText(body, replacementRange: at) }
+        if let range = application.frontmatterRange, let block = application.frontmatter,
+           (textView.string as NSString).substring(with: range) != block {
+            textView.insertText(block, replacementRange: range)
+        }
+        textView.undoManager?.endUndoGrouping()
         textView.window?.makeFirstResponder(textView)
     }
 

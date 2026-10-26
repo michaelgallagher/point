@@ -51,4 +51,37 @@ public struct ObsidianSettings: Sendable, Equatable {
         settings.templatesTimeFormat = string(templates["timeFormat"]) ?? "HH:mm"
         return settings
     }
+
+    /// Settings files Point writes, and the keys it writes in them.
+    public enum Key: Sendable {
+        case templatesFolder, templatesDateFormat, templatesTimeFormat, dailyNotesTemplate
+
+        var file: String {
+            switch self {
+            case .templatesFolder, .templatesDateFormat, .templatesTimeFormat: "templates.json"
+            case .dailyNotesTemplate: "daily-notes.json"
+            }
+        }
+
+        var name: String {
+            switch self {
+            case .templatesFolder: "folder"
+            case .templatesDateFormat: "dateFormat"
+            case .templatesTimeFormat: "timeFormat"
+            case .dailyNotesTemplate: "template"
+            }
+        }
+    }
+
+    /// Sets one setting in its `.obsidian` file (removing it for nil or empty, so Obsidian's
+    /// default applies), keeping everything else in the file as it was.
+    public static func set(_ key: Key, to value: String?, vault root: URL) throws {
+        let folder = root.appendingPathComponent(".obsidian")
+        let url = folder.appendingPathComponent(key.file)
+        var object = (try? Data(contentsOf: url)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        if let value, !value.trimmingCharacters(in: .whitespaces).isEmpty { object[key.name] = value } else { object[key.name] = nil }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        try data.write(to: url, options: .atomic)
+    }
 }

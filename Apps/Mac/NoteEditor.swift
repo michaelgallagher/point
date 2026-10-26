@@ -203,36 +203,35 @@ private struct HeaderHeight: PreferenceKey {
 }
 
 /// Above a new, empty note: start from a template, or just type.
+/// Under a new note's title while it's empty: its templates, listed as the new tab page lists
+/// notes, to start from one with a click. (They were a row of glass buttons, cut short in a
+/// narrow side.)
 private struct TemplateChoices: View {
     @EnvironmentObject private var model: VaultModel
+    @State private var hovered: URL?
 
     var body: some View {
-        HStack(spacing: 8) {
-            Text("Start from a template:")
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 0) {
+            PaletteSectionHeader(title: "Start from a template", isFirst: true)
             ForEach(model.templates, id: \.url) { template in
-                Button(template.name) { model.insertTemplate(at: template.url) }
-                    .modifier(GlassButtonStyle())
+                PaletteRow(item: .template(template.name, template.url), isHighlighted: hovered == template.url)
+                    .contentShape(Rectangle())
+                    .onHover { inside in
+                        if inside { hovered = template.url } else if hovered == template.url { hovered = nil }
+                    }
+                    .onTapGesture { model.applyTemplate(at: template.url) }
             }
-            Text("or just type.")
+            Text("or just type")
+                .font(.callout)
                 .foregroundStyle(.tertiary)
+                .padding(.horizontal, 10)
+                .padding(.top, 6)
         }
-        .font(.callout)
-        .padding(.horizontal, 28)
-        .padding(.vertical, 10)
-        .frame(maxWidth: model.store.textColumnWidth, alignment: .leading)
+        // The rows' icons line up with the title above.
+        .padding(.horizontal, 23)
+        .padding(.vertical, 8)
+        .frame(maxWidth: model.store.textColumnWidth + 46, alignment: .leading)
         .frame(maxWidth: .infinity)
-    }
-}
-
-/// Glass buttons where the system has them, bordered ones before.
-struct GlassButtonStyle: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(macOS 26, *) {
-            content.buttonStyle(.glass)
-        } else {
-            content.buttonStyle(.bordered)
-        }
     }
 }
 

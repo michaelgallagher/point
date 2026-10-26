@@ -141,6 +141,8 @@ struct AppCommands: Commands {
             Button("New Note") { model?.createNote() }
                 .keyboardShortcut("n")
                 .disabled(model == nil || store.root == nil)
+            Button("New Note from Template…") { model?.isCreatingFromTemplate = true }
+                .disabled(model == nil || store.root == nil)
             Button("New Folder…") { model?.newFolder() }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 .disabled(model == nil || store.root == nil)
@@ -155,7 +157,7 @@ struct AppCommands: Commands {
             // No shortcut for now: ⇧⌘T shows the tab list.
             Button("Today's Note") { model?.openTodaysNote() }
                 .disabled(model == nil || store.root == nil)
-            Button("Insert Template…") { model?.isChoosingTemplate = true }
+            Button("Apply Template…") { model?.applyTemplateInPalette() }
                 .keyboardShortcut("t", modifiers: [.command, .option])
                 .disabled(model?.selectedNote == nil)
             Button("Open Vault…") { store.chooseVault() }

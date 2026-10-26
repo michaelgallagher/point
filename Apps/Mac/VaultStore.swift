@@ -479,7 +479,30 @@ final class VaultStore: ObservableObject {
         }
     }
 
-    /// The templates in the vault's templates folder, for Insert Template.
+    /// Changes one of the settings Point shares with Obsidian (in `.obsidian/`), for both apps.
+    func setObsidianSetting(_ key: ObsidianSettings.Key, to value: String?) {
+        guard let root else { return }
+        do {
+            try ObsidianSettings.set(key, to: value, vault: root)
+            objectWillChange.send()
+            settings = ObsidianSettings.load(vault: root)
+        } catch {
+            NSLog("Point: couldn't save a setting: \(error.localizedDescription)")
+        }
+    }
+
+    /// The vault's folders, by path, for choosing one.
+    var folderPaths: [String] {
+        folderTree.noteCounts.keys.filter { !$0.isEmpty }.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    /// A new template, in the templates folder, opened in the window in front.
+    func createTemplate() {
+        guard !settings.templatesFolder.isEmpty, let id = createNote(inFolder: settings.templatesFolder) else { return NSSound.beep() }
+        activeWindow?.selection = id
+    }
+
+    /// The templates in the vault's templates folder.
     var templates: [(name: String, url: URL)] {
         root.map { Templates.available(in: $0, settings: settings) } ?? []
     }

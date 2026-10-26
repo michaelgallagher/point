@@ -47,3 +47,83 @@ struct TemplateRenderTests {
         #expect(Templates.dailyNoteURL(for: date, in: root, settings: settings).path == "/vault/Daily/2026/10/18 Sunday.md")
     }
 }
+
+/// Applying a template to a note that may already have properties.
+struct TemplateMergeTests {
+    /// The note after applying: its frontmatter replaced, the body inserted at `cursor`.
+    private func apply(_ template: String, to note: String, at cursor: Int? = nil) -> String {
+        let application = Templates.merge(template, into: note)
+        var text = note as NSString
+        let at = cursor ?? text.length
+        text = text.replacingCharacters(in: NSRange(location: at, length: 0), with: application.body) as NSString
+        if let range = application.frontmatterRange, let block = application.frontmatter {
+            text = text.replacingCharacters(in: range, with: block) as NSString
+        }
+        return text as String
+    }
+
+    @Test func aTemplateWithoutPropertiesGoesInWhole() {
+        #expect(apply("## Agenda\n", to: "# Meeting\n") == "# Meeting\n## Agenda\n")
+    }
+
+    @Test func aNoteWithoutPropertiesGetsTheTemplates() {
+        let template = "---\ntype: meeting\ntags:\n  - work\n---\n## Agenda\n"
+        #expect(apply(template, to: "Notes\n") == "---\ntype: meeting\ntags:\n  - work\n---\nNotes\n## Agenda\n")
+    }
+
+    @Test func theNotesValuesWinAndNewPropertiesAreAdded() {
+        let template = "---\nstatus: draft\ntype: meeting\n---\n## Agenda\n"
+        let note = "---\nstatus: done\n---\nText\n"
+        #expect(apply(template, to: note) == "---\nstatus: done\ntype: meeting\n---\nText\n## Agenda\n")
+    }
+
+    @Test func listsAreCombined() {
+        let template = "---\ntags: [work, meeting]\n---\n"
+        let note = "---\ntags:\n  - Work\n  - ideas\n---\nText\n"
+        #expect(apply(template, to: note) == "---\ntags:\n  - Work\n  - ideas\n  - meeting\n---\nText\n")
+    }
+
+    @Test func aSingleTagBecomesAList() {
+        let template = "---\ntags: [meeting]\n---\n"
+        let note = "---\ntags: work\n---\nText\n"
+        #expect(apply(template, to: note) == "---\ntags:\n  - work\n  - meeting\n---\nText\n")
+    }
+
+    @Test func nothingChangesWhenTheNoteHasItAll() {
+        let template = "---\ntags: [work]\nstatus: draft\n---\n"
+        let note = "---\ntags:\n  - work\nstatus: done\n---\nText\n"
+        let application = Templates.merge(template, into: note)
+        #expect(application.frontmatter == (note as NSString).substring(with: application.frontmatterRange!))
+        #expect(application.body == "")
+    }
+
+    @Test func newPropertiesKeepTheTemplatesWriting() {
+        let template = "---\nattendees:\n  - Ann\n  - Bo\ndue: \"2026-10-26\"\n---\n"
+        let note = "---\nstatus: done\n---\n"
+        #expect(apply(template, to: note) == "---\nstatus: done\nattendees:\n  - Ann\n  - Bo\ndue: \"2026-10-26\"\n---\n")
+    }
+}
+
+struct ObsidianSettingsWriteTests {
+    @Test func setsOneKeyAndKeepsTheRest() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let folder = root.appendingPathComponent(".obsidian")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data(#"{"folder": "Templates", "dateFormat": "D MMM", "other": true}"#.utf8).write(to: folder.appendingPathComponent("templates.json"))
+
+        try ObsidianSettings.set(.templatesFolder, to: "Meta/Templates", vault: root)
+        try ObsidianSettings.set(.dailyNotesTemplate, to: "Meta/Templates/Daily", vault: root)
+        var settings = ObsidianSettings.load(vault: root)
+        #expect(settings.templatesFolder == "Meta/Templates")
+        #expect(settings.templatesDateFormat == "D MMM")
+        #expect(settings.dailyNotesTemplate == "Meta/Templates/Daily")
+        let saved = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: folder.appendingPathComponent("templates.json"))) as? [String: Any])
+        #expect(saved["other"] as? Bool == true)
+
+        // Cleared: Obsidian's default again.
+        try ObsidianSettings.set(.templatesDateFormat, to: "", vault: root)
+        settings = ObsidianSettings.load(vault: root)
+        #expect(settings.templatesDateFormat == "YYYY-MM-DD")
+        try? FileManager.default.removeItem(at: root)
+    }
+}
