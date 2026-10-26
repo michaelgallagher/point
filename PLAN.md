@@ -670,14 +670,15 @@ A code review of the branch's changes (17 commits, about 3,600 lines: the sideba
 - **M3. Dragging the sidebar closed makes it reopen at its narrowest:** the width is saved as it's dragged, down to the minimum, before the split view collapses it. **Fixed:** the width when the divider is picked up is kept if the drag hides the sidebar. Checked: a 320-point sidebar dragged closed reopens at 320.
 
 **Low**
-- **L1.** The two-column tree column starts at 144 points (40% of 360), which cuts short names like "Projects" ("Projec…"). The 60/40 split may want a larger total or a minimum for the tree.
-- **L2.** With many tabs open, the palette's four default actions sit below Open Tabs and Bookmarks, at the bottom of the list. Should they come first?
-- **L3.** Small robustness gaps in `SidebarSplitController`: `setSidebar` without a window doesn't rest the hidden sidebar or record its state; a split closing doesn't check that the window is on screen; the sidebar's contents, wider than their pane while sliding, still take clicks outside it (hit testing ignores the pane's clipping).
-- **L4.** Known from before: the header's side-to-side jitter during the sidebar's slide (SwiftUI and AppKit animations on separate clocks), and a possible one-frame gap when the right-hand note slides across as a split closes.
+- **L1. Kept as it is (Mike's choice).** The two-column tree column starts at 144 points (40% of 360), which cuts short names like "Projects" ("Projec…"). The 60/40 split may want a larger total or a minimum for the tree.
+- **L2. Kept as it is (Mike's choice):** with nothing typed, open tabs and bookmarks come first, the four actions after.
+- **L3. Fixed:** `setSidebar` without a window now sets the sidebar up as the window opens (`setInitially`), and a split closing off screen doesn't slide. The third (clicks outside the sliding sidebar's pane) wasn't real: AppKit doesn't pass a click to views outside their parent's bounds.
+- **The hidden-sidebar launch oddity: gone.** It was the false "drag" at launch (fixed with the close flash). Checked at window widths of 640, 751, 900 and 1200: launched hidden, it stays hidden, in the window's state too.
+- **L4. Still open; needs a quiet screen to work on** (recordings bring the test app to the front, and typing elsewhere lands in it). The idea: start the bar's inset animation in the same run-loop turn as the window's animation (it now starts a turn earlier, at the toggle). Known from before: the header's side-to-side jitter during the sidebar's slide (SwiftUI and AppKit animations on separate clocks), and a possible one-frame gap when the right-hand note slides across as a split closes.
 
 **Checked and working:** showing and hiding the sidebar (⌘S, button); focus mode; auto-hide on narrowing and widening; both dividers' pointer and dragging; dragging the sidebar closed and reopening; two-column folder and note selection (selecting a note open on the other side moves there, as designed); two-column fold arrows; splitting, merging, new tab, tab list, ⌃Tab, closing a tab and ⌘Z; the palette's ">" commands, Move Note (folder list, filtering), the explorer; property editing; typing doesn't rebuild the window (10 keystrokes, 4 updates, from saving).
 
-**Not covered:** full screen (⌃⌘F isn't its shortcut here; needs a debug hook), swipes, a second display, tab dragging, the sort menus' contents (menus are separate windows, not in the screenshots).
+**Not covered:** full screen (a debug hook calling `toggleFullScreen` a second after launch didn't take, and isn't in the code; to try again later, once the window is key), swipes, a second display, tab dragging, the sort menus' contents (menus are separate windows, not in the screenshots).
 
 **For testing:** each test launch makes the test app active, so typing elsewhere at that moment lands in it (a stray "t" and "po" in the test vault). Tests should run when no one's typing.
 
