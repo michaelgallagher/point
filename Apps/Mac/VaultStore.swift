@@ -67,7 +67,20 @@ final class VaultStore: ObservableObject {
     init() {
         sort = UserDefaults.standard.string(forKey: Keys.sort).flatMap(NoteSort.init) ?? .modified
         restoreVault()
+        // Changes can go unreported while the Mac sleeps: the whole vault is looked at again
+        // when it wakes. If the vault can't be watched at all, whenever Point comes to the front.
+        // (A scan reads only what's changed; the rest costs a file listing.)
+        appObservers = [
+            NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: nil) { [weak self] _ in
+                Task { @MainActor in self?.missedChanges() }
+            },
+            NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: nil) { [weak self] _ in
+                Task { @MainActor in if self?.watcher?.isWatching == false { self?.missedChanges() } }
+            },
+        ]
     }
+
+    private var appObservers: [NSObjectProtocol] = []
 
     // MARK: Opening the vault
 
@@ -186,8 +199,14 @@ final class VaultStore: ObservableObject {
         pins = (UserDefaults.standard.stringArray(forKey: "pins." + Self.vaultKey(url)) ?? []).compactMap(SidebarPlace.init(key:))
         bookmarks = UserDefaults.standard.stringArray(forKey: "bookmarks." + Self.vaultKey(url)) ?? []
         openIndex(for: url)
-        watcher = VaultWatcher(root: url) { [weak self] urls in
+        watcher = VaultWatcher(root: url, onChange: { [weak self] urls in
             Task { @MainActor in self?.filesChanged(urls) }
+        }, onMissedChanges: { [weak self] in
+            Task { @MainActor in self?.missedChanges() }
+        })
+        if watcher?.isWatching != true {
+            Self.showProblem("Point can’t watch this vault for changes",
+                             detail: "Changes made in Obsidian or on other devices will show when Point next comes to the front.")
         }
         NotificationCenter.default.post(name: .pointVaultOpened, object: self)
         refreshTrash()
@@ -197,6 +216,14 @@ final class VaultStore: ObservableObject {
     /// Something in the vault changed, here or elsewhere: rescan, and tell open notes.
     private func filesChanged(_ urls: [URL]) {
         NotificationCenter.default.post(name: .pointFilesChanged, object: self, userInfo: ["urls": urls])
+        Task { await reload() }
+    }
+
+    /// Changes may have gone unreported: rescan, and have every open note check its file.
+    private func missedChanges() {
+        guard root != nil else { return }
+        Trace.mark("rescanning everything")
+        NotificationCenter.default.post(name: .pointFilesChanged, object: self, userInfo: ["urls": [URL](), "all": true])
         Task { await reload() }
     }
 

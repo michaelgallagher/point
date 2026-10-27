@@ -292,8 +292,11 @@ final class EditorSession: NSObject, ObservableObject {
 
     @objc private func filesChanged(_ notification: Notification) {
         guard let urls = notification.userInfo?["urls"] as? [URL] else { return }
-        let path = note.url.resolvingSymlinksInPath().path
-        guard urls.contains(where: { $0.resolvingSymlinksInPath().path == path }) else { return }
+        // `all`: changes may have gone unreported, so every open note checks its file.
+        if notification.userInfo?["all"] as? Bool != true {
+            let path = note.url.resolvingSymlinksInPath().path
+            guard urls.contains(where: { $0.resolvingSymlinksInPath().path == path }) else { return }
+        }
         Task { await diskChanged() }
     }
 

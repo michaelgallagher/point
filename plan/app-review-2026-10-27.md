@@ -206,3 +206,30 @@ renames, links, and a watcher happy path. Missing coverage is concentrated
 in failed writes, failed moves, deleted originals, conflict-name collisions,
 multiple unresolved iCloud versions, overlapping scans, and read failures
 while indexing. No live notes were modified for this review.
+
+## Status (27 October 2026)
+
+**Fixed:**
+- **1, 2, 6 and 7:**
+  - A save says whether it worked. A failed one keeps the edits as a draft outside the vault (`NoteDrafts`), with a banner on the note; closing it says so, and the draft is offered when the note next opens.
+  - A note's edits are saved before it's renamed, moved or trashed, and its editors are released only once that's worked: if the save or the move fails, nothing moves and the note goes on saving.
+  - An untitled note is removed only if it saved and read back empty.
+  - Tabs clear only once a note is in the trash. Only notes Point deleted expire; notes found there (Obsidian's) stay until the trash is emptied. Records from before count as found, so nothing already in the trash expires by itself. Deletions that fail are kept and reported.
+  - The app's failures show as alerts over the window.
+- **3 (half):** a write fails if the note's file is missing or unreadable, instead of writing anyway. The banner offers to save it again (`NoteWriter.recreate`, never over a file that's appeared since). The in-place write is unchanged, by design (creation dates, iCloud's identity for the file).
+- **4:** conflict copies are numbered if their name is taken, and never written over another (both paths, iCloud's Keep Both too).
+- **8:** one scan at a time; requests during one run one more after it. Scan, tag and index results that finish after another vault has opened are dropped.
+- **9:** a note that can't be read keeps its last index entry (a new one is found by title only), and is retried by the next update; the same for the sidebar's tags. Index errors are logged and don't count as success.
+- **10:** an Obsidian settings file that can't be read or parsed is left as it is, with an alert; a missing one is created.
+- **11:** dot-folders count only inside the vault; the vault's path is matched as FSEvents reports it (`/private/var/…`). Dropped events, a folder to rescan, or the vault's folder moving rescan the whole vault and have open notes check their files, as does the Mac waking. If watching doesn't start, Point says so and rescans whenever it comes to the front.
+- **12:** web and `mailto:` links open directly; any other kind asks first, naming the app it opens in (`obsidian://` links included).
+
+**Tests:** VaultKit and IndexKit tests for each package-level fix; and in the app (debug builds), `-PointSafetyTest` (failed renames, saves and trash moves, drafts, a note deleted elsewhere, untitled notes) and `-PointScanTest` (a burst of reloads, a vault opened mid-scan), with `-PointConflictTest` run again for each change.
+
+**Still open:**
+- **5, choosing an iCloud conflict version.** Not reproducible on demand, so left for the live-vault trial (phase 4 of [Live vault safety](live-vault-safety.md)): when iCloud shows a conflict banner, before choosing, note the versions (`NSFileVersion`) and keep a copy of each, then fix against that case. The fix: save the edits first (or keep them as a draft), keep every version, not just the first, mark versions resolved only once kept, and report errors rather than ignoring them.
+- **13–15, performance.** Measure before changing anything, and only if something feels slow during the trial:
+  - **13 (each edit reparses the note; the sidebar reloads every row):** type in the longest notes with the main-thread watchdog on (`-PointFrameLog`, which notes any stall over 100 ms), and time `MarkdownTextView`'s parse per keystroke. The sidebar's full reload showed in profiling the sidebar slide (`SidebarTable.Coordinator.update`): reloading only rows whose note changed is the likely fix.
+  - **14 (every open note refreshes its links on any change):** count backlink queries per change with several notes open in two windows; refresh after the index update, and only for notes whose links changed.
+  - **15 (search scores every title):** run `VaultIndexBenchmark` on the vault's copy for p50 and p95 per query; a title-prefix or vocabulary index only if those are slow. (A tag with keywords took 2–7 ms, keywords alone 34 ms, on 27 October.)
+
