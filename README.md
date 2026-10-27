@@ -46,9 +46,22 @@ cd Packages/EditorKit && IMPRINT_ROUNDTRIP_VAULT=~/path/to/vault swift test -c r
 
 This writes a universal (Apple Silicon and Intel) app that runs on macOS 13 or later to `build/Point.app`, plus `build/Point.zip` for copying. The app is signed ad hoc, so on the other Mac right-click it and choose Open the first time.
 
+### App icons
+
+The app's own icon is `Resources/AppIcon.icon`, made in Icon Composer. The others offered in Settings › App Icon are in `Resources/AppIcons`. To add one:
+
+1. Make it in Icon Composer (or copy an existing `.icon` and change it), and save it in `Resources/AppIcons` as, say, `Dusk.icon`.
+2. In `project.yml`, list it with the others in the app's sources, and add its name to `ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES`.
+3. Add it to `AppIconOptions.all` (`Apps/Shared/AppIconOptions.swift`), with the name Settings shows.
+4. Run `xcodegen` and build.
+
+The chosen icon shows in the Dock while Point runs, and, through the Dock tile plug-in (`Apps/DockTile`), while it isn't, if Point is kept in the Dock. Finder and Launchpad always show `AppIcon`: changing the app's own icon would mean changing its files, which breaks its signature. `Ink` and `Sage` are placeholders, the main icon on other backgrounds.
+
 ## Layout
 
 - `Apps/Mac` — the Mac app (SwiftUI, deployment target macOS 13)
+- `Apps/DockTile` — the Dock tile plug-in, which shows the chosen app icon while Point isn't running
+- `Apps/Shared` — code used by both
 - `Packages/VaultKit` — vault access: finding, reading and safely writing notes, and remembering the vault folder
 - `Packages/MarkdownKit` — the Markdown parser (CommonMark, GFM and Obsidian syntax), with exact positions for every token
 - `Packages/EditorKit` — the editor: a TextKit 1 text view that hides Markdown markers and draws lists, quotes and code

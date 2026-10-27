@@ -24,12 +24,27 @@ targets:
     type: application
     platform: macOS
     sources:
-      - Apps/Mac
+      - path: Apps/Mac
+        excludes: [Info.plist]
+      - Apps/Shared
       # The app icon (Icon Composer: light and dark; Xcode makes older systems' icon from it).
       - path: Resources/AppIcon.icon
         type: file
         buildPhase: resources
+      # Icons to choose from in Settings, one Icon Composer file each, named as listed in
+      # ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES below (and in `AppIconChoice`).
+      - path: Resources/AppIcons/Ink.icon
+        type: file
+        buildPhase: resources
+      - path: Resources/AppIcons/Sage.icon
+        type: file
+        buildPhase: resources
     dependencies:
+      # Shows the chosen app icon in the Dock while Point isn't running.
+      - target: PointDockTile
+        embed: true
+        copy:
+          destination: plugins
       - package: VaultKit
       - package: EditorKit
       - package: MarkdownKit
@@ -46,7 +61,11 @@ targets:
         ENABLE_HARDENED_RUNTIME: YES
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Point
+        # Keys the build settings can't give (the Dock tile plug-in), merged in.
+        INFOPLIST_FILE: Apps/Mac/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: Ink Sage
+        ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: YES
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
         # Sandboxed, with access only to the folder the user picks.
         CODE_SIGN_ENTITLEMENTS: Apps/Mac/Point.entitlements
@@ -55,3 +74,24 @@ targets:
         # (`-PointVault <path>`) without the folder picker.
         Debug:
           CODE_SIGN_ENTITLEMENTS: Apps/Mac/Point-Debug.entitlements
+  # The Dock tile plug-in: loaded by the Dock, to show the app icon chosen in Settings while
+  # Point isn't running. Embedded in Point.app/Contents/PlugIns.
+  PointDockTile:
+    type: bundle
+    platform: macOS
+    sources:
+      - Apps/DockTile
+      - Apps/Shared
+    settings:
+      base:
+        PRODUCT_NAME: PointDockTile
+        PRODUCT_BUNDLE_IDENTIFIER: org.mikegallagher.imprint.docktile
+        WRAPPER_EXTENSION: docktileplugin
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_NSPrincipalClass: PointDockTilePlugIn
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        SKIP_INSTALL: YES
+        # Its one class runs on the Dock's main thread, called by AppKit.
+        SWIFT_VERSION: "5.0"
+

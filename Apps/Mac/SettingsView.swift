@@ -10,7 +10,7 @@ struct SettingsView: View {
     @AppStorage("settingsPage") private var page = Page.sidebar
 
     enum Page: String, CaseIterable, Identifiable {
-        case sidebar, notes, text, typography, templates
+        case sidebar, notes, text, typography, templates, appIcon
         var id: Self { self }
 
         var title: String {
@@ -20,6 +20,7 @@ struct SettingsView: View {
             case .text: "Text"
             case .typography: "Typography"
             case .templates: "Templates"
+            case .appIcon: "App Icon"
             }
         }
 
@@ -30,6 +31,7 @@ struct SettingsView: View {
             case .text: "doc.text"
             case .typography: "textformat.size"
             case .templates: "doc.on.doc"
+            case .appIcon: "app.badge"
             }
         }
     }
@@ -46,18 +48,31 @@ struct SettingsView: View {
             .navigationSplitViewColumnWidth(190)
             .modifier(NoSidebarToggle())
         } detail: {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    switch page {
-                    case .sidebar: sidebarPage
-                    case .notes: notesPage
-                    case .text: textPage
-                    case .typography: TypographySettings(typography: $store.typography)
-                    case .templates: TemplatesSettings()
+            GeometryReader { geometry in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        switch page {
+                        case .sidebar: sidebarPage
+                        case .notes: notesPage
+                        case .text: textPage
+                        case .typography: TypographySettings(typography: $store.typography)
+                        case .templates: TemplatesSettings()
+                        case .appIcon: appIconPage
+                        }
                     }
+                    .padding(28)
+                    // The whole page, however short, so a click anywhere off a control lands
+                    // on the background below.
+                    .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .topLeading)
+                    // A click away from a field (or anything else with the keyboard) lets go
+                    // of it, as elsewhere on the Mac: it kept its focus ring until another
+                    // control was clicked.
+                    .background(
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { NSApp.keyWindow?.makeFirstResponder(nil) }
+                    )
                 }
-                .padding(28)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
             // Back and forward, then the page's name, large, as in System Settings.
             // Back and forward, joined in one capsule, then the page's name, as in System
@@ -230,6 +245,12 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+    }
+
+    @ViewBuilder private var appIconPage: some View {
+            Setting("Icon", isHeading: true) {
+                AppIconPicker()
+            }
     }
 
     @ViewBuilder private var textPage: some View {

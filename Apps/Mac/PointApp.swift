@@ -10,6 +10,7 @@ struct PointApp: App {
     init() {
         // Point has its own tabs, inside each side of a window; no window tabs.
         NSWindow.allowsAutomaticWindowTabbing = false
+        DispatchQueue.main.async { AppIcon.applyChosen() }
     }
 
     var body: some Scene {
