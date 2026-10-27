@@ -13,7 +13,8 @@ Branch `no-visible-tabs`. Recently built: tabless headers, the redesigned proper
 2. **The properties view,** the last item of the [25 October batch](plan/batch-2026-10-25.md).
 3. **The sidebar's remaining steps:** the swipe follows the fingers, and auto-hide resizes the window at the end of a drag. See [The sidebar widens the window](plan/sidebar-widens-window.md).
 4. **When the screen is free for recordings:** the header's jitter as the sidebar slides, and full screen. See [App review](plan/app-review-2026-10-25.md).
-5. **Later milestones:** the iPhone app (M4), meaning (M5) and extras (M6). See [Milestones](plan/milestones.md).
+5. **The iPhone app (M4):** sketched and its questions answered; the first step is a spike: the editor in UIKit, measured on the iPhone 13. See [M4, the iPhone app](plan/m4-iphone.md).
+6. **Later milestones:** meaning (M5) and extras (M6). See [Milestones](plan/milestones.md).
 
 ## The documents
 
@@ -24,6 +25,7 @@ Branch `no-visible-tabs`. Recently built: tabless headers, the redesigned proper
 
 **Work, newest first**
 - [Live vault safety](plan/live-vault-safety.md) (26–27 October): testing, then fixing, what Point writes to a real vault; the results, and the trial still to come.
+- [M4, the iPhone app](plan/m4-iphone.md) (27 October): what it's for, two screens and a button, what it leaves out, how it's built, and the steps.
 - [Code review](plan/app-review-2026-10-27.md) (27 October): an external review of note safety, stability and performance; what's fixed, and what's still open.
 - [App review](plan/app-review-2026-10-25.md) (25 October): the review's findings by severity, and the fixes since, including the close flash.
 - [The 25 October batch](plan/batch-2026-10-25.md): the links panel, templates, the properties view, palette defaults, tags and the home button, sorting in two columns, splits that slide, and the small fixes after.

@@ -35,10 +35,7 @@ Each milestone ends with a build for Mike to try and review.
 In its own document: [M3.5, Mac refinements](m3.5-mac-refinements.md).
 
 ## M4 — iPhone
-Buy the developer account first.
-- Folder access through Files, list and editor.
-- Formatting bar above the keyboard.
-- Capture: control, Siri and App Intents, share extension.
+In its own document: [M4, the iPhone app](m4-iphone.md) (sketched 27 October 2026). Writing a new note, looking things up, and editing one note through the day; on a vault folder on the phone first, then the real vault through Files. The paid developer account is needed for the control, Siri and the share sheet, not before.
 
 ## M5 — Meaning
 - Embeddings index.
