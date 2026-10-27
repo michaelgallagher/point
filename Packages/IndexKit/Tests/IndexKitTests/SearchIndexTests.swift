@@ -137,6 +137,44 @@ struct SearchTests {
         #expect(try await vault.titles("chocolate").isEmpty)
     }
 
+    /// From the review of 27 October: a note that couldn't be read (for a moment, as while
+    /// iCloud writes it) was indexed as empty with its new date, and dropped out of search
+    /// until it next changed. It keeps what was indexed, and is tried again.
+    @Test func aNoteThatCantBeReadKeepsItsEntryAndIsTriedAgain() async throws {
+        var vault = try await Fixture(files)
+        defer { vault.cleanUp() }
+        let garden = vault.root.appendingPathComponent("Garden.md")
+        try Data("Planted potatoes instead.".utf8).write(to: garden)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(60), .posixPermissions: 0o200],
+                                              ofItemAtPath: garden.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: garden.path) }
+        vault.notes = try VaultScanner.scan(vault.root)
+        #expect(try await vault.index.update(notes: vault.notes) == 0)
+        #expect(await vault.index.unreadableNotes == ["Garden.md"])
+        #expect(try await vault.titles("tomatoes") == ["Garden"]) // As last indexed.
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: garden.path)
+        #expect(try await vault.index.update(notes: vault.notes) == 1)
+        #expect(await vault.index.unreadableNotes.isEmpty)
+        #expect(try await vault.titles("potatoes") == ["Garden"])
+    }
+
+    /// A new note that can't be read is found by its title, and indexed fully once it can be.
+    @Test func aNewNoteThatCantBeReadIsFoundByTitle() async throws {
+        var vault = try await Fixture(files)
+        defer { vault.cleanUp() }
+        let url = vault.root.appendingPathComponent("Allotment plan.md")
+        try Data("Rhubarb by the shed.".utf8).write(to: url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o200], ofItemAtPath: url.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path) }
+        vault.notes = try VaultScanner.scan(vault.root)
+        try await vault.index.update(notes: vault.notes)
+        #expect(try await vault.titles("allotment plan").first == "Allotment plan")
+        #expect(try await vault.titles("rhubarb").isEmpty)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+        #expect(try await vault.index.update(notes: vault.notes) == 1)
+        #expect(try await vault.titles("rhubarb") == ["Allotment plan"])
+    }
+
     @Test func persistsBetweenLaunches() async throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("index-\(UUID().uuidString).sqlite")
         defer { try? FileManager.default.removeItem(at: file) }

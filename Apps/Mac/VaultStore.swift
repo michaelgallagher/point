@@ -87,13 +87,56 @@ final class VaultStore: ObservableObject {
         open(url)
     }
 
+    /// Counts the vaults opened, so work started for one is dropped if another opens first.
+    private var vaultGeneration = 0
+    /// The scan running now, which a reload asked for meanwhile waits for.
+    private var scanning: Task<Void, Never>?
+    /// Whether something changed during the scan running now, so another is needed after it.
+    private var rescanWanted = false
+
+    /// Scans the vault again and shows what's there. One scan at a time: asked for while one
+    /// is running (as a burst of changes from iCloud does), one more runs after it, which
+    /// this waits for. (Each change started its own scan, and an older one finishing last
+    /// showed the vault as it was; one finishing after another vault opened showed its notes
+    /// in that vault.)
     func reload() async {
+        if let scanning {
+            rescanWanted = true
+            return await scanning.value
+        }
+        let generation = vaultGeneration
+        let task = Task { [weak self] in
+            repeat {
+                self?.rescanWanted = false
+                await self?.scan(generation: generation)
+            } while self?.rescanWanted == true && self?.vaultGeneration == generation
+            // In the same step as the last check, so a reload asked for after it starts anew.
+            if self?.vaultGeneration == generation { self?.scanning = nil }
+        }
+        scanning = task
+        await task.value
+    }
+
+    #if DEBUG
+    /// Scans started, and finished with their results shown, for checking coalescing.
+    private(set) var debugScans = (started: 0, shown: 0)
+    func debugOpen(_ url: URL) { open(url) }
+    #endif
+
+    private func scan(generation: Int) async {
         guard let root else { return }
+        #if DEBUG
+        debugScans.started += 1
+        #endif
         do {
             let scanned = try await Task.detached(priority: .userInitiated) {
                 try VaultScanner.scanWithFolders(root)
             }.value
+            guard generation == vaultGeneration else { return Trace.mark("scan dropped: another vault opened") }
             Trace.mark("rescanned: \(scanned.notes.count) notes")
+            #if DEBUG
+            debugScans.shown += 1
+            #endif
             folders = scanned.folders
             notes = scanned.notes.sorted(by: sort)
             propertyTypes = PropertyTypes.load(vault: root) // Obsidian may have changed them.
@@ -101,6 +144,7 @@ final class VaultStore: ObservableObject {
             refreshTags()
             updateIndex()
         } catch {
+            guard generation == vaultGeneration else { return }
             errorMessage = "Point couldn't read the vault: \(error.localizedDescription)"
         }
     }
@@ -126,6 +170,9 @@ final class VaultStore: ObservableObject {
     }
 
     private func open(_ url: URL) {
+        vaultGeneration += 1
+        scanning = nil
+        rescanWanted = false
         watcher?.stop()
         root?.stopAccessingSecurityScopedResource()
         _ = url.startAccessingSecurityScopedResource()
@@ -728,15 +775,19 @@ final class VaultStore: ObservableObject {
         guard showsTagsInList else { return }
         let stale = notes.filter { $0.isDownloaded && tagsReadAt[$0.id] != $0.modified }
         guard !stale.isEmpty else { return }
+        let generation = vaultGeneration
         Task {
             let read = await Task.detached(priority: .utility) {
-                stale.map { note in (note, (try? NoteReader.read(contentsOf: note.url)).map(NoteTags.tags(in:)) ?? []) }
+                stale.map { note in (note, (try? NoteReader.read(contentsOf: note.url)).map(NoteTags.tags(in:))) }
             }.value
+            guard generation == vaultGeneration else { return }
             // In one change: set note by note, the published dictionary sent thousands of
             // changes (and could copy itself for each), holding up the main thread for half a
-            // second a few seconds after launch.
+            // second a few seconds after launch. A note that couldn't be read keeps the tags it
+            // had, and is read again next time (taken as having none, it lost them until it
+            // next changed).
             var updated = tagsByNote
-            for (note, tags) in read {
+            for case let (note, tags?) in read {
                 updated[note.id] = tags
                 tagsReadAt[note.id] = note.modified
             }
@@ -784,12 +835,23 @@ final class VaultStore: ObservableObject {
     private func updateIndex() {
         guard let index else { return }
         let notes = notes
+        let generation = vaultGeneration
         Task {
-            let changed = (try? await index.update(notes: notes)) ?? 0
-            Trace.mark("index updated: \(changed) notes changed")
+            let changed: Int
+            do {
+                changed = try await index.update(notes: notes)
+            } catch {
+                // Searches go on using the index as it was; the next scan tries again.
+                NSLog("Point: couldn't update the search index: \(error.localizedDescription)")
+                return Trace.mark("index update failed: \(error.localizedDescription)")
+            }
+            let unreadable = await index.unreadableNotes
+            Trace.mark("index updated: \(changed) notes changed\(unreadable.isEmpty ? "" : ", \(unreadable.count) unreadable")")
+            if !unreadable.isEmpty { NSLog("Point: couldn't read \(unreadable.count) notes to index them; they'll be tried again") }
+            guard generation == vaultGeneration else { return }
             if changed > 0 { indexGeneration += 1 }
             if changed > 0 || tagTree.entries.isEmpty {
-                let tags = (try? await index.tagsByNote()) ?? [:]
+                guard let tags = try? await index.tagsByNote(), generation == vaultGeneration else { return }
                 indexedTags = tags
                 tagTree = TagTree(tagsByNote: Array(tags.values))
                 Trace.mark("index tags ready: \(tags.count) notes")

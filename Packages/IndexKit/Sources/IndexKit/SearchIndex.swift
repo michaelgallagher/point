@@ -53,6 +53,9 @@ public actor SearchIndex {
     static let schemaVersion = "5" // 5: links in frontmatter count as links.
 
     private let db: Database
+    /// Notes the last update couldn't read: kept as they were last indexed (or by title only,
+    /// if new), and tried again by the next update.
+    public private(set) var unreadableNotes: [Note.ID] = []
     /// Titles for fuzzy matching, kept in memory.
     private var titles: [(row: Int, id: Note.ID, title: String)] = []
 
@@ -96,7 +99,10 @@ public actor SearchIndex {
     // MARK: Keeping up to date
 
     /// Brings the index in line with the vault: indexes new and changed notes, forgets
-    /// deleted ones. Returns how many notes were (re)indexed.
+    /// deleted ones. Returns how many notes were (re)indexed. A note that can't be read
+    /// keeps what was indexed for it before (a new one is indexed by title only), with its
+    /// old date, so the next update tries again: indexed as empty with its new date, it
+    /// dropped out of search until it next changed.
     @discardableResult
     public func update(notes: [Note]) throws -> Int {
         var stored: [Note.ID: (row: Int, modified: Double)] = [:]
@@ -114,17 +120,26 @@ public actor SearchIndex {
                 for row in removed { try delete(row: row) }
             }
         }
+        var unreadable: [Note.ID] = []
+        var indexed = 0
         for batch in stride(from: 0, to: changed.count, by: 200).map({ Array(changed[$0..<min($0 + 200, changed.count)]) }) {
             let prepared = batch.map { note in (note, note.isDownloaded ? try? NoteReader.read(contentsOf: note.url) : nil) }
             try db.transaction {
                 for (note, text) in prepared {
+                    if note.isDownloaded, text == nil {
+                        unreadable.append(note.id)
+                        if stored[note.id] != nil { continue } // Kept as last indexed.
+                    } else {
+                        indexed += 1
+                    }
                     if let existing = stored[note.id] { try delete(row: existing.row) }
                     try insert(note, text: text)
                 }
             }
         }
+        unreadableNotes = unreadable
         if !removed.isEmpty || !changed.isEmpty { titles = try Self.loadTitles(db) }
-        return changed.count
+        return indexed
     }
 
     /// The full-text tables, which all read their text from `notes` (stored once).
@@ -143,7 +158,9 @@ public actor SearchIndex {
     }
 
     private func insert(_ note: Note, text: String?) throws {
-        let modified = text == nil && !note.isDownloaded ? 0 : note.modified.timeIntervalSince1970
+        // Indexed by title only (not downloaded, or unreadable): no date, so it's indexed fully
+        // once it can be read.
+        let modified = text == nil ? 0 : note.modified.timeIntervalSince1970
         // Properties are searchable but kept apart from the text, so snippets read naturally.
         let body = text.map { PlainText.strippingMarkers(from: $0, includingFrontmatter: false) } ?? ""
         let properties = text.flatMap(Frontmatter.parse)?.body ?? ""

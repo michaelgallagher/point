@@ -19,6 +19,7 @@ enum DebugSnapshots {
         probeCursorIfAsked(for: model)
         conflictIfAsked(for: model)
         safetyIfAsked(for: model)
+        scanIfAsked(for: model)
         // `-PointOpenSettings YES`: opens Settings (at `-settingsPage`), for checking it.
         if UserDefaults.standard.bool(forKey: "PointOpenSettings") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
@@ -667,6 +668,46 @@ enum DebugSnapshots {
                 },
             ]
             run()
+        }
+    }
+
+    /// `-PointScanTest <other vault>`: the overlapping scans from the review of 27 October. A
+    /// burst of 20 reloads (as a burst of changes from iCloud starts) runs one scan and one
+    /// more, not 20; a note added during a burst is shown; and opening the other vault while
+    /// this one's being scanned shows only the other vault's notes.
+    private static func scanIfAsked(for model: VaultModel) {
+        guard let other = UserDefaults.standard.string(forKey: "PointScanTest") else { return }
+        let store = model.store
+        func check(_ name: String, _ ok: Bool, _ detail: String = "") {
+            Trace.mark("scan test: \(ok ? "PASS" : "FAIL") \(name)\(detail.isEmpty ? "" : " — \(detail)")")
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+            guard let root = store.root else { return check("vault", false) }
+            let before = store.debugScans.started
+            let added = root.appendingPathComponent("Added during burst \(UUID().uuidString.prefix(4)).md")
+            for index in 0..<20 {
+                if index == 10 { try? Data("New".utf8).write(to: added) }
+                Task { await store.reload() }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                let scans = store.debugScans.started - before
+                check("a burst of 20 reloads coalesced", scans <= 3, "\(scans) scans")
+                check("a note added during the burst is shown", store.notes.contains { $0.url.lastPathComponent == added.lastPathComponent })
+                try? FileManager.default.removeItem(at: added)
+                // Another vault opened while this one's being scanned.
+                Task { await store.reload() }
+                let otherURL = URL(fileURLWithPath: other)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+                    store.debugOpen(otherURL)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                        let expected = (try? VaultScanner.scan(otherURL).count) ?? -1
+                        let strays = store.notes.filter { !$0.url.path.hasPrefix(otherURL.path) }
+                        check("only the other vault's notes", strays.isEmpty && store.notes.count == expected,
+                              "\(store.notes.count) notes, \(strays.count) from the first vault, expected \(expected)")
+                        Trace.mark("scan test: done")
+                    }
+                }
+            }
         }
     }
 
