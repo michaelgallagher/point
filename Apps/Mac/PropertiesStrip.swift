@@ -97,6 +97,10 @@ struct PropertiesStrip: View {
             }
         }
         .font(.callout)
+        // Opens to show a property being highlighted.
+        .onChange(of: session.revealedProperty) { key in
+            if key != nil, !isExpanded { withAnimation(.easeOut(duration: 0.15)) { isExpanded = true } }
+        }
         .padding(.top, 6)
         .padding(.bottom, 10)
         .padding(.leading, 5) // Lines up with the title and the text, which are inset a little.
@@ -194,6 +198,11 @@ struct PropertiesStrip: View {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(isSelected ? Color.accentColor.opacity(0.15)
                       : Color.primary.opacity(hoveredKey == property.key && dragging == nil ? 0.05 : 0))
+            // A link here just followed from another note: highlighted, as a place in the
+            // text is (the system's find highlight colour).
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color(nsColor: .findHighlightColor).opacity(session.revealedProperty == property.key ? 0.8 : 0))
+                .animation(.easeOut(duration: session.revealedProperty == property.key ? 0.1 : 0.6), value: session.revealedProperty)
         }
         // The row's empty space (fields take their own clicks) selects it.
         .contentShape(Rectangle())
@@ -355,7 +364,7 @@ private struct PropertyValue: View {
             case .list, .tags, .aliases:
                 TokenEditor(items: Self.items(of: property, as: type), isTags: type == .tags,
                             suggestions: { typed, items in type == .tags ? model.store.tagSuggestions(for: typed, excluding: items) : [] },
-                            commit: { set($0) })
+                            link: link, commit: { set($0) })
             case .checkbox:
                 Toggle("", isOn: Binding(
                     get: { property.values.first?.lowercased() == "true" },
@@ -366,7 +375,7 @@ private struct PropertyValue: View {
             case .date, .datetime:
                 DateValue(property: property, hasTime: type == .datetime, set: set)
             case .text, .number:
-                TextValue(property: property, isNumber: type == .number, set: set)
+                TextValue(property: property, isNumber: type == .number, link: link, set: set)
             }
         }
     }
@@ -374,12 +383,51 @@ private struct PropertyValue: View {
     private func set(_ values: [String]) {
         session.setProperty(property.key, to: values, isList: type.isList)
     }
+
+    /// A value that is a wikilink (`[[Note]]`, `[[Note|label]]`), shown as a link to follow.
+    private func link(_ value: String) -> PropertyLink? {
+        PropertyLink(value, from: session.note.id, resolver: model.store.linkResolver) { target in
+            let pane = model.panes.first { $0.tab.noteID == session.note.id } ?? model.panes[model.activePane]
+            model.open(.note(target), from: session.note.id, inPane: pane.id)
+        }
+    }
+}
+
+/// A property value that is a single wikilink, as Obsidian writes links in properties: shown
+/// without its brackets, coloured as links are in the note (paler when there's no such note).
+struct PropertyLink {
+    let target: String
+    let label: String
+    let exists: Bool
+    let open: (String) -> Void
+
+    init?(_ value: String, from sourceID: Note.ID, resolver: LinkResolver, open: @escaping (String) -> Void) {
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("[["), trimmed.hasSuffix("]]"), trimmed.count > 4 else { return nil }
+        let inside = trimmed.dropFirst(2).dropLast(2)
+        guard !inside.contains("[["), !inside.contains("]]") else { return nil }
+        let parts = inside.split(separator: "|", maxSplits: 1).map(String.init)
+        target = parts[0]
+        label = parts.count > 1 ? parts[1] : parts[0]
+        exists = resolver.resolve(wikiTarget: target, from: sourceID) != nil
+        self.open = open
+    }
+
+    var text: some View {
+        Text(label)
+            .foregroundStyle(Color(nsColor: exists ? .linkColor : .linkColor.withAlphaComponent(0.5)))
+            .lineLimit(1)
+            .onTapGesture { open(target) }
+            .onHover { inside in if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
+            .help(exists ? "Open “\(target)”" : "Create “\(target)”")
+    }
 }
 
 /// Text, or a number, in a field: Return or clicking away saves it.
 private struct TextValue: View {
     let property: Frontmatter.Property
     let isNumber: Bool
+    let link: (String) -> PropertyLink?
     let set: ([String]) -> Void
     @State private var text = ""
     @FocusState private var isFocused: Bool
@@ -387,8 +435,19 @@ private struct TextValue: View {
     private var displayed: String { property.values.joined(separator: ", ") }
 
     var body: some View {
+        // A link shows as one until the field is clicked (beside the link) to edit it.
+        let shownLink = isFocused ? nil : link(displayed)
         TextField("Empty", text: $text)
             .textFieldStyle(.plain)
+            .opacity(shownLink == nil ? 1 : 0)
+            .overlay(alignment: .leading) {
+                if let shownLink {
+                    HStack(spacing: 0) {
+                        shownLink.text
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
             .focused($isFocused)
             .onSubmit(commit)
             .onChange(of: isFocused) { focused in
@@ -449,6 +508,7 @@ private struct TokenEditor: View {
     let items: [String]
     let isTags: Bool
     let suggestions: (String, [String]) -> [String]
+    var link: (String) -> PropertyLink? = { _ in nil }
     let commit: ([String]) -> Void
     @State private var draft = ""
     @FocusState private var isFocused: Bool
@@ -457,7 +517,7 @@ private struct TokenEditor: View {
         VStack(alignment: .leading, spacing: 4) {
             FlowLayout(spacing: 4) {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                    Token(text: item, isTag: isTags) {
+                    Token(text: item, isTag: isTags, link: isTags ? nil : link(item)) {
                         commit(items.enumerated().filter { $0.offset != index }.map(\.element))
                     }
                 }
@@ -527,13 +587,18 @@ private struct TokenEditor: View {
 private struct Token: View {
     let text: String
     let isTag: Bool
+    var link: PropertyLink?
     let remove: () -> Void
     @State private var isHovering = false
 
     var body: some View {
         HStack(spacing: 3) {
-            Text(text)
-                .lineLimit(1)
+            if let link {
+                link.text
+            } else {
+                Text(text)
+                    .lineLimit(1)
+            }
             Button(action: remove) {
                 Image(systemName: "xmark")
                     .font(.system(size: 8, weight: .bold))

@@ -665,7 +665,8 @@ struct SidebarRowView: View {
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             .padding(.leading, 8)
-            .padding(.trailing, 8)
+            // The arrows' right edge on the counts' (the symbol has a little room at its side).
+            .padding(.trailing, 7.5)
             // As much room below the label as above it, down to the line when it's folded.
             .padding(.bottom, 5)
             .help(isOpen ? "Hide \(section.rawValue.lowercased())" : "Show \(section.rawValue.lowercased())")

@@ -454,6 +454,7 @@ extension MarkdownTextView {
             return
         }
         if toggleCheckbox(at: point) { return }
+        if showHighlightMenu(at: point, for: event) { return }
         if addCursor(for: event) { return } // ⌥-click adds a cursor (but not on a link).
         if openLink(for: event) { return } // ⌥-click places the cursor in a link instead.
         super.mouseDown(with: event)
@@ -486,6 +487,111 @@ extension MarkdownTextView {
         let previous = selectedRange()
         replace(state, with: done ? " " : "x", select: previous)
         return true
+    }
+}
+
+// MARK: Highlighting list items
+
+extension MarkdownTextView {
+    /// Clicking a bullet offers the highlight colours: choosing one writes its character at the
+    /// start of the item (`- ! text`), as the List Callouts plugin for Obsidian reads them.
+    func showHighlightMenu(at point: NSPoint, for event: NSEvent) -> Bool {
+        guard !styler.listHighlights.isEmpty, let layoutManager = pointLayoutManager, let container = textContainer,
+              let storage = textStorage, storage.length > 0 else { return false }
+        let origin = textContainerOrigin
+        let local = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
+        let index = layoutManager.characterIndexForPoint(local, in: container)
+        let lineStart = lineStart(of: min(index, storage.length - 1))
+        guard let token = tokens.first(where: { $0.range.location == lineStart }),
+              case .listItem(.bullet, _) = token.kind,
+              let decoration = storage.attribute(.pointListMarker, at: lineStart, effectiveRange: nil) as? ListMarkerDecoration,
+              let marker = token.syntax.first else { return false }
+
+        let line = layoutManager.lineRect(containing: lineStart, storage: storage)
+        let font = layoutManager.textFont(near: lineStart, storage: storage)
+        let visible = layoutManager.firstVisibleCharacter(onLineOf: lineStart, storage: storage)
+        let baseline = line.minY + (visible.map { layoutManager.location(forGlyphAt: layoutManager.glyphIndexForCharacter(at: $0)).y } ?? font.ascender)
+        let x = container.lineFragmentPadding + layoutManager.theme.indentPerLevel * CGFloat(decoration.level)
+        let dot = layoutManager.bulletRect(x: x, baseline: baseline, font: font).insetBy(dx: -6, dy: -6)
+        guard dot.contains(local) else { return false }
+
+        let current = styler.listHighlight(after: marker, in: token.range, text: string as NSString)
+        let menu = NSMenu()
+        for highlight in listHighlights {
+            let item = NSMenuItem(title: Self.colourName(highlight.color), action: #selector(chooseHighlight(_:)), keyEquivalent: "")
+            item.target = self
+            item.image = Self.swatch(highlight.color)
+            item.representedObject = HighlightChoice(item: token.range, marker: marker, character: highlight.character)
+            if let current, (string as NSString).character(at: current.0.location) == highlight.character.utf16.first {
+                item.state = .on
+            }
+            menu.addItem(item)
+        }
+        if current != nil {
+            menu.addItem(.separator())
+            let none = NSMenuItem(title: "No Highlight", action: #selector(chooseHighlight(_:)), keyEquivalent: "")
+            none.target = self
+            none.representedObject = HighlightChoice(item: token.range, marker: marker, character: nil)
+            menu.addItem(none)
+        }
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+        return true
+    }
+
+    @objc private func chooseHighlight(_ sender: NSMenuItem) {
+        guard let choice = sender.representedObject as? HighlightChoice else { return }
+        setListHighlight(choice.character, item: choice.item, marker: choice.marker)
+    }
+
+    /// Writes a highlight character at the start of a list item, replacing any there (nil
+    /// removes it).
+    func setListHighlight(_ character: Character?, item: NSRange, marker: NSRange) {
+        guard NSMaxRange(item) <= (string as NSString).length else { return }
+        let text = string as NSString
+        let existing = styler.listHighlight(after: marker, in: item, text: text)?.0
+            ?? NSRange(location: NSMaxRange(marker), length: 0)
+        let replacement = character.map { "\($0) " } ?? ""
+        let previous = selectedRange()
+        // The cursor stays where it was in the item's text.
+        let shift = (replacement as NSString).length - existing.length
+        let select = previous.location >= NSMaxRange(existing) ? NSRange(location: previous.location + shift, length: previous.length) : previous
+        replace(existing, with: replacement, select: select)
+    }
+
+    private final class HighlightChoice: NSObject {
+        let item: NSRange, marker: NSRange
+        let character: Character?
+        init(item: NSRange, marker: NSRange, character: Character?) {
+            self.item = item
+            self.marker = marker
+            self.character = character
+        }
+    }
+
+    /// A plain name for a highlight's colour, from its hue.
+    static func colourName(_ color: NSColor) -> String {
+        guard let rgb = color.usingColorSpace(.sRGB) else { return "Colour" }
+        if rgb.saturationComponent < 0.2 { return rgb.brightnessComponent > 0.9 ? "White" : "Grey" }
+        let hue = rgb.hueComponent * 360
+        if rgb.saturationComponent < 0.45, rgb.brightnessComponent < 0.75 { return "Brown" }
+        switch hue {
+        case ..<15, 345...: return "Red"
+        case ..<40: return "Orange"
+        case ..<70: return "Yellow"
+        case ..<165: return "Green"
+        case ..<200: return "Teal"
+        case ..<250: return "Blue"
+        case ..<290: return "Purple"
+        default: return "Pink"
+        }
+    }
+
+    private static func swatch(_ color: NSColor) -> NSImage {
+        NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
+            color.setFill()
+            NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1)).fill()
+            return true
+        }
     }
 }
 

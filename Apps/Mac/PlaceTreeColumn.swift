@@ -317,11 +317,17 @@ private struct FoldingSection<Content: View>: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            // The sort menu's colour (a header's own is paler), as in one column.
+            .foregroundStyle(.secondary)
             .help(isExpanded ? "Hide \(title.lowercased())" : "Show \(title.lowercased())")
             Spacer(minLength: 4)
-            if let sort { sort }
+            // A header reaches further right than its rows: in by as much, so the arrows end
+            // where the counts below do.
+            if let sort { sort.padding(.trailing, Self.headerOverhang) }
         }
     }
+
+    static var headerOverhang: CGFloat { 13.5 }
 
     var body: some View {
         Section {

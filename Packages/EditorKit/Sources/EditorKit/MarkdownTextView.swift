@@ -95,6 +95,15 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         }
     }
 
+    /// Characters that highlight a list item when they start it (`- ! Important`, as the List
+    /// Callouts plugin for Obsidian does), with their colours. Set by the app, from the vault.
+    public var listHighlights: [(character: Character, color: NSColor)] = [] {
+        didSet {
+            styler.listHighlights = Dictionary(listHighlights.map { ($0.character, $0.color) }, uniquingKeysWith: { first, _ in first })
+            restyleAll()
+        }
+    }
+
     /// Restyles the whole note, for example when notes are added or removed, which can
     /// change which links lead anywhere.
     public func restyleAll() {
@@ -482,6 +491,40 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         let forward = location >= selectedRange().location
         let snapped = snappedLocation(location, forward: forward)
         super.setSelectedRanges([NSValue(range: NSRange(location: snapped, length: 0))], affinity: affinity, stillSelecting: false)
+        showLinkBeingTyped()
+    }
+
+    // MARK: Typing at the end of a wikilink
+
+    /// The wikilink whose hidden `]]` starts at `location`, so that the cursor there is at the
+    /// end of its text, inside it.
+    func wikiLinkEnding(at location: Int) -> MarkdownToken? {
+        guard !styler.showsMarkdown else { return nil }
+        return tokens.first { token in
+            guard case .wikiLink = token.kind, let close = token.syntax.last else { return false }
+            return close.location == location && close.length == 2
+        }
+    }
+
+    /// The link the cursor is inside the end of, shaded so it's clear that typing goes on
+    /// with it (just after it, which looks the same, typing doesn't).
+    private var shadedLink: NSRange?
+
+    private func showLinkBeingTyped() {
+        let selection = selectedRange()
+        let link = selection.length == 0 ? wikiLinkEnding(at: selection.location) : nil
+        let visible = link.flatMap { token -> NSRange? in
+            guard let open = token.syntax.first, let close = token.syntax.last else { return nil }
+            return NSRange(location: NSMaxRange(open), length: close.location - NSMaxRange(open))
+        }
+        guard visible != shadedLink, let layoutManager else { return }
+        if let shadedLink, NSMaxRange(shadedLink) <= (string as NSString).length {
+            layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: shadedLink)
+        }
+        if let visible {
+            layoutManager.addTemporaryAttribute(.backgroundColor, value: NSColor.linkColor.withAlphaComponent(0.12), forCharacterRange: visible)
+        }
+        shadedLink = visible
     }
 
     // MARK: Protecting the properties
@@ -489,7 +532,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     /// Where the note's body starts while its frontmatter is hidden (its properties are edited
     /// in the strip above the note, not as text), else 0. Nothing above it can be selected, so
     /// Select All then Delete clears the body and leaves the properties.
-    var bodyStart: Int {
+    public var bodyStart: Int {
         guard !styler.showsMarkdown, let token = tokens.first, token.kind == .frontmatter, token.range.length > 0 else { return 0 }
         let text = string as NSString
         let last = min(NSMaxRange(token.range) - 1, text.length - 1)
@@ -569,6 +612,11 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
             }
             return NSMaxRange(run)
         }
+
+        // The end of a wikilink's text, just before its hidden `]]`, is a stop of its own:
+        // typing there goes on with the link. One more press steps out, after the `]]`.
+        if location == run.location, wikiLinkEnding(at: location) != nil { return location }
+        if location == NSMaxRange(run), wikiLinkEnding(at: run.location) != nil { return location }
 
         // Inline markers (`**`, `[[`): never stop inside them, so every press visibly moves.
         if forward, isHidden(location) { return NSMaxRange(run) }

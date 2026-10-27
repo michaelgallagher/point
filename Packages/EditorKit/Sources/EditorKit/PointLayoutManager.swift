@@ -112,6 +112,18 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
             draw(block, rect: rect(forCharacters: full, in: container, origin: origin), range: full, storage: storage)
         }
 
+        storage.enumerateAttribute(.pointListHighlight, in: characters) { value, range, _ in
+            guard let color = value as? NSColor else { return }
+            // Item by item: two in a row with the same colour are still two.
+            let text = storage.string as NSString
+            var location = range.location
+            while location < NSMaxRange(range) {
+                let line = text.lineRange(for: NSRange(location: location, length: 0))
+                drawListHighlight(color, for: NSIntersectionRange(line, range), storage: storage, container: container, origin: origin)
+                location = NSMaxRange(line)
+            }
+        }
+
         drawListGuides(in: characters, storage: storage, container: container, origin: origin)
 
         storage.enumerateAttribute(.pointListMarker, in: characters) { value, range, _ in
@@ -146,6 +158,23 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
             path.lineWidth = 1
             path.stroke()
         }
+    }
+
+    /// A highlighted list item's background: its colour, faint, from just before its marker to
+    /// the end of the text column, on each line the item takes.
+    private func drawListHighlight(_ color: NSColor, for range: NSRange, storage: NSTextStorage, container: NSTextContainer, origin: NSPoint) {
+        let start = (storage.string as NSString).lineRange(for: NSRange(location: range.location, length: 0)).location
+        guard let decoration = storage.attribute(.pointListMarker, at: start, effectiveRange: nil) as? ListMarkerDecoration else { return }
+        let glyphs = glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+        guard glyphs.length > 0 else { return }
+        var bounds = NSRect.null
+        enumerateLineFragments(forGlyphRange: glyphs) { line, _, _, _, _ in bounds = bounds.union(line) }
+        guard !bounds.isNull else { return }
+        let left = container.lineFragmentPadding + theme.indentPerLevel * CGFloat(decoration.level) - 4
+        let rect = NSRect(x: origin.x + left, y: origin.y + bounds.minY,
+                          width: bounds.maxX - container.lineFragmentPadding - left + 4, height: bounds.height)
+        color.withAlphaComponent(0.14).setFill()
+        NSBezierPath(roundedRect: rect.insetBy(dx: 0, dy: 1), xRadius: 5, yRadius: 5).fill()
     }
 
     /// A highlight's or inline code's background: around the text's own height, not the whole
@@ -291,7 +320,9 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
 
         switch decoration.marker {
         case .bullet:
-            NSColor.textColor.setFill()
+            // A highlighted item's bullet is in its colour.
+            let highlight = storage.attribute(.pointListHighlight, at: index, effectiveRange: nil) as? NSColor
+            (highlight ?? NSColor.textColor).setFill()
             NSBezierPath(ovalIn: bulletRect(x: x, baseline: baseline, font: font)).fill()
         case .ordered(let number):
             let label = "\(number)." as NSString

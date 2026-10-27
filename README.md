@@ -1,6 +1,10 @@
 # Point
 
-A simple, fast, native Markdown notes app for Mac and iPhone that works on an Obsidian vault. See [PLAN.md](PLAN.md).
+A simple, fast, native Markdown notes app for Mac and iPhone, with its own design and its own ideas about how notes should work. Its notes are plain Markdown files in a folder.
+
+Point is backward compatible with Obsidian: it can open an existing Obsidian vault and work alongside Obsidian on the same files. It keeps Obsidian's links, properties, templates and settings working, and leaves every byte it doesn't change as it was. It isn't a copy of Obsidian, and doesn't try to do everything Obsidian does.
+
+See [PLAN.md](PLAN.md).
 
 ## Building
 

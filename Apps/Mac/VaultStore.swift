@@ -367,6 +367,7 @@ final class VaultStore: ObservableObject {
             Task.detached(priority: .userInitiated) {
                 let result = LinkUpdater.updateLinks(afterMoving: note, to: newID, notes: vaultBeforeMove, root: root)
                 await Self.report(result, for: note.title)
+                await self.announce(result.updatedNotes.filter { $0 != newID }, to: note.title)
             }
             Task { await reload() }
         } catch {
@@ -414,7 +415,23 @@ final class VaultStore: ObservableObject {
         Task.detached(priority: .userInitiated) {
             let result = LinkUpdater.updateLinks(to: note, newTitle: newTitle, notes: vault)
             await Self.report(result, for: note.title)
+            await self.announce(result.updatedNotes.filter { $0 != note.id }, to: newTitle)
         }
+    }
+
+    /// Notes whose links were just updated after a rename or move, shown for a moment.
+    struct LinkUpdate: Identifiable, Equatable {
+        let id = UUID()
+        /// The note the links lead to, by its new name.
+        let title: String
+        let notes: [Note.ID]
+    }
+
+    @Published var linkUpdate: LinkUpdate?
+
+    private func announce(_ notes: [Note.ID], to title: String) {
+        guard !notes.isEmpty else { return }
+        linkUpdate = LinkUpdate(title: title, notes: notes)
     }
 
     /// Says which notes' links couldn't be updated, so none are left pointing at the old

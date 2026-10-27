@@ -127,8 +127,9 @@ struct SettingsView: View {
     }
 
     @ViewBuilder private var sidebarPage: some View {
-            SettingsSection("Sidebar") {
-                Setting("Layout") {
+            // The page is the sidebar's, so its settings are the headings.
+            VStack(alignment: .leading, spacing: 20) {
+                Setting("Layout", isHeading: true) {
                     Picker("Layout", selection: $store.browsingStyle) {
                         Text("One column: folders, tags and notes in one list").tag(VaultModel.BrowsingStyle.singleColumn)
                         Text("Two columns: folders and tags beside the notes").tag(VaultModel.BrowsingStyle.twoColumns)
@@ -136,7 +137,7 @@ struct SettingsView: View {
                     .pickerStyle(.radioGroup)
                     .labelsHidden()
                 }
-                Setting("Density") {
+                Setting("Density", isHeading: true) {
                     Picker("Density", selection: $store.sidebarDensity) {
                         Text("Comfortable").tag(VaultModel.SidebarDensity.comfortable)
                         Text("Compact").tag(VaultModel.SidebarDensity.compact)
@@ -144,7 +145,7 @@ struct SettingsView: View {
                     .pickerStyle(.radioGroup)
                     .labelsHidden()
                 }
-                Setting("Folders and tags, in two columns") {
+                Setting("Folders and tags, in two columns", isHeading: true) {
                     Picker("Folders and tags, in two columns", selection: $store.treeLayout) {
                         Text("Together, folders above tags").tag(VaultModel.TreeLayout.stacked)
                         Text("One at a time, with a switch").tag(VaultModel.TreeLayout.toggle)
@@ -153,18 +154,20 @@ struct SettingsView: View {
                     .labelsHidden()
                 }
                 .disabled(store.browsingStyle != .twoColumns)
-                Toggle("Swipe sideways with two fingers to show and hide it", isOn: $store.swipesSidebar)
-                HStack(spacing: 6) {
-                    Toggle("Hide it when the window is narrower than", isOn: $store.autoHidesSidebar)
-                    TextField("Width", value: $store.sidebarAutoHideWidth, format: .number)
-                        .frame(width: 56)
-                        .multilineTextAlignment(.trailing)
-                        .disabled(!store.autoHidesSidebar)
-                    Stepper("Width", value: $store.sidebarAutoHideWidth, in: 600...2400, step: 20)
-                        .labelsHidden()
-                        .disabled(!store.autoHidesSidebar)
-                    Text("points")
-                        .foregroundStyle(.secondary)
+                Setting("Showing and hiding", isHeading: true) {
+                    Toggle("Swipe sideways with two fingers to show and hide it", isOn: $store.swipesSidebar)
+                    HStack(spacing: 6) {
+                        Toggle("Hide it when the window is narrower than", isOn: $store.autoHidesSidebar)
+                        TextField("Width", value: $store.sidebarAutoHideWidth, format: .number)
+                            .frame(width: 56)
+                            .multilineTextAlignment(.trailing)
+                            .disabled(!store.autoHidesSidebar)
+                        Stepper("Width", value: $store.sidebarAutoHideWidth, in: 600...2400, step: 20)
+                            .labelsHidden()
+                            .disabled(!store.autoHidesSidebar)
+                        Text("points")
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
@@ -517,17 +520,21 @@ private struct SettingsSection<Content: View>: View {
 /// One setting: its label, with its options below.
 private struct Setting<Content: View>: View {
     let label: String
+    /// A page's own heading (bold, in the text colour), on a page without sections.
+    var isHeading = false
     @ViewBuilder let content: Content
 
-    init(_ label: String, @ViewBuilder content: () -> Content) {
+    init(_ label: String, isHeading: Bool = false, @ViewBuilder content: () -> Content) {
         self.label = label
+        self.isHeading = isHeading
         self.content = content()
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label)
-                .foregroundStyle(.secondary)
+                .font(isHeading ? .body.weight(.bold) : nil)
+                .foregroundStyle(isHeading ? .primary : .secondary)
             content
         }
     }

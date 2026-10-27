@@ -20,6 +20,9 @@ extension NSAttributedString.Key {
     /// A background colour (an `NSColor`) drawn with rounded corners behind the text, line by
     /// line: highlights and inline code.
     static let pointRoundedBackground = NSAttributedString.Key("point.roundedBackground")
+    /// A list item highlighted by the character at its start (`- ! Important`): its colour,
+    /// an `NSColor`, drawn behind the line and used for its bullet.
+    static let pointListHighlight = NSAttributedString.Key("point.listHighlight")
     /// A line-height multiple (CGFloat) overriding the theme's, for example in code blocks.
     static let pointLineHeight = NSAttributedString.Key("point.lineHeight")
 }

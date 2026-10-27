@@ -40,11 +40,8 @@ final class Connections: ObservableObject {
     /// Opens a note linking here, at its first link to this note.
     func open(_ backlink: Backlink) {
         guard let model else { return }
-        let source = model.notes.first { $0.id == backlink.noteID }
-        let text = source.flatMap { try? NoteReader.read(contentsOf: $0.url) } as NSString?
-        let found = text?.range(of: "[[" + note.title, options: .caseInsensitive) ?? NSRange(location: NSNotFound, length: 0)
-        if found.location != NSNotFound {
-            model.open(backlink.noteID, revealing: found)
+        if backlink.range.location != NSNotFound {
+            model.open(backlink.noteID, revealing: backlink.range)
         } else {
             model.selection = backlink.noteID
         }

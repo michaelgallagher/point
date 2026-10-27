@@ -13,6 +13,21 @@ struct MarkdownStyler {
     /// Whether a wikilink's target is a note that exists. Links to notes that don't exist
     /// yet are fainter. Without it, every link looks as if its note exists.
     var wikiLinkExists: ((String) -> Bool)?
+    /// Characters that highlight a list item when they start it, with their colours.
+    var listHighlights: [Character: NSColor] = [:]
+
+    /// The highlight character starting a list item's text, with its space, and its colour.
+    func listHighlight(after marker: NSRange, in item: NSRange, text: NSString) -> (NSRange, NSColor)? {
+        let start = NSMaxRange(marker)
+        guard !showsMarkdown, start + 1 <= NSMaxRange(item), start < text.length,
+              let scalar = UnicodeScalar(text.character(at: start)),
+              let color = listHighlights[Character(scalar)] else { return nil }
+        // Followed by a space, or alone on the line.
+        let next = start + 1
+        let ends = next >= NSMaxRange(item) || text.character(at: next) == 10
+        guard ends || text.character(at: next) == 32 else { return nil }
+        return (NSRange(location: start, length: ends ? 1 : 2), color)
+    }
 
     var baseParagraphStyle: NSParagraphStyle {
         // Line height is added by the layout manager, centred on the text, not here:
@@ -111,6 +126,11 @@ struct MarkdownStyler {
                 if case .task(done: true) = marker {
                     let content = NSRange(location: NSMaxRange(markerRange), length: NSMaxRange(range) - NSMaxRange(markerRange))
                     storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: content)
+                }
+                // `- ! text`: the character and its space are hidden, and the line coloured.
+                if let (character, color) = listHighlight(after: markerRange, in: range, text: text) {
+                    storage.addAttribute(.pointHidden, value: true, range: character)
+                    storage.addAttribute(.pointListHighlight, value: color, range: range)
                 }
             }
             return

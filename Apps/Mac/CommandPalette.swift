@@ -69,7 +69,8 @@ struct CommandPalette: View {
                                     PaletteSectionHeader(title: header, isFirst: offset == 0)
                                 }
                                 // Open tabs have their own section, so aren't marked as well.
-                                PaletteRow(item: item, isHighlighted: offset == highlighted)
+                                PaletteRow(item: item, isHighlighted: offset == highlighted,
+                                           isViewing: item.noteID != nil && item.noteID == model.selection)
                                     .contentShape(Rectangle())
                                     .onTapGesture {
                                         highlighted = offset
@@ -126,7 +127,7 @@ struct CommandPalette: View {
     }
 
     /// The palette's list height, searching or exploring.
-    static let listHeight: CGFloat = 420
+    static let listHeight: CGFloat = 520
 
     private var placeholder: String {
         if isExploring { return explorer.inNotes ? "Filter notes" : "Filter folders and tags" }
@@ -181,8 +182,10 @@ struct CommandPalette: View {
         if isMovingNote { return refreshFolders() }
         if isApplyingTemplate { return refreshTemplates() }
         let commands = PaletteCommand.all(for: model)
-        // Notes open in tabs come first, marked as open.
-        let openNotes = model.openNoteIDs.compactMap { model.note($0) }
+        // Notes open in tabs come first; the one being viewed last of them, as going to it
+        // does nothing.
+        let allOpen = model.openNoteIDs.compactMap { model.note($0) }
+        let openNotes = allOpen.filter { $0.id != model.selection } + allOpen.filter { $0.id == model.selection }
         let openSet = Set(openNotes.map(\.id))
         openIDs = openSet
         let bookmarked = model.bookmarkedNotes
@@ -195,7 +198,9 @@ struct CommandPalette: View {
 
             if trimmed.hasPrefix(">") {
                 commandItems = Self.rank(commands, by: String(trimmed.dropFirst()), name: \.name).map(PaletteItem.command)
-            } else if trimmed.hasPrefix("#") {
+            } else if trimmed.hasPrefix("#"), !trimmed.contains(where: \.isWhitespace) {
+                // Only a tag so far: the matching tags. With more after it (`#design budget`),
+                // the notes with that tag that match the rest, below.
                 let tagQuery = String(trimmed.dropFirst())
                 tagItems = tags.filter { tagQuery.isEmpty || $0.tag.lowercased().contains(tagQuery.lowercased()) || Fuzzy.score(query: tagQuery, name: $0.tag) != nil }
                     .prefix(30).map { PaletteItem.tag($0.tag, $0.count) }
@@ -208,11 +213,13 @@ struct CommandPalette: View {
                 notes = model.notes.sorted(by: .modified).lazy.filter { !shown.contains($0.id) }.prefix(6).map { PaletteItem.note($0.id, $0.title, nil) }
                 commandItems = commands.filter(\.isSuggested).map(PaletteItem.command)
             } else {
+                let hasTags = !SearchTags.tags(in: trimmed).isEmpty
                 let results = (try? await model.index?.search(trimmed, limit: 8)) ?? []
                 let found = results.map { PaletteItem.note($0.id, $0.title, $0.snippet) }
                 @MainActor func matching(_ candidates: [Note]) -> [PaletteItem] {
-                    // By title, or found in the search (with its snippet).
-                    let byTitle = Self.rank(candidates, by: trimmed, name: \.title).map(\.id)
+                    // By title, or found in the search (with its snippet). Filtered by a tag,
+                    // only what the search found, which has the tag.
+                    let byTitle = hasTags ? [] : Self.rank(candidates, by: trimmed, name: \.title).map(\.id)
                     let ids = Set(candidates.map(\.id))
                     let inSearch = found.compactMap(\.noteID).filter { ids.contains($0) && !byTitle.contains($0) }
                     return (byTitle + inSearch).compactMap { id in
@@ -227,7 +234,7 @@ struct CommandPalette: View {
                 // A name no note has yet: offer to make it, first if nothing else matched (so
                 // typing a new name and pressing Return makes the note).
                 let title = NoteFiles.sanitizedTitle(trimmed)
-                if !title.isEmpty, !model.notes.contains(where: { $0.title.caseInsensitiveCompare(title) == .orderedSame }) {
+                if !hasTags, !title.isEmpty, !model.notes.contains(where: { $0.title.caseInsensitiveCompare(title) == .orderedSame }) {
                     notes.append(.create(title))
                 }
                 tagItems = tags.filter { Fuzzy.score(query: trimmed, name: $0.tag) != nil }.prefix(3).map { PaletteItem.tag($0.tag, $0.count) }
@@ -431,6 +438,8 @@ struct PaletteSectionHeader: View {
 struct PaletteRow: View {
     let item: PaletteItem
     let isHighlighted: Bool
+    /// The note on screen now, marked as such.
+    var isViewing = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -484,7 +493,7 @@ struct PaletteRow: View {
 
     private var detail: String? {
         switch item {
-        case .note: nil
+        case .note: isViewing ? "Viewing" : nil
         case .tag(_, let count): "\(count) \(count == 1 ? "note" : "notes")"
         case .create, .folder, .template: nil
         case .command(let command): command.shortcut

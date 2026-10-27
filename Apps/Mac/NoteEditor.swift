@@ -325,6 +325,10 @@ private struct EditorView: NSViewRepresentable {
             guard let model, let session else { return true }
             return model.store.linkResolver.resolve(wikiTarget: target, from: session.note.id) != nil
         }
+        // List items starting `! `, `? ` and so on are coloured, in the vault's colours.
+        textView.listHighlights = model.settings.listCallouts.map {
+            ($0.character, NSColor(srgbRed: CGFloat($0.red) / 255, green: CGFloat($0.green) / 255, blue: CGFloat($0.blue) / 255, alpha: 1))
+        }
         context.coordinator.notesGeneration = model.store.notesGeneration
         return scrollView
     }

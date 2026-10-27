@@ -113,5 +113,17 @@ struct NoteFilesTests {
         #expect(settings.templatesFolder == "--Meta/Templates")
         #expect(settings.templatesDateFormat == "YYY-MM-DD")
         #expect(settings.dailyNotesFormat == "YYYY-MM-DD") // No daily-notes.json: Obsidian's default.
+        #expect(settings.listCallouts == ObsidianSettings.ListCallout.defaults) // No List Callouts settings.
+    }
+
+    @Test func readsListCalloutColours() throws {
+        let vault = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let folder = vault.appendingPathComponent(".obsidian/plugins/obsidian-list-callouts")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data(#"[{"color": "255, 23, 68", "char": "!"}, {"char": "*", "color": "163, 123, 123", "icon": null, "custom": true}]"#.utf8)
+            .write(to: folder.appendingPathComponent("data.json"))
+        let callouts = ObsidianSettings.load(vault: vault).listCallouts
+        #expect(callouts == [.init(character: "!", red: 255, green: 23, blue: 68), .init(character: "*", red: 163, green: 123, blue: 123)])
     }
 }

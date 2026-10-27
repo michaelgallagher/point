@@ -21,6 +21,8 @@ public struct Backlink: Sendable, Identifiable, Equatable {
     public let title: String
     /// The line the link is on, without Markdown markers.
     public let context: String
+    /// Where the link is in that note's text (UTF-16 offsets): its target, or the whole link.
+    public var range = NSRange(location: NSNotFound, length: 0)
     public var id: Note.ID { noteID }
 }
 
@@ -205,10 +207,11 @@ public actor SearchIndex {
             .sorted { $0.1 != $1.1 ? $0.1 < $1.1 : $0.0.title.count < $1.0.title.count }
 
         // Then text, by relevance: whole words and word forms, then parts of words.
-        var bodyMatches = try matches(in: "words", query: try wordQuery(words))
+        // Tags filter inside the query, so the best 200 are the best 200 with those tags.
+        var bodyMatches = try matches(in: "words", query: try wordQuery(words), taggedWithAll: tags)
         if bodyMatches.count < limit, words.allSatisfy({ $0.count >= 3 }) {
             let partial = words.map { "\"\($0)\"" }.joined(separator: " AND ")
-            bodyMatches += try matches(in: "grams", query: partial).filter { match in !bodyMatches.contains { $0.row == match.row } }
+            bodyMatches += try matches(in: "grams", query: partial, taggedWithAll: tags).filter { match in !bodyMatches.contains { $0.row == match.row } }
         }
         let snippets = Dictionary(bodyMatches.map { ($0.row, $0.snippet) }, uniquingKeysWith: { a, _ in a })
 
@@ -254,13 +257,16 @@ public actor SearchIndex {
 
     private struct BodyMatch { let row: Int; let id: Note.ID; let title: String; let snippet: String }
 
-    private func matches(in table: String, query: String) throws -> [BodyMatch] {
+    private func matches(in table: String, query: String, taggedWithAll tags: [String] = []) throws -> [BodyMatch] {
+        let tagged = tags.map { _ in " AND \(table).rowid IN (SELECT note FROM tags WHERE lowered = ? OR lowered LIKE ? ESCAPE '\\')" }.joined()
         let sql = """
             SELECT n.row, n.id, n.title, snippet(\(table), 1, char(2), char(3), '…', 12)
             FROM \(table) JOIN notes n ON n.row = \(table).rowid
-            WHERE \(table) MATCH ? ORDER BY bm25(\(table), 8.0, 1.0, 0.5) LIMIT 200
+            WHERE \(table) MATCH ?\(tagged) ORDER BY bm25(\(table), 8.0, 1.0, 0.5) LIMIT 200
             """
-        return try db.query(sql, [query]).map {
+        var parameters = [query]
+        for tag in tags { parameters += [tag, Self.likePattern(under: tag)] }
+        return try db.query(sql, parameters).map {
             BodyMatch(row: $0[0] as! Int, id: $0[1] as! String, title: $0[2] as! String, snippet: $0[3] as? String ?? "")
         }
     }
@@ -268,12 +274,16 @@ public actor SearchIndex {
     private func notes(taggedWithAll tags: [String]) throws -> Set<Int> {
         var result: Set<Int>?
         for tag in tags {
-            let rows = try db.query("SELECT note FROM tags WHERE lowered = ? OR lowered LIKE ? ESCAPE '\\'",
-                                    [tag, tag.replacingOccurrences(of: "%", with: "\\%").replacingOccurrences(of: "_", with: "\\_") + "/%"])
+            let rows = try db.query("SELECT note FROM tags WHERE lowered = ? OR lowered LIKE ? ESCAPE '\\'", [tag, Self.likePattern(under: tag)])
             let notes = Set(rows.map { $0[0] as! Int })
             result = result.map { $0.intersection(notes) } ?? notes
         }
         return result ?? []
+    }
+
+    /// A LIKE pattern for the tags nested under `tag` (`work/…` under `work`).
+    private static func likePattern(under tag: String) -> String {
+        tag.replacingOccurrences(of: "%", with: "\\%").replacingOccurrences(of: "_", with: "\\_") + "/%"
     }
 
     /// Every tag in the vault with how many notes use it, most used first.
@@ -302,18 +312,19 @@ public actor SearchIndex {
         return candidates.compactMap { id -> Backlink? in
             guard id != note.id, let source = byID[id], let text = try? NoteReader.read(contentsOf: source.url) else { return nil }
             let ns = text as NSString
-            func backlink(at location: Int) -> Backlink {
-                let line = ns.substring(with: ns.lineRange(for: NSRange(location: location, length: 0)))
-                return Backlink(noteID: id, title: source.title, context: PlainText.strippingMarkers(from: line).trimmingCharacters(in: .whitespacesAndNewlines))
+            func backlink(at range: NSRange) -> Backlink {
+                let line = ns.substring(with: ns.lineRange(for: NSRange(location: range.location, length: 0)))
+                return Backlink(noteID: id, title: source.title, context: PlainText.strippingMarkers(from: line).trimmingCharacters(in: .whitespacesAndNewlines),
+                                range: range)
             }
             // Wikilinks and embeds, in the frontmatter too (most of a note's links can be in
             // its properties: Obsidian counts them, and Point missed them), then Markdown links.
             for link in LinkUpdater.wikiLinks(in: text) where resolver.resolve(wikiTarget: link.target, from: id)?.id == note.id {
-                return backlink(at: link.location)
+                return backlink(at: NSRange(location: link.location, length: (link.target as NSString).length))
             }
             for token in MarkdownParser.parse(text) {
                 guard case .link(let destination) = token.kind, resolver.resolve(markdownDestination: destination, from: id)?.id == note.id else { continue }
-                return backlink(at: token.range.location)
+                return backlink(at: token.range)
             }
             return nil
         }.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }

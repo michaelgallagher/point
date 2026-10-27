@@ -120,18 +120,43 @@ final class EditorSession: NSObject, ObservableObject {
         NotificationCenter.default.post(name: .pointRevealRange, object: nil, userInfo: ["note": id, "range": NSValue(range: range)])
     }
 
+    /// The property holding a place just shown (a link in the frontmatter), highlighted for
+    /// a moment, as the properties stand in for the frontmatter's text.
+    @Published private(set) var revealedProperty: String?
+
     /// Once the note's text is in its view (loading puts the cursor back at the top).
     private func applyPendingReveal() {
-        guard let textView, let range = Self.pendingReveals.removeValue(forKey: note.id) else { return }
-        // After the header has its height, which moves the text down.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { textView.reveal(range) }
+        guard textView != nil, let range = Self.pendingReveals.removeValue(forKey: note.id) else { return }
+        show(range)
     }
 
     @objc private func revealFromNotification(_ notification: Notification) {
-        guard notification.userInfo?["note"] as? Note.ID == note.id, isLoaded, let textView,
+        guard notification.userInfo?["note"] as? Note.ID == note.id, isLoaded, textView != nil,
               let range = (notification.userInfo?["range"] as? NSValue)?.rangeValue else { return }
         Self.pendingReveals[note.id] = nil
-        textView.reveal(range)
+        show(range)
+    }
+
+    /// Shows and highlights a place, once the note is on screen and still: it's hidden until
+    /// its header has its height, which then moves the text, and a highlight on a hidden view,
+    /// or one that scrolls, doesn't show. A place in hidden frontmatter highlights its property.
+    private func show(_ range: NSRange, tries: Int = 30) {
+        guard let textView else { return }
+        guard textView.window != nil, textView.alphaValue == 1 || tries == 0 else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in self?.show(range, tries: tries - 1) }
+            return
+        }
+        if range.location < textView.bodyStart {
+            let key = Frontmatter.parse(textView.string)?.properties.first { NSLocationInRange(range.location, $0.range) }?.key
+            textView.scroll(.zero)
+            revealedProperty = key
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                if self?.revealedProperty == key { self?.revealedProperty = nil }
+            }
+            return
+        }
+        // After the header's own animation (the properties opening or closing).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { textView.reveal(range) }
     }
 
     // MARK: Saving

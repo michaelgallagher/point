@@ -130,6 +130,16 @@ struct ContentView: View {
         .onAppear {
             model.startSwipeTracking()
         }
+        // After a rename or move: which notes' links were updated, for a moment.
+        .overlay(alignment: .bottom) {
+            if let update = store.linkUpdate {
+                LinkUpdateNotice(update: update)
+                    .id(update.id)
+                    .padding(.bottom, 20)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(duration: 0.3, bounce: 0.1), value: store.linkUpdate)
         .overlay(alignment: .top) {
             if model.isPaletteShown {
                 ZStack(alignment: .top) {
@@ -261,6 +271,20 @@ private struct NoteList: View {
         // A point lower than centred, to line up with a selected row in the tree beside it.
         .padding(.top, 7)
         .padding(.bottom, 5)
+        // The tags the search is filtered by, each removable.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            let tags = SearchTags.tags(in: model.searchText)
+            if !tags.isEmpty {
+                HStack(spacing: 4) {
+                    ForEach(tags, id: \.self) { tag in
+                        SearchTagChip(tag: tag) { model.searchText = SearchTags.removing(tag, from: model.searchText) }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 6)
+            }
+        }
     }
 
     /// Pins, folders (or nested tags), tags and notes for the current place.
@@ -604,5 +628,106 @@ private struct MoveSheet: View {
         guard let selection else { return }
         dismiss()
         model.move(noteID: note.id, toFolder: selection)
+    }
+}
+
+/// "Updated links in 12 notes", after a rename or move. Click it to see which (each opens);
+/// it goes after a few seconds, unless the pointer is on it or it's open.
+private struct LinkUpdateNotice: View {
+    @EnvironmentObject private var model: VaultModel
+    @EnvironmentObject private var store: VaultStore
+    let update: VaultStore.LinkUpdate
+    @State private var isShowingNotes = false
+    @State private var isHovering = false
+
+    var body: some View {
+        Button { isShowingNotes.toggle() } label: {
+            Label(text, systemImage: "link")
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .modifier(NoticeBackground())
+        .onHover { isHovering = $0 }
+        .help("Show the notes")
+        .popover(isPresented: $isShowingNotes, arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(update.notes, id: \.self) { id in
+                    Button(model.note(id)?.title ?? (id as NSString).deletingPathExtension) {
+                        model.selection = id
+                        isShowingNotes = false
+                    }
+                    .buttonStyle(.link)
+                    .padding(.vertical, 2)
+                }
+            }
+            .padding(12)
+            .frame(minWidth: 220, maxHeight: 360, alignment: .topLeading)
+        }
+        .task(id: update.id) { await dismissLater() }
+    }
+
+    private var text: String {
+        update.notes.count == 1 ? "Updated the link in 1 note" : "Updated links in \(update.notes.count) notes"
+    }
+
+    private func dismissLater() async {
+        try? await Task.sleep(nanoseconds: 4_000_000_000)
+        while isHovering || isShowingNotes {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if Task.isCancelled { return }
+        }
+        if store.linkUpdate?.id == update.id { store.linkUpdate = nil }
+    }
+}
+
+/// Glass on macOS 26, a material before.
+private struct NoticeBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26, *) {
+            content.glassEffect(.regular.interactive(), in: .capsule)
+        } else {
+            content.background(.regularMaterial, in: Capsule())
+                .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+        }
+    }
+}
+
+/// The `#tag` words in a search, which filter its results by tag.
+enum SearchTags {
+    static func tags(in query: String) -> [String] {
+        query.split(whereSeparator: \.isWhitespace).filter { $0.hasPrefix("#") && $0.count > 1 }.map { String($0.dropFirst()) }
+    }
+
+    static func removing(_ tag: String, from query: String) -> String {
+        query.split(whereSeparator: \.isWhitespace).filter { $0 != "#" + tag }.joined(separator: " ")
+    }
+}
+
+/// A tag filtering a search: drawn as tags are, with a button to stop filtering by it.
+private struct SearchTagChip: View {
+    let tag: String
+    let remove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Text("#" + tag)
+                .lineLimit(1)
+            Button(action: remove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .frame(width: 12, height: 12)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Stop filtering by #\(tag)")
+        }
+        .font(.callout)
+        .padding(.leading, 7)
+        .padding(.trailing, 4)
+        .padding(.vertical, 1)
+        .background(Capsule().fill(Color.accentColor.opacity(0.15)))
     }
 }

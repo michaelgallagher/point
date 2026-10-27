@@ -88,6 +88,18 @@ struct SearchTests {
         #expect(try await vault.titles("#missing").isEmpty)
     }
 
+    /// A word in hundreds of notes, and a tag on a few of them that rank low for it: the tag
+    /// filters inside the search, so they aren't lost below the first 200 matches.
+    @Test func tagsFilterBeforeTheBestMatchesAreTaken() async throws {
+        var files: [String: String] = [:]
+        for n in 0..<300 { files["Budget \(n).md"] = "Budget budget budget." }
+        let filler = Array(repeating: "Unrelated words here.", count: 40).joined(separator: " ")
+        for n in 0..<3 { files["Tagged \(n).md"] = "#design\n\(filler) A budget, once." }
+        let vault = try await Fixture(files)
+        defer { vault.cleanUp() }
+        #expect(Set(try await vault.titles("#design budget")) == ["Tagged 0", "Tagged 1", "Tagged 2"])
+    }
+
     @Test func snippetsMarkTheMatchWithoutMarkdown() async throws {
         let vault = try await Fixture(files)
         defer { vault.cleanUp() }
@@ -165,6 +177,9 @@ struct LinkIndexTests {
         let backlinks = try await vault.index.backlinks(to: target, notes: vault.notes)
         #expect(backlinks.map(\.title) == ["Meeting"])
         #expect(backlinks.first?.context.contains("Imprint") == true)
+        // Where the link is, so opening the note can show it.
+        let range = try #require(backlinks.first?.range)
+        #expect(("---\nproject: \"[[Imprint]]\"\n---\nNotes from the call.\n" as NSString).substring(with: range) == "Imprint")
     }
 
     @Test func findsUnlinkedMentions() async throws {

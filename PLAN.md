@@ -1,6 +1,6 @@
 # Point — plan
 
-A simple, fast, native Markdown notes app for Mac and iPhone that feels like Apple Notes and Things. It works directly on an Obsidian vault.
+A simple, fast, native Markdown notes app for Mac and iPhone that feels like Apple Notes and Things. It's backward compatible with Obsidian: it opens an existing vault and works alongside Obsidian on the same files, without being a copy of it.
 
 The plan is in several documents, in [`plan/`](plan/). This page says where things stand and what's in each.
 

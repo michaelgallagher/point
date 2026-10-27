@@ -14,6 +14,31 @@ struct LinkEditingTests {
         #expect(view.link(at: 19) == nil) // The space between links.
     }
 
+    /// The end of a link has two stops: inside it (typing goes on with the link), then, one
+    /// press on, just after it (typing doesn't).
+    @Test func theEndOfALinkHasTwoStops() {
+        let text = "See [[Note]] more" // The link's text ends at 10; its `]]` ends at 12.
+        let view = EditorTestSupport.makeEditor(text, height: 300)
+        view.setSelectionDirectly(NSRange(location: 9, length: 0))
+        var rightward: [Int] = []
+        for _ in 0..<3 { view.moveRight(nil); rightward.append(view.selectedRange().location) }
+        #expect(rightward == [10, 12, 13])
+        var leftward: [Int] = []
+        for _ in 0..<3 { view.moveLeft(nil); leftward.append(view.selectedRange().location) }
+        #expect(leftward == [12, 10, 9])
+    }
+
+    @Test func typingAtTheEndOfALinkExtendsIt() {
+        let inside = EditorTestSupport.makeEditor("See [[Note]] more", height: 300)
+        inside.setSelectedRange(NSRange(location: 10, length: 0))
+        inside.insertText("s", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(inside.string == "See [[Notes]] more")
+        let after = EditorTestSupport.makeEditor("See [[Note]] more", height: 300)
+        after.setSelectedRange(NSRange(location: 12, length: 0))
+        after.insertText("x", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(after.string == "See [[Note]]x more")
+    }
+
     @Test func knowsWhenAWikiLinkIsBeingTyped() {
         let view = EditorTestSupport.makeEditor("See [[Imp", height: 300)
         view.setSelectionDirectly(NSRange(location: 9, length: 0))

@@ -18,6 +18,15 @@ enum DebugSnapshots {
         openSplitIfAsked(for: model)
         probeCursorIfAsked(for: model)
         conflictIfAsked(for: model)
+        if let path = UserDefaults.standard.string(forKey: "PointWindowSnapshot") {
+            // `-PointWindowSnapshot <file.png>`: a picture of the window, drawn by the app (so
+            // it works with the screen locked), after `-PointSnapshotDelay` seconds (5); then quits.
+            let delay = UserDefaults.standard.double(forKey: "PointSnapshotDelay")
+            DispatchQueue.main.asyncAfter(deadline: .now() + (delay > 0 ? delay : 5)) {
+                save(model.window, to: URL(fileURLWithPath: path))
+                NSApp.terminate(nil)
+            }
+        }
         if let line = UserDefaults.standard.string(forKey: "PointUntitledTest") {
             // `-PointUntitledTest "first line"`: makes a note, types the line, then goes to a
             // note open in another tab, as a click in the list does.
