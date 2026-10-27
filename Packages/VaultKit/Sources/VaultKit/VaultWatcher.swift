@@ -1,7 +1,9 @@
+#if os(macOS)
 import CoreServices
 import Foundation
 
-/// Reports changes to files in a vault, from any app or device, using FSEvents.
+/// Reports changes to files in a vault, from any app or device, using FSEvents (Mac only:
+/// on iOS, file coordination will do this job).
 public final class VaultWatcher: @unchecked Sendable {
     private var stream: FSEventStreamRef?
     private let queue = DispatchQueue(label: "Point.VaultWatcher")
@@ -92,3 +94,4 @@ public final class VaultWatcher: @unchecked Sendable {
 
     deinit { stop() }
 }
+#endif

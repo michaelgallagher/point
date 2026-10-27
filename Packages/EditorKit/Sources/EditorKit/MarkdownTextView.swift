@@ -755,32 +755,6 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     }
 }
 
-extension MarkdownToken {
-    var isBlock: Bool {
-        switch kind {
-        case .frontmatter, .heading, .blockquote, .callout, .listItem, .codeBlock, .thematicBreak, .table, .footnoteDefinition:
-            true
-        default:
-            false
-        }
-    }
-
-    var isMultiLineBlock: Bool {
-        switch kind {
-        case .frontmatter, .blockquote, .callout, .codeBlock, .table: true
-        default: false
-        }
-    }
-
-    /// Code blocks and frontmatter change how everything after them is read.
-    var changesFollowingText: Bool {
-        switch kind {
-        case .frontmatter, .codeBlock: true
-        default: false
-        }
-    }
-}
-#endif
 
 /// A view whose origin is at its top left, like the text view's: what it clips is cut from the bottom.
 private final class FlippedView: NSView {
@@ -872,3 +846,4 @@ final class MarkdownScrollView: NSScrollView {
         }
     }
 }
+#endif

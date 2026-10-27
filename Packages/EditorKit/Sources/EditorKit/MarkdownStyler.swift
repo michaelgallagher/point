@@ -1,5 +1,8 @@
-#if canImport(AppKit)
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import MarkdownKit
 
 /// Applies display attributes for parsed Markdown to a text storage.
@@ -14,10 +17,10 @@ struct MarkdownStyler {
     /// yet are fainter. Without it, every link looks as if its note exists.
     var wikiLinkExists: ((String) -> Bool)?
     /// Characters that highlight a list item when they start it, with their colours.
-    var listHighlights: [Character: NSColor] = [:]
+    var listHighlights: [Character: PlatformColor] = [:]
 
     /// The highlight character starting a list item's text, with its space, and its colour.
-    func listHighlight(after marker: NSRange, in item: NSRange, text: NSString) -> (NSRange, NSColor)? {
+    func listHighlight(after marker: NSRange, in item: NSRange, text: NSString) -> (NSRange, PlatformColor)? {
         let start = NSMaxRange(marker)
         guard !showsMarkdown, start + 1 <= NSMaxRange(item), start < text.length,
               let scalar = UnicodeScalar(text.character(at: start)),
@@ -38,7 +41,7 @@ struct MarkdownStyler {
     }
 
     var baseAttributes: [NSAttributedString.Key: Any] {
-        [.font: theme.body, .foregroundColor: NSColor.textColor, .paragraphStyle: baseParagraphStyle]
+        [.font: theme.body, .foregroundColor: PlatformColor.textColor, .paragraphStyle: baseParagraphStyle]
     }
 
     /// Restyles `range`, widened to whole tokens, and returns the range actually restyled.
@@ -58,7 +61,7 @@ struct MarkdownStyler {
         }
 
         if showsMarkdown {
-            storage.setAttributes([.font: theme.mono, .foregroundColor: NSColor.textColor,
+            storage.setAttributes([.font: theme.mono, .foregroundColor: PlatformColor.textColor,
                                    .paragraphStyle: baseParagraphStyle], range: range)
             return range
         }
@@ -104,7 +107,7 @@ struct MarkdownStyler {
                     let titleStart = NSMaxRange(token.syntax[1])
                     let lineEnd = NSMaxRange(text.lineRange(for: NSRange(location: titleStart, length: 0)))
                     let titleRange = NSRange(location: titleStart, length: max(0, min(lineEnd, NSMaxRange(range)) - titleStart))
-                    addTrait(.bold, in: titleRange, storage: storage)
+                    addTrait(PlatformTraits.bold, in: titleRange, storage: storage)
                 }
             }
             storage.addAttributes([.paragraphStyle: style, .pointBlock: block], range: range)
@@ -125,7 +128,7 @@ struct MarkdownStyler {
                                      range: NSRange(location: range.location, length: 1))
                 if case .task(done: true) = marker {
                     let content = NSRange(location: NSMaxRange(markerRange), length: NSMaxRange(range) - NSMaxRange(markerRange))
-                    storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: content)
+                    storage.addAttribute(.foregroundColor, value: PlatformColor.secondaryLabelColor, range: content)
                 }
                 // `- ! text`: the character and its space are hidden, and the line coloured.
                 if let (character, color) = listHighlight(after: markerRange, in: range, text: text) {
@@ -157,49 +160,49 @@ struct MarkdownStyler {
 
         case .footnoteDefinition:
             storage.addAttributes([
-                .font: NSFont.systemFont(ofSize: theme.bodySize - 2),
-                .foregroundColor: NSColor.secondaryLabelColor,
+                .font: PlatformFont.systemFont(ofSize: theme.bodySize - 2),
+                .foregroundColor: PlatformColor.secondaryLabelColor,
             ], range: range)
 
         case .strong:
-            addTrait(.bold, in: range, storage: storage)
+            addTrait(PlatformTraits.bold, in: range, storage: storage)
         case .emphasis:
-            addTrait(.italic, in: range, storage: storage)
+            addTrait(PlatformTraits.italic, in: range, storage: storage)
         case .strikethrough:
             storage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range)
         case .highlight:
             // Drawn by the layout manager, with rounded corners.
-            storage.addAttribute(.pointRoundedBackground, value: NSColor.systemYellow.withAlphaComponent(0.35), range: range)
+            storage.addAttribute(.pointRoundedBackground, value: PlatformColor.systemYellow.withAlphaComponent(0.35), range: range)
         case .code:
-            let size = (storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont)?.pointSize ?? theme.bodySize
+            let size = (storage.attribute(.font, at: range.location, effectiveRange: nil) as? PlatformFont)?.pointSize ?? theme.bodySize
             storage.addAttributes([
-                .font: NSFont.monospacedSystemFont(ofSize: size * 0.88, weight: .regular),
-                .pointRoundedBackground: NSColor.textColor.withAlphaComponent(0.07),
+                .font: PlatformFont.monospacedSystemFont(ofSize: size * 0.88, weight: .regular),
+                .pointRoundedBackground: PlatformColor.textColor.withAlphaComponent(0.07),
             ], range: range)
         case .link(let destination), .image(let destination):
-            storage.addAttributes([.foregroundColor: NSColor.linkColor, .cursor: NSCursor.pointingHand], range: range)
+            storage.addAttributes(pointing([.foregroundColor: PlatformColor.linkColor]), range: range)
             if Self.isWebAddress(destination), let close = token.syntax.last, close.location > range.location {
                 markWebLink(at: close.location - 1, storage: storage) // The last letter of the link text.
             }
         case .url:
-            storage.addAttributes([.foregroundColor: NSColor.linkColor, .cursor: NSCursor.pointingHand], range: range)
+            storage.addAttributes(pointing([.foregroundColor: PlatformColor.linkColor]), range: range)
             markWebLink(at: NSMaxRange(range) - 1, storage: storage)
         case .wikiLink(let target), .embed(let target):
             let exists = wikiLinkExists?(target) ?? true
-            let color = exists ? NSColor.linkColor : NSColor.linkColor.withAlphaComponent(0.5)
-            storage.addAttributes([.foregroundColor: color, .cursor: NSCursor.pointingHand], range: range)
+            let color = exists ? PlatformColor.linkColor : PlatformColor.linkColor.withAlphaComponent(0.5)
+            storage.addAttributes(pointing([.foregroundColor: color]), range: range)
         case .tag:
             // Drawn as a pill by the layout manager, with a little room on each side for it.
-            storage.addAttributes([.pointTag: true, .cursor: NSCursor.pointingHand], range: range)
+            storage.addAttributes(pointing([.pointTag: true]), range: range)
             if range.location > 0, text.character(at: range.location - 1) != 10 {
                 storage.addAttribute(.kern, value: Self.tagSpace, range: NSRange(location: range.location - 1, length: 1))
             }
             storage.addAttribute(.kern, value: Self.tagSpace, range: NSRange(location: NSMaxRange(range) - 1, length: 1))
         case .footnoteReference:
             storage.addAttributes([
-                .font: NSFont.systemFont(ofSize: theme.bodySize * 0.75),
+                .font: PlatformFont.systemFont(ofSize: theme.bodySize * 0.75),
                 .baselineOffset: theme.bodySize * 0.35,
-                .foregroundColor: NSColor.linkColor,
+                .foregroundColor: PlatformColor.linkColor,
             ], range: range)
         case .escape:
             break
@@ -221,7 +224,7 @@ struct MarkdownStyler {
     /// Makes room after a link's last letter for the arrow symbol, which the layout manager draws.
     private func markWebLink(at index: Int, storage: NSTextStorage) {
         guard index >= 0, index < storage.length else { return }
-        let font = storage.attribute(.font, at: index, effectiveRange: nil) as? NSFont ?? theme.body
+        let font = storage.attribute(.font, at: index, effectiveRange: nil) as? PlatformFont ?? theme.body
         storage.addAttributes([.pointWebLink: true, .kern: theme.webLinkSpace(for: font)], range: NSRange(location: index, length: 1))
     }
 
@@ -251,18 +254,15 @@ struct MarkdownStyler {
             $0.paragraphSpacing = 0
             $0.paragraphSpacingBefore = 0
         }
-        storage.addAttributes([.font: NSFont.systemFont(ofSize: 1), .paragraphStyle: style, .pointCollapsed: true], range: full)
+        storage.addAttributes([.font: PlatformFont.systemFont(ofSize: 1), .paragraphStyle: style, .pointCollapsed: true], range: full)
         storage.addAttribute(.pointHidden, value: true, range: line)
     }
 
-    private func addTrait(_ trait: NSFontDescriptor.SymbolicTraits, in range: NSRange, storage: NSTextStorage) {
+    private func addTrait(_ trait: PlatformFontTraits, in range: NSRange, storage: NSTextStorage) {
         guard range.length > 0 else { return }
         storage.enumerateAttribute(.font, in: range) { value, subrange, _ in
-            let font = value as? NSFont ?? theme.body
-            let descriptor = font.fontDescriptor.withSymbolicTraits(font.fontDescriptor.symbolicTraits.union(trait))
-            let converted = NSFont(descriptor: descriptor, size: font.pointSize) ?? font
-            storage.addAttribute(.font, value: converted, range: subrange)
+            let font = value as? PlatformFont ?? theme.body
+            storage.addAttribute(.font, value: font.adding(trait), range: subrange)
         }
     }
 }
-#endif

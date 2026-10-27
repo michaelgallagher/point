@@ -74,6 +74,34 @@ targets:
         # (`-PointVault <path>`) without the folder picker.
         Debug:
           CODE_SIGN_ENTITLEMENTS: Apps/Mac/Point-Debug.entitlements
+  # The iPhone app (M4). For now a spike: the shared editor in UIKit, timed (plan/m4-iphone.md).
+  Point-iOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - Apps/iOS
+    dependencies:
+      - package: VaultKit
+      - package: EditorKit
+      - package: MarkdownKit
+      - package: IndexKit
+    settings:
+      base:
+        PRODUCT_NAME: Point
+        PRODUCT_BUNDLE_IDENTIFIER: org.mikegallagher.point.ios
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Point
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        # The vault folder (in the app's Documents) shows in the Files app, to copy notes in.
+        INFOPLIST_KEY_UIFileSharingEnabled: YES
+        INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
+        TARGETED_DEVICE_FAMILY: "1"
+        # Signed with Mike's personal team (a free account: builds last 7 days, and can't
+        # have extensions until the paid account).
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: H8S9H25AJ7
   # The Dock tile plug-in: loaded by the Dock, to show the app icon chosen in Settings while
   # Point isn't running. Embedded in Point.app/Contents/PlugIns.
   PointDockTile:

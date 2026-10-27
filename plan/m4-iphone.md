@@ -94,6 +94,38 @@ Each ends with a build on the iPhone to try. Free-account builds work for steps 
 4. **Making it feel right:** Dynamic Type, dark mode, haptics, large notes, the keyboard never covering the cursor, VoiceOver.
 5. **Then:** the real vault through the Files app (iCloud), and with the paid account, the control, Siri and the share sheet.
 
+## Step 0, the spike (27 October 2026)
+
+**Built:**
+- **The shared packages run on iOS:** VaultKit's file watcher is Mac only, and one expression in IndexKit was split up so the iOS compiler could type-check it.
+- **EditorKit is split:** the styler, decorations and layout manager are shared, with `Platform.swift` mapping colours, fonts, paths and symbol images between AppKit and UIKit. The Mac's text view is unchanged.
+- **The iPhone view:** `PhoneTextView`, a `UITextView` on TextKit 1 with the shared layout manager and styler. It restyles as you type, but doesn't yet have the Mac's folding, cursor rules or formatting commands.
+- **A spike app (`Point-iOS`, `Apps/iOS`):**
+  - It lists the notes in a vault folder in the app's Documents (shown in Files).
+  - It opens a note in the editor and saves as the Mac does.
+  - Its timings show above the note.
+- **A typing test, `-SpikeTypeTest YES`:** it opens a generated long note and types 200 characters into it. `-SpikeSections 900` makes the note as long as the vault's longest. Results are appended to `spike-timings.txt` beside the vault.
+
+**What it shows:** the editor works on iOS. Notes look as on the Mac, with the frontmatter and markers hidden, and headings, links, tags, lists, checkboxes, quotes and highlights drawn. (A tag's pill sticks out past the left margin: a small fix.)
+
+**Timings, on the iPhone 13** (Release build, iOS 27; the Simulator on the M3 gives nearly the same):
+
+| Note | Opening | Each keystroke: median (parsing) | 95th percentile | Slowest |
+|---|---|---|---|---|
+| 45,000 characters | 33 ms | 3.4 ms (2.5) | 9.3 ms | 14.5 ms |
+| 272,000 characters (as the vault's largest) | 99 ms | 6.6 ms (5.5) | 9.4 ms | 21.9 ms |
+
+- **Typing is fast enough,** even in the vault's largest notes. A keystroke costs well under a frame at 60 Hz, and the slowest of 200 is about one frame.
+- **Opening the largest note takes about a tenth of a second.** The median note is 1.2 KB, and 99% are under 31 KB, so most open far faster.
+- **Reading a note takes 2–15 ms.** The first read after launch is slower while file coordination starts up, once.
+- **Debug builds mislead:** unoptimised, the same 272,000-character note took 64 ms a keystroke (58 ms of it parsing). Measure in Release.
+- **What this means for finding 13 of the [27 October review](app-review-2026-10-27.md),** that each edit re-parses the whole note: in Release it costs about 6 ms in the largest note. Incremental parsing isn't needed for now, on either the iPhone or the Mac.
+- **Still to do before step 3:**
+  - Tag pills stick out past the left margin.
+  - Type on the phone by hand: the keyboard, autocorrect and the magnifier, around the hidden markers.
+
+**On the iPhone:** the target is signed with Mike's personal team (a free account, so builds last 7 days). With the iPhone connected and unlocked (and, the first time, the developer profile trusted in Settings › General › VPN & Device Management), choose the `Point-iOS` scheme and the iPhone in Xcode, and run. For the typing test, add `-SpikeTypeTest YES` (and `-SpikeSections 900`) to the scheme's arguments. The timings show above the note, and in `spike-timings.txt` (Files › On My iPhone › Point).
+
 ## Decided (27 October 2026)
 
 1. **Bookmarks are Obsidian's** (`.obsidian/bookmarks.json`): the phone shows the notes in it, in its order, and bookmarking or reordering on the phone writes it back, keeping everything else in the file (folders, searches and headings Obsidian bookmarks too, which the phone doesn't show). The Mac can move to the same file later.

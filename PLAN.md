@@ -13,7 +13,7 @@ Branch `no-visible-tabs`. Recently built: tabless headers, the redesigned proper
 2. **The properties view,** the last item of the [25 October batch](plan/batch-2026-10-25.md).
 3. **The sidebar's remaining steps:** the swipe follows the fingers, and auto-hide resizes the window at the end of a drag. See [The sidebar widens the window](plan/sidebar-widens-window.md).
 4. **When the screen is free for recordings:** the header's jitter as the sidebar slides, and full screen. See [App review](plan/app-review-2026-10-25.md).
-5. **The iPhone app (M4):** sketched and its questions answered; the first step is a spike: the editor in UIKit, measured on the iPhone 13. See [M4, the iPhone app](plan/m4-iphone.md).
+5. **The iPhone app (M4):** sketched and its questions answered. The spike (step 0) is done: the shared editor runs in UIKit, and on the iPhone 13 typing costs 3–7 ms a keystroke, even in the vault's largest notes. Next: step 1, home with search, bookmarks and recent notes. See [M4, the iPhone app](plan/m4-iphone.md).
 6. **Later milestones:** meaning (M5) and extras (M6). See [Milestones](plan/milestones.md).
 
 ## The documents

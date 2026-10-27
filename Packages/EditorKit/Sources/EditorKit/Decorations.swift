@@ -1,5 +1,8 @@
-#if canImport(AppKit)
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import MarkdownKit
 
 extension NSAttributedString.Key {
@@ -17,11 +20,11 @@ extension NSAttributedString.Key {
     static let pointTag = NSAttributedString.Key("point.tag")
     /// The last letter of a link to a website, followed by the arrow symbol drawn after it.
     static let pointWebLink = NSAttributedString.Key("point.webLink")
-    /// A background colour (an `NSColor`) drawn with rounded corners behind the text, line by
+    /// A background colour (an `PlatformColor`) drawn with rounded corners behind the text, line by
     /// line: highlights and inline code.
     static let pointRoundedBackground = NSAttributedString.Key("point.roundedBackground")
     /// A list item highlighted by the character at its start (`- ! Important`): its colour,
-    /// an `NSColor`, drawn behind the line and used for its bullet.
+    /// an `PlatformColor`, drawn behind the line and used for its bullet.
     static let pointListHighlight = NSAttributedString.Key("point.listHighlight")
     /// A line-height multiple (CGFloat) overriding the theme's, for example in code blocks.
     static let pointLineHeight = NSAttributedString.Key("point.lineHeight")
@@ -63,29 +66,29 @@ struct EditorTheme {
     var maxTextWidth: CGFloat = 720
 
     /// The size of the arrow symbol after web links, and the space made for it.
-    func webLinkSymbolSize(for font: NSFont) -> CGFloat { (font.pointSize * 0.8).rounded() }
-    func webLinkSpace(for font: NSFont) -> CGFloat { webLinkSymbolSize(for: font) + 4 }
+    func webLinkSymbolSize(for font: PlatformFont) -> CGFloat { (font.pointSize * 0.8).rounded() }
+    func webLinkSpace(for font: PlatformFont) -> CGFloat { webLinkSymbolSize(for: font) + 4 }
 
-    var body: NSFont { .systemFont(ofSize: bodySize) }
-    var mono: NSFont { .monospacedSystemFont(ofSize: bodySize - 2, weight: .regular) }
+    var body: PlatformFont { .systemFont(ofSize: bodySize) }
+    var mono: PlatformFont { .monospacedSystemFont(ofSize: bodySize - 2, weight: .regular) }
 
     /// A heading's font, from the typography: its size relative to the body, its weight,
     /// and italic or not.
-    func headingFont(level: Int) -> NSFont {
+    func headingFont(level: Int) -> PlatformFont {
         let style = typography.heading(level)
         let size = (bodySize * CGFloat(style.size)).rounded()
-        let weight: NSFont.Weight = switch style.weight {
+        let weight: PlatformFont.Weight = switch style.weight {
         case .regular: .regular
         case .medium: .medium
         case .semibold: .semibold
         case .bold: .bold
         }
-        let font = NSFont.systemFont(ofSize: size, weight: weight)
+        let font = PlatformFont.systemFont(ofSize: size, weight: weight)
         guard style.italic else { return font }
-        return NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(.italic), size: size) ?? font
+        return font.adding(PlatformTraits.italic)
     }
 
-    func calloutColor(_ type: String) -> NSColor {
+    func calloutColor(_ type: String) -> PlatformColor {
         switch type {
         case "warning", "caution", "attention": .systemOrange
         case "danger", "error", "bug", "failure", "fail", "missing": .systemRed
@@ -97,4 +100,3 @@ struct EditorTheme {
         }
     }
 }
-#endif

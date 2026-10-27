@@ -1,3 +1,4 @@
+#if os(macOS)
 import CoreServices
 import Foundation
 import Testing
@@ -84,3 +85,4 @@ struct VaultWatcherTests {
         #expect(!missed.names.isEmpty)
     }
 }
+#endif

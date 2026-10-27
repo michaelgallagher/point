@@ -218,10 +218,13 @@ public actor SearchIndex {
         }
 
         // Titles first, best match first.
-        let titleMatches = titles
-            .filter { allowed?.contains($0.row) ?? true }
-            .compactMap { entry in Fuzzy.titleScore(words: words, title: entry.title).map { (entry, $0) } }
-            .sorted { $0.1 != $1.1 ? $0.1 < $1.1 : $0.0.title.count < $1.0.title.count }
+        // (In steps, with types: as one expression, the iOS build couldn't type-check it.)
+        let candidates = titles.filter { allowed?.contains($0.row) ?? true }
+        let scored: [(entry: (row: Int, id: Note.ID, title: String), score: Int)] = candidates.compactMap { entry in
+            Fuzzy.titleScore(words: words, title: entry.title).map { (entry, $0) }
+        }
+        let titleMatches = scored.sorted { $0.score != $1.score ? $0.score < $1.score : $0.entry.title.count < $1.entry.title.count }
+            .map { ($0.entry, $0.score) }
 
         // Then text, by relevance: whole words and word forms, then parts of words.
         // Tags filter inside the query, so the best 200 are the best 200 with those tags.
