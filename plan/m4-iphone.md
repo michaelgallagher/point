@@ -146,6 +146,29 @@ Each ends with a build on the iPhone to try. Free-account builds work for steps 
 
 **Not yet:** the new-note button (step 2), and the real vault (step 5). Notes reach the phone by copying them into Point's folder in Files.
 
+## Step 2, writing (27 October 2026)
+
+**Built:**
+- **New Note:**
+  - A button in home's bottom toolbar (first a round floating button; see below).
+  - It makes an empty note at the vault's top level and opens it with the keyboard up.
+  - It's also a quick action: press and hold the app icon (`Apps/iOS/Info.plist`; a scene delegate passes it to home, whether Point was running or not).
+- **Naming:** leaving a new note names it from its first line, under a free name ("… 2" if taken), as on the Mac. An empty one is removed, but only if it saved and read back empty. A note left untitled when the app stopped is named or removed at the next launch.
+- **Saving (`NoteSession`):** a second after typing stops, on leaving, and when the app goes to the background. It never writes over a change made elsewhere (a conflict copy instead). If a save fails, the banner says so, with Try Again, and the edits are kept as a draft (`NoteDrafts`), offered back with Restore or Discard when the note next opens.
+
+**Found and fixed: typed words went missing.** The iPhone editor restyled inside the text system's own edit step, as the Mac's does. On iOS that threw off the keyboard's autocorrection and suggestions: "Workshop on service design / - Start with the problem…" was saved as "Workshop service / - start with, …". It now restyles just after each edit, and waits while the keyboard is composing. Typing in the Simulator now arrives exactly, styled as it's typed (bullets, checkboxes, bold).
+
+**To watch for:** the first note opened after a launch takes a moment to appear (in a Debug build, at least): what looked like New Note failing was that. The quick action can only be tried on the phone itself.
+
+**Changed after Mike tried it (27 October):**
+- **Titles are visible.** Naming a note silently from its first line wasn't obvious. Every note now shows its title (its file name, as on the Mac) at the top, scrolling with the text, in a field that renames the note (`PhoneTextView.header`).
+  - A new note opens with the cursor in an empty "Title", and Return goes on to the text.
+  - A rename updates links to the note across the vault (`LinkUpdater`, as on the Mac), and its bookmarks (`ObsidianBookmarks.rename`, tested).
+  - A name that's taken is refused with a message, and the title goes back.
+  - A new note left without a title still takes its first line; an empty one is still removed.
+  - Navigation follows the rename (`PhoneStore.currentID`): renamed while open, the note's screen had gone blank, as it looked the note up by its old name.
+- **The system's bottom toolbar:** New Note on the left, search on the right (minimised to a button until tapped), in place of the floating button and the search field at the top.
+
 ## Decided (27 October 2026)
 
 1. **Bookmarks are Obsidian's** (`.obsidian/bookmarks.json`): the phone shows the notes in it, in its order, and bookmarking or reordering on the phone writes it back, keeping everything else in the file (folders, searches and headings Obsidian bookmarks too, which the phone doesn't show). The Mac can move to the same file later.

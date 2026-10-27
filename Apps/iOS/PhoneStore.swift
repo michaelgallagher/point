@@ -1,5 +1,6 @@
 import Foundation
 import IndexKit
+import MarkdownKit
 import SwiftUI
 import VaultKit
 
@@ -20,6 +21,10 @@ final class PhoneStore: ObservableObject {
     private var index: SearchIndex?
     private var searchTask: Task<Void, Never>?
 
+    /// Where edits that can't be saved are kept, outside the vault.
+    let drafts = NoteDrafts(storage: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("Drafts", isDirectory: true), vaultKey: "phone")
+
     init() {
         PhoneVault.makeSampleNotes()
         index = try? SearchIndex(url: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -29,6 +34,18 @@ final class PhoneStore: ObservableObject {
 
     func note(_ id: Note.ID) -> Note? { notes.first { $0.id == id } }
 
+    /// Notes renamed while the app's open, old ID to new, so a screen opened under the old
+    /// one (navigation keeps the ID it was given) still finds its note.
+    private var renamedIDs: [Note.ID: Note.ID] = [:]
+
+    /// A note's ID now, following any renames since `id` was given out.
+    func currentID(_ id: Note.ID) -> Note.ID {
+        var id = id
+        var seen: Set<Note.ID> = []
+        while let next = renamedIDs[id], seen.insert(id).inserted { id = next }
+        return id
+    }
+
     /// Scans the folder again, and brings the search index up to date behind it.
     func reload() async {
         let root = root
@@ -36,6 +53,11 @@ final class PhoneStore: ObservableObject {
         let scanned = (try? await Task.detached(priority: .userInitiated) { try VaultScanner.scan(root) }.value) ?? []
         notes = scanned
         bookmarks = ObsidianBookmarks.load(vault: root)
+        // Notes left untitled when the app last stopped (none is open yet): named, or removed.
+        if !isLaunched {
+            isLaunched = true
+            untitled.forEach { finishUntitled($0) }
+        }
         PhoneVault.log("scanned \(scanned.count) notes in \(Int((CACurrentMediaTime() - start) * 1000)) ms")
         guard let index else { return }
         let indexStart = CACurrentMediaTime()
@@ -44,6 +66,103 @@ final class PhoneStore: ObservableObject {
             PhoneVault.log("indexed \(changed) notes in \(Int((CACurrentMediaTime() - indexStart) * 1000)) ms")
             if !searchText.isEmpty { scheduleSearch() }
         }
+    }
+
+    // MARK: New notes
+
+    private var isLaunched = false
+
+    /// New notes not yet named: each takes its name from its first line when it's left, or
+    /// goes if it's still empty. Kept across launches, for a note open when the app stopped.
+    private var untitled: Set<Note.ID> {
+        get { Set(UserDefaults.standard.stringArray(forKey: "untitled") ?? []) }
+        set { UserDefaults.standard.set(Array(newValue), forKey: "untitled") }
+    }
+
+    func isUntitled(_ id: Note.ID) -> Bool { untitled.contains(id) }
+
+    /// A new, empty note at the vault's top level, to be named from its first line.
+    func createNote() -> Note.ID? {
+        do {
+            let url = try NoteFiles.create(title: NoteFiles.untitledName(), in: root)
+            let note = Note(id: url.lastPathComponent, url: url, title: url.deletingPathExtension().lastPathComponent,
+                            modified: Date(), created: Date(), isDownloaded: true)
+            notes.append(note)
+            untitled.insert(note.id)
+            return note.id
+        } catch {
+            PhoneVault.log("couldn't create a note: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Names a new note from its first line, or removes it if it's empty, once it's been left
+    /// (and saved). Only a note read back as empty is removed; if it can't be read, renamed or
+    /// removed, it stays as it is, to try again next time.
+    func finishUntitled(_ id: Note.ID) {
+        guard untitled.contains(id) else { return }
+        guard let note = note(id) ?? (FileManager.default.fileExists(atPath: root.appendingPathComponent(id).path)
+            ? Note(id: id, url: root.appendingPathComponent(id), title: (id as NSString).deletingPathExtension, modified: Date(), created: Date(), isDownloaded: true)
+            : nil) else {
+            untitled.remove(id) // Gone already.
+            return
+        }
+        guard let text = try? NoteReader.read(contentsOf: note.url) else { return }
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            guard (try? FileManager.default.removeItem(at: note.url)) != nil else { return }
+            untitled.remove(id)
+            notes.removeAll { $0.id == id }
+            return
+        }
+        untitled.remove(id)
+        guard let line = PlainText.firstLine(of: text) else { return }
+        let title = NoteFiles.sanitizedTitle(line)
+        guard !title.isEmpty, title != note.title else { return }
+        let available = NoteFiles.availableURL(for: title, in: note.url.deletingLastPathComponent())
+        guard let url = try? NoteFiles.rename(note.url, to: available.deletingPathExtension().lastPathComponent) else {
+            untitled.insert(id) // Kept under its untitled name; named next time.
+            return
+        }
+        moved(note, to: url)
+        Task { await reload() }
+    }
+
+    /// Renames a note, as typed in its title: links to it across the vault, and its
+    /// bookmarks, follow, as on the Mac. Throws if the name's taken or the file can't be
+    /// renamed (the note's left as it was).
+    func rename(_ id: Note.ID, to title: String) throws -> Note {
+        guard let note = note(id) else { throw CocoaError(.fileNoSuchFile) }
+        let vault = notes
+        let url = try NoteFiles.rename(note.url, to: title)
+        untitled.remove(id)
+        let renamed = moved(note, to: url)
+        let newTitle = renamed.title
+        Task.detached(priority: .userInitiated) {
+            let result = LinkUpdater.updateLinks(to: note, newTitle: newTitle, notes: vault)
+            if !result.updatedNotes.isEmpty { PhoneVault.log("updated links in \(result.updatedNotes.count) notes") }
+            await self.reload()
+        }
+        return renamed
+    }
+
+    /// A note's file renamed: the list, and what it was known by (opened, worked on, its
+    /// bookmarks), follow it.
+    @discardableResult
+    private func moved(_ note: Note, to url: URL) -> Note {
+        let folder = (note.id as NSString).deletingLastPathComponent
+        let newID = folder.isEmpty ? url.lastPathComponent : folder + "/" + url.lastPathComponent
+        let renamed = Note(id: newID, url: url, title: url.deletingPathExtension().lastPathComponent,
+                           modified: note.modified, created: note.created, isDownloaded: true)
+        if let index = notes.firstIndex(where: { $0.id == note.id }) { notes[index] = renamed }
+        renamedIDs[note.id] = newID
+        var dates = opened
+        if let date = dates.removeValue(forKey: note.id) { dates[newID] = date; opened = dates }
+        if UserDefaults.standard.string(forKey: "workingOn") == note.id { UserDefaults.standard.set(newID, forKey: "workingOn") }
+        if isBookmarked(note.id) {
+            try? ObsidianBookmarks.rename(note.id, to: newID, vault: root)
+            bookmarks = ObsidianBookmarks.load(vault: root)
+        }
+        return renamed
     }
 
     // MARK: Recent

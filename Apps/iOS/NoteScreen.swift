@@ -2,151 +2,294 @@ import EditorKit
 import SwiftUI
 import VaultKit
 
-/// One note, filling the screen, in the shared editor. Its menu bookmarks it. Opened with
-/// `-SpikeTypeTest`, what opening and typing cost shows across the top (see the spike).
+/// One note, filling the screen, in the shared editor, its title at the top (its file name, as
+/// on the Mac: changing it renames the note). Its menu bookmarks it. A new note opens with the
+/// cursor in its title. Opened with `-SpikeTypeTest`, what opening and typing cost shows across
+/// the top (see the spike).
 struct NoteScreen: View {
     @EnvironmentObject private var store: PhoneStore
-    let note: Note
-    @State private var timings = ""
+    @StateObject private var session: NoteSession
+
+    init(note: Note, store: PhoneStore, isNew: Bool = false) {
+        _session = StateObject(wrappedValue: NoteSession(note: note, store: store, isNew: isNew))
+    }
 
     var body: some View {
-        EditorView(note: note, store: store, timings: $timings)
+        EditorView(session: session)
             .ignoresSafeArea(.container, edges: .bottom)
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if !timings.isEmpty {
-                    Text(timings)
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 4)
-                        .background(.bar)
-                }
-            }
-            .navigationTitle(note.title)
+            .safeAreaInset(edge: .top, spacing: 0) { banners }
+            // The title is in the note itself.
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu("More", systemImage: "ellipsis") {
-                        let bookmarked = store.isBookmarked(note.id)
+                        let bookmarked = store.isBookmarked(session.note.id)
                         Button(bookmarked ? "Remove Bookmark" : "Bookmark", systemImage: bookmarked ? "bookmark.slash" : "bookmark") {
-                            store.toggleBookmark(note.id)
+                            store.toggleBookmark(session.note.id)
                         }
                     }
                 }
             }
-            .onAppear { store.noteOpened(note.id) }
+            .onAppear { store.noteOpened(session.note.id) }
+            .onDisappear {
+                // Left: its title taken, saved, then (if it has no title) named from its first
+                // line, or removed if it's still empty.
+                session.commitTitle()
+                guard session.save() else { return }
+                store.finishUntitled(session.note.id)
+            }
+    }
+
+    @ViewBuilder private var banners: some View {
+        if let problem = session.titleProblem {
+            Banner(text: problem) {
+                Button("OK") { session.dismissTitleProblem() }
+            }
+        } else if let problem = session.saveProblem {
+            Banner(text: problem) {
+                Button("Try Again") { session.save() }
+            }
+        } else if let draft = session.recoveredDraft {
+            Banner(text: "Changes made \(draft.saved.formatted(date: .abbreviated, time: .shortened)) couldn’t be saved at the time.") {
+                Button("Discard") { session.discardDraft() }
+                Button("Restore") { session.restoreDraft() }
+                    .fontWeight(.semibold)
+            }
+        } else if !session.timings.isEmpty {
+            Text(session.timings)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
+                .background(.bar)
+        }
     }
 }
 
-/// The editor, saving as the Mac does: a second after typing stops, and on leaving; never
-/// over a change made elsewhere.
-struct EditorView: UIViewRepresentable {
-    let note: Note
-    let store: PhoneStore
-    @Binding var timings: String
+/// Above the note: something went wrong, and what can be done.
+private struct Banner<Actions: View>: View {
+    let text: String
+    @ViewBuilder let actions: Actions
 
-    func makeCoordinator() -> Coordinator { Coordinator(note: note, store: store) }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(text, systemImage: "exclamationmark.triangle.fill")
+                .font(.subheadline)
+                .symbolRenderingMode(.multicolor)
+            HStack(spacing: 16) {
+                Spacer()
+                actions
+            }
+            .font(.subheadline)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.bar)
+    }
+}
+
+/// One open note: loading it, and saving as the Mac does, a second after typing stops and on
+/// leaving or the app going to the background, never over a change made elsewhere. A save
+/// that fails keeps the edits as a draft, outside the vault, and says so; they're offered back
+/// when the note is next opened.
+@MainActor
+final class NoteSession: NSObject, ObservableObject, UITextFieldDelegate {
+    /// The note, renamed as its title is changed.
+    @Published private(set) var note: Note
+    let isNew: Bool
+    private let store: PhoneStore
+    weak var textView: PhoneTextView?
+    weak var titleField: UITextField?
+    /// Why a title couldn't be used (the name's taken, say), until dismissed.
+    @Published private(set) var titleProblem: String?
+
+    @Published private(set) var saveProblem: String?
+    @Published private(set) var recoveredDraft: NoteDrafts.Draft?
+    /// What opening and typing cost, shown only for the spike's typing test.
+    @Published private(set) var timings = ""
+
+    private var onDisk: String?
+    private var pendingSave: Task<Void, Never>?
+    private let showsTimings = UserDefaults.standard.bool(forKey: "SpikeTypeTest")
+    private var openedTimings = ""
+
+    init(note: Note, store: PhoneStore, isNew: Bool) {
+        self.note = note
+        self.store = store
+        self.isNew = isNew
+        super.init()
+        NotificationCenter.default.addObserver(self, selector: #selector(resignActive), name: UIApplication.willResignActiveNotification, object: nil)
+    }
+
+    /// Going to the background (the phone locked, another app): saved.
+    @objc private func resignActive() { save() }
+
+    func open() {
+        guard let textView else { return }
+        let readStart = CACurrentMediaTime()
+        guard let text = try? NoteReader.read(note) else {
+            saveProblem = "Point couldn’t read this note."
+            return
+        }
+        let read = (CACurrentMediaTime() - readStart) * 1000
+        let load = textView.load(text)
+        onDisk = text
+        if let draft = store.drafts.draft(for: note.id) {
+            if draft.text == text { store.drafts.remove(for: note.id) } else { recoveredDraft = draft }
+        }
+        titleField?.text = store.isUntitled(note.id) ? "" : note.title
+        // A new note: straight to typing its title.
+        if isNew { titleField?.becomeFirstResponder() }
+        openedTimings = "Read \(Int(read)) ms, shown \(Int(load)) ms (\(text.count / 1000)k characters)"
+        if showsTimings {
+            timings = openedTimings
+            PhoneVault.log("opened \(note.title): \(openedTimings)")
+            typeTest()
+        }
+    }
+
+    func changed(_ text: String) {
+        guard let textView else { return }
+        if text != onDisk { store.noteEdited(note.id) }
+        if showsTimings {
+            timings = "\(openedTimings)\nLast keystroke \(String(format: "%.1f", textView.lastEditMilliseconds)) ms, slowest \(String(format: "%.1f", textView.slowestEditMilliseconds)) ms"
+        }
+        pendingSave?.cancel()
+        pendingSave = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.save()
+        }
+    }
+
+    /// Saves unsaved edits, and says whether they're safely stored (or there were none). Changed
+    /// elsewhere meanwhile, the edits go to a conflict copy beside the note, as on the Mac.
+    @discardableResult
+    func save() -> Bool {
+        pendingSave?.cancel()
+        guard let textView, let onDisk, let text = textView.text, text != onDisk else { return true }
+        do {
+            _ = try NoteWriter.write(text, to: note.url, expecting: onDisk, ifChanged: .saveCopy)
+            self.onDisk = text
+            saveProblem = nil
+            store.drafts.remove(for: note.id)
+            return true
+        } catch {
+            let kept = (try? store.drafts.keep(text, for: note.id)) != nil
+            saveProblem = "Point couldn’t save this note (\(error.localizedDescription))."
+                + (kept ? " Your changes are kept." : " Copy them somewhere safe.")
+            return false
+        }
+    }
+
+    // MARK: The title
+
+    /// Return in the title: on to the note's text, at its start.
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        commitTitle()
+        textView?.becomeFirstResponder()
+        textView?.selectedRange = NSRange(location: 0, length: 0)
+        return false
+    }
+
+    func textFieldDidEndEditing(_ textField: UITextField) { commitTitle() }
+
+    /// Renames the note to the title typed, once its edits are saved. A title left empty
+    /// goes back to the note's name (or, for a new note, waits: it's named from its first
+    /// line when it's left).
+    func commitTitle() {
+        guard let field = titleField else { return }
+        let typed = NoteFiles.sanitizedTitle(field.text ?? "")
+        let untitled = store.isUntitled(note.id)
+        guard !typed.isEmpty else {
+            if !untitled { field.text = note.title }
+            return
+        }
+        guard typed != note.title || untitled else { return }
+        // Saved first: a rename never leaves edits behind.
+        guard save() else {
+            field.text = untitled ? "" : note.title
+            return
+        }
+        do {
+            note = try store.rename(note.id, to: typed)
+            field.text = note.title
+        } catch NoteFiles.FileError.titleTaken(_) {
+            titleProblem = "There’s already a note called “\(typed)”."
+            field.text = untitled ? "" : note.title
+        } catch {
+            titleProblem = "Point couldn’t rename this note (\(error.localizedDescription))."
+            field.text = untitled ? "" : note.title
+        }
+    }
+
+    func dismissTitleProblem() { titleProblem = nil }
+
+    func restoreDraft() {
+        guard let draft = recoveredDraft, let textView else { return }
+        recoveredDraft = nil
+        textView.text = draft.text
+        changed(draft.text)
+        save()
+    }
+
+    func discardDraft() {
+        recoveredDraft = nil
+        store.drafts.remove(for: note.id)
+    }
+
+    /// `-SpikeTypeTest YES`: types 200 characters at the end of the note, one at a time, as the
+    /// keyboard would, and logs what each cost.
+    private func typeTest() {
+        guard let textView else { return }
+        let sentence = "Typing at a workshop, one word after another. "
+        let characters = Array(String(repeating: sentence, count: 200 / sentence.count + 1).prefix(200))
+        var times: [Double] = [], parses: [Double] = [], edits: [Double] = []
+        textView.selectedRange = NSRange(location: (textView.text as NSString).length, length: 0)
+        for (index, character) in characters.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5 + Double(index) * 0.03) { [weak self] in
+                guard let self else { return }
+                let start = CACurrentMediaTime()
+                textView.insertText(String(character))
+                // Laid out where the cursor is, as the screen needs it.
+                textView.layoutManager.ensureLayout(forCharacterRange: NSRange(location: textView.selectedRange.location, length: 0))
+                times.append((CACurrentMediaTime() - start) * 1000)
+                parses.append(textView.lastParseMilliseconds)
+                edits.append(textView.lastEditMilliseconds)
+                guard times.count == characters.count else { return }
+                let median = { (values: [Double]) in values.sorted()[values.count / 2] }
+                let sorted = times.sorted()
+                let summary = String(format: "typing 200 characters: median %.1f ms (parsing %.1f, restyling %.1f), 95th %.1f ms, slowest %.1f ms",
+                                     median(times), median(parses), median(edits) - median(parses), sorted[190], sorted[199])
+                PhoneVault.log("\(self.note.title): \(summary)")
+                self.timings = "\(self.openedTimings)\n\(summary)"
+            }
+        }
+    }
+}
+
+/// The shared editor, for a note's session.
+struct EditorView: UIViewRepresentable {
+    let session: NoteSession
 
     func makeUIView(context: Context) -> PhoneTextView {
         let textView = PhoneTextView()
-        let coordinator = context.coordinator
-        coordinator.textView = textView
-        coordinator.show = { timings = $0 }
-        textView.onTextChange = { coordinator.changed($0) }
-        DispatchQueue.main.async { coordinator.open() }
+        session.textView = textView
+        // The title, at the top, scrolling with the text.
+        let title = UITextField()
+        title.font = .systemFont(ofSize: 28, weight: .bold)
+        title.placeholder = "Title"
+        title.returnKeyType = .next
+        title.autocapitalizationType = .sentences
+        title.clearButtonMode = .never
+        title.delegate = session
+        session.titleField = title
+        textView.header = title
+        textView.onTextChange = { [weak session] in session?.changed($0) }
+        DispatchQueue.main.async { session.open() }
         return textView
     }
 
     func updateUIView(_ textView: PhoneTextView, context: Context) {}
-
-    static func dismantleUIView(_ textView: PhoneTextView, coordinator: Coordinator) {
-        coordinator.save()
-    }
-
-    @MainActor
-    final class Coordinator {
-        let note: Note
-        let store: PhoneStore
-        /// Timings shown only for the spike's typing test.
-        private let showsTimings = UserDefaults.standard.bool(forKey: "SpikeTypeTest")
-        weak var textView: PhoneTextView?
-        var show: (String) -> Void = { _ in }
-        private var onDisk: String?
-        private var pendingSave: Task<Void, Never>?
-        private var opened = ""
-
-        init(note: Note, store: PhoneStore) {
-            self.note = note
-            self.store = store
-        }
-
-        func open() {
-            guard let textView else { return }
-            let readStart = CACurrentMediaTime()
-            guard let text = try? NoteReader.read(note) else { return show("Couldn’t read this note") }
-            let read = (CACurrentMediaTime() - readStart) * 1000
-            let load = textView.load(text)
-            onDisk = text
-            opened = "Read \(Int(read)) ms, shown \(Int(load)) ms (\(text.count / 1000)k characters)"
-            if showsTimings { show(opened) }
-            PhoneVault.log("opened \(note.title): \(opened)")
-            if showsTimings { typeTest() }
-        }
-
-        func changed(_ text: String) {
-            guard let textView else { return }
-            if textView.text != onDisk { store.noteEdited(note.id) }
-            if showsTimings { show("\(opened)\nLast keystroke \(String(format: "%.1f", textView.lastEditMilliseconds)) ms, slowest \(String(format: "%.1f", textView.slowestEditMilliseconds)) ms") }
-            pendingSave?.cancel()
-            pendingSave = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                guard !Task.isCancelled else { return }
-                self?.save()
-            }
-        }
-
-        func save() {
-            pendingSave?.cancel()
-            guard let textView, let onDisk, textView.text != onDisk else { return }
-            let text = textView.text ?? ""
-            if case .saved? = try? NoteWriter.write(text, to: note.url, expecting: onDisk, ifChanged: .saveCopy) {
-                self.onDisk = text
-            }
-        }
-
-        /// `-SpikeTypeTest YES`: types 200 characters at the end of the note, one at a time,
-        /// as the keyboard would, and logs what each cost.
-        private func typeTest() {
-            guard let textView else { return }
-            let sentence = "Typing at a workshop, one word after another. "
-            var times: [Double] = []
-            var parses: [Double] = [], edits: [Double] = []
-            textView.selectedRange = NSRange(location: (textView.text as NSString).length, length: 0)
-            for (index, character) in sentence.repeated(to: 200).enumerated() {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5 + Double(index) * 0.03) {
-                    let start = CACurrentMediaTime()
-                    textView.insertText(String(character))
-                    // Laid out where the cursor is, as the screen needs it.
-                    textView.layoutManager.ensureLayout(forCharacterRange: NSRange(location: textView.selectedRange.location, length: 0))
-                    times.append((CACurrentMediaTime() - start) * 1000)
-                    parses.append(textView.lastParseMilliseconds)
-                    edits.append(textView.lastEditMilliseconds)
-                    if times.count == 200 {
-                        let sorted = times.sorted()
-                        let median = { (values: [Double]) in values.sorted()[values.count / 2] }
-                        let summary = String(format: "typing 200 characters: median %.1f ms (parsing %.1f, restyling %.1f), 95th %.1f ms, slowest %.1f ms",
-                                             sorted[100], median(parses), median(edits) - median(parses), sorted[190], sorted[199])
-                        PhoneVault.log("\(self.note.title): \(summary)")
-                        self.show("\(self.opened)\n\(summary)")
-                    }
-                }
-            }
-        }
-    }
-}
-
-private extension String {
-    func repeated(to count: Int) -> String {
-        String(String(repeating: self, count: count / max(self.count, 1) + 1).prefix(count))
-    }
 }

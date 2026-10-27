@@ -6,6 +6,7 @@ import VaultKit
 /// and a note in the shared editor.
 @main
 struct PointPhoneApp: App {
+    @UIApplicationDelegateAdaptor private var appDelegate: AppDelegate
     @StateObject private var store = PhoneStore()
 
     var body: some Scene {
@@ -13,6 +14,39 @@ struct PointPhoneApp: App {
             HomeScreen()
                 .environmentObject(store)
         }
+    }
+}
+
+/// New Note from the app icon's quick action (pressing and holding the icon), passed to home.
+@MainActor
+final class QuickActions: ObservableObject {
+    static let shared = QuickActions()
+    static let newNote = "org.mikegallagher.point.newNote" // As in Info.plist.
+    /// Goes up each time New Note is chosen.
+    @Published private(set) var newNoteRequests = 0
+
+    func perform(_ item: UIApplicationShortcutItem) -> Bool {
+        guard item.type == Self.newNote else { return false }
+        newNoteRequests += 1
+        return true
+    }
+}
+
+/// Hands the quick action to `QuickActions`, whether it launched the app or found it running.
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, configurationForConnecting session: UISceneSession,
+                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        if let item = options.shortcutItem { _ = QuickActions.shared.perform(item) }
+        let configuration = UISceneConfiguration(name: nil, sessionRole: session.role)
+        configuration.delegateClass = SceneDelegate.self
+        return configuration
+    }
+}
+
+final class SceneDelegate: NSObject, UIWindowSceneDelegate {
+    func windowScene(_ windowScene: UIWindowScene, performActionFor shortcutItem: UIApplicationShortcutItem,
+                     completionHandler: @escaping (Bool) -> Void) {
+        completionHandler(QuickActions.shared.perform(shortcutItem))
     }
 }
 

@@ -61,6 +61,22 @@ public enum ObsidianBookmarks {
         }
     }
 
+    /// A bookmarked note renamed or moved: its bookmarks follow it (wherever they are).
+    public static func rename(_ path: String, to newPath: String, vault root: URL) throws {
+        guard load(vault: root).contains(where: { $0.path == path }) else { return }
+        try change(vault: root) { items in
+            func renamed(_ items: [[String: Any]]) -> [[String: Any]] {
+                items.map { item in
+                    var item = item
+                    if item["type"] as? String == "file", item["path"] as? String == path { item["path"] = newPath }
+                    if item["type"] as? String == "group" { item["items"] = renamed(item["items"] as? [[String: Any]] ?? []) }
+                    return item
+                }
+            }
+            items = renamed(items)
+        }
+    }
+
     /// Puts the bookmarked notes in a new order. Each note's bookmark moves, with what it holds
     /// (its title, its date), into the place of the note now there; groups and other kinds of
     /// bookmark stay where they are.

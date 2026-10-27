@@ -2,23 +2,38 @@ import IndexKit
 import SwiftUI
 import VaultKit
 
-/// Home: search at the top; the note being worked on, if any; bookmarks; then every note,
-/// the most recently edited or opened first. Searching shows results in place.
+/// Home: the note being worked on, if any; bookmarks; then every note, the most recently
+/// edited or opened first. Along the bottom, the system's toolbar: New Note on the left,
+/// search on the right. Searching shows results in place.
 struct HomeScreen: View {
     @EnvironmentObject private var store: PhoneStore
+    @ObservedObject private var quickActions = QuickActions.shared
     @State private var path: [Note.ID] = []
+    /// The note just made with New Note, which opens with the keyboard up.
+    @State private var newNote: Note.ID?
 
     var body: some View {
         NavigationStack(path: $path) {
             list
                 .navigationTitle("Notes")
                 .navigationBarTitleDisplayMode(.inline)
-                .searchable(text: $store.searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
+                .searchable(text: $store.searchText, prompt: "Search")
+                .searchToolbarBehavior(.minimize)
                 .navigationDestination(for: Note.ID.self) { id in
-                    if let note = store.note(id) { NoteScreen(note: note) }
+                    // By its ID now: renamed from its title, it keeps its screen.
+                    if let note = store.note(store.currentID(id)) { NoteScreen(note: note, store: store, isNew: id == newNote) }
                 }
                 .refreshable { await store.reload() }
+                .toolbar {
+                    ToolbarItem(placement: .bottomBar) {
+                        Button("New Note", systemImage: "square.and.pencil", action: createNote)
+                    }
+                    ToolbarSpacer(.flexible, placement: .bottomBar)
+                    DefaultToolbarItem(kind: .search, placement: .bottomBar)
+                }
         }
+        .onChange(of: quickActions.newNoteRequests) { _, _ in createNote() }
+        .onAppear { if quickActions.newNoteRequests > 0 { createNote() } }
         .onChange(of: store.notes) { _, notes in
             // `-SpikeTypeTest YES` opens the long note by itself, to time typing in it.
             if UserDefaults.standard.bool(forKey: "SpikeTypeTest"), path.isEmpty,
@@ -67,6 +82,14 @@ struct HomeScreen: View {
             .overlay { if store.notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text",
                 description: Text("Copy notes into Point’s folder in the Files app.")) } }
         }
+    }
+
+    /// Makes a note and opens it, from home or anywhere deeper (the quick action).
+    private func createNote() {
+        guard let id = store.createNote() else { return }
+        newNote = id
+        store.searchText = ""
+        path = [id]
     }
 
     private func bookmarkButton(_ id: Note.ID) -> some View {

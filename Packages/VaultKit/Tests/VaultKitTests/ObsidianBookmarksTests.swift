@@ -83,6 +83,22 @@ struct ObsidianBookmarksTests {
         #expect(items[4]["path"] as? String == "Assets/diagram.png") // Not a note: left alone.
     }
 
+    @Test func aRenamedNotesBookmarksFollowIt() throws {
+        let root = try vault(sample)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try ObsidianBookmarks.rename("Projects/Plan.md", to: "Projects/Plan for 2027.md", vault: root)
+        try ObsidianBookmarks.rename("People.md", to: "Team.md", vault: root)
+        #expect(ObsidianBookmarks.load(vault: root) == [
+            .init(path: "Team.md", title: "The people"),
+            .init(path: "Projects/Plan for 2027.md", title: nil),
+            .init(path: "Reading list.md", title: nil),
+        ])
+        // A note that isn't bookmarked leaves the file as it was.
+        let before = try Data(contentsOf: ObsidianBookmarks.file(in: root))
+        try ObsidianBookmarks.rename("Elsewhere.md", to: "Moved.md", vault: root)
+        #expect(try Data(contentsOf: ObsidianBookmarks.file(in: root)) == before)
+    }
+
     @Test func anUnreadableFileIsLeftAlone() throws {
         let broken = #"{"items": [ {"type": "file", "#
         let root = try vault(broken)

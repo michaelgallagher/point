@@ -80,7 +80,8 @@ targets:
     platform: iOS
     deploymentTarget: "26.0"
     sources:
-      - Apps/iOS
+      - path: Apps/iOS
+        excludes: [Info.plist]
     dependencies:
       - package: VaultKit
       - package: EditorKit
@@ -91,6 +92,8 @@ targets:
         PRODUCT_NAME: Point
         PRODUCT_BUNDLE_IDENTIFIER: org.mikegallagher.point.ios
         GENERATE_INFOPLIST_FILE: YES
+        # The quick action (New Note), which build settings can't give, merged in.
+        INFOPLIST_FILE: Apps/iOS/Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: Point
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
