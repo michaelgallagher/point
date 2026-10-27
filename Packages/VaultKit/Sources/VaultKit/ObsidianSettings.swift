@@ -123,10 +123,37 @@ public struct ObsidianSettings: Sendable, Equatable {
     public static func set(_ key: Key, to value: String?, vault root: URL) throws {
         let folder = root.appendingPathComponent(".obsidian")
         let url = folder.appendingPathComponent(key.file)
-        var object = (try? Data(contentsOf: url)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        var object = try ObsidianJSON.object(at: url)
         if let value, !value.trimmingCharacters(in: .whitespaces).isEmpty { object[key.name] = value } else { object[key.name] = nil }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         try data.write(to: url, options: .atomic)
+    }
+}
+
+/// An Obsidian settings file (in `.obsidian/`), read to be changed and written back.
+enum ObsidianJSON {
+    /// A file Obsidian keeps that couldn't be read or isn't what's expected: left as it is
+    /// rather than written over (with only Point's change in it, the rest would be lost).
+    struct UnreadableFile: LocalizedError {
+        let name: String
+        let reason: String
+        var errorDescription: String? { "Obsidian’s settings file “\(name)” couldn’t be read (\(reason)), so it was left as it is." }
+    }
+
+    /// The file's contents: nothing for a file that isn't there yet, else what's in it.
+    /// Throws for a file that's there but can't be read, or isn't a JSON object.
+    static func object(at url: URL) throws -> [String: Any] {
+        guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            throw UnreadableFile(name: url.lastPathComponent, reason: error.localizedDescription)
+        }
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            throw UnreadableFile(name: url.lastPathComponent, reason: "it isn’t in the form expected")
+        }
+        return object
     }
 }

@@ -126,4 +126,31 @@ struct ObsidianSettingsWriteTests {
         #expect(settings.templatesDateFormat == "YYYY-MM-DD")
         try? FileManager.default.removeItem(at: root)
     }
+
+    /// From the review of 27 October: a settings file that couldn't be read was taken as
+    /// empty and written over, losing everything else in it. It's left as it is.
+    @Test func anUnreadableSettingsFileIsLeftAlone() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent(".obsidian")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let broken = Data(#"{"folder": "Templates", "#.utf8) // Cut short, as by a sync in progress.
+        let templates = folder.appendingPathComponent("templates.json"), types = folder.appendingPathComponent("types.json")
+        try broken.write(to: templates)
+        try broken.write(to: types)
+        #expect(throws: (any Error).self) { try ObsidianSettings.set(.templatesFolder, to: "Meta", vault: root) }
+        #expect(try Data(contentsOf: templates) == broken)
+        var propertyTypes = PropertyTypes.load(vault: root)
+        propertyTypes.set(.number, forKey: "rating")
+        #expect(throws: (any Error).self) { try propertyTypes.save(vault: root) }
+        #expect(try Data(contentsOf: types) == broken)
+    }
+
+    /// A file that isn't there yet is made.
+    @Test func aMissingSettingsFileIsMade() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try ObsidianSettings.set(.templatesFolder, to: "Meta", vault: root)
+        #expect(ObsidianSettings.load(vault: root).templatesFolder == "Meta")
+    }
 }

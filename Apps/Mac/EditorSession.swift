@@ -31,6 +31,9 @@ final class EditorSession: NSObject, ObservableObject {
     @Published private(set) var message: String?
     /// Why the last save failed, until one works. The edits are kept as a draft meanwhile.
     @Published private(set) var saveProblem: String?
+    /// Whether it failed because the file's gone (deleted in another app, say), so it can be
+    /// made again, if asked: it never is unasked.
+    @Published private(set) var fileIsMissing = false
     /// Edits from an earlier time this note was open that couldn't be saved, to restore.
     @Published private(set) var recoveredDraft: NoteDrafts.Draft?
     @Published private(set) var isLoaded = false
@@ -205,6 +208,7 @@ final class EditorSession: NSObject, ObservableObject {
             case .saved, .savedAsConflictCopy:
                 self.onDisk = text
                 if saveProblem != nil { saveProblem = nil }
+                fileIsMissing = false
                 drafts?.remove(for: note.id)
                 return true
             case .changedOnDisk(let theirs):
@@ -214,8 +218,10 @@ final class EditorSession: NSObject, ObservableObject {
         } catch {
             NSLog("Point: couldn't save \(note.id): \(error.localizedDescription)")
             let kept = (try? drafts?.keep(text, for: note.id)) != nil
-            saveProblem = "Point couldn't save this note (\(error.localizedDescription))."
-                + (kept ? " Your changes are kept, and will be saved as soon as possible." : " Copy your changes somewhere safe.")
+            fileIsMissing = (error as? NoteWriter.WriteError) == .missing
+            saveProblem = (fileIsMissing ? "This note’s file was deleted or moved outside Point, so your changes weren’t saved."
+                           : "Point couldn't save this note (\(error.localizedDescription)).")
+                + (kept ? " They’re kept." : " Copy them somewhere safe.")
             return false
         }
     }
@@ -266,6 +272,21 @@ final class EditorSession: NSObject, ObservableObject {
 
     /// Tries a failed save again.
     func retrySave() { save() }
+
+    /// Writes the note back where it was, after its file went: only when asked.
+    func recreateFile() {
+        guard let textView else { return }
+        let text = textView.string
+        do {
+            try NoteWriter.recreate(text, at: note.url)
+            onDisk = text
+            saveProblem = nil
+            fileIsMissing = false
+            drafts?.remove(for: note.id)
+        } catch {
+            saveProblem = "Point couldn't write the note again (\(error.localizedDescription)). Your changes are kept."
+        }
+    }
 
     // MARK: Changes made elsewhere
 
@@ -435,7 +456,7 @@ final class EditorSession: NSObject, ObservableObject {
         guard case .iCloud(let other) = conflict else { return }
         do {
             let text = try NoteReader.read(contentsOf: other.url)
-            try Data(text.utf8).write(to: NoteWriter.conflictCopyURL(for: note.url))
+            _ = try NoteWriter.writeConflictCopy(text, beside: note.url)
             resolveICloudConflicts()
         } catch {
             message = "Couldn't keep both versions: \(error.localizedDescription)"

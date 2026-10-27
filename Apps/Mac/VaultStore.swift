@@ -615,7 +615,7 @@ final class VaultStore: ObservableObject {
             objectWillChange.send()
             settings = ObsidianSettings.load(vault: root)
         } catch {
-            NSLog("Point: couldn't save a setting: \(error.localizedDescription)")
+            Self.showProblem("Couldn’t change the setting", error)
         }
     }
 
@@ -908,7 +908,7 @@ final class VaultStore: ObservableObject {
 
     private func save(_ types: PropertyTypes, in root: URL) {
         do { try types.save(vault: root) } catch {
-            errorMessage = "Couldn't save property types: \(error.localizedDescription)"
+            Self.showProblem("Couldn’t save the property’s type", error)
         }
     }
 

@@ -101,6 +101,21 @@ final class VaultModel: ObservableObject {
         }
     }
 
+    /// Asks before opening a link that isn't a web page or email, naming the app it opens in.
+    private static func confirmOpening(_ url: URL) -> Bool {
+        guard let app = NSWorkspace.shared.urlForApplication(toOpen: url) else {
+            NSSound.beep() // Nothing opens it.
+            return false
+        }
+        let name = FileManager.default.displayName(atPath: app.path).replacingOccurrences(of: ".app", with: "")
+        let alert = NSAlert()
+        alert.messageText = "Open this link in \(name)?"
+        alert.informativeText = url.absoluteString.count > 200 ? String(url.absoluteString.prefix(200)) + "…" : url.absoluteString
+        alert.addButton(withTitle: "Open")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
     func showInFinder(_ note: Note) {
         NSWorkspace.shared.activateFileViewerSelecting([note.url])
     }
@@ -888,7 +903,7 @@ final class VaultModel: ObservableObject {
                 NSSound.beep()
             }
         case .web(let url):
-            NSWorkspace.shared.open(url)
+            if LinkTarget.opensWithoutAsking(url) || Self.confirmOpening(url) { NSWorkspace.shared.open(url) }
         case .tag(let tag):
             search(tag: tag)
         }

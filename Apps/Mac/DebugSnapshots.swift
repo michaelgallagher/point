@@ -554,11 +554,11 @@ enum DebugSnapshots {
     }
 
     /// `-PointSafetyTest YES`, with `-PointSaveDelay 60` and `-PointNoAlerts YES`, on a vault
-    /// holding `Safe.md`, `Taken.md` and `Other.md`: the failures from the review of 27 October.
-    /// A rename to a name that's taken, a save that fails (the file made read-only), a rename
-    /// and a trash move while edits can't be saved, a trash move that fails, a kept draft
-    /// offered when a note opens, and an untitled note whose edits can't be saved. Each step
-    /// is noted in the trace.
+    /// holding `Safe.md`, `Taken.md`, `Other.md` and `Gone.md`: the failures from the review of
+    /// 27 October. A rename to a name that's taken, a save that fails (the file made read-only),
+    /// a rename and a trash move while edits can't be saved, a trash move that fails, a kept
+    /// draft offered when a note opens, a note deleted elsewhere, and an untitled note whose
+    /// edits can't be saved. Each step is noted in the trace.
     private static func safetyIfAsked(for model: VaultModel) {
         guard UserDefaults.standard.bool(forKey: "PointSafetyTest") else { return }
         func check(_ name: String, _ ok: Bool, _ detail: String = "") {
@@ -637,6 +637,18 @@ enum DebugSnapshots {
                     session?.restoreDraft()
                     check("draft restored and saved", file(root.appendingPathComponent("Other.md")) == "Recovered\n")
                     check("draft gone", model.store.drafts?.draft(for: "Other.md") == nil)
+                },
+                { model.selectFromList("Gone.md") },
+                {
+                    // Deleted in another app with edits unsaved: not written again unasked.
+                    guard let gone = model.note("Gone.md"), let session = session("Gone.md") else { return check("Gone.md open", false) }
+                    type("Edit\n", in: "Gone.md")
+                    try? FileManager.default.removeItem(at: gone.url)
+                    check("deleted note not recreated", session.save() == false && session.fileIsMissing
+                          && !FileManager.default.fileExists(atPath: gone.url.path))
+                    check("its edits kept", model.store.drafts?.draft(for: "Gone.md")?.text.contains("Edit") == true)
+                    session.recreateFile()
+                    check("written again when asked", file(gone.url).contains("Edit") && session.saveProblem == nil)
                 },
                 { model.createNote() },
                 {

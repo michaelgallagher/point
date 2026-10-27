@@ -145,8 +145,7 @@ public struct PropertyTypes: Sendable, Equatable {
     /// Writes the types back, keeping everything else in the file as it was.
     public func save(vault root: URL) throws {
         let url = Self.file(in: root)
-        var object = (try? Data(contentsOf: url))
-            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        var object = try ObsidianJSON.object(at: url)
         object["types"] = raw
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])

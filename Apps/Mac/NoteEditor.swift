@@ -249,8 +249,13 @@ private struct SaveBanner: View {
             banner {
                 Text(problem)
                 Spacer()
-                Button("Try Again") { session.retrySave() }
-                    .keyboardShortcut(.defaultAction)
+                if session.fileIsMissing {
+                    Button("Save It Again") { session.recreateFile() }
+                        .keyboardShortcut(.defaultAction)
+                } else {
+                    Button("Try Again") { session.retrySave() }
+                        .keyboardShortcut(.defaultAction)
+                }
             }
         } else if let draft = session.recoveredDraft {
             banner {

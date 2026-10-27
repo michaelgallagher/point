@@ -10,6 +10,13 @@ public enum LinkTarget: Equatable, Sendable {
     case file(String)
     case web(URL)
     case tag(String)
+
+    /// Whether a link opens without asking: web pages and email. Any other kind of address
+    /// (`zoommtg:`, `shortcuts:`, an app's own) hands it to whichever app claims it, so a
+    /// note from somewhere else could start something with a click: those ask first.
+    public static func opensWithoutAsking(_ url: URL) -> Bool {
+        ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "")
+    }
 }
 
 /// Following links, and completing `[[wikilinks]]` from note titles.
