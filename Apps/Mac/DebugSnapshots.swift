@@ -18,6 +18,26 @@ enum DebugSnapshots {
         openSplitIfAsked(for: model)
         probeCursorIfAsked(for: model)
         conflictIfAsked(for: model)
+        // `-PointOpenSettings YES`: opens Settings (at `-settingsPage`), for checking it.
+        if UserDefaults.standard.bool(forKey: "PointOpenSettings") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                // As the app menu's Settings item does.
+                if let menu = NSApp.mainMenu?.items.first?.submenu,
+                   let index = menu.items.firstIndex(where: { $0.title.hasPrefix("Settings") }) {
+                    menu.performActionForItem(at: index)
+                }
+            }
+            // With `-PointWindowSnapshot`, the picture is of Settings.
+            if let path = UserDefaults.standard.string(forKey: "PointWindowSnapshot") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    Trace.mark("settings test: windows \(NSApp.windows.map { "\($0.title) \($0.frame) \($0.isVisible)" })")
+                    save(NSApp.windows.first { $0 !== model.window && $0.isVisible && $0.contentView != nil && $0.frame.width > 600 },
+                         to: URL(fileURLWithPath: path))
+                    NSApp.terminate(nil)
+                }
+            }
+            return
+        }
         if let path = UserDefaults.standard.string(forKey: "PointWindowSnapshot") {
             // `-PointWindowSnapshot <file.png>`: a picture of the window, drawn by the app (so
             // it works with the screen locked), after `-PointSnapshotDelay` seconds (5); then quits.

@@ -189,8 +189,8 @@ struct AppCommands: Commands {
             Button("Move to Trash") { if let model, let note = model.selectedNote { model.moveToTrash(note) } }
                 .disabled(model?.selectedNote == nil)
         }
+        // No divider first: the menu already has one between groups, and two showed a gap.
         CommandGroup(after: .textEditing) {
-            Divider()
             // The same in every layout: ⌘F searches and ⌘E explores, both in the palette.
             Button("Search") { model?.togglePalette(.search) }
                 .keyboardShortcut("f")

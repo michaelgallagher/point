@@ -413,12 +413,12 @@ struct PropertyLink {
         self.open = open
     }
 
-    var text: some View {
+    @MainActor var text: some View {
         Text(label)
             .foregroundStyle(Color(nsColor: exists ? .linkColor : .linkColor.withAlphaComponent(0.5)))
             .lineLimit(1)
             .onTapGesture { open(target) }
-            .onHover { inside in if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
+            .pointingHand()
             .help(exists ? "Open “\(target)”" : "Create “\(target)”")
     }
 }
@@ -430,28 +430,43 @@ private struct TextValue: View {
     let link: (String) -> PropertyLink?
     let set: ([String]) -> Void
     @State private var text = ""
+    @State private var isEditing = false
     @FocusState private var isFocused: Bool
 
     private var displayed: String { property.values.joined(separator: ", ") }
 
     var body: some View {
-        // A link shows as one until the field is clicked (beside the link) to edit it.
-        let shownLink = isFocused ? nil : link(displayed)
+        // A link shows as one until clicked beside to edit it. The field isn't there under
+        // it meanwhile: its text cursor won over the link's pointing hand.
+        if !isEditing, !isFocused, let shownLink = link(displayed) {
+            HStack(spacing: 0) {
+                shownLink.text
+                Spacer(minLength: 0)
+                    .contentShape(Rectangle())
+                    .onTapGesture { edit() }
+            }
+            .onAppear { text = displayed }
+            .onChange(of: property) { _ in text = displayed }
+        } else {
+            field
+        }
+    }
+
+    private func edit() {
+        isEditing = true
+        DispatchQueue.main.async { isFocused = true }
+    }
+
+    private var field: some View {
         TextField("Empty", text: $text)
             .textFieldStyle(.plain)
-            .opacity(shownLink == nil ? 1 : 0)
-            .overlay(alignment: .leading) {
-                if let shownLink {
-                    HStack(spacing: 0) {
-                        shownLink.text
-                        Spacer(minLength: 0)
-                    }
-                }
-            }
             .focused($isFocused)
             .onSubmit(commit)
             .onChange(of: isFocused) { focused in
-                if !focused { commit() }
+                if !focused {
+                    isEditing = false
+                    commit()
+                }
             }
             .onAppear { text = displayed }
             .onChange(of: property) { _ in
@@ -708,6 +723,17 @@ private struct PropertyKeys: NSViewRepresentable {
         override func resignFirstResponder() -> Bool {
             DispatchQueue.main.async { [weak self] in self?.deselect() }
             return true
+        }
+    }
+}
+
+extension View {
+    /// The pointing hand over something clickable that isn't a button.
+    @ViewBuilder func pointingHand() -> some View {
+        if #available(macOS 15, *) {
+            pointerStyle(.link)
+        } else {
+            onHover { inside in if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
         }
     }
 }

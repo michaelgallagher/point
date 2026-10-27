@@ -12,6 +12,8 @@ enum SidebarRow: Hashable {
     case note(Note.ID)
     /// A note in the trash.
     case trashed(VaultTrash.Item)
+    /// The switch between folders and tags, when they show one at a time.
+    case treeSwitch
 
     /// The note a row opens, if it's a note's row.
     var noteID: Note.ID? {
@@ -53,11 +55,17 @@ extension VaultModel {
         }
         let subplaces = subplaces(of: place)
         if place == .allNotes {
-            // Special places first, with no heading: every note, and the trash.
-            sections.append([.place(.everything, depth: 0), .place(.bookmarks, depth: 0), .place(.trash, depth: 0)])
+            // Special places first, with no heading: every note, and the trash. Then the switch
+            // between folders and tags, if they show one at a time: below these, which it
+            // doesn't change.
+            let oneAtATime = treeLayout == .toggle
+            sections.append([.place(.everything, depth: 0), .place(.bookmarks, depth: 0), .place(.trash, depth: 0)]
+                            + (oneAtATime ? [.treeSwitch] : []))
             if !pins.isEmpty { sections.append(section(.pinned, pins.map { .place($0, depth: 0) })) }
-            if !subplaces.isEmpty { sections.append(section(.folders, folderRows(subplaces, depth: 0))) }
-            if !tagTree.entries.isEmpty {
+            if !subplaces.isEmpty, !oneAtATime || treeKind == .folders {
+                sections.append(section(.folders, folderRows(subplaces, depth: 0)))
+            }
+            if !tagTree.entries.isEmpty, !oneAtATime || treeKind == .tags {
                 // Nested tags show beneath a tag that's unfolded, as subfolders do.
                 let tags = sortedTagEntries.filter { entry in
                     let parts = entry.tag.split(separator: "/")
@@ -257,6 +265,7 @@ struct SidebarTable: NSViewRepresentable {
             case .header: model.sidebarDensity.headerHeight
             case .divider: model.sidebarDensity.dividerHeight
             case .place, .trashed: model.sidebarDensity.rowHeight
+            case .treeSwitch: model.sidebarDensity.rowHeight + 10
             case .note(let id):
                 // Two lines only for a note that has tags to show.
                 Self.noteHeight(hasTags: model.showsTagsInList && !model.listTags(for: id).isEmpty, density: model.sidebarDensity)
@@ -309,9 +318,6 @@ struct SidebarTable: NSViewRepresentable {
             let identifier = NSUserInterfaceItemIdentifier("row")
             let cell = tableView.makeView(withIdentifier: identifier, owner: nil) as? HostingCell ?? HostingCell()
             cell.identifier = identifier
-            // On the row's highlight as it is now: a reused cell keeps the style of the row it
-            // came from, and a selected row could show a cell with black text on blue.
-            if let rowView = tableView.rowView(atRow: row, makeIfNecessary: false) { cell.backgroundStyle = rowView.interiorBackgroundStyle }
             cell.show(SidebarRowView(row: rows[row], model: model, collapsed: parent.collapsed, expanded: parent.expanded))
             return cell
         }
@@ -329,6 +335,10 @@ struct SidebarTable: NSViewRepresentable {
                 && clickedArrow(row: row, place: place, depth: depth, in: sender):
                 parent.toggleExpanded(VaultModel.expansionKey(place))
             case .place(let place, _): model.browse(place)
+            case .treeSwitch:
+                // Its left half is Folders, its right half Tags.
+                guard let event = NSApp.currentEvent, let cell = sender.view(atColumn: 0, row: row, makeIfNecessary: false) else { return }
+                model.treeKind = cell.convert(event.locationInWindow, from: nil).x < cell.bounds.midX ? .folders : .tags
             case .header(let section):
                 // The sort label at the section's right edge opens its menu; the rest of the
                 // row folds the section. (It's drawn in a view that takes no clicks, so the
@@ -519,7 +529,10 @@ final class SidebarTableRowView: NSTableRowView {
             if let list = window.firstResponder as? NSTableView, list !== superview { return false }
             return true
         }
-        set { super.isEmphasized = newValue }
+        set {
+            super.isEmphasized = newValue
+            refreshCells()
+        }
     }
 
     override var interiorBackgroundStyle: NSView.BackgroundStyle {
@@ -540,14 +553,13 @@ final class SidebarTableRowView: NSTableRowView {
     }
 
     private func refreshCells() {
-        let style = interiorBackgroundStyle
-        for case let cell as NSTableCellView in subviews where cell.backgroundStyle != style { cell.backgroundStyle = style }
+        for case let cell as HostingCell in subviews { cell.matchRow() }
     }
 
     /// A cell put in the row (new, or reused from another) takes the row's highlight.
     override func didAddSubview(_ subview: NSView) {
         super.didAddSubview(subview)
-        if let cell = subview as? NSTableCellView, cell.backgroundStyle != interiorBackgroundStyle { cell.backgroundStyle = interiorBackgroundStyle }
+        (subview as? HostingCell)?.matchRow()
     }
 
     /// Redraws the highlight and tells the cells, after focus moves or the window changes.
@@ -566,18 +578,33 @@ final class HostingCell: NSTableCellView {
     private var hosting: PassthroughHostingView<SidebarRowView>?
     private var view: SidebarRowView?
 
-    /// Set by the row: emphasized when it's selected on the blue highlight.
+    /// Whether the view was last shown on the blue highlight.
+    private var shownEmphasized = false
+
+    /// Emphasized when its row is selected on the blue highlight. Worked out from the row
+    /// itself, not from the style AppKit hands the cell, which can be the table's own idea
+    /// (blue only while the list has the keyboard): a selected note could be drawn blue with
+    /// its text still black.
+    private var isEmphasized: Bool {
+        guard let row = superview as? SidebarTableRowView else { return backgroundStyle == .emphasized }
+        return row.isSelected && row.isEmphasized
+    }
+
     override var backgroundStyle: NSView.BackgroundStyle {
-        didSet {
-            guard backgroundStyle != oldValue, let view else { return }
-            show(view)
-        }
+        didSet { matchRow() }
+    }
+
+    /// Redraws the view if its row's highlight has changed since it was shown.
+    func matchRow() {
+        guard let view, isEmphasized != shownEmphasized else { return }
+        show(view)
     }
 
     func show(_ view: SidebarRowView) {
         self.view = view
         var view = view
-        view.isEmphasized = backgroundStyle == .emphasized
+        view.isEmphasized = isEmphasized
+        shownEmphasized = view.isEmphasized
         if let hosting {
             hosting.rootView = view
         } else {
@@ -708,6 +735,10 @@ struct SidebarRowView: View {
             if let note = model.notes.first(where: { $0.id == id }) {
                 SidebarNoteRow(note: note, model: model)
             }
+        case .treeSwitch:
+            CapsuleToggle(selection: .constant(model.treeKind))
+                .padding(.horizontal, 8)
+                .frame(maxHeight: .infinity)
         case .trashed(let trashed):
             HStack(spacing: 6) {
                 Text(trashed.title)

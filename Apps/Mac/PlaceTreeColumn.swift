@@ -68,18 +68,19 @@ struct PlaceTreeColumn: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if model.treeLayout == .toggle {
-                CapsuleToggle(selection: $model.treeKind)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-            }
-
             List(selection: selection) {
                 // Special places first, with no heading: every note, and the trash.
                 Section {
                     PlaceLabel(place: .everything, name: SidebarPlace.everything.title).tag("tree:" + SidebarPlace.everything.key)
                     PlaceLabel(place: .bookmarks, name: SidebarPlace.bookmarks.title).tag("tree:" + SidebarPlace.bookmarks.key)
                     PlaceLabel(place: .trash, name: SidebarPlace.trash.title).tag("tree:" + SidebarPlace.trash.key)
+                }
+                // Below the top section, which it doesn't change. (No tag, so it can't be selected.)
+                if model.treeLayout == .toggle {
+                    Section {
+                        CapsuleToggle(selection: $model.treeKind)
+                            .padding(.vertical, 4)
+                    }
                 }
                 if !model.pins.isEmpty {
                     FoldingSection("Pinned") {
@@ -156,8 +157,9 @@ private struct ProminenceAwareIcon: View {
     }
 }
 
-/// A two-way switch the full width of its column, with fully rounded ends.
-private struct CapsuleToggle: View {
+/// A two-way switch the full width of its column, with fully rounded ends. In one column it's
+/// only drawn: the sidebar's table takes the click (see `SidebarTable`).
+struct CapsuleToggle: View {
     @Binding var selection: VaultModel.TreeKind
 
     var body: some View {

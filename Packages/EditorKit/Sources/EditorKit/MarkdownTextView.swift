@@ -489,9 +489,24 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         }
         let location = ranges[0].rangeValue.location
         let forward = location >= selectedRange().location
-        let snapped = snappedLocation(location, forward: forward)
+        var snapped = snappedLocation(location, forward: forward)
+        // A click puts the cursor inside a link's end only when it's on the link's text, not
+        // anywhere to its right, which caught clicks meant for after it.
+        if let close = wikiLinkEnding(at: snapped)?.syntax.last, let event = NSApp.currentEvent,
+           [.leftMouseDown, .leftMouseUp, .leftMouseDragged].contains(event.type),
+           isPastText(endingAt: close.location, event: event) {
+            snapped = NSMaxRange(close)
+        }
         super.setSelectedRanges([NSValue(range: NSRange(location: snapped, length: 0))], affinity: affinity, stillSelecting: false)
         showLinkBeingTyped()
+    }
+
+    /// Whether a mouse event is to the right of the character before `end`.
+    private func isPastText(endingAt end: Int, event: NSEvent) -> Bool {
+        guard event.window === window, end > 0, let layoutManager, let textContainer else { return false }
+        let glyphs = layoutManager.glyphRange(forCharacterRange: NSRange(location: end - 1, length: 1), actualCharacterRange: nil)
+        let rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
+        return convert(event.locationInWindow, from: nil).x > rect.maxX + textContainerOrigin.x
     }
 
     // MARK: Typing at the end of a wikilink

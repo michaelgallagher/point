@@ -145,15 +145,14 @@ struct SettingsView: View {
                     .pickerStyle(.radioGroup)
                     .labelsHidden()
                 }
-                Setting("Folders and tags, in two columns", isHeading: true) {
-                    Picker("Folders and tags, in two columns", selection: $store.treeLayout) {
+                Setting("Folders and tags", isHeading: true) {
+                    Picker("Folders and tags", selection: $store.treeLayout) {
                         Text("Together, folders above tags").tag(VaultModel.TreeLayout.stacked)
                         Text("One at a time, with a switch").tag(VaultModel.TreeLayout.toggle)
                     }
                     .pickerStyle(.radioGroup)
                     .labelsHidden()
                 }
-                .disabled(store.browsingStyle != .twoColumns)
                 Setting("Showing and hiding", isHeading: true) {
                     Toggle("Swipe sideways with two fingers to show and hide it", isOn: $store.swipesSidebar)
                     HStack(spacing: 6) {
@@ -234,8 +233,9 @@ struct SettingsView: View {
     }
 
     @ViewBuilder private var textPage: some View {
-            SettingsSection("Text") {
-                Setting("Size") {
+            // As on the Sidebar page, the settings are the headings.
+            VStack(alignment: .leading, spacing: 20) {
+                Setting("Size", isHeading: true) {
                     HStack {
                         Text("\(Int((store.textScale * 100).rounded()))%")
                             .monospacedDigit()
@@ -246,7 +246,7 @@ struct SettingsView: View {
                             .disabled(store.textScale == 1)
                     }
                 }
-                Setting("Maximum line width") {
+                Setting("Maximum line width", isHeading: true) {
                     HStack {
                         Slider(value: $store.textColumnWidth, in: VaultStore.textColumnWidths, step: 20)
                             .frame(width: 200)
@@ -384,9 +384,10 @@ private struct TemplatesSettings: View {
     var body: some View {
         let settings = store.settings
         let templates = store.templates
-        SettingsSection("Templates") {
-            Setting("Folder") {
-                Picker("Folder", selection: Binding(get: { settings.templatesFolder },
+        // The settings are the headings, as on the Sidebar page.
+        VStack(alignment: .leading, spacing: 20) {
+            Setting("Location", isHeading: true) {
+                Picker("Location", selection: Binding(get: { settings.templatesFolder },
                                                     set: { store.setObsidianSetting(.templatesFolder, to: $0) })) {
                     Text("None").tag("")
                     ForEach(store.folderPaths, id: \.self) { Text($0).tag($0) }
@@ -395,7 +396,7 @@ private struct TemplatesSettings: View {
                 .fixedSize()
             }
             if !settings.templatesFolder.isEmpty {
-                Setting("In “\(settings.templatesFolder)”") {
+                Setting("Current templates", isHeading: true) {
                     VStack(alignment: .leading, spacing: 4) {
                         if templates.isEmpty {
                             Text("No templates yet.")
@@ -415,7 +416,7 @@ private struct TemplatesSettings: View {
                     }
                 }
             }
-            Setting("Daily notes start from") {
+            Setting("Daily notes start from", isHeading: true) {
                 Picker("Daily notes start from", selection: Binding(get: { settings.dailyNotesTemplate },
                                                                     set: { store.setObsidianSetting(.dailyNotesTemplate, to: $0) })) {
                     Text("Nothing (an empty note)").tag("")
@@ -431,27 +432,25 @@ private struct TemplatesSettings: View {
                 .labelsHidden()
                 .fixedSize()
             }
-        }
-        SettingsSection("What a template can contain") {
-            Text("Filled in when a template is applied or a note starts from one, as Obsidian does. Properties in a template are added to the note's: a note keeps its own values, and lists (such as tags) gain the template's.")
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 460, alignment: .leading)
-            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
-                variable("{{title}}", "The note's name")
-                variable("{{date}}", MomentFormat(settings.templatesDateFormat).string(from: Date()))
-                variable("{{time}}", MomentFormat(settings.templatesTimeFormat).string(from: Date()))
-                variable("{{date:dddd D MMMM}}", MomentFormat("dddd D MMMM").string(from: Date()))
-                variable("{{time:h:mm A}}", MomentFormat("h:mm A").string(from: Date()))
-            }
-            Setting("Date format, for {{date}}") {
-                FormatField(value: settings.templatesDateFormat, placeholder: "YYYY-MM-DD") {
-                    store.setObsidianSetting(.templatesDateFormat, to: $0)
-                }
-            }
-            Setting("Time format, for {{time}}") {
-                FormatField(value: settings.templatesTimeFormat, placeholder: "HH:mm") {
-                    store.setObsidianSetting(.templatesTimeFormat, to: $0)
+            Setting("Template variables", isHeading: true) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+                        variable("{{title}}", "The note's name")
+                        variable("{{date}}", MomentFormat(settings.templatesDateFormat).string(from: Date()))
+                        variable("{{time}}", MomentFormat(settings.templatesTimeFormat).string(from: Date()))
+                        variable("{{date:dddd D MMMM}}", MomentFormat("dddd D MMMM").string(from: Date()))
+                        variable("{{time:h:mm A}}", MomentFormat("h:mm A").string(from: Date()))
+                    }
+                    Setting("Date format, for {{date}}") {
+                        FormatField(value: settings.templatesDateFormat, placeholder: "YYYY-MM-DD") {
+                            store.setObsidianSetting(.templatesDateFormat, to: $0)
+                        }
+                    }
+                    Setting("Time format, for {{time}}") {
+                        FormatField(value: settings.templatesTimeFormat, placeholder: "HH:mm") {
+                            store.setObsidianSetting(.templatesTimeFormat, to: $0)
+                        }
+                    }
                 }
             }
         }
