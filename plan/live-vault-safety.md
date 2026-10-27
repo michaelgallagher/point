@@ -1,4 +1,4 @@
-# Plan: using Point safely with the live vault (26 October 2026; not started)
+# Plan: using Point safely with the live vault (26 October 2026; phases 1–3 done, phase 4 next)
 
 Part of [the plan](../PLAN.md).
 
@@ -79,10 +79,23 @@ The output is a report: the shapes found, how many notes each, and which notes f
 
 *D. A new note's name from an odd first line.* In Point, ⌘N, type `Plan: Q4 / review #1?` as the first line, then click another note. What is the new note called in Point's list, and in Obsidian's file list? Does it open in Obsidian?
 
+**Mike's results (27 October 2026):**
+- **A. Shared names: Point matches Obsidian.** Obsidian opens `Sources/Onboarding` from all seven links, as Point does (so renames update the same links). Mike will point the NHS notes at a separate "NHS onboarding" himself.
+- **B. Links: fixed.** Obsidian showed 290 linked mentions and 29 unlinked for "UCD management"; Point's button said 53. Of the 280 notes linking to it, 258 link only from their properties, and Point's backlinks (and its index of links) looked only in the text: 53 was 24 notes linking in their text plus 29 mentions. The unlinked mentions already matched Obsidian (29). Backlinks and the index now include links in frontmatter (the same finder as renames, `LinkUpdater.wikiLinks`; the index's version is 5, so it's rebuilt). On the copy: 280 notes link to it, and 29 mentions. Obsidian's 290 counts links rather than notes (some notes link twice). Tested in `backlinksIncludeLinksInFrontmatter`.
+- **C. Both apps on one note: works.**
+- **D. A new note's name: fixed.** It stayed "2026-10-27 1253" because Mike left it for a note open in another tab, and bringing another tab forward didn't name the note from its first line (only showing another note in the same tab did). Now it does (an empty one is kept, as its tab still holds it), and the tab follows the new name. Checked with a debug hook (`-PointUntitledTest`): `Plan: Q4 / review #1?` becomes `Plan Q4 review 1` (Obsidian doesn't allow `: / # ?` in names).
+
 Tell Claude what you see for each. (Point's conflict banner, for a note changed elsewhere while it has unsaved edits, can't be reached by hand, as Point saves on switching apps; Claude will test it with a debug hook.)
+
+**Finishing (27 October 2026):**
+- **Sync: iCloud only (Mike's decision).** Obsidian Sync is to be turned off for this vault, on every device (Obsidian › Settings › Core plugins › Sync), before phase 4. Point writes in place under file coordination, as iCloud expects; iCloud's conflict versions show a banner (Keep This, Use Other, Keep Both), never dropped.
+- **The conflict banner, tested** with a debug hook (`-PointConflictTest "<note>|keep|theirs|leave|rename"`, with `-PointSaveDelay 60`), on a scratch vault: with unsaved typing, another app's change to the file shows the banner, and neither saving nor switching apps overwrites it; Keep Mine writes mine, Use Theirs shows and keeps theirs, and leaving the note keeps theirs and saves mine as a conflict copy. A rename while a note linking to it has unsaved typing: the typing is saved first, then the link rewritten, and the editor shows both, with no banner. All 24 checks pass. (iCloud's own conflict versions can't be made on demand, so that banner is untested.)
+- **Repeated keys: Obsidian can't read them, so Point says so.** Obsidian reads YAML strictly (its parser runs with `uniqueKeys`), so a note with `read:` twice has no readable properties there, rather than the last value winning as the earlier note here guessed. Point now shows each of the repeated properties (each with its own ID) and a warning above them: the key is there more than once, so Obsidian can't read these properties; remove one. The two notes: `Sources/Good strategy bad strategy` and `Sources/Delivery tactics - shaping your discovery`, for Mike to fix (`repeatedKeysAreFlagged`).
+- **Links a rename or move couldn't update are reported.** Notes changed during the update, and notes that couldn't be read (not downloaded from iCloud, or not UTF-8), were passed over with only a log line; now an alert names them (`notesThatCantBeReadAreReported`). On this Mac every note was downloaded in phase 1, and iCloud downloads an evicted note when it's read, so this should be rare.
+- **Snapshots for phase 4:** `scripts/vault-snapshot.sh take` copies the vault to `~/Point vault snapshots/<date time>` (outside the vault and iCloud); `scripts/vault-snapshot.sh changes` lists what changed since the latest copy and writes the full diff beside it. No git, as Mike's rule rules out commits.
 
 **Phase 3: fix what's found.** Each finding gets a VaultKit test (from the actual note that showed it, made anonymous) before the fix. Likely candidates, from reading the code: frontmatter shapes `Frontmatter` doesn't understand; `[a, b]` lists rewritten as lines (a choice to confirm: keep each note's own list style instead); link forms `LinkUpdater` misses; writes to linking notes that are open in an editor (should go through the editor, not around it).
 
-**Phase 4: trial on the real vault**, after a snapshot. For a week, compare the vault with the snapshot each day (`git diff` from the outside repository) and read every change Point made. Keep using Obsidian alongside.
+**Phase 4: trial on the real vault**, after a snapshot. First: turn off Obsidian Sync on every device, fix the two notes with repeated keys, build Point from the current tree, and run `scripts/vault-snapshot.sh take`. For a week, run `scripts/vault-snapshot.sh changes` each day and read every change (Obsidian's too: they show alongside Point's), then `take` a fresh copy. Keep using Obsidian alongside.
 
 **Done when:** phase 1 shows every note round-trips (or the exceptions are understood and safe); every phase 2 operation diffs as it should; a week of phase 4 shows no change Point shouldn't have made.

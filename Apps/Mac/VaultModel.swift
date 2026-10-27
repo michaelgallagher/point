@@ -405,6 +405,10 @@ final class VaultModel: ObservableObject {
             if p == activePane || panes[p].current == t {
                 activePane = p
                 panes[p].current = t
+                // Left for a note open in another tab: a new note is named from its first line
+                // now, as on leaving it any other way (it stayed "2026-10-27 1253"). Kept if
+                // it's empty, as its tab still holds it.
+                if let old { store.finishUntitledNote(old, removingIfEmpty: false) }
                 return
             }
             // Not the other side's current tab, so that side keeps showing the same one.

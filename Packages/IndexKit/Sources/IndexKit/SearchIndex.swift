@@ -48,7 +48,7 @@ public struct Mention: Sendable, Identifiable, Equatable {
 /// The vault's search index: full-text search that forgives typos and partial words,
 /// plus tags and links, kept in a SQLite file outside the vault.
 public actor SearchIndex {
-    static let schemaVersion = "4"
+    static let schemaVersion = "5" // 5: links in frontmatter count as links.
 
     private let db: Database
     /// Titles for fuzzy matching, kept in memory.
@@ -168,10 +168,10 @@ public actor SearchIndex {
             if name.lowercased().hasSuffix(".md") { name = String(name.dropLast(3)) }
             return name.lowercased()
         }
-        return MarkdownParser.parse(text).compactMap { token in
+        // Wikilinks and embeds, those in the frontmatter too (`people: "[[Ann]]"`), then
+        // Markdown links to notes.
+        return LinkUpdater.wikiLinks(in: text).map { name($0.target) } + MarkdownParser.parse(text).compactMap { token in
             switch token.kind {
-            case .wikiLink(let target), .embed(let target):
-                return name(target)
             case .link(let destination):
                 let decoded = destination.removingPercentEncoding ?? destination
                 return decoded.contains("://") || !decoded.lowercased().contains(".md") ? nil : name(decoded)
@@ -302,16 +302,18 @@ public actor SearchIndex {
         return candidates.compactMap { id -> Backlink? in
             guard id != note.id, let source = byID[id], let text = try? NoteReader.read(contentsOf: source.url) else { return nil }
             let ns = text as NSString
-            for token in MarkdownParser.parse(text) {
-                let target: Note?
-                switch token.kind {
-                case .wikiLink(let name), .embed(let name): target = resolver.resolve(wikiTarget: name, from: id)
-                case .link(let destination): target = resolver.resolve(markdownDestination: destination, from: id)
-                default: continue
-                }
-                guard target?.id == note.id else { continue }
-                let line = ns.substring(with: ns.lineRange(for: token.range))
+            func backlink(at location: Int) -> Backlink {
+                let line = ns.substring(with: ns.lineRange(for: NSRange(location: location, length: 0)))
                 return Backlink(noteID: id, title: source.title, context: PlainText.strippingMarkers(from: line).trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+            // Wikilinks and embeds, in the frontmatter too (most of a note's links can be in
+            // its properties: Obsidian counts them, and Point missed them), then Markdown links.
+            for link in LinkUpdater.wikiLinks(in: text) where resolver.resolve(wikiTarget: link.target, from: id)?.id == note.id {
+                return backlink(at: link.location)
+            }
+            for token in MarkdownParser.parse(text) {
+                guard case .link(let destination) = token.kind, resolver.resolve(markdownDestination: destination, from: id)?.id == note.id else { continue }
+                return backlink(at: token.range.location)
             }
             return nil
         }.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }

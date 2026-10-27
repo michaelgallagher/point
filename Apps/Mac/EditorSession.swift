@@ -46,9 +46,18 @@ final class EditorSession: NSObject, ObservableObject {
     /// Set once the file has been renamed or deleted under this session: no more writes.
     private var isReleased = false
 
+    #if DEBUG
+    /// The open sessions, for debug hooks to inspect.
+    static let live = NSHashTable<EditorSession>.weakObjects()
+    var debugText: String? { textView?.string }
+    #endif
+
     init(note: Note) {
         self.note = note
         super.init()
+        #if DEBUG
+        Self.live.add(self)
+        #endif
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(appWillResignActive), name: NSApplication.willResignActiveNotification, object: nil)
         center.addObserver(self, selector: #selector(filesChanged(_:)), name: .pointFilesChanged, object: nil)

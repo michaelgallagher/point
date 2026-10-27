@@ -153,6 +153,20 @@ struct LinkIndexTests {
         #expect(backlinks.last?.context == "See Imprint for details.")
     }
 
+    /// From the live vault: most links to a note can be in other notes' properties.
+    @Test func backlinksIncludeLinksInFrontmatter() async throws {
+        let vault = try await Fixture([
+            "Imprint.md": "# Imprint\n",
+            "Meeting.md": "---\nproject: \"[[Imprint]]\"\n---\nNotes from the call.\n",
+            "Other.md": "---\npeople:\n  - \"[[Ann]]\"\n---\nNothing here.\n",
+        ])
+        defer { vault.cleanUp() }
+        let target = try #require(vault.notes.first { $0.title == "Imprint" })
+        let backlinks = try await vault.index.backlinks(to: target, notes: vault.notes)
+        #expect(backlinks.map(\.title) == ["Meeting"])
+        #expect(backlinks.first?.context.contains("Imprint") == true)
+    }
+
     @Test func findsUnlinkedMentions() async throws {
         let vault = try await Fixture(files)
         defer { vault.cleanUp() }

@@ -7,6 +7,9 @@ public enum LinkUpdater {
         public var updatedNotes: [String] = []
         /// Notes that changed while being updated; they were left alone.
         public var skippedNotes: [String] = []
+        /// Notes that couldn't be read (not downloaded from iCloud, or not UTF-8), so any links
+        /// in them weren't updated.
+        public var unreadNotes: [String] = []
     }
 
     /// Rewrites every link to `renamed` (identified by its old ID) so it points at `newTitle`.
@@ -19,7 +22,7 @@ public enum LinkUpdater {
         for note in notes {
             // The renamed note itself is under its new name now (its links to itself change too).
             let url = note.id == renamed.id ? renamed.url.deletingLastPathComponent().appendingPathComponent(newTitle + ".md") : note.url
-            guard let text = try? NoteReader.read(contentsOf: url) else { continue }
+            guard let text = try? NoteReader.read(contentsOf: url) else { result.unreadNotes.append(note.id); continue }
             let lowered = text.lowercased()
             guard lowered.contains(needle) || lowered.contains(encodedNeedle) else { continue }
             guard let rewritten = rewrite(text, in: note.id, renamed: renamed, newTitle: newTitle, resolver: resolver) else { continue }
@@ -35,7 +38,7 @@ public enum LinkUpdater {
     /// target (with any `#heading`, without `|alias`). Those in the frontmatter too, which the
     /// Markdown parser leaves alone, written as Obsidian writes links in properties
     /// (`people: "[[Ann]]"`): renames missed them all.
-    static func wikiLinks(in text: String) -> [(location: Int, target: String)] {
+    public static func wikiLinks(in text: String) -> [(location: Int, target: String)] {
         var links: [(location: Int, target: String)] = []
         let tokens = MarkdownParser.parse(text)
         for token in tokens {
@@ -119,7 +122,7 @@ public enum LinkUpdater {
         let needle = moved.title.lowercased()
         let encodedNeedle = (moved.title.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? moved.title).lowercased()
         for note in notes where note.id != moved.id {
-            guard let text = try? NoteReader.read(contentsOf: note.url) else { continue }
+            guard let text = try? NoteReader.read(contentsOf: note.url) else { result.unreadNotes.append(note.id); continue }
             let lowered = text.lowercased()
             guard lowered.contains(needle) || lowered.contains(encodedNeedle),
                   let rewritten = rewrite(text, in: note.id, moved: moved, newID: newID, resolver: resolver) else { continue }

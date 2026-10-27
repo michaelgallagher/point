@@ -202,11 +202,17 @@ final class VaultStore: ObservableObject {
     }
 
     /// Names a note created untitled after its first line, or removes it if it stayed empty.
-    func finishUntitledNote(_ id: Note.ID) {
-        guard untitled.remove(id) != nil, let note = notes.first(where: { $0.id == id }) else { return }
-        releaseFile(note.url)
+    func finishUntitledNote(_ id: Note.ID, removingIfEmpty: Bool = true) {
+        guard untitled.contains(id), let note = notes.first(where: { $0.id == id }) else { return }
+        // Its edits saved first, without letting go of it yet (it may be kept, below).
+        NotificationCenter.default.post(name: .pointSaveNow, object: self)
         let text = (try? NoteReader.read(contentsOf: note.url)) ?? ""
-        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let isEmpty = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // Empty but kept (still open in a tab): stays untitled, to be named when it has text.
+        if isEmpty, !removingIfEmpty { return }
+        untitled.remove(id)
+        releaseFile(note.url)
+        if isEmpty {
             try? FileManager.default.removeItem(at: note.url) // Empty, and created by us moments ago.
             notes.removeAll { $0.id == id }
             return
@@ -215,7 +221,10 @@ final class VaultStore: ObservableObject {
         let title = NoteFiles.sanitizedTitle(line)
         guard !title.isEmpty, title != note.title else { return }
         let available = NoteFiles.availableURL(for: title, in: note.url.deletingLastPathComponent())
-        _ = try? NoteFiles.rename(note.url, to: available.deletingPathExtension().lastPathComponent)
+        guard let url = try? NoteFiles.rename(note.url, to: available.deletingPathExtension().lastPathComponent) else { return }
+        // Windows (a tab still holding it, behind) follow it to its new name.
+        let folder = FolderTree.folder(of: note.id)
+        replace(note, with: folder.isEmpty ? url.lastPathComponent : folder + "/" + url.lastPathComponent, url: url)
         Task { await reload() }
     }
 
@@ -357,9 +366,7 @@ final class VaultStore: ObservableObject {
             NotificationCenter.default.post(name: .pointSaveNow, object: self)
             Task.detached(priority: .userInitiated) {
                 let result = LinkUpdater.updateLinks(afterMoving: note, to: newID, notes: vaultBeforeMove, root: root)
-                if !result.skippedNotes.isEmpty {
-                    NSLog("Point: links not updated in \(result.skippedNotes) (changed while updating)")
-                }
+                await Self.report(result, for: note.title)
             }
             Task { await reload() }
         } catch {
@@ -406,10 +413,26 @@ final class VaultStore: ObservableObject {
         NotificationCenter.default.post(name: .pointSaveNow, object: self)
         Task.detached(priority: .userInitiated) {
             let result = LinkUpdater.updateLinks(to: note, newTitle: newTitle, notes: vault)
-            if !result.skippedNotes.isEmpty {
-                NSLog("Point: links not updated in \(result.skippedNotes) (changed while updating)")
-            }
+            await Self.report(result, for: note.title)
         }
+    }
+
+    /// Says which notes' links couldn't be updated, so none are left pointing at the old
+    /// name without anyone knowing.
+    private static func report(_ result: LinkUpdater.Result, for title: String) {
+        let missed = result.skippedNotes + result.unreadNotes
+        guard !missed.isEmpty else { return }
+        NSLog("Point: links to \(title) not updated in \(result.skippedNotes) (changed while updating) and \(result.unreadNotes) (unreadable)")
+        let alert = NSAlert()
+        alert.messageText = "Some links to “\(title)” weren’t updated"
+        let names = missed.prefix(8).map { "• " + ($0 as NSString).deletingPathExtension }.joined(separator: "\n")
+        alert.informativeText = """
+            These notes were changed while Point was updating them, or aren’t downloaded from \
+            iCloud yet, so they may still link to the old place:
+
+            \(names)\(missed.count > 8 ? "\n…and \(missed.count - 8) more" : "")
+            """
+        alert.runModal()
     }
 
     /// Asks any editor showing this file to save now and stop writing to it.

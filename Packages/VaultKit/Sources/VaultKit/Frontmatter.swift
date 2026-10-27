@@ -17,7 +17,10 @@ public struct Frontmatter: Equatable, Sendable {
         /// setting it writes only what changed, in the note's own way.
         public var written = ""
         public var rawValues: [String] = []
-        public var id: String { key }
+        /// 2 for the second property with this key, and so on (YAML doesn't allow repeats, but
+        /// notes have them), so each has its own ID.
+        public var occurrence = 1
+        public var id: String { occurrence == 1 ? key : "\(key) \(occurrence)" }
     }
 
     /// The whole block, from the opening `---` through the closing one.
@@ -89,11 +92,20 @@ public struct Frontmatter: Equatable, Sendable {
             }
             properties.append(property)
         }
+        var seen: [String: Int] = [:]
         return properties.map { property in
             var property = property
             property.written = text.substring(with: property.range)
+            seen[property.key, default: 0] += 1
+            property.occurrence = seen[property.key]!
             return property
         }
+    }
+
+    /// Keys used more than once. Obsidian reads YAML strictly, so it can't read a note's
+    /// properties at all while one is repeated.
+    public var repeatedKeys: [String] {
+        properties.filter { $0.occurrence == 2 }.map(\.key)
     }
 
     /// A value without its quotes, as YAML reads it: `''` in single quotes is one quote, and

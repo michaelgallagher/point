@@ -27,6 +27,14 @@ struct FrontmatterTests {
         #expect((note as NSString).substring(with: frontmatter.range).hasSuffix("deep: value\n---"))
     }
 
+    @Test func repeatedKeysAreFlagged() throws {
+        let text = "---\nread: 2024-01-02\ntitle: Book\nread: 2025-03-04\n---\n"
+        let frontmatter = try #require(Frontmatter.parse(text))
+        #expect(frontmatter.repeatedKeys == ["read"])
+        #expect(frontmatter.properties.map(\.id) == ["read", "title", "read 2"])
+        #expect(Frontmatter.parse("---\nread: 2024\n---\n")?.repeatedKeys == [])
+    }
+
     @Test func noFrontmatterUnlessAtTheStart() {
         #expect(Frontmatter.parse("# Title\n---\na: b\n---") == nil)
         #expect(Frontmatter.parse("---\nunclosed: yes\n") == nil)

@@ -43,6 +43,12 @@ struct PropertiesStrip: View {
             .buttonStyle(.plain)
             .help(isExpanded ? "Hide properties" : "Show properties")
 
+            if let key = frontmatter.repeatedKeys.first {
+                Label("“\(key)” is here more than once, so Obsidian can’t read these properties. Remove one in either app.",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            }
+
             if isExpanded {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(frontmatter.properties) { property in

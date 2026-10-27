@@ -17,6 +17,26 @@ enum DebugSnapshots {
         closeSplitIfAsked(for: model)
         openSplitIfAsked(for: model)
         probeCursorIfAsked(for: model)
+        conflictIfAsked(for: model)
+        if let line = UserDefaults.standard.string(forKey: "PointUntitledTest") {
+            // `-PointUntitledTest "first line"`: makes a note, types the line, then goes to a
+            // note open in another tab, as a click in the list does.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                model.createNote()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    guard let id = model.selection else { return }
+                    NotificationCenter.default.post(name: .pointInsertText, object: model, userInfo: ["text": line, "noteID": id])
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        let other = model.panes.flatMap(\.tabs).compactMap(\.noteID).first { $0 != id }
+                        Trace.mark("untitled test: \(id) → \(other ?? "none")")
+                        if let other { model.selectFromList(other) }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            Trace.mark("untitled test: tabs now \(model.panes.flatMap(\.tabs).compactMap(\.noteID))")
+                        }
+                    }
+                }
+            }
+        }
         if UserDefaults.standard.bool(forKey: "PointNewNote") {
             // `-PointNewNote YES`: makes a new note (as ⌘N does), three seconds in.
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
@@ -393,6 +413,84 @@ enum DebugSnapshots {
                 check("gone from the trash", !model.trashedNotes.contains { $0.title == note.title })
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     check("back where it was", model.note(id) != nil)
+                }
+            }
+        }
+    }
+
+    /// `-PointConflictTest "<note ID>|keep|theirs|leave|rename"`, with `-PointSaveDelay 60` so
+    /// typing stays unsaved: opens the note, types a line, then changes the file as another app
+    /// would, and checks the banner shows and nothing is overwritten. Then Keep Mine, Use
+    /// Theirs, or leaving the note (a conflict copy). `rename` instead renames the note the
+    /// open one links to first (`[[Conflict target]]`), and checks the typing and the new link
+    /// both end up in the file. Each step is noted in the trace.
+    private static func conflictIfAsked(for model: VaultModel) {
+        guard let spec = UserDefaults.standard.string(forKey: "PointConflictTest"), let bar = spec.lastIndex(of: "|") else { return }
+        let id = String(spec[..<bar]), mode = String(spec[spec.index(after: bar)...])
+        func check(_ name: String, _ ok: Bool, _ detail: String = "") {
+            Trace.mark("conflict test (\(mode)): \(ok ? "PASS" : "FAIL") \(name)\(detail.isEmpty ? "" : " — \(detail)")")
+        }
+        func session() -> EditorSession? { EditorSession.live.allObjects.first { $0.note.id == id && $0.debugText != nil } }
+        func start(tries: Int) {
+            guard let note = model.note(id) else {
+                if tries > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { start(tries: tries - 1) } }
+                else { check("note found", false, model.store.root?.path ?? "no vault") }
+                return
+            }
+            run(note)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { start(tries: 20) }
+        func run(_ note: Note) {
+            model.selectFromList(id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                guard let session = session(), let original = try? String(contentsOf: note.url, encoding: .utf8) else {
+                    return check("note open", false)
+                }
+                NotificationCenter.default.post(name: .pointInsertText, object: model, userInfo: ["text": "Mine\n", "noteID": id])
+                let mine = session.debugText ?? ""
+                check("typing unsaved", mine.contains("Mine") && (try? String(contentsOf: note.url, encoding: .utf8)) == original)
+                if mode == "rename" {
+                    guard let target = model.note("Conflict target.md") else { return check("target found", false) }
+                    model.store.rename(target, to: "Conflict target renamed")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                        let file = (try? String(contentsOf: note.url, encoding: .utf8)) ?? ""
+                        check("typing saved", file.contains("Mine"))
+                        check("link updated in the file", file.contains("[[Conflict target renamed]]"), file)
+                        check("editor shows both", (session.debugText ?? "").contains("Mine") && (session.debugText ?? "").contains("[[Conflict target renamed]]"))
+                        check("no banner", session.conflict == nil)
+                    }
+                    return
+                }
+                // Another app adds a line, writing in place as Obsidian does.
+                let theirs = original + "Theirs\n"
+                try? Data(theirs.utf8).write(to: note.url)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                    if case .changedElsewhere? = session.conflict { check("banner shows", true) } else { check("banner shows", false) }
+                    NotificationCenter.default.post(name: .pointSaveNow, object: nil) // As switching apps does.
+                    check("their text not overwritten", (try? String(contentsOf: note.url, encoding: .utf8)) == theirs)
+                    check("my typing still showing", session.debugText == mine)
+                    let folder = note.url.deletingLastPathComponent()
+                    let copiesBefore = (try? FileManager.default.contentsOfDirectory(atPath: folder.path))?.filter { $0.contains("(conflict ") } ?? []
+                    switch mode {
+                    case "keep":
+                        session.keepMine()
+                        check("file has mine", (try? String(contentsOf: note.url, encoding: .utf8)) == mine)
+                        check("banner gone", session.conflict == nil)
+                    case "theirs":
+                        session.useTheirs()
+                        check("editor shows theirs", session.debugText == theirs)
+                        check("file has theirs", (try? String(contentsOf: note.url, encoding: .utf8)) == theirs)
+                        check("banner gone", session.conflict == nil)
+                    default:
+                        let other = model.notes.first { $0.id != id && !$0.id.hasPrefix("Conflict") }
+                        if let other { model.selectFromList(other.id) }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            let copies = (try? FileManager.default.contentsOfDirectory(atPath: folder.path))?.filter { $0.contains("(conflict ") && !copiesBefore.contains($0) } ?? []
+                            check("file still theirs", (try? String(contentsOf: note.url, encoding: .utf8)) == theirs)
+                            let copy = copies.first.flatMap { try? String(contentsOf: folder.appendingPathComponent($0), encoding: .utf8) }
+                            check("conflict copy has mine", copy == mine, copies.joined(separator: ", "))
+                        }
+                    }
                 }
             }
         }

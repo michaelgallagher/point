@@ -89,6 +89,22 @@ struct FrontmatterLinkTests {
         #expect(try String(contentsOf: renamedURL, encoding: .utf8) == "See [[New#Top]].\n")
         try? FileManager.default.removeItem(at: root)
     }
+
+    /// A note iCloud hasn't downloaded (only its placeholder is there) can't be checked for
+    /// links, so it's reported rather than passed over.
+    @Test func notesThatCantBeReadAreReported() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("Old.md")
+        try Data("Old.\n".utf8).write(to: url)
+        let old = Note(id: "Old.md", url: url, title: "Old", modified: .distantPast, created: .distantPast, isDownloaded: true)
+        let evicted = Note(id: "Away.md", url: root.appendingPathComponent("Away.md"), title: "Away",
+                           modified: .distantPast, created: .distantPast, isDownloaded: false)
+        _ = try NoteFiles.rename(url, to: "New")
+        let result = LinkUpdater.updateLinks(to: old, newTitle: "New", notes: [old, evicted])
+        #expect(result.unreadNotes == ["Away.md"])
+        try? FileManager.default.removeItem(at: root)
+    }
 }
 
 struct QuotedValueTests {
