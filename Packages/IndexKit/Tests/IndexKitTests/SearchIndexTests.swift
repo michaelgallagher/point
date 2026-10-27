@@ -51,6 +51,17 @@ struct SearchTests {
         #expect(try await vault.titles("meeting") == ["Weekly meeting", "Garden"])
     }
 
+    /// From the iPhone's home screen, 27 October: a title with both words whole comes before
+    /// one starting with part of the first.
+    @Test func wholeWordsInATitleComeFirst() async throws {
+        let vault = try await Fixture([
+            "Designing fonts with low-vision readers.md": "An article.",
+            "NHS design vision.md": "The vision.",
+        ])
+        defer { vault.cleanUp() }
+        #expect(try await vault.titles("design vision").first == "NHS design vision")
+    }
+
     @Test func forgivesTypos() async throws {
         let vault = try await Fixture(files)
         defer { vault.cleanUp() }

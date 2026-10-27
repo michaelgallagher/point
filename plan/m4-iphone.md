@@ -126,6 +126,26 @@ Each ends with a build on the iPhone to try. Free-account builds work for steps 
 
 **On the iPhone:** the target is signed with Mike's personal team (a free account, so builds last 7 days). With the iPhone connected and unlocked (and, the first time, the developer profile trusted in Settings › General › VPN & Device Management), choose the `Point-iOS` scheme and the iPhone in Xcode, and run. For the typing test, add `-SpikeTypeTest YES` (and `-SpikeSections 900`) to the scheme's arguments. The timings show above the note, and in `spike-timings.txt` (Files › On My iPhone › Point).
 
+## Step 1, looking up (27 October 2026)
+
+**Built:**
+- **Home (`HomeScreen`):**
+  - Search sits at the top, with results in place: titles first, and matches in bold in each note's text (IndexKit, with an index built on the phone).
+  - Below it, the note being worked on (the one last edited here, if that was today).
+  - Then your bookmarks, Obsidian's (`ObsidianBookmarks` in VaultKit, with tests). Long-press to bookmark a note or remove a bookmark; drag to reorder.
+  - Then every note, newest first, by when it was edited anywhere or opened here.
+- **A note (`NoteScreen`):** the shared editor, with Bookmark in its menu. Opening a note counts towards recent.
+- **The vault on the phone** is still the app's Documents folder.
+
+**Tried on a copy of the vault in the Simulator** (3,407 notes; the six bookmarks showed, one under its own title):
+- **Scanning:** 166 ms.
+- **The first index build:** 13.6 s in a Debug build. Only once; after that, only changed notes. Searches wait for it.
+- **Search found the right notes,** but ranked "Designing fonts with low-vision readers" above "NHS design vision" for "design vision". Fixed in IndexKit, so the Mac's search ranks the same way: a whole word in a title now counts for more than a title starting with part of one.
+
+**On the iPhone 13** (Release, the same vault copy and bookmarks copied into Point's folder): scanning 3,408 notes takes 562 ms; the first index build, 8.4 s.
+
+**Not yet:** the new-note button (step 2), and the real vault (step 5). Notes reach the phone by copying them into Point's folder in Files.
+
 ## Decided (27 October 2026)
 
 1. **Bookmarks are Obsidian's** (`.obsidian/bookmarks.json`): the phone shows the notes in it, in its order, and bookmarking or reordering on the phone writes it back, keeping everything else in the file (folders, searches and headings Obsidian bookmarks too, which the phone doesn't show). The Mac can move to the same file later.

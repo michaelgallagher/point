@@ -43,17 +43,20 @@ public enum Fuzzy {
         text.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
     }
 
-    /// How well a title matches one query word: 0 is best, nil is no match.
+    /// How well a title matches one query word: 0 is best, nil is no match. A whole word comes
+    /// first: "design vision" found "Designing fonts for low-vision readers" before "NHS design
+    /// vision", when the title starting with part of a word counted for more.
     static func titleScore(word: String, title: String, titleWords: [String]) -> Int? {
-        if title.hasPrefix(word) { return 0 }
-        if titleWords.contains(where: { $0.hasPrefix(word) }) { return 1 }
-        if title.contains(word) { return 2 }
+        if titleWords.contains(word) { return 0 }
+        if title.hasPrefix(word) { return 1 }
+        if titleWords.contains(where: { $0.hasPrefix(word) }) { return 2 }
+        if title.contains(word) { return 3 }
         let typos = allowedTypos(for: word)
         guard typos > 0 else { return nil }
         // A typo in a whole word, or in the start of a longer word being typed.
         for candidate in titleWords {
-            if editDistance(word, candidate, limit: typos) != nil { return 3 }
-            if candidate.count > word.count, editDistance(word, String(candidate.prefix(word.count)), limit: typos) != nil { return 4 }
+            if editDistance(word, candidate, limit: typos) != nil { return 4 }
+            if candidate.count > word.count, editDistance(word, String(candidate.prefix(word.count)), limit: typos) != nil { return 5 }
         }
         return nil
     }
