@@ -82,7 +82,7 @@ struct PaneTopBar: View {
         HStack(spacing: TopBar.buttonSpacing) {
             BackForwardButtons(pane: pane, paneIndex: paneIndex)
             if showsPath {
-                PanePath(pane: pane, paneIndex: paneIndex)
+                PanePath(pane: pane, paneIndex: paneIndex, slide: model.sidebarSlide)
                     .padding(.horizontal, 4)
                     // Room for at least a short name, for deciding what fits.
                     .frame(minWidth: 80)
@@ -147,6 +147,7 @@ struct PanePath: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
     let paneIndex: Int
+    @ObservedObject var slide: SidebarSlide
     @State private var isRenaming = false
     /// The room the path had when the sidebar last settled. While it slides, the path keeps the
     /// folding it had (clipped at its end if need be) and folds again once it stops: changing
@@ -157,7 +158,7 @@ struct PanePath: View {
         GeometryReader { geometry in
             HStack(spacing: 0) {
                 if let note = model.note(pane.tab.noteID) {
-                    let width = model.isSidebarSliding && settledWidth > 0 ? settledWidth : geometry.size.width
+                    let width = slide.isSliding && settledWidth > 0 ? settledWidth : geometry.size.width
                     let parts = Self.parts(of: note, toFit: width)
                     // By what each part is; parts shown or hidden come and go at once.
                     ForEach(Self.identified(parts), id: \.id) { item in
@@ -174,16 +175,16 @@ struct PanePath: View {
             }
             // While sliding, at its own width, clipped at its end, rather than squeezed into
             // less room (which pushed its parts over each other).
-            .fixedSize(horizontal: model.isSidebarSliding, vertical: false)
+            .fixedSize(horizontal: slide.isSliding, vertical: false)
             // From its leading edge (wider than its room, it would otherwise be centred in it).
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .help(model.note(pane.tab.noteID)?.id ?? "")
             .contentTransition(.identity)
             .onAppear { settledWidth = geometry.size.width }
             .onChange(of: geometry.size.width) { width in
-                if !model.isSidebarSliding { settledWidth = width }
+                if !slide.isSliding { settledWidth = width }
             }
-            .onChange(of: model.isSidebarSliding) { sliding in
+            .onChange(of: slide.isSliding) { sliding in
                 if !sliding { settledWidth = geometry.size.width }
             }
         }

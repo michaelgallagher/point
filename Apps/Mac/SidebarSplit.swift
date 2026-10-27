@@ -36,7 +36,15 @@ import SwiftUI
 final class SidebarSplitController: NSSplitViewController {
     let sidebarHost = NSHostingController(rootView: AnyView(EmptyView()))
     let detailHost = NSHostingController(rootView: AnyView(EmptyView()))
-    private lazy var sidebarContainer = SidebarContainer(host: sidebarHost)
+    private lazy var sidebarContainer: SidebarContainer = {
+        let container = SidebarContainer(host: sidebarHost)
+        // The sidebar button rides the sidebar's edge: placed as the sidebar moves or resizes,
+        // in the same pass. (Placed only on the split view's notice, a frame later, it was
+        // carried along with the sidebar past where it belongs: below its resting place as the
+        // sidebar closed, outside the window as it began to open.)
+        container.moved = { [weak self] in self?.placeSidebarButton() }
+        return container
+    }()
     private lazy var sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarContainer)
     /// The sidebar button, drawn by SwiftUI, placed by this.
     private lazy var sidebarButton: NSHostingView<SidebarButton> = {
@@ -195,7 +203,13 @@ final class SidebarSplitController: NSSplitViewController {
         let fixedX = (zoom.convert(zoom.bounds, to: nil).maxX + 16).rounded()
         let middle = close.convert(close.bounds, to: nil).midY
         let pane = sidebarContainer.view
-        let edge = sidebarItem.isCollapsed ? 0 : pane.convert(pane.bounds, to: nil).maxX
+        // The sidebar's edge as drawn now, also while it's sliding: its right edge, or where the
+        // notes start if that's further left. (Taken as nothing once it's collapsed, the button
+        // jumped to its resting place as the sidebar began to close where the window can't
+        // narrow, instead of riding its edge. Hidden, the sidebar keeps the width it will show
+        // at, and as it began to open the button showed for a moment at that far edge.)
+        let notes = splitView.arrangedSubviews.last.map { $0.convert($0.bounds, to: nil).minX } ?? 0
+        let edge = sidebarItem.isCollapsed && !isResizing ? 0 : min(pane.convert(pane.bounds, to: nil).maxX, notes)
         let againstEdge = (edge - 8 - size.width).rounded()
         if againstEdge > fixedX {
             if sidebarButton.superview !== pane || pane.subviews.last !== sidebarButton {
@@ -669,6 +683,8 @@ struct SidebarSplitView: NSViewControllerRepresentable {
 @MainActor
 final class SidebarContainer: NSViewController {
     private let host: NSViewController
+    /// After its view moves or changes size.
+    var moved: (() -> Void)?
     /// How its view is placed: filling the pane; held at the sidebar's width while it slides;
     /// or, while the sidebar's hidden, resting at the size it will show at.
     private enum Placement { case filling, held(CGFloat), resting(NSSize) }
@@ -687,6 +703,7 @@ final class SidebarContainer: NSViewController {
         view.wantsLayer = true
         view.layer?.masksToBounds = true
         view.placeContents = { [weak self] in self?.placeHost() }
+        view.moved = { [weak self] in self?.moved?() }
         self.view = view
         addChild(host)
         host.view.autoresizingMask = []
@@ -732,7 +749,29 @@ final class SidebarContainer: NSViewController {
     /// Places its contents itself, as it's resized, frame by frame.
     private final class PaneView: NSView {
         var placeContents: (() -> Void)?
+        var moved: (() -> Void)?
         override func resizeSubviews(withOldSize oldSize: NSSize) { placeContents?() }
+
+        override func setFrameSize(_ newSize: NSSize) {
+            let changed = newSize != frame.size
+            super.setFrameSize(newSize)
+            if changed { moved?() }
+        }
+
+        /// What it's in (on macOS 26, the sidebar's glass) is what slides as the sidebar shows or
+        /// hides where the window can't resize: it's watched for that.
+        private var watched: NSObjectProtocol?
+
+        override func viewDidMoveToSuperview() {
+            super.viewDidMoveToSuperview()
+            watched.map(NotificationCenter.default.removeObserver)
+            watched = nil
+            guard let superview else { return }
+            superview.postsFrameChangedNotifications = true
+            watched = NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: superview, queue: nil) { [weak self] _ in
+                MainActor.assumeIsolated { self?.moved?() }
+            }
+        }
     }
 }
 

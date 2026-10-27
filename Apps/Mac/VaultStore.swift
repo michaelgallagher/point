@@ -90,6 +90,7 @@ final class VaultStore: ObservableObject {
             let scanned = try await Task.detached(priority: .userInitiated) {
                 try VaultScanner.scanWithFolders(root)
             }.value
+            Trace.mark("rescanned: \(scanned.notes.count) notes")
             folders = scanned.folders
             notes = scanned.notes.sorted(by: sort)
             propertyTypes = PropertyTypes.load(vault: root) // Obsidian may have changed them.
@@ -644,10 +645,15 @@ final class VaultStore: ObservableObject {
             let read = await Task.detached(priority: .utility) {
                 stale.map { note in (note, (try? NoteReader.read(contentsOf: note.url)).map(NoteTags.tags(in:)) ?? []) }
             }.value
+            // In one change: set note by note, the published dictionary sent thousands of
+            // changes (and could copy itself for each), holding up the main thread for half a
+            // second a few seconds after launch.
+            var updated = tagsByNote
             for (note, tags) in read {
-                tagsByNote[note.id] = tags
+                updated[note.id] = tags
                 tagsReadAt[note.id] = note.modified
             }
+            tagsByNote = updated
             Trace.mark("tagsByNote updated: \(read.count) notes read")
         }
     }
@@ -693,6 +699,7 @@ final class VaultStore: ObservableObject {
         let notes = notes
         Task {
             let changed = (try? await index.update(notes: notes)) ?? 0
+            Trace.mark("index updated: \(changed) notes changed")
             if changed > 0 { indexGeneration += 1 }
             if changed > 0 || tagTree.entries.isEmpty {
                 let tags = (try? await index.tagsByNote()) ?? [:]

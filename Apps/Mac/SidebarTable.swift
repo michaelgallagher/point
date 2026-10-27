@@ -39,9 +39,11 @@ extension VaultModel {
     }
 
     /// `expanded` holds the folders and tags unfolded to show the ones inside them.
-    func sidebarRows(collapsed: Set<SidebarSection>, expanded: Set<String> = [], includesPlaces: Bool = true) -> [SidebarRow] {
-        if place == .trash { return trashedNotes.map { .trashed($0) } }
-        guard includesPlaces else { return notes(in: place).map { .note($0.id) } }
+    func sidebarRows(collapsed: Set<SidebarSection>, expanded: Set<String> = [], content: SidebarTable.Content = .everything) -> [SidebarRow] {
+        // The two-column view's tree is always the top level, wherever its notes are.
+        let place = content == .places ? SidebarPlace.allNotes : place
+        if content != .places, place == .trash { return trashedNotes.map { .trashed($0) } }
+        guard content != .notes else { return notes(in: place).map { .note($0.id) } }
         var sections: [[SidebarRow]] = []
         func section(_ name: SidebarSection, _ rows: [SidebarRow]) -> [SidebarRow] {
             [.header(name)] + (collapsed.contains(name) ? [] : rows)
@@ -62,8 +64,10 @@ extension VaultModel {
             sections.append([.place(.everything, depth: 0), .place(.bookmarks, depth: 0), .place(.trash, depth: 0)]
                             + (oneAtATime ? [.treeSwitch] : []))
             if !pins.isEmpty { sections.append(section(.pinned, pins.map { .place($0, depth: 0) })) }
-            if !subplaces.isEmpty, !oneAtATime || treeKind == .folders {
-                sections.append(section(.folders, folderRows(subplaces, depth: 0)))
+            if !oneAtATime || treeKind == .folders {
+                // The tree starts with the vault itself, for the notes at its top level.
+                let top: [SidebarRow] = content == .places ? [.place(.allNotes, depth: 0)] : []
+                if !subplaces.isEmpty || !top.isEmpty { sections.append(section(.folders, top + folderRows(subplaces, depth: 0))) }
             }
             if !tagTree.entries.isEmpty, !oneAtATime || treeKind == .tags {
                 // Nested tags show beneath a tag that's unfolded, as subfolders do.
@@ -79,7 +83,7 @@ extension VaultModel {
             sections.append(section(place.isTag ? .tags : .folders, rows))
         }
         // The notes, always under their label, which holds the sort menu.
-        let notes = notes(in: place)
+        let notes = content == .places ? [] : notes(in: place)
         if !notes.isEmpty {
             sections.append(section(.notes, notes.map { SidebarRow.note($0.id) }))
         }
@@ -92,8 +96,10 @@ extension VaultModel {
 /// height before it's drawn, and moving between folders can slide.
 struct SidebarTable: NSViewRepresentable {
     @ObservedObject var model: VaultModel
-    /// False in the two-column view, where folders and tags have their own column.
-    var includesPlaces = true
+    /// What it lists: everything (one column), or in two columns the notes, or the folders
+    /// and tags beside them.
+    enum Content { case everything, notes, places }
+    var content = Content.everything
     /// The folded sections, comma separated, each as the place it's folded in and its name
     /// (`folder:Projects|Notes`): folding a section in one place leaves it open in others. A
     /// name alone (as saved before) is one folded at the top level.
@@ -105,11 +111,15 @@ struct SidebarTable: NSViewRepresentable {
         place.key + "|" + section.rawValue
     }
 
+    /// Where the sidebar is: the top level, always, for the two-column view's tree.
+    private var shownPlace: SidebarPlace { content == .places ? .allNotes : model.place }
+
     /// The sections folded where the sidebar is now.
     var collapsed: Set<SidebarSection> {
         let entries = Set(collapsedEntries)
+        let place = shownPlace
         return Set(SidebarSection.allCases.filter { section in
-            entries.contains(Self.entry(section, in: model.place)) || (model.place == .allNotes && entries.contains(section.rawValue))
+            entries.contains(Self.entry(section, in: place)) || (place == .allNotes && entries.contains(section.rawValue))
         })
     }
 
@@ -126,10 +136,11 @@ struct SidebarTable: NSViewRepresentable {
 
     /// Folds a section where the sidebar is now, or opens it again.
     func toggle(_ section: SidebarSection) {
-        let entry = Self.entry(section, in: model.place)
+        let place = shownPlace
+        let entry = Self.entry(section, in: place)
         let wasCollapsed = collapsed.contains(section)
         // Drops this section's entries here, including the old form at the top level.
-        var entries = collapsedEntries.filter { $0 != entry && !(model.place == .allNotes && $0 == section.rawValue) }
+        var entries = collapsedEntries.filter { $0 != entry && !(place == .allNotes && $0 == section.rawValue) }
         if !wasCollapsed { entries.append(entry) }
         collapsedSections = entries.joined(separator: ",")
     }
@@ -138,6 +149,7 @@ struct SidebarTable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let table = SidebarTableView()
+        table.emphasizesOnlyWithKeyboard = content == .places
         table.headerView = nil
         table.style = .sourceList
         table.backgroundColor = .clear
@@ -145,6 +157,7 @@ struct SidebarTable: NSViewRepresentable {
         table.usesAutomaticRowHeights = false
         table.allowsEmptySelection = true
         table.addTableColumn(NSTableColumn(identifier: .init("main")))
+        table.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         table.delegate = context.coordinator
         table.dataSource = context.coordinator
         table.target = context.coordinator
@@ -194,8 +207,9 @@ struct SidebarTable: NSViewRepresentable {
         func update(animated: Bool) {
             guard let table else { return }
             watchFocus(in: table.window)
-            let newRows = model.sidebarRows(collapsed: parent.collapsed, expanded: parent.expanded, includesPlaces: parent.includesPlaces)
-            let place = model.place
+            let newRows = model.sidebarRows(collapsed: parent.collapsed, expanded: parent.expanded, content: parent.content)
+            // The tree doesn't move with the place it shows.
+            let place = parent.content == .places ? SidebarPlace.allNotes : model.place
             let placeChanged = shownPlace != nil && shownPlace != place
             if !placeChanged, newRows == rows {
                 // Same rows: refresh their contents, and let any that gained or lost a tags
@@ -217,7 +231,7 @@ struct SidebarTable: NSViewRepresentable {
             }
             do {
                 // Slide only when moving in or out of a level, not when picking from a tree.
-                if animated, placeChanged, parent.includesPlaces, let layer = table.enclosingScrollView?.layer {
+                if animated, placeChanged, parent.content == .everything, let layer = table.enclosingScrollView?.layer {
                     let transition = CATransition()
                     transition.type = .push
                     transition.subtype = Self.isDeeper(place, than: shownPlace!) ? .fromRight : .fromLeft
@@ -245,10 +259,41 @@ struct SidebarTable: NSViewRepresentable {
             return depth(place) > depth(old)
         }
 
+        /// Whether the place shown was picked from Pinned rather than the tree below. A pinned
+        /// place is in both; this says which copy to highlight, so only one ever is.
+        private var pickedFromPins = false
+
+        /// The section a row is in (nil for the top rows, which have no label).
+        private func section(ofRow row: Int) -> SidebarSection? {
+            for index in stride(from: row, through: 0, by: -1) {
+                if case .header(let section) = rows[index] { return section }
+            }
+            return nil
+        }
+
+        /// The tree's row for the place shown.
+        private var placeRow: Int? {
+            let matches = rows.indices.filter { index in
+                if case .place(let place, _) = rows[index] { return place == model.place }
+                return false
+            }
+            let pinned = matches.filter { section(ofRow: $0) == .pinned }
+            let tree = matches.filter { section(ofRow: $0) != .pinned }
+            return pickedFromPins ? (pinned.first ?? tree.first) : (tree.first ?? pinned.first)
+        }
+
         private func syncSelection() {
             guard let table else { return }
             isSyncingSelection = true
             defer { isSyncingSelection = false }
+            if parent.content == .places {
+                if let row = placeRow {
+                    if table.selectedRow != row { table.selectRowIndexes([row], byExtendingSelection: false) }
+                } else if table.selectedRow >= 0 {
+                    table.deselectAll(nil)
+                }
+                return
+            }
             if let id = model.selection, let row = rows.firstIndex(of: .note(id)) {
                 if table.selectedRow != row { table.selectRowIndexes([row], byExtendingSelection: false) }
             } else if table.selectedRow >= 0 {
@@ -273,6 +318,11 @@ struct SidebarTable: NSViewRepresentable {
         }
 
         func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+            if parent.content == .places {
+                // A folder or tag, unless the click is on its unfold arrow.
+                guard case .place(let place, let depth) = rows[row] else { return false }
+                return !(hasArrow(place) && NSApp.currentEvent?.type == .leftMouseDown && clickedArrow(row: row, place: place, depth: depth, in: tableView))
+            }
             guard let id = rows[row].noteID else { return false }
             // ⌥⌘-click opens the note beside this one; ⌘-click opens it in a new tab.
             let modifiers = NSApp.currentEvent?.modifierFlags.intersection([.command, .option, .shift, .control]) ?? []
@@ -323,18 +373,32 @@ struct SidebarTable: NSViewRepresentable {
         }
 
         func tableViewSelectionDidChange(_ notification: Notification) {
-            guard !isSyncingSelection, let table, table.selectedRow >= 0, let id = rows[table.selectedRow].noteID else { return }
+            guard !isSyncingSelection, let table, table.selectedRow >= 0 else { return }
+            if case .place(let place, _) = rows[table.selectedRow], parent.content == .places {
+                pickedFromPins = section(ofRow: table.selectedRow) == .pinned
+                model.browse(place)
+                return
+            }
+            guard let id = rows[table.selectedRow].noteID else { return }
             model.selectFromList(id)
+        }
+
+        /// Whether a folder or tag unfolds from an arrow after its name (the vault itself, at
+        /// the top of the tree, doesn't: its folders are the tree).
+        private func hasArrow(_ place: SidebarPlace) -> Bool {
+            place != .allNotes && !model.subplaces(of: place).isEmpty
         }
 
         @objc func clicked(_ sender: NSTableView) {
             let row = sender.clickedRow
             guard rows.indices.contains(row) else { return }
             switch rows[row] {
-            case .place(let place, let depth) where !model.subplaces(of: place).isEmpty
+            case .place(let place, let depth) where hasArrow(place)
                 && clickedArrow(row: row, place: place, depth: depth, in: sender):
                 parent.toggleExpanded(VaultModel.expansionKey(place))
-            case .place(let place, _): model.browse(place)
+            case .place(let place, _):
+                // The tree browses as its selection changes (by click or arrow key).
+                if parent.content != .places { model.browse(place) }
             case .treeSwitch:
                 // Its left half is Folders, its right half Tags.
                 guard let event = NSApp.currentEvent, let cell = sender.view(atColumn: 0, row: row, makeIfNecessary: false) else { return }
@@ -407,9 +471,9 @@ struct SidebarTable: NSViewRepresentable {
                        proposedDropOperation operation: NSTableView.DropOperation) -> NSDragOperation {
             guard operation == .on, rows.indices.contains(row) else { return [] }
             switch rows[row] {
-            case .place(.folder, _): return .move
+            case .place(.folder, _), .place(.allNotes, _): return .move
             // The heading over the folders: the top level.
-            case .header(.folders) where model.place == .allNotes: return .move
+            case .header(.folders) where model.place == .allNotes || parent.content == .places: return .move
             default: return []
             }
         }
@@ -419,7 +483,7 @@ struct SidebarTable: NSViewRepresentable {
             guard let dragged = info.draggingPasteboard.string(forType: .string) else { return false }
             switch rows[row] {
             case .place(.folder(let path), _): model.drop(dragged, onFolder: path)
-            case .header(.folders): model.drop(dragged, onFolder: "")
+            case .place(.allNotes, _), .header(.folders): model.drop(dragged, onFolder: "")
             default: return false
             }
             return true
@@ -455,11 +519,18 @@ struct SidebarTable: NSViewRepresentable {
                 menu.addItem(byName)
                 menu.addItem(byDate)
             case .place(let place, _):
-                menu.addItem(item(model.isPinned(place) ? "Unpin" : "Pin to Sidebar") { $0.togglePin(place) })
-                if case .folder(let path) = place, let root = model.root {
+                if place != .allNotes {
+                    menu.addItem(item(model.isPinned(place) ? "Unpin" : "Pin to Sidebar") { $0.togglePin(place) })
+                }
+                let path: String? = switch place {
+                case .folder(let path): path
+                case .allNotes: ""
+                default: nil
+                }
+                if let path, let root = model.root {
                     menu.addItem(item("New Folder Inside…") { $0.newFolder(in: path) })
                     menu.addItem(item("Show in Finder") { _ in
-                        NSWorkspace.shared.activateFileViewerSelecting([root.appendingPathComponent(path)])
+                        NSWorkspace.shared.activateFileViewerSelecting([path.isEmpty ? root : root.appendingPathComponent(path)])
                     })
                 }
             default:
@@ -497,6 +568,18 @@ final class ClosureMenuItem: NSMenuItem {
 /// for itself, which stopped the table's menu appearing.)
 /// The note list's table. Return or Tab moves the keyboard into the open note.
 final class SidebarTableView: NSTableView {
+    /// The two-column view's tree: its selection is blue only while it has the keyboard, as
+    /// the last thing picked (the note list's is blue whenever the window's in front).
+    var emphasizesOnlyWithKeyboard = false
+
+    /// Its one column always as wide as it is. (Columns only follow a table that resizes, from
+    /// the width they start at: in the two-column view's narrow tree, the rows were drawn in
+    /// a column narrower than the table, their names cut to a letter.)
+    override func layout() {
+        super.layout()
+        if let column = tableColumns.first, abs(column.width - bounds.width) > 0.5 { sizeLastColumnToFit() }
+    }
+
     override func keyDown(with event: NSEvent) {
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
         if modifiers.isEmpty, event.keyCode == 36 || event.keyCode == 48 || event.keyCode == 76, // Return, Tab, Enter
@@ -526,6 +609,7 @@ final class SidebarTableRowView: NSTableRowView {
     override var isEmphasized: Bool {
         get {
             guard let window, window.isKeyWindow else { return false }
+            if (superview as? SidebarTableView)?.emphasizesOnlyWithKeyboard == true { return window.firstResponder === superview }
             if let list = window.firstResponder as? NSTableView, list !== superview { return false }
             return true
         }
@@ -644,6 +728,11 @@ struct SidebarRowView: View {
 
     static func name(of place: SidebarPlace, depth: Int) -> String { depth > 0 ? place.shortName : place.title }
 
+    /// A row's name: the vault's own, for the top of the two-column view's tree.
+    private func name(of place: SidebarPlace, depth: Int) -> String {
+        place == .allNotes ? (model.root?.lastPathComponent ?? "Vault") : Self.name(of: place, depth: depth)
+    }
+
     /// Where a folder's or tag's unfold arrow starts in its row: just after its name, which
     /// is measured as the row draws it. (The table takes the clicks, so it needs to know.)
     static func arrowStart(of place: SidebarPlace, depth: Int, rowWidth: CGFloat) -> CGFloat {
@@ -674,6 +763,7 @@ struct SidebarRowView: View {
             let isOpen = !collapsed.contains(section)
             HStack(spacing: 4) {
                 Text(section.rawValue)
+                    .lineLimit(1)
                 Image(systemName: "chevron.right")
                     .font(.caption2.weight(.semibold))
                     .rotationEffect(.degrees(isOpen ? 90 : 0))
@@ -685,6 +775,8 @@ struct SidebarRowView: View {
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.system(size: 8, weight: .semibold))
                     }
+                    // On one line, however narrow the column: the label is cut short instead.
+                    .fixedSize()
                     .help("How \(section.rawValue.lowercased()) are sorted")
                 }
             }
@@ -707,13 +799,15 @@ struct SidebarRowView: View {
         case .place(let place, let depth):
             HStack(spacing: 6) {
                 Image(systemName: place.symbol)
-                    .foregroundStyle(place.isTag ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.accentColor))
+                    // White on the selection's blue (the tree's); otherwise blue, as in Finder.
+                    .foregroundStyle(isEmphasized ? AnyShapeStyle(.primary)
+                                     : place.isTag ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.accentColor))
                     .frame(width: Self.iconWidth)
-                Text(Self.name(of: place, depth: depth))
+                Text(name(of: place, depth: depth))
                     .lineLimit(1)
                 // A folder with folders in it, or a tag with tags under it, unfolds from the
                 // arrow after its name, as a section does from the arrow after its label.
-                if !model.subplaces(of: place).isEmpty {
+                if place != .allNotes, !model.subplaces(of: place).isEmpty {
                     Image(systemName: "chevron.right")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
@@ -722,10 +816,12 @@ struct SidebarRowView: View {
                         .padding(.leading, -2)
                 }
                 Spacer(minLength: 4)
-                Text("\(model.noteCount(of: place))")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .monospacedDigit()
+                if place != .allNotes {
+                    Text("\(model.noteCount(of: place))")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .monospacedDigit()
+                }
             }
             // The icon lines up with the section's label and the notes' text.
             .padding(.leading, Self.placeStart(depth: depth))

@@ -279,7 +279,7 @@ final class VaultModel: ObservableObject {
         // stalled it, and the window jumped a third of the way in its first frame.
         split.slidingChanged = { [weak self] sliding in
             guard let self, self.isSidebarSliding != sliding else { return }
-            self.isSidebarSliding = sliding
+            self.sidebarSlide.isSliding = sliding
         }
         split.sidebarWidthChanged = { [weak self] width in self?.sidebarWidth = width }
         split.notesSplitMinimums = { [weak self] in self?.notesSplitMinimums ?? (240, 240) }
@@ -311,8 +311,11 @@ final class VaultModel: ObservableObject {
         SidebarSplitController.minimumNotesWidth + (showsNoteList && !isFocused ? sidebarWidth : 0)
     }
 
-    /// While the sidebar slides in or out (see `SidebarSplitController.slidingChanged`).
-    @Published private(set) var isSidebarSliding = false
+    /// While the sidebar slides in or out (see `SidebarSplitController.slidingChanged`). Kept
+    /// apart from the model, so only what uses it redraws when it changes: published here, every
+    /// view watching the model was redrawn as a slide ended, holding up a frame for 30-80 ms.
+    let sidebarSlide = SidebarSlide()
+    var isSidebarSliding: Bool { sidebarSlide.isSliding }
     /// Counts the sidebar's toggles by hand, so a fallback for one leaves later ones alone.
     private var slideToggles = 0
 
@@ -377,6 +380,7 @@ final class VaultModel: ObservableObject {
     }
 
     private func setSidebarAutomatically(_ shown: Bool) {
+        Trace.mark("sidebar \(shown ? "shown" : "hidden") automatically")
         isAutoToggling = true
         showsNoteList = shown
         isAutoToggling = false
@@ -947,13 +951,13 @@ final class VaultModel: ObservableObject {
             // Sliding from now, before anything is laid out for the change (the split view says
             // when it has finished; in case it doesn't animate at all, not for long).
             if !isAutoToggling && !isFocused {
-                isSidebarSliding = true
+                sidebarSlide.isSliding = true
                 slideToggles += 1
                 let toggle = slideToggles
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
                     // Only for this toggle: not one made since, which may be sliding now.
                     guard let self, self.slideToggles == toggle, !self.sidebarSplit.isResizing else { return }
-                    self.isSidebarSliding = false
+                    self.sidebarSlide.isSliding = false
                 }
             }
         }
@@ -1187,4 +1191,10 @@ final class VaultModel: ObservableObject {
         var children: [PlaceNode]?
         var id: SidebarPlace { place }
     }
+}
+
+/// Whether the sidebar is sliding in or out (see `VaultModel.sidebarSlide`).
+@MainActor
+final class SidebarSlide: ObservableObject {
+    @Published var isSliding = false
 }

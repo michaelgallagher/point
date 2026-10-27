@@ -125,8 +125,7 @@ struct ContentView: View {
         }
         // Minimal is meant to sit beside other windows, so it can be narrow.
         // With the sidebar hidden, a window is one compact note that can sit beside others.
-        .frame(minWidth: model.minimumWindowWidth,
-               minHeight: 400)
+        .modifier(WindowMinimum(model: model, slide: model.sidebarSlide))
         .onAppear {
             model.startSwipeTracking()
         }
@@ -202,6 +201,20 @@ private struct OpenVaultView: View {
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// The window's narrowest size: the notes' narrowest, plus the sidebar's width once it shows.
+/// Not while it slides in: counted from the start, the window jumped to that width before the
+/// slide began (the notes stretched to fill it), and the sidebar snapped to its full width at
+/// the end. Only this watches the sliding, so nothing else redraws as it starts and stops.
+private struct WindowMinimum: ViewModifier {
+    @ObservedObject var model: VaultModel
+    @ObservedObject var slide: SidebarSlide
+
+    func body(content: Content) -> some View {
+        content.frame(minWidth: slide.isSliding ? SidebarSplitController.minimumNotesWidth : model.minimumWindowWidth,
+                      minHeight: 400)
     }
 }
 
@@ -289,7 +302,7 @@ private struct NoteList: View {
 
     /// Pins, folders (or nested tags), tags and notes for the current place.
     private var browser: some View {
-        SidebarTable(model: model, includesPlaces: includesPlaces)
+        SidebarTable(model: model, content: includesPlaces ? .everything : .notes)
             .overlay {
                 if model.notes(in: model.place).isEmpty, !includesPlaces || model.subplaces(of: model.place).isEmpty, model.place != .allNotes {
                     Text(model.place.isTag ? "No notes have this tag." : "This folder has no notes.")

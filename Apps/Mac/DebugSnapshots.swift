@@ -233,6 +233,29 @@ enum DebugSnapshots {
             }
             // In sight, without taking the keyboard: a window out of sight doesn't animate.
             model.window?.orderFrontRegardless()
+            if UserDefaults.standard.bool(forKey: "PointFrameLog") {
+                FrameLog.shared.start(in: model.window)
+                if UserDefaults.standard.bool(forKey: "PointFrameProbe") {
+                    FrameLog.shared.probe = {
+                        guard let window = model.window, let content = window.contentView else { return "" }
+                        func place(_ view: NSView?) -> String {
+                            guard let view, view.window != nil else { return "-" }
+                            let frame = view.convert(view.bounds, to: nil)
+                            return "\(Int(frame.minX))+\(Int(frame.width))"
+                        }
+                        let tables = views(of: SidebarTableView.self, in: content)
+                        let cells = tables.map { table in table.rows(in: table.visibleRect).length > 0 ? table.view(atColumn: 0, row: table.rows(in: table.visibleRect).location, makeIfNecessary: false) : nil }
+                        let split = model.sidebarSplit.splitView
+                        let button = views(of: NSHostingView<SidebarButton>.self, in: window.contentView?.superview).first
+                        return "button \(place(button)) window \(Int(window.frame.width)) sidebar \(place(split.arrangedSubviews.first)) host \(place(split.arrangedSubviews.first?.subviews.first)) tables \(tables.map(place)) firstCells \(cells.map(place)) notes \(place(split.arrangedSubviews.last))"
+                    }
+                }
+                // How many views each part of the window has: the window's layout visits them all.
+                func count(_ view: NSView) -> Int { 1 + view.subviews.reduce(0) { $0 + count($1) } }
+                if let split = model.sidebarSplit.isViewLoaded ? model.sidebarSplit.splitView : nil {
+                    Trace.mark("views: window \(model.window?.contentView?.superview.map(count) ?? 0), sidebar \(split.arrangedSubviews.first.map(count) ?? 0), notes \(split.arrangedSubviews.last.map(count) ?? 0), tree \(views(of: NSOutlineView.self, in: split).first.map(count) ?? 0)")
+                }
+            }
             report("start")
             for step in 0..<(count * 2) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5 + Double(step) * 0.6) {
@@ -243,7 +266,11 @@ enum DebugSnapshots {
                     } else {
                         model.showsNoteList.toggle()
                     }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { report("\(step + 1)") }
+                    FrameLog.shared.mark()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                        report("\(step + 1)")
+                        FrameLog.shared.report("\(step + 1) \(model.showsNoteList ? "show" : "hide")")
+                    }
                 }
             }
         }
@@ -569,6 +596,54 @@ enum DebugSnapshots {
         view.cacheDisplay(in: view.bounds, to: rep)
         try? rep.representation(using: .png, properties: [:])?.write(to: url)
         Trace.mark("snapshot \(url.lastPathComponent)")
+    }
+}
+/// `-PointFrameLog YES`, with `-PointSidebarCycle`: the time between the frames drawn while
+/// the sidebar slides, from a display link, so a stutter shows as a long one.
+@MainActor
+final class FrameLog: NSObject {
+    static let shared = FrameLog()
+    private var link: AnyObject?
+    private var times: [CFTimeInterval] = []
+    private var since: CFTimeInterval = 0
+
+    func start(in window: NSWindow?) {
+        guard #available(macOS 14, *), let view = window?.contentView, link == nil else { return }
+        // A watchdog: notes when the main thread doesn't answer for 100 ms.
+        Thread.detachNewThread {
+            while true {
+                let asked = CACurrentMediaTime()
+                let answered = DispatchSemaphore(value: 0)
+                DispatchQueue.main.async { answered.signal() }
+                if answered.wait(timeout: .now() + 0.1) == .timedOut {
+                    answered.wait()
+                    Trace.mark("main thread blocked \(Int((CACurrentMediaTime() - asked) * 1000)) ms")
+                }
+                Thread.sleep(forTimeInterval: 0.02)
+            }
+        }
+        let link = view.displayLink(target: self, selector: #selector(tick))
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+    @available(macOS 14, *)
+    @objc private func tick(_ link: CADisplayLink) {
+        times.append(link.timestamp)
+        if let probe, CACurrentMediaTime() - since < 0.4 { Trace.mark("probe \(probe())") }
+    }
+
+    /// With `-PointFrameProbe YES`: where things are in the window, traced every frame of a slide.
+    var probe: (() -> String)?
+
+    func mark() { since = CACurrentMediaTime() }
+
+    func report(_ label: String) {
+        guard link != nil else { return }
+        let frames = times.filter { $0 >= since }
+        let gaps = zip(frames.dropFirst(), frames).map { ($0 - $1) * 1000 }
+        let long = gaps.filter { $0 > 20 }
+        Trace.mark("frames \(label): \(frames.count) frames, longest \(String(format: "%.0f", gaps.max() ?? 0)) ms, over 20 ms: \(long.map { String(format: "%.0f", $0) }), all: \(gaps.map { String(format: "%.0f", $0) }.joined(separator: " "))")
     }
 }
 #endif
