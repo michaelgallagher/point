@@ -178,7 +178,7 @@ struct VaultWriteAudit {
         for note in notes.filter({ !LinkResolver.folder(of: $0.id).isEmpty }).prefix(3) {
             let original = try Data(contentsOf: note.url)
             let name = try VaultTrash.move(note.url, vault: root)
-            let record = VaultTrash.Record(deleted: Date(), folder: LinkResolver.folder(of: note.id))
+            let record = VaultTrash.Record(deleted: Date(), folder: LinkResolver.folder(of: note.id), deletedByPoint: true)
             guard let item = VaultTrash.items(in: root, records: [name: record]).first(where: { $0.name == name }) else {
                 report.add("Trash: not listed after trashing", note.id); continue
             }

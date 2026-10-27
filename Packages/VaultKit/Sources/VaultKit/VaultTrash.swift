@@ -14,6 +14,9 @@ public enum VaultTrash {
         public let deleted: Date
         /// The folder it came from ("" for the vault's top level), if known.
         public let folder: String?
+        /// Whether Point put it there. Only those are removed for good after a while: notes
+        /// Obsidian (or anyone else) put there stay until the trash is emptied, as in Obsidian.
+        public let deletedByPoint: Bool
         public var id: String { name }
     }
 
@@ -21,9 +24,21 @@ public enum VaultTrash {
     public struct Record: Codable, Hashable, Sendable {
         public var deleted: Date
         public var folder: String
-        public init(deleted: Date, folder: String) {
+        /// Whether Point deleted it (rather than finding it there). Records kept before this
+        /// was known count as found, so nothing is removed that Point may not have put there.
+        public var deletedByPoint: Bool
+
+        public init(deleted: Date, folder: String, deletedByPoint: Bool) {
             self.deleted = deleted
             self.folder = folder
+            self.deletedByPoint = deletedByPoint
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            deleted = try container.decode(Date.self, forKey: .deleted)
+            folder = try container.decode(String.self, forKey: .folder)
+            deletedByPoint = try container.decodeIfPresent(Bool.self, forKey: .deletedByPoint) ?? false
         }
     }
 
@@ -47,7 +62,8 @@ public enum VaultTrash {
         return names.filter { $0.lowercased().hasSuffix(".md") && !$0.hasPrefix(".") }
             .map { name in
                 let record = records[name]
-                return Item(name: name, url: trash.appendingPathComponent(name), deleted: record?.deleted ?? now, folder: record?.folder)
+                return Item(name: name, url: trash.appendingPathComponent(name), deleted: record?.deleted ?? now,
+                            folder: record?.folder, deletedByPoint: record?.deletedByPoint ?? false)
             }
             .sorted { $0.deleted > $1.deleted }
     }
@@ -61,6 +77,11 @@ public enum VaultTrash {
         let destination = NoteFiles.availableURL(for: item.title, in: folder)
         try FileManager.default.moveItem(at: item.url, to: destination)
         return destination
+    }
+
+    /// The notes due to be removed for good: those Point deleted before `cutoff`.
+    public static func expired(_ items: [Item], before cutoff: Date) -> [Item] {
+        items.filter { $0.deletedByPoint && $0.deleted < cutoff }
     }
 
     /// Removes a note from the trash for good.

@@ -5,8 +5,6 @@ import VaultKit
 extension Notification.Name {
     /// Posted by the vault model with the changed file URLs in `userInfo["urls"]`.
     static let pointFilesChanged = Notification.Name("PointFilesChanged")
-    /// Posted before a note's file is renamed or deleted, with its URL in `userInfo["url"]`.
-    static let pointReleaseFile = Notification.Name("PointReleaseFile")
     /// Asks every open note to save its edits now.
     static let pointSaveNow = Notification.Name("PointSaveNow")
     /// Asks the open note to insert `userInfo["text"]` at its cursor.
@@ -31,6 +29,10 @@ final class EditorSession: NSObject, ObservableObject {
 
     @Published private(set) var conflict: Conflict?
     @Published private(set) var message: String?
+    /// Why the last save failed, until one works. The edits are kept as a draft meanwhile.
+    @Published private(set) var saveProblem: String?
+    /// Edits from an earlier time this note was open that couldn't be saved, to restore.
+    @Published private(set) var recoveredDraft: NoteDrafts.Draft?
     @Published private(set) var isLoaded = false
     /// The note's properties, kept up to date as it changes.
     @Published private(set) var frontmatter: Frontmatter?
@@ -45,23 +47,24 @@ final class EditorSession: NSObject, ObservableObject {
     private var pendingSave: Task<Void, Never>?
     /// Set once the file has been renamed or deleted under this session: no more writes.
     private var isReleased = false
+    /// Where edits that can't be saved are kept.
+    private let drafts: NoteDrafts?
 
-    #if DEBUG
-    /// The open sessions, for debug hooks to inspect.
+    /// The open sessions, so the vault can have a note's edits saved before it moves the note,
+    /// and stop them writing to it after.
     static let live = NSHashTable<EditorSession>.weakObjects()
+    #if DEBUG
     var debugText: String? { textView?.string }
     #endif
 
-    init(note: Note) {
+    init(note: Note, drafts: NoteDrafts? = nil) {
         self.note = note
+        self.drafts = drafts
         super.init()
-        #if DEBUG
         Self.live.add(self)
-        #endif
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(appWillResignActive), name: NSApplication.willResignActiveNotification, object: nil)
         center.addObserver(self, selector: #selector(filesChanged(_:)), name: .pointFilesChanged, object: nil)
-        center.addObserver(self, selector: #selector(releaseFile(_:)), name: .pointReleaseFile, object: nil)
         center.addObserver(self, selector: #selector(appWillResignActive), name: .pointSaveNow, object: nil)
         center.addObserver(self, selector: #selector(insertText(_:)), name: .pointInsertText, object: nil)
         center.addObserver(self, selector: #selector(applyTemplate(_:)), name: .pointApplyTemplate, object: nil)
@@ -84,6 +87,7 @@ final class EditorSession: NSObject, ObservableObject {
             applyPendingReveal()
             frontmatter = Frontmatter.parse(text)
             checkICloudConflicts()
+            offerDraft(over: text)
         } catch NoteReader.ReadError.notDownloaded {
             message = "Downloading from iCloud…" // The watcher reports the file when it arrives.
         } catch {
@@ -184,35 +188,84 @@ final class EditorSession: NSObject, ObservableObject {
 
     @objc private func appWillResignActive() { save() }
 
-    /// Saves unsaved edits. While a conflict is waiting for a decision, saves only when
-    /// `leaving`, and then to a conflict copy, so the edits survive either way.
-    func save(leaving: Bool = false) {
+    /// Saves unsaved edits, and says whether they're safely stored (or there were none). While
+    /// a conflict is waiting for a decision, saves only when `leaving`, and then to a conflict
+    /// copy, so the edits survive either way. A save that fails keeps the edits as a draft,
+    /// outside the vault, and says so above the note until a save works.
+    @discardableResult
+    func save(leaving: Bool = false) -> Bool {
         pendingSave?.cancel()
         pendingSave = nil
-        guard !isReleased, let textView, let onDisk else { return }
+        guard !isReleased, let textView, let onDisk else { return true }
         let text = textView.string
-        guard text != onDisk else { return }
-        if conflict != nil, !leaving { return }
+        guard text != onDisk else { return true }
+        if conflict != nil, !leaving { return false }
         do {
             switch try NoteWriter.write(text, to: note.url, expecting: onDisk, ifChanged: leaving ? .saveCopy : .report) {
-            case .saved:
+            case .saved, .savedAsConflictCopy:
                 self.onDisk = text
-            case .savedAsConflictCopy:
-                self.onDisk = text
+                if saveProblem != nil { saveProblem = nil }
+                drafts?.remove(for: note.id)
+                return true
             case .changedOnDisk(let theirs):
                 conflict = .changedElsewhere(theirs: theirs)
+                return false
             }
         } catch {
             NSLog("Point: couldn't save \(note.id): \(error.localizedDescription)")
+            let kept = (try? drafts?.keep(text, for: note.id)) != nil
+            saveProblem = "Point couldn't save this note (\(error.localizedDescription))."
+                + (kept ? " Your changes are kept, and will be saved as soon as possible." : " Copy your changes somewhere safe.")
+            return false
         }
     }
 
-    @objc private func releaseFile(_ notification: Notification) {
-        guard let url = notification.userInfo?["url"] as? URL,
-              url.resolvingSymlinksInPath().path == note.url.resolvingSymlinksInPath().path else { return }
-        save(leaving: true)
-        isReleased = true
+    /// Saves the edits in every editor of the file at `url`, before it's moved or deleted.
+    /// False if any couldn't be saved (each says so, and keeps its edits as a draft).
+    static func save(_ url: URL) -> Bool {
+        sessions(of: url).reduce(true) { $1.save(leaving: true) && $0 }
     }
+
+    /// Stops every editor of the file at `url` writing to it, once it's been moved or deleted
+    /// (after `save(_:)`: nothing can be typed in between).
+    static func release(_ url: URL) {
+        sessions(of: url).forEach { $0.isReleased = true }
+    }
+
+    private static func sessions(of url: URL) -> [EditorSession] {
+        let path = url.resolvingSymlinksInPath().path
+        return live.allObjects.filter { $0.note.url.resolvingSymlinksInPath().path == path }
+    }
+
+    // MARK: Edits that couldn't be saved
+
+    /// A draft kept from an earlier save that failed: offered if it differs from the note,
+    /// forgotten if the note already holds it.
+    private func offerDraft(over text: String) {
+        guard let draft = drafts?.draft(for: note.id) else { return }
+        if draft.text == text {
+            drafts?.remove(for: note.id)
+        } else {
+            recoveredDraft = draft
+        }
+    }
+
+    /// Puts the unsaved edits back in the note, and saves them.
+    func restoreDraft() {
+        guard let draft = recoveredDraft, let textView else { return }
+        recoveredDraft = nil
+        textView.load(draft.text)
+        textDidChange()
+        save()
+    }
+
+    func discardDraft() {
+        recoveredDraft = nil
+        drafts?.remove(for: note.id)
+    }
+
+    /// Tries a failed save again.
+    func retrySave() { save() }
 
     // MARK: Changes made elsewhere
 

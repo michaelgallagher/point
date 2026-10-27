@@ -89,7 +89,8 @@ final class VaultModel: ObservableObject {
     }
 
     func moveToTrash(_ note: Note) {
-        store.moveToTrash(note)
+        // Only once it's gone: if it couldn't be moved, it stays open where it is.
+        guard store.moveToTrash(note) else { return }
         // Tabs showing it go blank; histories forget it.
         for p in panes.indices {
             for t in panes[p].tabs.indices {

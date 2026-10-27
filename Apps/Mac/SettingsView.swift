@@ -224,7 +224,7 @@ struct SettingsView: View {
                         .labelsHidden()
                     Text(store.trashRetentionDays == 1 ? "day" : "days")
                 }
-                Text("Deleted notes go to the vault's .trash folder, which Obsidian uses too, and are removed for good after this.")
+                Text("Notes you delete in Point go to the vault's .trash folder, which Obsidian uses too, and are removed for good after this. Notes Obsidian put there stay until you empty the trash.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

@@ -16,17 +16,19 @@ struct NoteEditor: View {
     init(note: Note, model: VaultModel, paneID: VaultModel.NotePane.ID, offersTemplates: Bool = false) {
         self.paneID = paneID
         self.offersTemplates = offersTemplates
-        _session = StateObject(wrappedValue: EditorSession(note: note))
+        _session = StateObject(wrappedValue: EditorSession(note: note, drafts: model.store.drafts))
         _connections = StateObject(wrappedValue: Connections(note: note, model: model))
     }
 
     var body: some View {
         VStack(spacing: 0) {
             // Below the see-through top bar; only the text scrolls beneath it.
-            Color.clear.frame(height: session.conflict != nil || session.message != nil ? topBarCover : 0)
+            Color.clear.frame(height: session.conflict != nil || session.message != nil
+                              || session.saveProblem != nil || session.recoveredDraft != nil ? topBarCover : 0)
             if session.conflict != nil {
                 ConflictBanner(session: session)
             }
+            SaveBanner(session: session)
             if let message = session.message {
                 Text(message)
                     .foregroundStyle(.secondary)
@@ -49,7 +51,10 @@ struct NoteEditor: View {
             await session.load()
             connections.refresh()
         }
-        .onDisappear { session.save(leaving: true) }
+        .onDisappear {
+            // Closed with edits that couldn't be saved: they're kept, and offered next time.
+            if !session.save(leaving: true) { model.store.reportUnsaved(session.note) }
+        }
     }
 }
 
@@ -232,6 +237,45 @@ private struct TemplateChoices: View {
         .padding(.vertical, 8)
         .frame(maxWidth: model.store.textColumnWidth + 46, alignment: .leading)
         .frame(maxWidth: .infinity)
+    }
+}
+
+/// A save that failed (the edits kept meanwhile), or edits kept from an earlier one, to put back.
+private struct SaveBanner: View {
+    @ObservedObject var session: EditorSession
+
+    var body: some View {
+        if let problem = session.saveProblem {
+            banner {
+                Text(problem)
+                Spacer()
+                Button("Try Again") { session.retrySave() }
+                    .keyboardShortcut(.defaultAction)
+            }
+        } else if let draft = session.recoveredDraft {
+            banner {
+                Text("Changes made \(draft.saved.formatted(date: .abbreviated, time: .shortened)) couldn’t be saved at the time.")
+                Spacer()
+                Button("Discard") { session.discardDraft() }
+                Button("Restore Them") { session.restoreDraft() }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+    }
+
+    private func banner(@ViewBuilder _ content: () -> some View) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                content()
+            }
+            .font(.callout)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            Divider()
+        }
+        .background(.bar)
     }
 }
 

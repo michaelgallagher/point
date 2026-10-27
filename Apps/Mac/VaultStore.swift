@@ -55,6 +55,9 @@ final class VaultStore: ObservableObject {
     private(set) var settings = ObsidianSettings()
     /// Notes created untitled, to be named by their first line when left.
     private var untitled: Set<Note.ID> = []
+    #if DEBUG
+    func isUntitled(_ id: Note.ID) -> Bool { untitled.contains(id) }
+    #endif
 
     private enum Keys {
         static let bookmark = "vaultBookmark"
@@ -205,24 +208,45 @@ final class VaultStore: ObservableObject {
     /// Names a note created untitled after its first line, or removes it if it stayed empty.
     func finishUntitledNote(_ id: Note.ID, removingIfEmpty: Bool = true) {
         guard untitled.contains(id), let note = notes.first(where: { $0.id == id }) else { return }
-        // Its edits saved first, without letting go of it yet (it may be kept, below).
-        NotificationCenter.default.post(name: .pointSaveNow, object: self)
-        let text = (try? NoteReader.read(contentsOf: note.url)) ?? ""
+        // Its edits saved first, and read back: only a note known to be empty is removed. If
+        // either fails, it stays as it is, untitled (the editor says why it couldn't save).
+        guard EditorSession.save(note.url) else { return }
+        let text: String
+        do {
+            text = try NoteReader.read(contentsOf: note.url)
+        } catch {
+            NSLog("Point: couldn't read \(note.id) to name it: \(error.localizedDescription)")
+            return
+        }
         let isEmpty = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         // Empty but kept (still open in a tab): stays untitled, to be named when it has text.
         if isEmpty, !removingIfEmpty { return }
-        untitled.remove(id)
-        releaseFile(note.url)
         if isEmpty {
-            try? FileManager.default.removeItem(at: note.url) // Empty, and created by us moments ago.
+            do {
+                try FileManager.default.removeItem(at: note.url) // Empty, and created by us moments ago.
+            } catch {
+                Self.showProblem("Couldn’t remove the empty note “\(note.title)”", error)
+                return
+            }
+            untitled.remove(id)
+            EditorSession.release(note.url)
             notes.removeAll { $0.id == id }
             return
         }
+        untitled.remove(id)
         guard let line = PlainText.firstLine(of: text) else { return }
         let title = NoteFiles.sanitizedTitle(line)
         guard !title.isEmpty, title != note.title else { return }
         let available = NoteFiles.availableURL(for: title, in: note.url.deletingLastPathComponent())
-        guard let url = try? NoteFiles.rename(note.url, to: available.deletingPathExtension().lastPathComponent) else { return }
+        let url: URL
+        do {
+            url = try NoteFiles.rename(note.url, to: available.deletingPathExtension().lastPathComponent)
+        } catch {
+            // Kept as it is, under its untitled name, and still saving.
+            NSLog("Point: couldn't name \(note.id) “\(title)”: \(error.localizedDescription)")
+            return
+        }
+        EditorSession.release(note.url)
         // Windows (a tab still holding it, behind) follow it to its new name.
         let folder = FolderTree.folder(of: note.id)
         replace(note, with: folder.isEmpty ? url.lastPathComponent : folder + "/" + url.lastPathComponent, url: url)
@@ -231,19 +255,22 @@ final class VaultStore: ObservableObject {
 
     /// Renames a note, updating links to it everywhere. Windows showing it follow along.
     func rename(_ note: Note, to title: String) {
+        // Saved first; only once it's renamed do its editors stop writing to it. (Let go of
+        // first, a rename that failed, say to a name already taken, left the note open but
+        // no longer saving.)
+        guard saveBeforeMoving([note], "renamed") else { return }
         do {
-            releaseFile(note.url)
-            untitled.remove(note.id)
             let vaultBeforeRename = notes
             let url = try NoteFiles.rename(note.url, to: title)
+            EditorSession.release(note.url)
+            untitled.remove(note.id)
             updateLinks(to: note, newTitle: url.deletingPathExtension().lastPathComponent, vault: vaultBeforeRename)
             let folders = note.id.split(separator: "/").dropLast().joined(separator: "/")
             let newID = folders.isEmpty ? url.lastPathComponent : "\(folders)/\(url.lastPathComponent)"
             replace(note, with: newID, url: url)
             Task { await reload() }
         } catch {
-            errorMessage = error.localizedDescription
-            NSSound.beep()
+            Self.showProblem("Couldn’t rename “\(note.title)”", error)
         }
     }
 
@@ -264,17 +291,21 @@ final class VaultStore: ObservableObject {
 
     /// Moves a note to the vault's trash (its `.trash` folder, whatever Obsidian is set to:
     /// only notes there can be listed and put back), remembering when, and where from.
-    func moveToTrash(_ note: Note) {
-        guard let root else { return }
-        releaseFile(note.url)
-        untitled.remove(note.id)
+    /// Returns whether it was moved.
+    @discardableResult
+    func moveToTrash(_ note: Note) -> Bool {
+        guard let root, saveBeforeMoving([note], "moved to the trash") else { return false }
         do {
             let name = try VaultTrash.move(note.url, vault: root)
-            trashRecords[name] = VaultTrash.Record(deleted: Date(), folder: FolderTree.folder(of: note.id))
+            EditorSession.release(note.url)
+            untitled.remove(note.id)
+            trashRecords[name] = VaultTrash.Record(deleted: Date(), folder: FolderTree.folder(of: note.id), deletedByPoint: true)
             notes.removeAll { $0.id == note.id }
             refreshTrash()
+            return true
         } catch {
-            errorMessage = "Couldn't move “\(note.title)” to the trash: \(error.localizedDescription)"
+            Self.showProblem("Couldn’t move “\(note.title)” to the trash", error)
+            return false
         }
     }
 
@@ -303,22 +334,28 @@ final class VaultStore: ObservableObject {
         }
     }
 
-    /// Lists the trash, removing for good the notes kept longer than the set number of days.
-    /// A note found there with no record (put there by Obsidian, say) starts its days now.
+    /// Lists the trash, removing for good the notes Point deleted longer ago than the set
+    /// number of days. Notes found there (put there by Obsidian, say) stay until the trash is
+    /// emptied, as they would in Obsidian. A note that can't be removed stays listed.
     func refreshTrash() {
         guard let root else { return trashedNotes = [] }
         var records = trashRecords
         let now = Date()
         let cutoff = now.addingTimeInterval(-Double(max(trashRetentionDays, 1)) * 86_400)
-        var items: [VaultTrash.Item] = []
-        for item in VaultTrash.items(in: root, records: records, now: now) {
-            if item.deleted < cutoff {
-                try? VaultTrash.delete(item)
-                records[item.name] = nil
-            } else {
-                if records[item.name] == nil { records[item.name] = VaultTrash.Record(deleted: now, folder: item.folder ?? "") }
-                items.append(item)
+        let all = VaultTrash.items(in: root, records: records, now: now)
+        var removed = Set<String>()
+        for item in VaultTrash.expired(all, before: cutoff) {
+            do {
+                try VaultTrash.delete(item)
+                removed.insert(item.name)
+            } catch {
+                NSLog("Point: couldn't remove \(item.name) from the trash: \(error.localizedDescription)")
             }
+        }
+        var items: [VaultTrash.Item] = []
+        for item in all where !removed.contains(item.name) {
+            if records[item.name] == nil { records[item.name] = VaultTrash.Record(deleted: now, folder: item.folder ?? "", deletedByPoint: false) }
+            items.append(item)
         }
         // Forget notes no longer there (emptied or put back elsewhere).
         let names = Set(items.map(\.name))
@@ -350,18 +387,28 @@ final class VaultStore: ObservableObject {
     }
 
     func emptyTrash() {
-        trashedNotes.forEach { try? VaultTrash.delete($0) }
+        var failed: [String] = []
+        var firstError: Error?
+        for item in trashedNotes {
+            do { try VaultTrash.delete(item) } catch {
+                failed.append(item.title)
+                firstError = firstError ?? error
+            }
+        }
         refreshTrash()
+        if let firstError {
+            Self.showProblem("Couldn’t delete \(failed.count == 1 ? "“\(failed[0])”" : "\(failed.count) notes") from the trash", firstError)
+        }
     }
 
     /// Moves a note into a folder ("" is the vault root), keeping links to it working.
     func move(noteID: Note.ID, toFolder folder: String) {
         guard let root, let note = notes.first(where: { $0.id == noteID }),
-              FolderTree.folder(of: note.id) != folder else { return }
-        releaseFile(note.url)
+              FolderTree.folder(of: note.id) != folder, saveBeforeMoving([note], "moved") else { return }
         let vaultBeforeMove = notes
         do {
             let url = try NoteFiles.move(note.url, toFolder: folder.isEmpty ? root : root.appendingPathComponent(folder))
+            EditorSession.release(note.url)
             let newID = folder.isEmpty ? url.lastPathComponent : folder + "/" + url.lastPathComponent
             replace(note, with: newID, url: url)
             NotificationCenter.default.post(name: .pointSaveNow, object: self)
@@ -372,7 +419,7 @@ final class VaultStore: ObservableObject {
             }
             Task { await reload() }
         } catch {
-            errorMessage = "Couldn't move “\(note.title)”: \(error.localizedDescription)"
+            Self.showProblem("Couldn’t move “\(note.title)”", error)
         }
     }
 
@@ -383,11 +430,11 @@ final class VaultStore: ObservableObject {
         guard let root, !path.isEmpty, FolderTree.parent(of: path) != parent else { return }
         let prefix = path + "/"
         let moving = notes.filter { $0.id.hasPrefix(prefix) }
-        NotificationCenter.default.post(name: .pointSaveNow, object: self)
-        moving.forEach { releaseFile($0.url) }
+        guard saveBeforeMoving(moving, "moved") else { return }
         do {
             let url = try NoteFiles.moveFolder(root.appendingPathComponent(path),
                                                into: parent.isEmpty ? root : root.appendingPathComponent(parent))
+            moving.forEach { EditorSession.release($0.url) }
             let newPath = parent.isEmpty ? url.lastPathComponent : parent + "/" + url.lastPathComponent
             for note in moving {
                 let newID = newPath + "/" + note.id.dropFirst(prefix.count)
@@ -405,7 +452,7 @@ final class VaultStore: ObservableObject {
             NotificationCenter.default.post(name: .pointFolderMoved, object: self, userInfo: ["old": path, "new": newPath])
             Task { await reload() }
         } catch {
-            errorMessage = "Couldn't move “\(FolderTree.name(of: path))”: \(error.localizedDescription)"
+            Self.showProblem("Couldn’t move “\(FolderTree.name(of: path))”", error)
         }
     }
 
@@ -453,9 +500,49 @@ final class VaultStore: ObservableObject {
         alert.runModal()
     }
 
-    /// Asks any editor showing this file to save now and stop writing to it.
-    private func releaseFile(_ url: URL) {
-        NotificationCenter.default.post(name: .pointReleaseFile, object: self, userInfo: ["url": url])
+    /// Saves the open edits of notes about to be moved or deleted. If any can't be saved, says
+    /// so and returns false, and nothing is moved: moved anyway, their edits would be lost.
+    private func saveBeforeMoving(_ notes: [Note], _ action: String) -> Bool {
+        let unsaved = notes.filter { !EditorSession.save($0.url) }
+        guard let first = unsaved.first else { return true }
+        Self.showProblem(unsaved.count == 1 ? "“\(first.title)” wasn’t \(action)" : "\(unsaved.count) notes weren’t \(action)",
+                         detail: "Point couldn’t save the changes to \(unsaved.count == 1 ? "it" : "them") first. Your changes are kept.")
+        return false
+    }
+
+    /// Where edits that can't be saved are kept, outside the vault.
+    var drafts: NoteDrafts? {
+        guard let root else { return nil }
+        let storage = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Imprint/Drafts", isDirectory: true)
+        return NoteDrafts(storage: storage, vaultKey: Self.vaultKey(root))
+    }
+
+    /// A note closed with edits that couldn't be saved: they're kept, and offered when it's
+    /// next opened.
+    func reportUnsaved(_ note: Note) {
+        Self.showProblem("Your changes to “\(note.title)” couldn’t be saved",
+                         detail: "They’re kept, and Point will offer them when you open the note again.")
+    }
+
+    /// Says something went wrong, over the window in front (or on its own, with none).
+    static func showProblem(_ message: String, _ error: Error? = nil, detail: String? = nil) {
+        NSLog("Point: \(message)\(error.map { ": \($0.localizedDescription)" } ?? "")")
+        #if DEBUG
+        // `-PointNoAlerts YES`: to the trace instead, for tests run in the background.
+        if UserDefaults.standard.bool(forKey: "PointNoAlerts") { return Trace.mark("alert: \(message)") }
+        #endif
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = message
+            alert.informativeText = detail ?? error?.localizedDescription ?? ""
+            if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+                alert.beginSheetModal(for: window)
+            } else {
+                alert.runModal()
+            }
+        }
     }
 
     /// Creates the note a link points to but which doesn't exist yet, and returns its ID.

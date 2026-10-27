@@ -18,6 +18,7 @@ enum DebugSnapshots {
         openSplitIfAsked(for: model)
         probeCursorIfAsked(for: model)
         conflictIfAsked(for: model)
+        safetyIfAsked(for: model)
         // `-PointOpenSettings YES`: opens Settings (at `-settingsPage`), for checking it.
         if UserDefaults.standard.bool(forKey: "PointOpenSettings") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
@@ -549,6 +550,111 @@ enum DebugSnapshots {
                     }
                 }
             }
+        }
+    }
+
+    /// `-PointSafetyTest YES`, with `-PointSaveDelay 60` and `-PointNoAlerts YES`, on a vault
+    /// holding `Safe.md`, `Taken.md` and `Other.md`: the failures from the review of 27 October.
+    /// A rename to a name that's taken, a save that fails (the file made read-only), a rename
+    /// and a trash move while edits can't be saved, a trash move that fails, a kept draft
+    /// offered when a note opens, and an untitled note whose edits can't be saved. Each step
+    /// is noted in the trace.
+    private static func safetyIfAsked(for model: VaultModel) {
+        guard UserDefaults.standard.bool(forKey: "PointSafetyTest") else { return }
+        func check(_ name: String, _ ok: Bool, _ detail: String = "") {
+            Trace.mark("safety test: \(ok ? "PASS" : "FAIL") \(name)\(detail.isEmpty ? "" : " — \(detail)")")
+        }
+        func session(_ id: Note.ID) -> EditorSession? { EditorSession.live.allObjects.first { $0.note.id == id && $0.debugText != nil } }
+        func type(_ text: String, in id: Note.ID) {
+            NotificationCenter.default.post(name: .pointInsertText, object: model, userInfo: ["text": text, "noteID": id])
+        }
+        func file(_ url: URL) -> String { (try? String(contentsOf: url, encoding: .utf8)) ?? "<none>" }
+        func setWritable(_ url: URL, _ writable: Bool) {
+            try? FileManager.default.setAttributes([.posixPermissions: writable ? 0o644 : 0o444], ofItemAtPath: url.path)
+        }
+        func showing(_ id: Note.ID) -> Bool { model.panes.contains { $0.tab.noteID == id } }
+        // Steps a second and a half apart, each after the last.
+        var steps: [() -> Void] = []
+        func run(_ index: Int = 0) {
+            guard index < steps.count else { return Trace.mark("safety test: done") }
+            steps[index]()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { run(index + 1) }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            guard let root = model.store.root, let note = model.note("Safe.md") else { return check("vault", false) }
+            let url = note.url, taken = root.appendingPathComponent("Taken.md")
+            let takenBefore = file(taken)
+            steps = [
+                { model.selectFromList("Safe.md") },
+                {
+                    // A rename to a name that's taken: refused, and the note goes on saving.
+                    type("One\n", in: "Safe.md")
+                    model.store.rename(note, to: "Taken")
+                    check("rename to a taken name refused", file(url).contains("One") && file(taken) == takenBefore)
+                    type("Two\n", in: "Safe.md")
+                    check("still saves after", session("Safe.md")?.save() == true && file(url).contains("Two"), file(url))
+                },
+                {
+                    // A save that fails: said so, and the edits kept as a draft.
+                    setWritable(url, false)
+                    type("Three\n", in: "Safe.md")
+                    let session = session("Safe.md")
+                    check("failed save reported", session?.save() == false && session?.saveProblem != nil, session?.saveProblem ?? "")
+                    check("edits kept as a draft", model.store.drafts?.draft(for: "Safe.md")?.text.contains("Three") == true)
+                    // Nothing moved while its edits can't be saved.
+                    model.store.rename(note, to: "Renamed")
+                    check("not renamed while unsaved", FileManager.default.fileExists(atPath: url.path)
+                          && !FileManager.default.fileExists(atPath: root.appendingPathComponent("Renamed.md").path))
+                    model.moveToTrash(note)
+                    check("not trashed while unsaved", FileManager.default.fileExists(atPath: url.path) && showing("Safe.md"))
+                },
+                {
+                    setWritable(url, true)
+                    let session = session("Safe.md")
+                    session?.retrySave()
+                    check("saved once it can be", file(url).contains("Three") && session?.saveProblem == nil, file(url))
+                    check("draft gone once saved", model.store.drafts?.draft(for: "Safe.md") == nil)
+                },
+                {
+                    // A trash move that fails (the trash is a file, not a folder): the note stays open.
+                    let trash = root.appendingPathComponent(".trash")
+                    try? FileManager.default.removeItem(at: trash)
+                    try? Data().write(to: trash)
+                    model.moveToTrash(note)
+                    check("failed trash move leaves it open", FileManager.default.fileExists(atPath: url.path) && showing("Safe.md"))
+                    try? FileManager.default.removeItem(at: trash)
+                    type("Four\n", in: "Safe.md")
+                    check("and still saving", session("Safe.md")?.save() == true && file(url).contains("Four"))
+                },
+                {
+                    // A draft kept from before, offered as the note opens.
+                    try? model.store.drafts?.keep("Recovered\n", for: "Other.md")
+                    model.selectFromList("Other.md")
+                },
+                {
+                    let session = session("Other.md")
+                    check("draft offered", session?.recoveredDraft?.text == "Recovered\n")
+                    session?.restoreDraft()
+                    check("draft restored and saved", file(root.appendingPathComponent("Other.md")) == "Recovered\n")
+                    check("draft gone", model.store.drafts?.draft(for: "Other.md") == nil)
+                },
+                { model.createNote() },
+                {
+                    // An untitled note whose edits can't be saved isn't treated as empty.
+                    guard let id = model.selection, model.store.isUntitled(id), let untitled = model.note(id) else {
+                        return check("untitled note", false)
+                    }
+                    type("Hello untitled", in: id)
+                    setWritable(untitled.url, false)
+                    model.store.finishUntitledNote(id)
+                    check("unsaved untitled note kept", FileManager.default.fileExists(atPath: untitled.url.path) && model.store.isUntitled(id))
+                    setWritable(untitled.url, true)
+                    model.store.finishUntitledNote(id)
+                    check("named once saved", FileManager.default.fileExists(atPath: root.appendingPathComponent("Hello untitled.md").path)
+                          && !FileManager.default.fileExists(atPath: untitled.url.path))
+                },
+            ]
+            run()
         }
     }
 
