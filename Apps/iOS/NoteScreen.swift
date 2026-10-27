@@ -16,7 +16,9 @@ struct NoteScreen: View {
 
     var body: some View {
         EditorView(session: session)
-            .ignoresSafeArea(.container, edges: .bottom)
+            // Under the top bar too, so the text scrolls beneath it, which shows through, as
+            // the system's bars do (the text view keeps clear of them while still).
+            .ignoresSafeArea(.container, edges: [.top, .bottom])
             .safeAreaInset(edge: .top, spacing: 0) { banners }
             // The title is in the note itself.
             .navigationTitle("")
@@ -140,7 +142,7 @@ final class NoteSession: NSObject, ObservableObject, UITextFieldDelegate {
         }
         titleField?.text = store.isUntitled(note.id) ? "" : note.title
         // A new note: straight to typing its title.
-        if isNew { titleField?.becomeFirstResponder() }
+        if isNew { focusTitle() }
         openedTimings = "Read \(Int(read)) ms, shown \(Int(load)) ms (\(text.count / 1000)k characters)"
         if showsTimings {
             timings = openedTimings
@@ -184,6 +186,15 @@ final class NoteSession: NSObject, ObservableObject, UITextFieldDelegate {
     }
 
     // MARK: The title
+
+    /// Puts the cursor in the title once it's on screen: opened from a menu, the note's still
+    /// arriving when it's loaded, and the cursor ended up in the text instead.
+    private func focusTitle(tries: Int = 20) {
+        guard let field = titleField else { return }
+        if field.window != nil, field.becomeFirstResponder() { return }
+        guard tries > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in self?.focusTitle(tries: tries - 1) }
+    }
 
     /// Return in the title: on to the note's text, at its start.
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {

@@ -9,6 +9,10 @@ import VaultKit
 @MainActor
 final class PhoneStore: ObservableObject {
     @Published private(set) var notes: [Note] = []
+    /// Every folder in the vault, by path ("Projects/Point").
+    @Published private(set) var folders: [String] = []
+    /// Each note's tags, from the search index (nested tags as written: `work/point`).
+    @Published private(set) var tagsByNote: [Note.ID: [String]] = [:]
     @Published private(set) var bookmarks: [ObsidianBookmarks.Bookmark] = []
     /// What's typed in the search field; results follow as it changes.
     @Published var searchText = "" {
@@ -50,8 +54,10 @@ final class PhoneStore: ObservableObject {
     func reload() async {
         let root = root
         let start = CACurrentMediaTime()
-        let scanned = (try? await Task.detached(priority: .userInitiated) { try VaultScanner.scan(root) }.value) ?? []
+        let result = try? await Task.detached(priority: .userInitiated) { try VaultScanner.scanWithFolders(root) }.value
+        let scanned = result?.notes ?? []
         notes = scanned
+        folders = (result?.folders ?? []).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         bookmarks = ObsidianBookmarks.load(vault: root)
         // Notes left untitled when the app last stopped (none is open yet): named, or removed.
         if !isLaunched {
@@ -62,6 +68,7 @@ final class PhoneStore: ObservableObject {
         guard let index else { return }
         let indexStart = CACurrentMediaTime()
         let changed = (try? await index.update(notes: scanned)) ?? 0
+        if changed > 0 || tagsByNote.isEmpty, let tags = try? await index.tagsByNote() { tagsByNote = tags }
         if changed > 0 {
             PhoneVault.log("indexed \(changed) notes in \(Int((CACurrentMediaTime() - indexStart) * 1000)) ms")
             if !searchText.isEmpty { scheduleSearch() }
@@ -163,6 +170,69 @@ final class PhoneStore: ObservableObject {
             bookmarks = ObsidianBookmarks.load(vault: root)
         }
         return renamed
+    }
+
+    // MARK: Folders and tags
+
+    /// Makes a folder called `name` inside `parent` ("" for the vault's top level), as on the
+    /// Mac, and returns its path. Throws with a message to show if the name can't be used.
+    func createFolder(named name: String, in parent: String) throws -> String {
+        // Folder names can't contain the path separators macOS and Obsidian use.
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        guard !clean.isEmpty, !clean.hasPrefix(".") else { throw FolderError("A folder needs a name that doesn’t start with a dot.") }
+        let path = parent.isEmpty ? clean : parent + "/" + clean
+        let url = root.appendingPathComponent(path, isDirectory: true)
+        guard !FileManager.default.fileExists(atPath: url.path) else { throw FolderError("There’s already a folder or note called “\(clean)” there.") }
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+        folders = (folders + [path]).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        return path
+    }
+
+    struct FolderError: LocalizedError {
+        let message: String
+        init(_ message: String) { self.message = message }
+        var errorDescription: String? { message }
+    }
+
+    /// The folders directly inside `folder` ("" for the vault's top level), by name.
+    func subfolders(of folder: String) -> [String] {
+        folders.filter { ($0 as NSString).deletingLastPathComponent == folder }
+    }
+
+    /// The notes directly in `folder`, the most recently edited or opened first.
+    func notes(in folder: String) -> [Note] {
+        recent.filter { ($0.id as NSString).deletingLastPathComponent == folder }
+    }
+
+    /// How many notes are in a folder, and the folders inside it.
+    func noteCount(inFolder folder: String) -> Int {
+        let prefix = folder + "/"
+        return notes.count { $0.id.hasPrefix(prefix) }
+    }
+
+    /// Every tag, with how many notes have it (or a tag nested under it), by name.
+    var tags: [(tag: String, count: Int)] {
+        var counts: [String: Int] = [:]
+        for tags in tagsByNote.values {
+            // Each note counts once for a tag, and once for each tag it's nested under.
+            var seen: Set<String> = []
+            for tag in tags {
+                let parts = tag.split(separator: "/").map(String.init)
+                for depth in 1...max(parts.count, 1) { seen.insert(parts.prefix(depth).joined(separator: "/")) }
+            }
+            for tag in seen { counts[tag, default: 0] += 1 }
+        }
+        return counts.map { ($0.key, $0.value) }.sorted { $0.tag.localizedStandardCompare($1.tag) == .orderedAscending }
+    }
+
+    /// The notes with a tag (or one nested under it), the most recently edited or opened first.
+    func notes(taggedWith tag: String) -> [Note] {
+        let lowered = tag.lowercased()
+        return recent.filter { note in
+            (tagsByNote[note.id] ?? []).contains { $0.lowercased() == lowered || $0.lowercased().hasPrefix(lowered + "/") }
+        }
     }
 
     // MARK: Recent

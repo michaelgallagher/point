@@ -169,6 +169,18 @@ Each ends with a build on the iPhone to try. Free-account builds work for steps 
   - Navigation follows the rename (`PhoneStore.currentID`): renamed while open, the note's screen had gone blank, as it looked the note up by its old name.
 - **The system's bottom toolbar:** New Note on the left, search on the right (minimised to a button until tapped), in place of the floating button and the search field at the top.
 
+## Home, reshaped (27 October 2026)
+
+After Mike tried it, home became like the Notes app's list of folders:
+- **The top:** a large "Notes" title, with Settings at the top right.
+- **The note being worked on** was shown here, then removed (it read as a stray note): coming back to it is step 3's job, reopening it when the app opens the same day.
+- **Bookmarks, Recent and Tags:** rows leading to pages of their own, with counts. On the Tags page, nested tags sit under their parents, and a tag leads to its notes.
+- **Folders:** the vault's top-level folders. Each leads to a page of the folders inside it, then its notes.
+- **Notes:** the notes at the vault's top level, the most recently edited or opened first.
+- **The bottom toolbar:** Add (`plus`) on every page, a menu with New Note and New Folder (a folder goes where you are: the top level from home, or inside the folder whose page you're on). Search is on home, where it searches the whole vault.
+- **Settings:** a sheet saying where the notes are and how many there are (nothing to set yet).
+- **The note screen:** the text runs under the top bar, so the bar blurs what scrolls beneath it, as the system's bars do.
+
 ## Decided (27 October 2026)
 
 1. **Bookmarks are Obsidian's** (`.obsidian/bookmarks.json`): the phone shows the notes in it, in its order, and bookmarking or reordering on the phone writes it back, keeping everything else in the file (folders, searches and headings Obsidian bookmarks too, which the phone doesn't show). The Mac can move to the same file later.
