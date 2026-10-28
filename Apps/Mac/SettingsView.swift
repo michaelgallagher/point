@@ -10,7 +10,7 @@ struct SettingsView: View {
     @AppStorage("settingsPage") private var page = Page.sidebar
 
     enum Page: String, CaseIterable, Identifiable {
-        case sidebar, notes, text, typography, templates, appIcon
+        case sidebar, notes, text, typography, templates, shortcuts, appIcon
         var id: Self { self }
 
         var title: String {
@@ -20,6 +20,7 @@ struct SettingsView: View {
             case .text: "Text"
             case .typography: "Typography"
             case .templates: "Templates"
+            case .shortcuts: "Shortcuts"
             case .appIcon: "App Icon"
             }
         }
@@ -31,6 +32,7 @@ struct SettingsView: View {
             case .text: "doc.text"
             case .typography: "textformat.size"
             case .templates: "doc.on.doc"
+            case .shortcuts: "keyboard"
             case .appIcon: "app.badge"
             }
         }
@@ -57,6 +59,7 @@ struct SettingsView: View {
                         case .text: textPage
                         case .typography: TypographySettings(typography: $store.typography)
                         case .templates: TemplatesSettings()
+                        case .shortcuts: ShortcutSettings()
                         case .appIcon: appIconPage
                         }
                     }

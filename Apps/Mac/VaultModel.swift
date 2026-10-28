@@ -991,7 +991,8 @@ final class VaultModel: ObservableObject {
     @Published private(set) var searchResults: [SearchResult]?
     /// Whether the command palette is showing.
     @Published var isPaletteShown = false
-    /// Whether the palette searches (⌘F) or browses folders and tags (⌘E).
+    /// Whether the palette searches and runs commands (Explorer, ⌘E) or browses folders and
+    /// tags in two columns (Search Vault, ⌘F).
     @Published var paletteMode = PaletteMode.search
     /// Text to start the palette with, such as a tag clicked in a note.
     @Published var paletteSeed: String?
@@ -999,10 +1000,10 @@ final class VaultModel: ObservableObject {
     var explorerPlace: SidebarPlace = .allNotes
     var explorerInNotes = false
     var explorerNote: Note.ID?
-    /// ⌘F or ⌘E pressed while a start page is showing: the page switches to that mode.
+    /// ⌘E or ⌘F pressed while a start page is showing: the page switches to that mode.
     @Published private(set) var startPageRequest: (mode: PaletteMode, count: Int) = (.search, 0)
 
-    /// Searching (⌘F), browsing folders and tags (⌘E), only the open tabs (⌃Tab), or the
+    /// Searching and commands (Explorer, ⌘E), browsing folders and tags (Search Vault, ⌘F), only the open tabs (⌃Tab), or the
     /// folders to move the note to (Move Note).
     enum PaletteMode { case search, explorer, tabs, moveNote, applyTemplate }
     /// ⌃Tab pressed again while the tabs palette shows: it moves to the next tab down.
@@ -1035,7 +1036,7 @@ final class VaultModel: ObservableObject {
             }
             return
         }
-        // On a start page, ⌘F and ⌘E switch the page itself between searching and
+        // On a start page, ⌘E and ⌘F switch the page itself between searching and
         // exploring, rather than opening a palette on top of it.
         if selection == nil, !isPaletteShown {
             startPageRequest = (mode, startPageRequest.count + 1)

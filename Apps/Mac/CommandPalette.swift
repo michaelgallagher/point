@@ -4,8 +4,9 @@ import EditorKit
 import SwiftUI
 import VaultKit
 
-/// ⌘F: one place to open notes, search tags and run commands, all from the keyboard.
-/// ⌘E: the same palette as a two-column explorer of folders, tags and their notes.
+/// ⌘E, Explorer (mode `.search`): one place to open notes, search tags and run commands, all
+/// from the keyboard. ⌘F, Search Vault (mode `.explorer`): the same palette as two columns of
+/// folders, tags and their notes.
 /// ⌃Tab: only the open tabs, most recently shown first, to switch between them.
 /// An empty tab shows the same palette as a page: the start page.
 struct CommandPalette: View {
@@ -33,7 +34,7 @@ struct CommandPalette: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: isExploring || isMovingNote ? "folder" : isApplyingTemplate ? "doc.on.doc" : "magnifyingglass")
+                Image(systemName: isExploring ? "magnifyingglass" : isMovingNote ? "folder" : isApplyingTemplate ? "doc.on.doc" : "map")
                     .foregroundStyle(.secondary)
                     .frame(width: 20)
                 PaletteField(text: $query, placeholder: placeholder, fontSize: isPage ? 22 : 18,
@@ -70,7 +71,8 @@ struct CommandPalette: View {
                                 }
                                 // Open tabs have their own section, so aren't marked as well.
                                 PaletteRow(item: item, isHighlighted: offset == highlighted,
-                                           isViewing: item.noteID != nil && item.noteID == model.selection)
+                                           isViewing: item.noteID != nil && item.noteID == model.selection,
+                                           isBookmarked: item.noteID.map(model.isBookmarked) ?? false)
                                     .contentShape(Rectangle())
                                     .onTapGesture {
                                         highlighted = offset
@@ -120,7 +122,7 @@ struct CommandPalette: View {
             if isSwitchingTabs { move(1) }
         }
         .onChange(of: model.startPageRequest.count) { _ in
-            // ⌘F or ⌘E on a start page switches the page itself.
+            // ⌘E or ⌘F on a start page switches the page itself.
             guard isPage else { return }
             setPageExplores(model.startPageRequest.mode == .explorer)
         }
@@ -134,7 +136,7 @@ struct CommandPalette: View {
         if isSwitchingTabs { return "Switch to a tab" }
         if isMovingNote { return "Move “\(model.selectedNote?.title ?? "")” to…" }
         if isApplyingTemplate { return model.templates.isEmpty ? "No templates (choose a folder in Settings, under Templates)" : "Apply a template to “\(model.selectedNote?.title ?? "")”" }
-        return isPage ? "Search notes, #tags or >commands" : "Search notes, #tags or >commands"
+        return "Search or use commands"
     }
 
     /// Escape closes the palette; on a start page, it clears what's typed, then leaves the
@@ -440,6 +442,8 @@ struct PaletteRow: View {
     let isHighlighted: Bool
     /// The note on screen now, marked as such.
     var isViewing = false
+    /// A bookmarked note, shown with the bookmark symbol.
+    var isBookmarked = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -471,7 +475,7 @@ struct PaletteRow: View {
 
     private var icon: String {
         switch item {
-        case .note: "doc.text"
+        case .note: isBookmarked ? "bookmark" : "doc.text"
         case .tag: "number.sign.circle"
         case .create: "plus"
         case .command: "command"
@@ -511,42 +515,42 @@ struct PaletteCommand {
 
     @MainActor static func all(for model: VaultModel) -> [PaletteCommand] {
         var commands = [
-            PaletteCommand(name: "New Note", shortcut: "⌘N", isSuggested: true) { model.createNote() },
+            PaletteCommand(name: "New Note", shortcut: ShortcutStore.shared.label(for: .newNote), isSuggested: true) { model.createNote() },
             PaletteCommand(name: "Today's Note", shortcut: nil) { model.openTodaysNote() },
             PaletteCommand(name: "New Note from Template…", shortcut: nil) { model.isCreatingFromTemplate = true },
-            PaletteCommand(name: "New Folder…", shortcut: "⇧⌘N") { model.newFolder() },
-            PaletteCommand(name: model.showsNoteList ? "Hide Note List" : "Show Note List", shortcut: "⌘S") { model.showsNoteList.toggle() },
-            PaletteCommand(name: "Bigger Text", shortcut: "⌘=") { model.makeTextBigger() },
-            PaletteCommand(name: "Smaller Text", shortcut: "⌘−") { model.makeTextSmaller() },
-            PaletteCommand(name: model.isFocused ? "Leave Focus" : "Focus", shortcut: "⇧⌘\\") { model.isFocused.toggle() },
-            PaletteCommand(name: model.showsMarkdown ? "Hide Markdown" : "Show Markdown", shortcut: "⇧⌘M") { model.showsMarkdown.toggle() },
+            PaletteCommand(name: "New Folder…", shortcut: ShortcutStore.shared.label(for: .newFolder)) { model.newFolder() },
+            PaletteCommand(name: model.showsNoteList ? "Hide Note List" : "Show Note List", shortcut: ShortcutStore.shared.label(for: .toggleNoteList)) { model.showsNoteList.toggle() },
+            PaletteCommand(name: "Bigger Text", shortcut: ShortcutStore.shared.label(for: .biggerText)) { model.makeTextBigger() },
+            PaletteCommand(name: "Smaller Text", shortcut: ShortcutStore.shared.label(for: .smallerText)) { model.makeTextSmaller() },
+            PaletteCommand(name: model.isFocused ? "Leave Focus" : "Focus", shortcut: ShortcutStore.shared.label(for: .focus)) { model.isFocused.toggle() },
+            PaletteCommand(name: model.showsMarkdown ? "Hide Markdown" : "Show Markdown", shortcut: ShortcutStore.shared.label(for: .showMarkdown)) { model.showsMarkdown.toggle() },
             PaletteCommand(name: model.showsDateInList ? "Hide Dates in List" : "Show Dates in List", shortcut: nil) { model.showsDateInList.toggle() },
             PaletteCommand(name: model.showsTagsInList ? "Hide Tags in List" : "Show Tags in List", shortcut: nil) { model.showsTagsInList.toggle() },
             PaletteCommand(name: "Sort by Date Edited", shortcut: nil) { model.sort = .modified },
             PaletteCommand(name: "Sort by Date Created", shortcut: nil) { model.sort = .created },
             PaletteCommand(name: "Sort by Title", shortcut: nil) { model.sort = .title },
-            PaletteCommand(name: "Back", shortcut: "⌘[") { model.goBack() },
-            PaletteCommand(name: "Forward", shortcut: "⌘]") { model.goForward() },
-            PaletteCommand(name: "Open Vault…", shortcut: "⌘O") { model.chooseVault() },
+            PaletteCommand(name: "Back", shortcut: ShortcutStore.shared.label(for: .back)) { model.goBack() },
+            PaletteCommand(name: "Forward", shortcut: ShortcutStore.shared.label(for: .forward)) { model.goForward() },
+            PaletteCommand(name: "Open Vault…", shortcut: ShortcutStore.shared.label(for: .openVault)) { model.chooseVault() },
             PaletteCommand(name: "All Notes", shortcut: nil) { model.browse(.allNotes) },
-            PaletteCommand(name: "Enclosing Folder", shortcut: "⌘↑") { model.goUp() },
+            PaletteCommand(name: "Enclosing Folder", shortcut: ShortcutStore.shared.label(for: .enclosingFolder)) { model.goUp() },
         ]
         commands += [
-            PaletteCommand(name: "New Tab", shortcut: "⌘T") { model.newTab() },
-            PaletteCommand(name: "New Tab on Other Side", shortcut: "⌃⌘T") { model.newTabOnOtherSide() },
-            PaletteCommand(name: "Close Tab", shortcut: "⌘W") { model.closeTab() },
-            PaletteCommand(name: "Switch to Tab…", shortcut: "⌃Tab") {
+            PaletteCommand(name: "New Tab", shortcut: ShortcutStore.shared.label(for: .newTab)) { model.newTab() },
+            PaletteCommand(name: "New Tab on Other Side", shortcut: ShortcutStore.shared.label(for: .newTabOnOtherSide)) { model.newTabOnOtherSide() },
+            PaletteCommand(name: "Close Tab", shortcut: ShortcutStore.shared.label(for: .closeTab)) { model.closeTab() },
+            PaletteCommand(name: "Switch to Tab…", shortcut: ShortcutStore.shared.label(for: .switchToTab)) {
                 // After the palette running this has closed.
                 DispatchQueue.main.async { model.togglePalette(.tabs) }
             },
-            PaletteCommand(name: "Show Tab List", shortcut: "⇧⌘T") { model.toggleTabMenu() },
+            PaletteCommand(name: "Show Tab List", shortcut: ShortcutStore.shared.label(for: .tabList)) { model.toggleTabMenu() },
         ]
         commands += [
-            PaletteCommand(name: model.isSplit ? "Merge Split into Tabs" : "Split", shortcut: "⇧⌘S") { model.toggleSplit() },
+            PaletteCommand(name: model.isSplit ? "Merge Split into Tabs" : "Split", shortcut: ShortcutStore.shared.label(for: .split)) { model.toggleSplit() },
             PaletteCommand(name: model.isSplit ? "Move Tab to Other Side" : "Move Tab to New Split", shortcut: nil) { model.moveTabToOtherSide() },
         ]
-        commands.append(PaletteCommand(name: "Search in List", shortcut: "⇧⌘F") { model.focusSearch() })
-        commands.append(PaletteCommand(name: "Keyboard Shortcuts", shortcut: "⌘/") { model.isShowingShortcuts = true })
+        commands.append(PaletteCommand(name: "Search in List", shortcut: ShortcutStore.shared.label(for: .searchInList)) { model.focusSearch() })
+        commands.append(PaletteCommand(name: "Keyboard Shortcuts", shortcut: ShortcutStore.shared.label(for: .keyboardShortcuts)) { model.isShowingShortcuts = true })
         commands.append(model.sidebarDensity == .compact
             ? PaletteCommand(name: "Use Comfortable Sidebar", shortcut: nil) { model.sidebarDensity = .comfortable }
             : PaletteCommand(name: "Use Compact Sidebar", shortcut: nil) { model.sidebarDensity = .compact })
@@ -560,7 +564,7 @@ struct PaletteCommand {
                     // After the palette running this has closed.
                     DispatchQueue.main.async { model.moveNoteInPalette() }
                 },
-                PaletteCommand(name: "Apply Template…", shortcut: "⌥⌘T", isSuggested: true) {
+                PaletteCommand(name: "Apply Template…", shortcut: ShortcutStore.shared.label(for: .applyTemplate), isSuggested: true) {
                     // After the palette running this has closed.
                     DispatchQueue.main.async { model.applyTemplateInPalette() }
                 },
@@ -568,14 +572,14 @@ struct PaletteCommand {
                 PaletteCommand(name: "Rename Note…", shortcut: nil) { model.renaming = note },
                 PaletteCommand(name: "Add Tag…", shortcut: nil) { model.tagging = note },
                 PaletteCommand(name: model.isBookmarked(note.id) ? "Remove Bookmark" : "Add Bookmark", shortcut: nil) { model.toggleBookmark(note.id) },
-                PaletteCommand(name: "Show in Finder", shortcut: "⌥⌘R") { model.showInFinder(note) },
+                PaletteCommand(name: "Show in Finder", shortcut: ShortcutStore.shared.label(for: .showInFinder)) { model.showInFinder(note) },
                 PaletteCommand(name: "Move Note to Trash", shortcut: nil) { model.moveToTrash(note) },
-                PaletteCommand(name: "Find in Note", shortcut: "⌥⌘F") { FindInNote.show() },
+                PaletteCommand(name: "Find in Note", shortcut: ShortcutStore.shared.label(for: .findInNote)) { FindInNote.show() },
             ]
         }
         // Last of the four offered before anything's typed (New Note, Move Note, Apply
         // Template, then this).
-        commands.append(PaletteCommand(name: "Use File Explorer", shortcut: "⌘E", isSuggested: true) {
+        commands.append(PaletteCommand(name: "Search Vault", shortcut: ShortcutStore.shared.label(for: .searchVault), isSuggested: true) {
             DispatchQueue.main.async { model.togglePalette(.explorer) }
         })
         if let note = model.selectedNote {

@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import EditorKit
 import SwiftUI
 import VaultKit
 
@@ -19,6 +20,7 @@ enum DebugSnapshots {
         probeCursorIfAsked(for: model)
         conflictIfAsked(for: model)
         safetyIfAsked(for: model)
+        shortcutTestIfAsked(for: model)
         scanIfAsked(for: model)
         // `-PointOpenSettings YES`: opens Settings (at `-settingsPage`), for checking it.
         if UserDefaults.standard.bool(forKey: "PointOpenSettings") {
@@ -705,6 +707,100 @@ enum DebugSnapshots {
                         check("only the other vault's notes", strays.isEmpty && store.notes.count == expected,
                               "\(store.notes.count) notes, \(strays.count) from the first vault, expected \(expected)")
                         Trace.mark("scan test: done")
+                    }
+                }
+            }
+        }
+    }
+
+    /// `-PointShortcutTest <note ID>`, on a note whose first line is a list item: presses ⇧⌘1 and
+    /// ⇧⌘2 through the menus (orange and red highlights), gives orange ⌃⌘J and presses that, then
+    /// ⌘E and ⌘F (Explorer and Search Vault). Puts the shortcuts back as they were after.
+    private static func shortcutTestIfAsked(for model: VaultModel) {
+        guard let id = UserDefaults.standard.string(forKey: "PointShortcutTest") else { return }
+        func check(_ name: String, _ ok: Bool, _ detail: String = "") {
+            Trace.mark("shortcut test: \(ok ? "PASS" : "FAIL") \(name)\(detail.isEmpty ? "" : " — \(detail)")")
+        }
+        @MainActor func press(_ characters: String, keyCode: UInt16, _ flags: NSEvent.ModifierFlags, unmodified: String) -> Bool {
+            guard let window = model.window,
+                  let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                                               windowNumber: window.windowNumber, context: nil, characters: characters,
+                                               charactersIgnoringModifiers: unmodified, isARepeat: false, keyCode: keyCode) else { return false }
+            return NSApp.mainMenu?.performKeyEquivalent(with: event) ?? false
+        }
+        @MainActor func session() -> EditorSession? { EditorSession.live.allObjects.first { $0.note.id == id && $0.debugText != nil } }
+        let store = ShortcutStore.shared
+        let saved = UserDefaults.standard.dictionary(forKey: "shortcuts")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            model.selectFromList(id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                guard let text = session()?.debugText else { return check("note open", false) }
+                // In front, as when the keys are pressed for real: menu commands go to the key
+                // window, and the menus update for an app that's active.
+                NSApp.activate(ignoringOtherApps: true)
+                model.window?.makeKeyAndOrderFront(nil)
+                model.window?.makeFirstResponder(nil)
+                if let editor = Self.views(of: MarkdownTextView.self, in: model.window?.contentView).first {
+                    model.window?.makeFirstResponder(editor)
+                    editor.setSelectedRange(NSRange(location: 3, length: 0))
+                }
+                @MainActor func menuKey(_ title: String) -> String {
+                    func find(_ menu: NSMenu?) -> NSMenuItem? {
+                        for item in menu?.items ?? [] {
+                            if item.title == title { return item }
+                            if let found = find(item.submenu) { return found }
+                        }
+                        return nil
+                    }
+                    guard let item = find(NSApp.mainMenu?.items.first { $0.title == "Format" }?.submenu) else { return "none" }
+                    return "\(item.keyEquivalent) \(item.keyEquivalentModifierMask.rawValue)"
+                }
+                @MainActor func line() -> String { String((session()?.debugText ?? "").prefix(12)) }
+                // Steps a little apart: a menu command's action runs just after its key is matched.
+                @MainActor func menuItem(_ path: [String]) -> (NSMenu, Int)? {
+                    var menu = NSApp.mainMenu
+                    for title in path.dropLast() { menu = menu?.items.first { $0.title == title }?.submenu }
+                    guard let menu, let index = menu.items.firstIndex(where: { $0.title == path.last }) else { return nil }
+                    return (menu, index)
+                }
+                let editor = Self.views(of: MarkdownTextView.self, in: model.window?.contentView).first
+                // An app in the background has no key window, so a menu command that goes to the
+                // first responder finds no editor: the editor's command is sent to it directly, and
+                // the menus are checked for their keys (their actions, which need the window in
+                // front, can't be run here).
+                let steps: [@MainActor () -> Void] = [
+                    { check("editor takes the command", NSApp.sendAction(#selector(MarkdownTextView.highlightListItems(_:)), to: editor, from: MarkdownTextView.ListHighlightRequest(colour: "Orange"))) },
+                    { check("it highlights orange", line().hasPrefix("- ? "), line())
+                      NSApp.sendAction(#selector(MarkdownTextView.highlightListItems(_:)), to: editor, from: MarkdownTextView.ListHighlightRequest(colour: "Red")) },
+                    { check("then red", line().hasPrefix("- ! "), line())
+                      NSApp.sendAction(#selector(MarkdownTextView.highlightListItems(_:)), to: editor, from: MarkdownTextView.ListHighlightRequest(colour: nil)) },
+                    { check("then none", line().hasPrefix("- one"), line())
+                      check("⇧⌘1 is a menu key", press("!", keyCode: 18, [.command, .shift], unmodified: "1"))
+                      check("⇧⌘2 is a menu key", press("@", keyCode: 19, [.command, .shift], unmodified: "2"))
+                      Trace.mark("shortcut test: Orange's key before \(menuKey("Orange"))")
+                      store.set(Shortcut("j", control: true), for: .highlightOrange) },
+                    { Trace.mark("shortcut test: Orange's key 0.6 s after \(menuKey("Orange"))") },
+                    { Trace.mark("shortcut test: Orange's key 1.2 s after \(menuKey("Orange"))")
+                      check("⌃⌘J is a menu key once set", press("\u{0A}", keyCode: 38, [.command, .control], unmodified: "j"))
+                      check("palette label follows", store.label(for: .highlightOrange) == "⌃⌘J")
+                      check("⌘E is a menu key", press("e", keyCode: 14, .command, unmodified: "e"))
+                      check("⌘F is a menu key", press("f", keyCode: 3, .command, unmodified: "f"))
+                      check("⌘E is Edit › Explorer", menuItem(["Edit", "Explorer"]).map { $0.0.items[$0.1].keyEquivalent } == "e")
+                      check("⌘F is Edit › Search Vault", menuItem(["Edit", "Search Vault"]).map { $0.0.items[$0.1].keyEquivalent } == "f") },
+                ]
+                for (index, step) in steps.enumerated() {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.6) { MainActor.assumeIsolated { step() } }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + Double(steps.count) * 0.6) {
+                    do {
+                        // Back as they were, and the note too.
+                        store.resetAll()
+                        UserDefaults.standard.set(saved, forKey: "shortcuts")
+                        if let editor = Self.views(of: MarkdownTextView.self, in: model.window?.contentView).first {
+                            editor.setSelectedRange(NSRange(location: 0, length: (editor.string as NSString).length))
+                            editor.insertText(text, replacementRange: editor.selectedRange())
+                        }
+                        Trace.mark("shortcut test: done")
                     }
                 }
             }
