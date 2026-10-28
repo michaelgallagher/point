@@ -6,10 +6,10 @@
 #   scripts/vault-snapshot.sh changes   lists what changed since the latest copy, and writes
 #                                       the full diff next to the copies
 #
-# POINT_VAULT and POINT_SNAPSHOTS change where the vault and the copies are.
+# POINT_VAULT is the vault (needed); POINT_SNAPSHOTS changes where the copies go.
 set -euo pipefail
 
-vault="${POINT_VAULT:-$HOME/Library/Mobile Documents/iCloud~md~obsidian/Documents/MG notes}"
+vault="${POINT_VAULT:?Set POINT_VAULT to the vault folder}"
 store="${POINT_SNAPSHOTS:-$HOME/Point vault snapshots}"
 # Files Obsidian rewrites all the time, which say nothing about the notes.
 ignored=(--exclude=workspace.json --exclude=workspace-mobile.json --exclude=.DS_Store)

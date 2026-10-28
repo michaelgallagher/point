@@ -15,7 +15,7 @@ Each milestone ends with a build for Mike to try and review.
 - Markdown parser.
 - Syntax hiding, styles, cursor and selection behaviour around hidden characters.
 - Formatting shortcuts.
-- Round-trip test: open and save every note in a copy of Mike's vault, and assert the files are byte-identical.
+- Round-trip test: open and save every note in a copy of a real vault, and assert the files are byte-identical.
 - Performance test on the largest note.
 - Decide TextKit 1 vs TextKit 2 after testing on the 2017 Mac.
 

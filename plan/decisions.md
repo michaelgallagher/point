@@ -68,7 +68,7 @@ A single flat list of notes won't scale, so the sidebar browses folders and tags
 - **Inside a folder:** its subfolders, then the notes directly in it. A back arrow and the folder's name at the top go back up (also ⌘↑).
 - **Inside a tag:** its nested tags, then every note with that tag or a tag under it.
 - **Tags:** nested tags (`work/imprint`) are indented under their parent, so the hierarchy is clear. A parent appears even if only its children are used.
-- **Pins:** folders and tags can be pinned (right-click), such as the NHS, Sources and Personal folders. Pins are stored in Point's settings, per vault, never in the vault.
+- **Pins:** folders and tags can be pinned (right-click), such as a Work or Reading folder. Pins are stored in Point's settings, per vault, never in the vault.
 - **New notes:** ⌘N inside a folder creates the note there. Elsewhere, it goes to the vault root.
 - **Moving notes:** drag a note onto a folder, or use "Move to Folder…". Links that spell out a path are updated, and so are the moved note's own relative links.
 - **Search** always covers the whole vault, wherever you are in the sidebar.

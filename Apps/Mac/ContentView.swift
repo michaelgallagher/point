@@ -370,7 +370,7 @@ extension SidebarPlace {
         return false
     }
 
-    /// "NHS", "Projects" or "work/imprint" (a tag without its "#": its symbol says it's a tag).
+    /// "Work", "Projects" or "work/imprint" (a tag without its "#": its symbol says it's a tag).
     var title: String {
         switch self {
         case .allNotes: "All Notes"

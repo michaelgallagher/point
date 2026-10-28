@@ -122,7 +122,7 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
     /// Notes deleted, kept for a while before they go for good.
     case trash
 
-    /// For storing pins: `folder:NHS`, `tag:work/imprint`.
+    /// For storing pins: `folder:Work`, `tag:work/imprint`.
     public var key: String {
         switch self {
         case .allNotes: "all"

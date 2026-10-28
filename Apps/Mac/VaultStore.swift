@@ -588,7 +588,7 @@ final class VaultStore: ObservableObject {
     var drafts: NoteDrafts? {
         guard let root else { return nil }
         let storage = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Imprint/Drafts", isDirectory: true)
+            .appendingPathComponent("Point/Drafts", isDirectory: true)
         return NoteDrafts(storage: storage, vaultKey: Self.vaultKey(root))
     }
 
@@ -839,8 +839,7 @@ final class VaultStore: ObservableObject {
     /// app's own storage, never in the vault, named by a hash of the vault's path.
     private func openIndex(for url: URL) {
         let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            // Still where it was when the app was called Imprint, so it isn't built again.
-            .appendingPathComponent("Imprint/Index", isDirectory: true)
+            .appendingPathComponent("Point/Index", isDirectory: true)
         index = try? SearchIndex(url: folder.appendingPathComponent("\(Self.vaultKey(url)).sqlite"))
     }
 

@@ -61,7 +61,7 @@ struct LinkRewriteTests {
     }
 }
 
-/// From the live vault's phase 2: renames missed every link in frontmatter (661 of them).
+/// From the real vault's phase 2: renames missed every link in frontmatter.
 struct FrontmatterLinkTests {
     let renamed = note("Projects/Imprint.md")
     var resolver: LinkResolver { LinkResolver(notes: [renamed, note("Inbox.md"), note("Other/Imprint plan.md")]) }

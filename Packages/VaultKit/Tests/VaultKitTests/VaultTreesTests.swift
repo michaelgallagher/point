@@ -9,33 +9,33 @@ private func note(_ id: String) -> Note {
 
 struct FolderTreeTests {
     let tree = FolderTree(notes: [
-        note("Inbox.md"), note("NHS/Plan.md"), note("NHS/Projects/Alpha.md"), note("NHS/Projects/Beta.md"),
+        note("Inbox.md"), note("Work/Plan.md"), note("Work/Projects/Alpha.md"), note("Work/Projects/Beta.md"),
         note("Sources/Book.md"), note("Personal/2 Two.md"), note("Personal/10 Ten.md"),
     ])
 
     @Test func topLevelFoldersInFinderOrder() {
-        #expect(tree.subfolders(of: "") == ["NHS", "Personal", "Sources"])
-        #expect(tree.subfolders(of: "NHS") == ["NHS/Projects"])
+        #expect(tree.subfolders(of: "") == ["Personal", "Sources", "Work"])
+        #expect(tree.subfolders(of: "Work") == ["Work/Projects"])
         #expect(tree.subfolders(of: "Sources").isEmpty)
     }
 
     @Test func countsIncludeSubfolders() {
-        #expect(tree.noteCounts["NHS"] == 3)
-        #expect(tree.noteCounts["NHS/Projects"] == 2)
+        #expect(tree.noteCounts["Work"] == 3)
+        #expect(tree.noteCounts["Work/Projects"] == 2)
     }
 
     @Test func emptyFoldersShowWithNoNotes() {
-        let tree = FolderTree(notes: [note("NHS/Plan.md")], folders: ["NHS", "Empty/Inner"])
-        #expect(tree.subfolders(of: "") == ["Empty", "NHS"])
+        let tree = FolderTree(notes: [note("Work/Plan.md")], folders: ["Work", "Empty/Inner"])
+        #expect(tree.subfolders(of: "") == ["Empty", "Work"])
         #expect(tree.subfolders(of: "Empty") == ["Empty/Inner"])
         #expect(tree.noteCounts["Empty/Inner"] == 0)
-        #expect(tree.noteCounts["NHS"] == 1)
+        #expect(tree.noteCounts["Work"] == 1)
     }
 
     @Test func paths() {
-        #expect(FolderTree.folder(of: "NHS/Projects/Alpha.md") == "NHS/Projects")
+        #expect(FolderTree.folder(of: "Work/Projects/Alpha.md") == "Work/Projects")
         #expect(FolderTree.folder(of: "Inbox.md") == "")
-        #expect(FolderTree.name(of: "NHS/Projects") == "Projects")
+        #expect(FolderTree.name(of: "Work/Projects") == "Projects")
     }
 }
 
@@ -61,14 +61,14 @@ struct TagTreeTests {
 
 struct SidebarPlaceTests {
     @Test func keysRoundTrip() {
-        for place in [SidebarPlace.allNotes, .folder("NHS/Projects"), .tag("work/imprint")] {
+        for place in [SidebarPlace.allNotes, .folder("Work/Projects"), .tag("work/imprint")] {
             #expect(SidebarPlace(key: place.key) == place)
         }
     }
 
     @Test func parents() {
-        #expect(SidebarPlace.folder("NHS/Projects").parent == .folder("NHS"))
-        #expect(SidebarPlace.folder("NHS").parent == .allNotes)
+        #expect(SidebarPlace.folder("Work/Projects").parent == .folder("Work"))
+        #expect(SidebarPlace.folder("Work").parent == .allNotes)
         #expect(SidebarPlace.tag("work/imprint").parent == .tag("work"))
     }
 }

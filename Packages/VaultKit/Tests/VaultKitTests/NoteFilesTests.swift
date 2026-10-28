@@ -105,12 +105,12 @@ struct NoteFilesTests {
         defer { try? FileManager.default.removeItem(at: vault) }
         let folder = vault.appendingPathComponent(".obsidian")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try Data(#"{"attachmentFolderPath": "--Meta/Assets", "trashOption": "local"}"#.utf8).write(to: folder.appendingPathComponent("app.json"))
-        try Data(#"{"folder": "--Meta/Templates", "dateFormat": "YYY-MM-DD"}"#.utf8).write(to: folder.appendingPathComponent("templates.json"))
+        try Data(#"{"attachmentFolderPath": "Meta/Assets", "trashOption": "local"}"#.utf8).write(to: folder.appendingPathComponent("app.json"))
+        try Data(#"{"folder": "Meta/Templates", "dateFormat": "YYY-MM-DD"}"#.utf8).write(to: folder.appendingPathComponent("templates.json"))
         let settings = ObsidianSettings.load(vault: vault)
-        #expect(settings.attachmentFolder == "--Meta/Assets")
+        #expect(settings.attachmentFolder == "Meta/Assets")
         #expect(settings.trashOption == .local)
-        #expect(settings.templatesFolder == "--Meta/Templates")
+        #expect(settings.templatesFolder == "Meta/Templates")
         #expect(settings.templatesDateFormat == "YYY-MM-DD")
         #expect(settings.dailyNotesFormat == "YYYY-MM-DD") // No daily-notes.json: Obsidian's default.
         #expect(settings.listCallouts == ObsidianSettings.ListCallout.defaults) // No List Callouts settings.
