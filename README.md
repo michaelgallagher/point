@@ -1,8 +1,6 @@
 # Point
 
-A Markdown-based notes app for Mac and iPhone. 
-
-It is as simple as I could make it without it feeling useless. 
+A Markdown-based notes app for Mac and iPhone. It is as simple as I could make it without it feeling useless. It is meant to be used primarily via the explorer palette. 
 
 Notes are Markdown under the hood, but the interface hides all the formatting garbage. 
 
