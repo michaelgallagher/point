@@ -35,6 +35,29 @@ struct ListHighlightTests {
         #expect(view.string == "- ! one\n- two")
     }
 
+    /// ⌘-clicking a bullet or a checkbox offers the colours.
+    @Test func bulletsAndCheckboxesOfferTheColours() throws {
+        let view = editor("- bullet\n- [ ] ? task\n1. numbered\nText")
+        let bullet = try #require(view.markerTarget(onLineAt: 0))
+        let item = try #require(view.listItemMarked(at: NSPoint(x: bullet.midX, y: bullet.midY)))
+        #expect(item.item.location == 0)
+        let checkbox = try #require(view.markerTarget(onLineAt: 9))
+        let task = try #require(view.listItemMarked(at: NSPoint(x: checkbox.midX, y: checkbox.midY)))
+        #expect(task.item.location == 9)
+        // Numbered items and plain text have no marker to click.
+        #expect(view.markerTarget(onLineAt: 22) == nil)
+        #expect(view.markerTarget(onLineAt: 34) == nil)
+        // Beside a marker, in the item's text, isn't on it.
+        #expect(view.listItemMarked(at: NSPoint(x: checkbox.maxX + 40, y: checkbox.midY)) == nil)
+
+        // The task's own colour is ticked, with No Highlight to take it off.
+        let menu = try #require(view.highlightMenu(item: task.item, marker: task.marker))
+        #expect(menu.items.map(\.title) == ["Red", "Orange", "", "No Highlight"])
+        #expect(menu.items[1].state == .on)
+        view.setListHighlight("!", item: task.item, marker: task.marker)
+        #expect(view.string == "- bullet\n- [ ] ! task\n1. numbered\nText")
+    }
+
     /// The Format menu's commands (⌘⇧1, ⌘⇧2…): every list item the selection touches, of any
     /// kind, by the colour's name; one undo puts them all back.
     @Test func theHighlightCommandColoursTheSelectedItems() {

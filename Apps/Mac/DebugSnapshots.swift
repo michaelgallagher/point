@@ -12,6 +12,8 @@ import VaultKit
 enum DebugSnapshots {
     static func runIfAsked(for model: VaultModel) {
         scrollNoteIfAsked(for: model)
+        scrollTestIfAsked(for: model)
+        markerClickTestIfAsked(for: model)
         clickBackIfAsked(for: model)
         clickTreeIfAsked(for: model)
         cycleSidebarIfAsked(for: model)
@@ -207,6 +209,173 @@ enum DebugSnapshots {
                 }
                 Trace.mark("scrolled \(id) by \(amount)")
             }
+        }
+    }
+
+    /// `-PointScrollTest <note ID>`: opens that (long) note and traces, as PASS or FAIL:
+    /// whether a scroll to the end just after the width changes reaches the last line (the
+    /// note's height not a guess); whether the line at the top stays there as the window
+    /// narrows and widens and the sidebar hides and shows; and whether going to another tab
+    /// and back comes back to the same place.
+    private static func scrollTestIfAsked(for model: VaultModel) {
+        guard let id = UserDefaults.standard.string(forKey: "PointScrollTest") else { return }
+        func textView() -> MarkdownTextView? {
+            guard let content = model.window?.contentView else { return nil }
+            return scrollViews(in: content).lazy.compactMap { $0.documentView as? MarkdownTextView }.first
+        }
+        func check(_ name: String, _ ok: Bool, _ detail: String = "") {
+            Trace.mark("scroll test: \(ok ? "PASS" : "FAIL") \(name) \(detail)")
+        }
+        /// The character at the top, below the bars.
+        func top() -> Int {
+            guard let view = textView(), let scrollView = view.enclosingScrollView, let layoutManager = view.layoutManager,
+                  let container = view.textContainer else { return -1 }
+            let y = scrollView.contentView.bounds.minY + scrollView.contentInsets.top - view.textContainerOrigin.y
+            return layoutManager.characterIndexForGlyph(at: layoutManager.glyphIndex(for: NSPoint(x: 5, y: y), in: container))
+        }
+        func scroll(toFraction fraction: CGFloat) {
+            guard let view = textView(), let scrollView = view.enclosingScrollView else { return }
+            let clip = scrollView.contentView
+            let y = fraction >= 1 ? view.frame.height - clip.bounds.height : view.frame.height * fraction
+            clip.scroll(to: NSPoint(x: 0, y: max(-scrollView.contentInsets.top, y)))
+            scrollView.reflectScrolledClipView(clip)
+        }
+        /// Whether the note's last character is in sight.
+        func endInSight() -> Bool {
+            guard let view = textView(), let layoutManager = view.layoutManager, let container = view.textContainer else { return false }
+            let length = (view.string as NSString).length
+            let glyphs = layoutManager.glyphRange(forCharacterRange: NSRange(location: max(0, length - 1), length: 1), actualCharacterRange: nil)
+            var rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: container)
+            rect.origin.y += view.textContainerOrigin.y
+            return view.visibleRect.intersects(rect)
+        }
+        func resize(by amount: CGFloat) {
+            guard let window = model.window else { return }
+            var frame = window.frame
+            frame.size.width += amount
+            window.setFrame(frame, display: true)
+        }
+        var steps: [(Double, () -> Void)] = []
+        var before = -1
+        steps.append((2.5, {
+            model.window?.setFrame(NSRect(x: 100, y: 100, width: 1100, height: 800), display: true)
+            model.selection = id
+        }))
+        // Scrolling to the end soon after the width changes.
+        for (index, amount) in [-180.0, 180, -260, 260].enumerated() {
+            steps.append((1.5, {
+                // From the top, so nothing else lays out the whole note.
+                scroll(toFraction: 0)
+                resize(by: amount)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    // The height a fast scroll would stop at, then the real one, all laid out.
+                    guard let view = textView(), let layoutManager = view.layoutManager else { return }
+                    let shown = view.frame.height
+                    layoutManager.ensureLayout(forCharacterRange: NSRange(location: 0, length: (view.string as NSString).length))
+                    view.sizeToFit()
+                    scroll(toFraction: 1)
+                    check("height real soon after resize \(index + 1)", abs(view.frame.height - shown) < 2 && endInSight(),
+                          "height was \(Int(shown)), really \(Int(view.frame.height))")
+                }
+            }))
+        }
+        // The line at the top, through resizes and the sidebar.
+        steps.append((1.2, { scroll(toFraction: 0.45) }))
+        steps.append((0.5, { before = top() }))
+        for (name, change) in [("narrower", { resize(by: -240) }), ("wider", { resize(by: 240) }),
+                               ("sidebar toggled", { model.showsNoteList.toggle() }), ("sidebar toggled back", { model.showsNoteList.toggle() })] {
+            steps.append((0.1, change))
+            steps.append((1.0, {
+                let now = top()
+                check("top line kept, \(name)", abs(now - before) < 80, "was \(before), now \(now)")
+            }))
+        }
+        // Another tab and back.
+        var selection = NSRange()
+        steps.append((0.5, {
+            textView()?.setSelectedRange(NSRange(location: max(0, before + 5), length: 0))
+            selection = textView()?.selectedRange() ?? NSRange()
+            before = top()
+            let other = model.notes.first { $0.id != id }?.id
+            model.newTab(noteID: other)
+        }))
+        steps.append((1.5, { model.selection = id }))
+        steps.append((1.5, {
+            let now = top()
+            check("place kept across tabs", abs(now - before) < 80, "was \(before), now \(now)")
+            check("cursor kept across tabs", textView()?.selectedRange() == selection, "was \(selection), now \(textView()?.selectedRange() ?? NSRange())")
+            Trace.mark("scroll test: done")
+            NSApp.terminate(nil)
+        }))
+        var delay = 0.0
+        for (wait, step) in steps {
+            delay += wait
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: step)
+        }
+    }
+
+    /// `-PointMarkerClickTest <note ID>`: opens that note and ⌘-clicks across the start of
+    /// each of its list items (where the bullet or checkbox is), tracing which ones open the
+    /// highlight colours (closing the menu again), then plainly clicks the same places, tracing
+    /// whether the text changed (a checkbox ticked).
+    private static func markerClickTestIfAsked(for model: VaultModel) {
+        guard let id = UserDefaults.standard.string(forKey: "PointMarkerClickTest") else { return }
+        var opened: [String] = []
+        let observer = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu else { return }
+            opened.append(menu.items.map(\.title).joined(separator: "/"))
+            RunLoop.main.perform(inModes: [.eventTracking, .default, .modalPanel]) { menu.cancelTrackingWithoutAnimation() }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            model.window?.setFrame(NSRect(x: 100, y: 100, width: 1100, height: 800), display: true)
+            model.selection = id
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+            guard let content = model.window?.contentView,
+                  let view = scrollViews(in: content).lazy.compactMap({ $0.documentView as? MarkdownTextView }).first,
+                  let layoutManager = view.layoutManager, let window = view.window else { return }
+            func click(_ point: NSPoint, command: Bool) {
+                let location = view.convert(point, to: nil)
+                if let event = NSEvent.mouseEvent(with: .leftMouseDown, location: location, modifierFlags: command ? .command : [],
+                                                  timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                  context: nil, eventNumber: 0, clickCount: 1, pressure: 1),
+                   let up = NSEvent.mouseEvent(with: .leftMouseUp, location: location, modifierFlags: command ? .command : [],
+                                               timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                               context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                    NSApp.postEvent(up, atStart: false) // For the text view's own tracking of the click.
+                    view.mouseDown(with: event)
+                }
+            }
+            let text = view.string as NSString
+            var start = 0
+            while start < text.length {
+                let line = text.lineRange(for: NSRange(location: start, length: 0))
+                let content = text.substring(with: line).trimmingCharacters(in: .newlines)
+                start = NSMaxRange(line)
+                guard content.hasPrefix("- ") || content.hasPrefix("1. ") else { continue }
+                let rect = layoutManager.lineFragmentRect(forGlyphAt: layoutManager.glyphIndexForCharacter(at: line.location), effectiveRange: nil)
+                let y = rect.midY + view.textContainerOrigin.y
+                opened = []
+                var hits: [Int] = []
+                for dx in stride(from: 0, through: 40, by: 2) {
+                    let before = opened.count
+                    click(NSPoint(x: view.textContainerOrigin.x + CGFloat(dx), y: y), command: true)
+                    if opened.count > before { hits.append(dx) }
+                }
+                let menu = opened.first ?? "none"
+                var ticked: [Int] = []
+                for dx in stride(from: 0, through: 40, by: 2) {
+                    let before = view.string
+                    click(NSPoint(x: view.textContainerOrigin.x + CGFloat(dx), y: y), command: false)
+                    if view.string != before {
+                        ticked.append(dx)
+                        view.undoManager?.undo()
+                    }
+                }
+                Trace.mark("marker test: \(content) ⌘-click menu at \(hits.first ?? -1)…\(hits.last ?? -1): \(menu); plain click changed text at \(ticked.first ?? -1)…\(ticked.last ?? -1)")
+            }
+            NotificationCenter.default.removeObserver(observer)
+            NSApp.terminate(nil)
         }
     }
 

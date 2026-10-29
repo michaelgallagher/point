@@ -524,7 +524,6 @@ struct PaletteCommand {
             PaletteCommand(name: "Smaller Text", shortcut: ShortcutStore.shared.label(for: .smallerText)) { model.makeTextSmaller() },
             PaletteCommand(name: model.isFocused ? "Leave Focus" : "Focus", shortcut: ShortcutStore.shared.label(for: .focus)) { model.isFocused.toggle() },
             PaletteCommand(name: model.showsMarkdown ? "Hide Markdown" : "Show Markdown", shortcut: ShortcutStore.shared.label(for: .showMarkdown)) { model.showsMarkdown.toggle() },
-            PaletteCommand(name: model.showsDateInList ? "Hide Dates in List" : "Show Dates in List", shortcut: nil) { model.showsDateInList.toggle() },
             PaletteCommand(name: model.showsTagsInList ? "Hide Tags in List" : "Show Tags in List", shortcut: nil) { model.showsTagsInList.toggle() },
             PaletteCommand(name: "Sort by Date Edited", shortcut: nil) { model.sort = .modified },
             PaletteCommand(name: "Sort by Date Created", shortcut: nil) { model.sort = .created },
@@ -535,6 +534,11 @@ struct PaletteCommand {
             PaletteCommand(name: "All Notes", shortcut: nil) { model.browse(.allNotes) },
             PaletteCommand(name: "Enclosing Folder", shortcut: ShortcutStore.shared.label(for: .enclosingFolder)) { model.goUp() },
         ]
+        // The two ways of showing dates in the list that aren't the one in use.
+        for (style, name) in [(VaultModel.ListDateStyle.beside, "Show Dates Beside Titles"), (.groups, "Group Notes by Date"), (.off, "Hide Dates in List")]
+        where style != model.listDateStyle {
+            commands.append(PaletteCommand(name: name, shortcut: nil) { model.listDateStyle = style })
+        }
         commands += [
             PaletteCommand(name: "New Tab", shortcut: ShortcutStore.shared.label(for: .newTab)) { model.newTab() },
             PaletteCommand(name: "New Tab on Other Side", shortcut: ShortcutStore.shared.label(for: .newTabOnOtherSide)) { model.newTabOnOtherSide() },

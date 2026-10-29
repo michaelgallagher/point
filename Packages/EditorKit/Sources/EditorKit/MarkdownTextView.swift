@@ -32,6 +32,10 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     }
     /// Note titles to suggest while a `[[wikilink]]` is typed, best first.
     public var completeNoteTitle: ((String) -> [String])?
+    /// What was typed when titles were last suggested, and the titles (see +Links).
+    var offeredCompletion: (typed: String, titles: [String])?
+    /// Set while a key press is handled (see +Links).
+    var isTypingKey = false
 
     var styler = MarkdownStyler()
 
@@ -157,6 +161,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         self.init(frame: NSRect(x: 0, y: 0, width: 600, height: 400), textContainer: container)
         ownedStorage = storage
         storage.delegate = self
+        layoutManager.onInvalidateLayout = { [weak self] in self?.completeLayoutGradually() }
         configure()
     }
 
@@ -202,18 +207,26 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     private var layoutRun = 0
     /// Whether the gradual layout is still going, so the rest of the note is a guess.
     private var isCompletingLayout = false
+    /// Whether a run is about to start, so asking again in the meantime doesn't start another.
+    private var isLayoutQueued = false
     private var scrollObserver: NSObjectProtocol?
 
-    /// Lays out the rest of the note, a piece at a time, after it opens. Only what's on
-    /// screen is laid out at first (so long notes open instantly), which leaves the note's
-    /// full height a guess, and a fast scroll could stop at the guessed end.
+    /// Lays out the rest of the note, a piece at a time, after it opens, and again whenever
+    /// its layout is thrown away (the column's width changing, the text restyled). Only
+    /// what's on screen is laid out then (so long notes open instantly), which leaves the
+    /// note's full height a guess, and a fast scroll could stop at the guessed end.
     private func completeLayoutGradually() {
+        // Once per turn of the run loop, however many times the layout is thrown away in it
+        // (each keystroke does, for its own line).
+        guard !isLayoutQueued else { return }
+        isLayoutQueued = true
         layoutRun += 1
         let run = layoutRun
         isCompletingLayout = true
         func step(from start: Int) {
             DispatchQueue.main.async { [weak self] in
                 guard let self, run == self.layoutRun else { return }
+                isLayoutQueued = false
                 guard let layoutManager, let storage = textStorage, start < storage.length else {
                     isCompletingLayout = false
                     return
@@ -283,11 +296,71 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
 
     // MARK: Layout
 
-    /// Keeps the text in a readable column, centred in wide windows.
+    /// Keeps the text in a readable column, centred in wide windows. When the width changes
+    /// (the window resized, the sidebar shown or hidden), the text rewraps: the line at the
+    /// top stays at the top, instead of the note scrolling by however much the text above it
+    /// grew or shrank.
     public override func setFrameSize(_ newSize: NSSize) {
+        let anchor = newSize.width != frame.width && !isRestoringAnchor ? scrollAnchor : nil
         super.setFrameSize(newSize)
         updateInsets()
         layoutHeader()
+        if let anchor { scroll(to: anchor) }
+    }
+
+    /// At the end of a live resize (the window dragged, or the sidebar sliding, which resizes
+    /// the window), AppKit scrolls back to what it had in sight when it began, worked out from
+    /// the layout then, which was partly a guess: by a line or more, or with the cursor out of
+    /// sight, all the way back to it. The line at the top stays instead.
+    public override func viewDidEndLiveResize() {
+        let anchor = scrollAnchor
+        super.viewDidEndLiveResize()
+        if let anchor { scroll(to: anchor) }
+    }
+
+    /// A place in the note to scroll back to: the character on the first line showing below
+    /// the top bars, and how far that line is scrolled up past them.
+    public struct ScrollAnchor: Equatable, Sendable {
+        public var index: Int
+        public var offset: CGFloat
+        public init(index: Int, offset: CGFloat) {
+            self.index = index
+            self.offset = offset
+        }
+    }
+
+    private var isRestoringAnchor = false
+
+    /// Where the note is scrolled to, or nil at the top (with the header, or some of it, in sight).
+    public var scrollAnchor: ScrollAnchor? {
+        guard let scrollView = enclosingScrollView, let layoutManager, let container = textContainer,
+              let storage = textStorage, storage.length > 0 else { return nil }
+        let origin = textContainerOrigin
+        let top = scrollView.contentView.bounds.minY + scrollView.contentInsets.top - origin.y
+        guard top > 0 else { return nil }
+        // Everything above laid out, so the line found is the one really there.
+        layoutManager.ensureLayout(forBoundingRect: NSRect(x: 0, y: 0, width: container.size.width, height: top + 1), in: container)
+        let glyph = layoutManager.glyphIndex(for: NSPoint(x: container.lineFragmentPadding, y: top), in: container)
+        let line = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        return ScrollAnchor(index: layoutManager.characterIndexForGlyph(at: glyph), offset: max(0, top - line.minY))
+    }
+
+    /// Scrolls so `anchor`'s line is back at the top, as far past it as it was.
+    public func scroll(to anchor: ScrollAnchor) {
+        guard let scrollView = enclosingScrollView, let layoutManager, let storage = textStorage, storage.length > 0 else { return }
+        isRestoringAnchor = true
+        defer { isRestoringAnchor = false }
+        let index = min(max(anchor.index, 0), storage.length - 1)
+        // Everything up to it laid out, so its place (and the note's height) is real, not a guess.
+        layoutManager.ensureLayout(forCharacterRange: NSRange(location: 0, length: index + 1))
+        sizeToFit()
+        let line = layoutManager.lineFragmentRect(forGlyphAt: layoutManager.glyphIndexForCharacter(at: index), effectiveRange: nil)
+        let y = textContainerOrigin.y + line.minY + min(anchor.offset, line.height) - scrollView.contentInsets.top
+        let clip = scrollView.contentView
+        let bounds = clip.constrainBoundsRect(NSRect(origin: NSPoint(x: clip.bounds.minX, y: y), size: clip.bounds.size))
+        guard bounds.origin != clip.bounds.origin else { return }
+        clip.scroll(to: bounds.origin)
+        scrollView.reflectScrolledClipView(clip)
     }
 
     // MARK: Fold arrows

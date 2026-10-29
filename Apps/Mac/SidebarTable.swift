@@ -14,6 +14,9 @@ enum SidebarRow: Hashable {
     case trashed(VaultTrash.Item)
     /// The switch between folders and tags, when they show one at a time.
     case treeSwitch
+    /// A heading over notes by date ("Today", "October", "2025"), with the first note under it
+    /// (so two headings with the same name, in an odd order, are still two rows).
+    case dateGroup(String, first: Note.ID)
 
     /// The note a row opens, if it's a note's row.
     var noteID: Note.ID? {
@@ -43,7 +46,7 @@ extension VaultModel {
         // The two-column view's tree is always the top level, wherever its notes are.
         let place = content == .places ? SidebarPlace.allNotes : place
         if content != .places, place == .trash { return trashedNotes.map { .trashed($0) } }
-        guard content != .notes else { return notes(in: place).map { .note($0.id) } }
+        guard content != .notes else { return noteRows(notes(in: place)) }
         var sections: [[SidebarRow]] = []
         func section(_ name: SidebarSection, _ rows: [SidebarRow]) -> [SidebarRow] {
             [.header(name)] + (collapsed.contains(name) ? [] : rows)
@@ -64,10 +67,15 @@ extension VaultModel {
             sections.append([.place(.everything, depth: 0), .place(.bookmarks, depth: 0), .place(.trash, depth: 0)]
                             + (oneAtATime ? [.treeSwitch] : []))
             if !pins.isEmpty { sections.append(section(.pinned, pins.map { .place($0, depth: 0) })) }
+            // Shown one at a time, folders or tags have no label of their own, and can't be
+            // folded away: the switch names them, and folding the only one would leave nothing.
+            func tree(_ name: SidebarSection, _ rows: [SidebarRow]) -> [SidebarRow] {
+                oneAtATime ? rows : section(name, rows)
+            }
             if !oneAtATime || treeKind == .folders {
                 // The tree starts with the vault itself, for the notes at its top level.
                 let top: [SidebarRow] = content == .places ? [.place(.allNotes, depth: 0)] : []
-                if !subplaces.isEmpty || !top.isEmpty { sections.append(section(.folders, top + folderRows(subplaces, depth: 0))) }
+                if !subplaces.isEmpty || !top.isEmpty { sections.append(tree(.folders, top + folderRows(subplaces, depth: 0))) }
             }
             if !tagTree.entries.isEmpty, !oneAtATime || treeKind == .tags {
                 // Nested tags show beneath a tag that's unfolded, as subfolders do.
@@ -75,7 +83,7 @@ extension VaultModel {
                     let parts = entry.tag.split(separator: "/")
                     return (1..<max(parts.count, 1)).allSatisfy { expanded.contains(Self.expansionKey(.tag(parts.prefix($0).joined(separator: "/")))) }
                 }
-                sections.append(section(.tags, tags.map { .place(.tag($0.tag), depth: $0.depth) }))
+                sections.append(tree(.tags, tags.map { .place(.tag($0.tag), depth: $0.depth) }))
             }
         } else if !subplaces.isEmpty {
             // Inside a folder (or tag) with folders (or tags) in it: labelled, as at the top.
@@ -85,10 +93,19 @@ extension VaultModel {
         // The notes, always under their label, which holds the sort menu.
         let notes = content == .places ? [] : notes(in: place)
         if !notes.isEmpty {
-            sections.append(section(.notes, notes.map { SidebarRow.note($0.id) }))
+            sections.append(section(.notes, noteRows(notes)))
         }
         // Thin dividers between sections.
         return sections.enumerated().flatMap { index, rows in index == 0 ? rows : [.divider] + rows }
+    }
+
+    /// Notes' rows: under headings by date, when the list shows dates that way and is sorted
+    /// by a date.
+    func noteRows(_ notes: [Note]) -> [SidebarRow] {
+        guard listDateStyle == .groups, sort != .title else { return notes.map { .note($0.id) } }
+        return NoteDateGroup.grouped(notes, by: sort).flatMap { group in
+            [SidebarRow.dateGroup(group.label, first: group.notes[0].id)] + group.notes.map { .note($0.id) }
+        }
     }
 }
 
@@ -264,9 +281,12 @@ struct SidebarTable: NSViewRepresentable {
         private var pickedFromPins = false
 
         /// The section a row is in (nil for the top rows, which have no label).
+        /// The labelled section a row is in (nil for one with no label: the special places at
+        /// the top, and folders or tags shown one at a time).
         private func section(ofRow row: Int) -> SidebarSection? {
             for index in stride(from: row, through: 0, by: -1) {
                 if case .header(let section) = rows[index] { return section }
+                if case .divider = rows[index] { return nil }
             }
             return nil
         }
@@ -307,7 +327,7 @@ struct SidebarTable: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             switch rows[row] {
-            case .header: model.sidebarDensity.headerHeight
+            case .header, .dateGroup: model.sidebarDensity.headerHeight
             case .divider: model.sidebarDensity.dividerHeight
             case .place, .trashed: model.sidebarDensity.rowHeight
             case .treeSwitch: model.sidebarDensity.rowHeight + 10
@@ -491,6 +511,16 @@ struct SidebarTable: NSViewRepresentable {
 
         // MARK: Right-click menus
 
+        /// How folders and tags are sorted: by name or date modified.
+        private func addTreeSortItems(to menu: NSMenu) {
+            let byName = item("Sort Folders and Tags by Name") { $0.tagOrder = .name }
+            byName.state = model.tagOrder == .name ? .on : .off
+            let byDate = item("Sort Folders and Tags by Date Modified") { $0.tagOrder = .modified }
+            byDate.state = model.tagOrder == .modified ? .on : .off
+            menu.addItem(byName)
+            menu.addItem(byDate)
+        }
+
         func menuNeedsUpdate(_ menu: NSMenu) {
             menu.removeAllItems()
             guard let table, rows.indices.contains(table.clickedRow) else { return }
@@ -512,12 +542,10 @@ struct SidebarTable: NSViewRepresentable {
                 menu.addItem(item("Move to Trash") { $0.moveToTrash(note) })
             case .header:
                 // Right-click a section label to choose how folders and tags are sorted.
-                let byName = item("Sort Folders and Tags by Name") { $0.tagOrder = .name }
-                byName.state = model.tagOrder == .name ? .on : .off
-                let byDate = item("Sort Folders and Tags by Date Modified") { $0.tagOrder = .modified }
-                byDate.state = model.tagOrder == .modified ? .on : .off
-                menu.addItem(byName)
-                menu.addItem(byDate)
+                addTreeSortItems(to: menu)
+            case .treeSwitch:
+                // Folders or tags one at a time have no label: their switch has the sort instead.
+                addTreeSortItems(to: menu)
             case .place(let place, _):
                 if place != .allNotes {
                     menu.addItem(item(model.isPinned(place) ? "Unpin" : "Pin to Sidebar") { $0.togglePin(place) })
@@ -532,6 +560,11 @@ struct SidebarTable: NSViewRepresentable {
                     menu.addItem(item("Show in Finder") { _ in
                         NSWorkspace.shared.activateFileViewerSelecting([path.isEmpty ? root : root.appendingPathComponent(path)])
                     })
+                }
+                // And on the folders and tags themselves, when they have no label.
+                if place.isTag || path?.isEmpty == false, section(ofRow: table.clickedRow) == nil {
+                    menu.addItem(.separator())
+                    addTreeSortItems(to: menu)
                 }
             default:
                 break
@@ -789,6 +822,15 @@ struct SidebarRowView: View {
             // As much room below the label as above it, down to the line when it's folded.
             .padding(.bottom, 5)
             .help(isOpen ? "Hide \(section.rawValue.lowercased())" : "Show \(section.rawValue.lowercased())")
+        case .dateGroup(let label, _):
+            // As a section's label, without its arrow: it doesn't fold.
+            Text(label)
+                .lineLimit(1)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 5)
         case .divider:
             // Low in its row: the room above ends the section before it, which otherwise
             // looks cramped (most of all a collapsed section, its heading right on the line).
@@ -867,7 +909,8 @@ struct SidebarNoteRow: View {
                         .foregroundStyle(.secondary)
                         .help("In iCloud, not yet downloaded")
                 }
-                if model.showsDateInList {
+                // In groups, the heading over it gives the date (unless sorted by title).
+                if model.listDateStyle == .beside || (model.listDateStyle == .groups && model.sort == .title) {
                     Text(Self.label(for: model.listDate == .edited ? note.modified : note.created))
                         .font(.caption)
                         .foregroundStyle(.secondary)

@@ -121,6 +121,9 @@ final class EditorSession: NSObject, ObservableObject {
     /// Places to show in notes about to open, by note: taken as each one's text view arrives.
     private static var pendingReveals: [Note.ID: NSRange] = [:]
 
+    /// Whether a place is waiting to be shown in note `id` as it opens.
+    static func hasPendingReveal(in id: Note.ID) -> Bool { pendingReveals[id] != nil }
+
     /// Opens at `range` in note `id`: at once if it's open, or as soon as it opens.
     static func reveal(_ range: NSRange, in id: Note.ID) {
         pendingReveals[id] = range

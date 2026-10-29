@@ -247,12 +247,16 @@ struct AppCommands: Commands {
                 Text("Date Modified").tag(VaultModel.TagOrder.modified)
             }
             Divider()
-            Toggle("Show Dates in List", isOn: $store.showsDateInList)
-            Picker("List Dates", selection: $store.listDate) {
+            Picker("Dates in List", selection: $store.listDateStyle) {
+                Text("In Groups").tag(VaultModel.ListDateStyle.groups)
+                Text("Beside Titles").tag(VaultModel.ListDateStyle.beside)
+                Text("Hidden").tag(VaultModel.ListDateStyle.off)
+            }
+            Picker("Date Shown in List", selection: $store.listDate) {
                 Text("Date Edited").tag(VaultModel.ListDate.edited)
                 Text("Date Created").tag(VaultModel.ListDate.created)
             }
-            .disabled(!store.showsDateInList)
+            .disabled(store.listDateStyle != .beside)
             Toggle("Show Tags in List", isOn: $store.showsTagsInList)
             Divider()
             Button((model?.showsNoteList ?? true) ? "Hide Note List" : "Show Note List") { model?.showsNoteList.toggle() }

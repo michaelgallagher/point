@@ -725,9 +725,11 @@ final class VaultStore: ObservableObject {
     @Published var swipesSidebar = UserDefaults.standard.bool(forKey: "swipesSidebar") {
         didSet { UserDefaults.standard.set(swipesSidebar, forKey: "swipesSidebar") }
     }
-    /// On unless turned off.
-    @Published var showsDateInList = UserDefaults.standard.object(forKey: "showsDateInList") == nil || UserDefaults.standard.bool(forKey: "showsDateInList") {
-        didSet { UserDefaults.standard.set(showsDateInList, forKey: "showsDateInList") }
+    /// In groups unless chosen otherwise, or unless dates were turned off (when they were on
+    /// or off, before they could be grouped).
+    @Published var listDateStyle = VaultModel.ListDateStyle(rawValue: UserDefaults.standard.string(forKey: "listDateStyle") ?? "")
+        ?? (UserDefaults.standard.object(forKey: "showsDateInList") as? Bool == false ? .off : .groups) {
+        didSet { UserDefaults.standard.set(listDateStyle.rawValue, forKey: "listDateStyle") }
     }
     @Published var listDate = VaultModel.ListDate(rawValue: UserDefaults.standard.string(forKey: "listDate") ?? "") ?? .edited {
         didSet { UserDefaults.standard.set(listDate.rawValue, forKey: "listDate") }

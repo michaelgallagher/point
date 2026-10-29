@@ -11,10 +11,13 @@ struct NoteEditor: View {
     @StateObject private var connections: Connections
     /// The pane it's in, where links clicked in it open.
     let paneID: VaultModel.NotePane.ID
+    /// The tab it's in, which keeps where it was in the note (see `VaultModel.notePlaces`).
+    let tabID: VaultModel.NoteTab.ID?
     /// Whether to offer templates while the note is empty (a note just made).
     var offersTemplates = false
-    init(note: Note, model: VaultModel, paneID: VaultModel.NotePane.ID, offersTemplates: Bool = false) {
+    init(note: Note, model: VaultModel, paneID: VaultModel.NotePane.ID, tabID: VaultModel.NoteTab.ID? = nil, offersTemplates: Bool = false) {
         self.paneID = paneID
+        self.tabID = tabID
         self.offersTemplates = offersTemplates
         _session = StateObject(wrappedValue: EditorSession(note: note, drafts: model.store.drafts))
         _connections = StateObject(wrappedValue: Connections(note: note, model: model))
@@ -38,7 +41,7 @@ struct NoteEditor: View {
             } else if session.isLoaded {
                 // The header (path, title, properties) is inside the editor, so it scrolls
                 // away with the text instead of taking up room above it.
-                EditorView(session: session, model: model, paneID: paneID, offersTemplates: offersTemplates,
+                EditorView(session: session, model: model, paneID: paneID, tabID: tabID, offersTemplates: offersTemplates,
                            showsMarkdown: model.showsMarkdown, textScale: model.textScale, typography: model.store.typography,
                            textColumnWidth: model.store.textColumnWidth)
             } else {
@@ -323,6 +326,7 @@ private struct EditorView: NSViewRepresentable {
     let session: EditorSession
     let model: VaultModel
     let paneID: VaultModel.NotePane.ID
+    let tabID: VaultModel.NoteTab.ID?
     let offersTemplates: Bool
     /// Passed as a value, not read from the model, so SwiftUI updates the view when it changes.
     let showsMarkdown: Bool
@@ -340,7 +344,15 @@ private struct EditorView: NSViewRepresentable {
         // stays with the side being worked on (an editor on the other side, rebuilt when the
         // window splits, mustn't take it).
         let isActivePane = model.paneIndex(paneID) == model.activePane
+        // Back where this tab left the note, unless it's opening at a place in it (a link's).
+        let placeKey = tabID.map { VaultModel.placeKey(tab: $0, note: session.note.id) }
+        var place = EditorSession.hasPendingReveal(in: session.note.id) ? nil : placeKey.flatMap { model.notePlaces[$0] }
+        context.coordinator.placeKey = placeKey
+        context.coordinator.model = model
         session.attach(textView, takesFocus: !model.consumeListFocus() && isActivePane)
+        if let selection = place?.selection, NSMaxRange(selection) <= (textView.string as NSString).length {
+            textView.setSelectedRange(selection)
+        }
         // Hidden until the header's height is known, so the text doesn't show at the top for a
         // moment and then move down.
         textView.alphaValue = 0
@@ -348,6 +360,9 @@ private struct EditorView: NSViewRepresentable {
             session: session, model: model, offersTemplates: offersTemplates,
             onHeight: { [weak textView, animator = HeaderHeightAnimator(textView: textView)] height in
                 animator.move(to: height)
+                // Scrolled back once the text is below the header, where it'll stay.
+                if let scroll = place?.scroll { textView?.scroll(to: scroll) }
+                place = nil
                 textView?.alphaValue = 1
             }
         ))
@@ -397,7 +412,15 @@ private struct EditorView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
+    /// Keeps where the note was, for its tab to come back to.
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        guard let textView = scrollView.documentView as? MarkdownTextView, let key = coordinator.placeKey else { return }
+        coordinator.model?.notePlaces[key] = VaultModel.NotePlace(scroll: textView.scrollAnchor, selection: textView.selectedRange())
+    }
+
     final class Coordinator {
         var notesGeneration = 0
+        var placeKey: String?
+        weak var model: VaultModel?
     }
 }

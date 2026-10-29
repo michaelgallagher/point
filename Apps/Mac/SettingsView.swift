@@ -217,15 +217,19 @@ struct SettingsView: View {
 
             SettingsSection("Note list") {
                 VStack(alignment: .leading, spacing: 6) {
-                    Toggle("Show dates", isOn: $store.showsDateInList)
+                    Picker("Dates", selection: $store.listDateStyle) {
+                        Text("In groups: Today, Yesterday, then by month and year").tag(VaultModel.ListDateStyle.groups)
+                        Text("Beside each title").tag(VaultModel.ListDateStyle.beside)
+                        Text("Not shown").tag(VaultModel.ListDateStyle.off)
+                    }
+                    .pickerStyle(.radioGroup)
+                    // Beside each title. (Groups follow the date the notes are sorted by.)
                     Picker("Date shown", selection: $store.listDate) {
                         Text("Date edited").tag(VaultModel.ListDate.edited)
                         Text("Date created").tag(VaultModel.ListDate.created)
                     }
                     .pickerStyle(.radioGroup)
-                    .labelsHidden()
-                    .padding(.leading, 20)
-                    .disabled(!store.showsDateInList)
+                    .disabled(store.listDateStyle != .beside)
                     Toggle("Show tags", isOn: $store.showsTagsInList)
                 }
             }

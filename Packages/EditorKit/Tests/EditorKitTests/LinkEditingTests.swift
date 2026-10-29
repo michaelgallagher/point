@@ -66,6 +66,63 @@ struct LinkEditingTests {
         #expect(view.tokens.contains { $0.kind == .wikiLink(target: "Imprint App") })
     }
 
+    @Test func noSuggestionIsChosenUntilPicked() {
+        let view = EditorTestSupport.makeEditor("See [[2026-10-2", height: 300)
+        view.completeNoteTitle = { _ in ["2026-10-20 Budget review", "2026-10-28 Weekly planning"] }
+        view.setSelectionDirectly(NSRange(location: 15, length: 0))
+        var index = 0
+        _ = view.completions(forPartialWordRange: NSRange(location: 6, length: 9), indexOfSelectedItem: &index)
+        #expect(index == -1)
+    }
+
+    @Test func typingOnKeepsWhatWasTyped() {
+        // A key typed while the list shows a title ends the completion with what was typed:
+        // the title isn't kept.
+        let view = EditorTestSupport.makeEditor("See [[2026-10-28", height: 300)
+        view.completeNoteTitle = { _ in ["2026-10-28 Weekly planning"] }
+        view.setSelectionDirectly(NSRange(location: 16, length: 0))
+        let partial = NSRange(location: 6, length: 10)
+        var index = 0
+        _ = view.completions(forPartialWordRange: partial, indexOfSelectedItem: &index)
+        view.isTypingKey = true
+        view.insertCompletion("2026-10-28 Weekly planning", forPartialWordRange: partial, movement: NSOtherTextMovement, isFinal: true)
+        view.isTypingKey = false
+        #expect(view.string == "See [[2026-10-28")
+    }
+
+    @Test func returnWithNothingPickedLeavesTheLinkOpen() {
+        let view = EditorTestSupport.makeEditor("See [[2026-10-28", height: 300)
+        view.completeNoteTitle = { _ in ["2026-10-28 Weekly planning"] }
+        view.setSelectionDirectly(NSRange(location: 16, length: 0))
+        let partial = NSRange(location: 6, length: 10)
+        var index = 0
+        _ = view.completions(forPartialWordRange: partial, indexOfSelectedItem: &index)
+        view.insertCompletion("2026-10-28", forPartialWordRange: partial, movement: NSReturnTextMovement, isFinal: true)
+        #expect(view.string == "See [[2026-10-28")
+    }
+
+    @Test func clickingASuggestionFinishesTheLink() {
+        let view = EditorTestSupport.makeEditor("See [[2026-10", height: 300)
+        view.completeNoteTitle = { _ in ["2026-10-28 Weekly planning"] }
+        view.setSelectionDirectly(NSRange(location: 13, length: 0))
+        let partial = NSRange(location: 6, length: 7)
+        var index = 0
+        _ = view.completions(forPartialWordRange: partial, indexOfSelectedItem: &index)
+        view.insertCompletion("2026-10-28 Weekly planning", forPartialWordRange: partial, movement: NSOtherTextMovement, isFinal: true)
+        #expect(view.string == "See [[2026-10-28 Weekly planning]]")
+    }
+
+    @Test func escapeKeepsWhatWasTyped() {
+        let view = EditorTestSupport.makeEditor("See [[2026-10", height: 300)
+        view.completeNoteTitle = { _ in ["2026-10-28 Weekly planning"] }
+        view.setSelectionDirectly(NSRange(location: 13, length: 0))
+        let partial = NSRange(location: 6, length: 7)
+        var index = 0
+        _ = view.completions(forPartialWordRange: partial, indexOfSelectedItem: &index)
+        view.insertCompletion("2026-10-28 Weekly planning", forPartialWordRange: partial, movement: NSCancelTextMovement, isFinal: true)
+        #expect(view.string == "See [[2026-10")
+    }
+
     @Test func completionDoesntDoubleExistingBrackets() {
         let view = EditorTestSupport.makeEditor("See [[Imp]]", height: 300)
         view.completeNoteTitle = { _ in ["Imprint App"] }

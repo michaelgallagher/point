@@ -45,7 +45,7 @@ final class VaultModel: ObservableObject {
     var templates: [(name: String, url: URL)] { store.templates }
 
     var sort: NoteSort { get { store.sort } set { store.sort = newValue } }
-    var showsDateInList: Bool { get { store.showsDateInList } set { store.showsDateInList = newValue } }
+    var listDateStyle: ListDateStyle { get { store.listDateStyle } set { store.listDateStyle = newValue } }
     var listDate: ListDate { get { store.listDate } set { store.listDate = newValue } }
     var showsTagsInList: Bool { get { store.showsTagsInList } set { store.showsTagsInList = newValue } }
     var showsMarkdown: Bool { get { store.showsMarkdown } set { store.showsMarkdown = newValue } }
@@ -270,6 +270,18 @@ final class VaultModel: ObservableObject {
     var openWindowHandler: ((Note.ID?) -> Void)?
     /// A note just made with ⌘N in the Minimal layout, which offers templates while empty.
     @Published var freshNoteID: Note.ID?
+
+    /// Where each tab was in each note it showed, kept as its editor goes (another tab
+    /// chosen, or another note opened in it), to go back to the same place: by tab and note
+    /// (see `placeKey`). For this run of the app only.
+    var notePlaces: [String: NotePlace] = [:]
+
+    struct NotePlace {
+        var scroll: MarkdownTextView.ScrollAnchor?
+        var selection: NSRange
+    }
+
+    static func placeKey(tab: NoteTab.ID, note: Note.ID) -> String { tab.uuidString + "|" + note }
 
     /// The note in the active pane's current tab. Setting it opens a note there, or moves to
     /// the tab where it's already open.
@@ -1148,6 +1160,9 @@ final class VaultModel: ObservableObject {
     // MARK: Browsing styles
 
     enum ListDate: String { case edited, created }
+    /// How the note list shows dates: beside each title, as headings over the notes (Today,
+    /// October, 2025…), or not at all.
+    enum ListDateStyle: String, CaseIterable { case beside, groups, off }
 
     /// One list you move through, or folders and tags beside a list of notes.
     enum BrowsingStyle: String, CaseIterable, Identifiable {
