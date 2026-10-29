@@ -82,7 +82,7 @@ A single flat list of notes won't scale, so the sidebar browses folders and tags
 - **Rows:** the filename is the main thing. No preview line.
 - **Sort:** most recently edited first by default. Can switch to alphabetical, or to date created.
 - **Optional row details:** a date (last edited by default, or date created) and tags. Both are off unless turned on.
-- **Dates in groups** (28 October 2026): in a narrow list the dates crowded the titles, so by default the notes go under headings instead: Today, Yesterday, Previous 7 Days, each month of this year, then each year. The headings follow the date the list is sorted by. Sorted by title, there are no groups and the date shows beside each title. Settings has In groups, Beside each title, or Not shown. Anyone who had dates turned off keeps them off.
+- **Dates in groups** (28 October 2026): in a narrow list the dates crowded the titles, so by default the notes go under headings instead: Today, Yesterday, Previous 7 Days, each month of this year, then each year. The headings follow the date the list is sorted by. Sorted by title, there are no groups and the date shows beside each title. Settings has In groups, Beside each title, or Not shown. Anyone who had dates turned off keeps them off. The notes under a heading are indented 12 points, so the headings stand out (29 October 2026).
 
 ## Focus mode (Mac)
 

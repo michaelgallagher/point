@@ -934,6 +934,8 @@ struct SidebarNoteRow: View {
             }
         }
         .padding(.horizontal, 8)
+        // Under date headings, indented, so the headings stand out.
+        .padding(.leading, model.listDateStyle == .groups && model.sort != .title ? 12 : 0)
         .frame(maxHeight: .infinity, alignment: .center)
         .help(note.id)
     }
