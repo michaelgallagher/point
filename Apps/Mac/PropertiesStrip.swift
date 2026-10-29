@@ -367,7 +367,7 @@ private struct PropertyValue: View {
             case .list, .tags, .aliases:
                 TokenEditor(items: Self.items(of: property, as: type), isTags: type == .tags,
                             suggestions: { typed, items in type == .tags ? model.store.tagSuggestions(for: typed, excluding: items) : [] },
-                            link: link, commit: { set($0) })
+                            noteTitles: model.titleSuggestions(for:), link: link, commit: { set($0) })
             case .checkbox:
                 Toggle("", isOn: Binding(
                     get: { property.values.first?.lowercased() == "true" },
@@ -378,7 +378,8 @@ private struct PropertyValue: View {
             case .date, .datetime:
                 DateValue(property: property, hasTime: type == .datetime, set: set)
             case .text, .number:
-                TextValue(property: property, isNumber: type == .number, link: link, set: set)
+                TextValue(property: property, isNumber: type == .number, link: link,
+                          noteTitles: type == .number ? { _ in [] } : model.titleSuggestions(for:), set: set)
             }
         }
     }
@@ -447,11 +448,81 @@ struct PropertyLink {
     }
 }
 
+/// A field's placeholder ("Empty"), drawn over it while it's empty: the field's own was
+/// darker until clicked into, then the system's lighter grey, which looked like it moved.
+private struct PropertyPlaceholder: ViewModifier {
+    let text: String
+    let isShown: Bool
+
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .leading) {
+            if isShown {
+                Text(text)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+}
+
+/// A `[[wikilink]]` being typed at the end of a field: where its `[[` starts, and the title
+/// typed so far (none once it's closed with `]]` or has a `|` label).
+func wikiLinkBeingTyped(in text: String) -> (start: String.Index, partial: String)? {
+    guard let open = text.range(of: "[[", options: .backwards) else { return nil }
+    let partial = text[open.upperBound...]
+    guard !partial.contains("]") && !partial.contains("|") else { return nil }
+    return (open.lowerBound, String(partial))
+}
+
+/// Suggestions under a field, as outlined capsules to click: tags from the vault, or the
+/// titles of notes for a `[[link]]` being typed.
+private struct SuggestionChips: View {
+    let suggestions: [String]
+    let pick: (String) -> Void
+
+    var body: some View {
+        FlowLayout(spacing: 4) {
+            ForEach(suggestions, id: \.self) { suggestion in
+                Button { pick(suggestion) } label: {
+                    Text(suggestion)
+                        .lineLimit(1)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 1)
+                        .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.4)))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+/// Tab takes the first suggestion, while there are any (macOS 14 and later).
+private struct TakesFirstSuggestion: ViewModifier {
+    let suggestions: [String]
+    let pick: (String) -> Void
+
+    func body(content: Content) -> some View {
+        if #available(macOS 14, *) {
+            content.onKeyPress(.tab) {
+                guard let first = suggestions.first else { return .ignored }
+                pick(first)
+                return .handled
+            }
+        } else {
+            content
+        }
+    }
+}
+
 /// Text, or a number, in a field: Return or clicking away saves it.
 private struct TextValue: View {
     let property: Frontmatter.Property
     let isNumber: Bool
     let link: (String) -> PropertyLink?
+    /// Note titles for a `[[link]]` being typed, best first.
+    let noteTitles: (String) -> [String]
     let set: ([String]) -> Void
     @State private var text = ""
     @State private var isEditing = false
@@ -504,9 +575,32 @@ private struct TextValue: View {
         DispatchQueue.main.async { isFocused = true }
     }
 
+    /// Notes whose titles fit a `[[link]]` being typed.
+    private var linkSuggestions: [String] {
+        guard isFocused, let typing = wikiLinkBeingTyped(in: text) else { return [] }
+        return Array(noteTitles(typing.partial).prefix(8))
+    }
+
+    /// Finishes the `[[link]]` being typed with a note's title.
+    private func finishLink(_ title: String) {
+        guard let typing = wikiLinkBeingTyped(in: text) else { return }
+        text = String(text[..<typing.start]) + "[[" + title + "]]"
+    }
+
     private var field: some View {
-        TextField("Empty", text: $text)
+        VStack(alignment: .leading, spacing: 4) {
+            plainField
+                .modifier(TakesFirstSuggestion(suggestions: linkSuggestions, pick: finishLink))
+            if !linkSuggestions.isEmpty {
+                SuggestionChips(suggestions: linkSuggestions, pick: finishLink)
+            }
+        }
+    }
+
+    private var plainField: some View {
+        TextField("", text: $text)
             .textFieldStyle(.plain)
+            .modifier(PropertyPlaceholder(text: "Empty", isShown: text.isEmpty))
             .focused($isFocused)
             .onSubmit(commit)
             .onChange(of: isFocused) { focused in
@@ -570,6 +664,8 @@ private struct TokenEditor: View {
     let items: [String]
     let isTags: Bool
     let suggestions: (String, [String]) -> [String]
+    /// Note titles for a `[[link]]` being typed as an item, best first.
+    var noteTitles: (String) -> [String] = { _ in [] }
     var link: (String) -> PropertyLink? = { _ in nil }
     let commit: ([String]) -> Void
     @State private var draft = ""
@@ -585,31 +681,34 @@ private struct TokenEditor: View {
                 }
                 field
             }
-            // Matching tags from the vault while typing one.
-            let matches = isFocused ? suggestions(draft, items) : []
+            // Matching tags from the vault while typing one, or notes while typing a link.
             if !matches.isEmpty {
-                FlowLayout(spacing: 4) {
-                    ForEach(matches, id: \.self) { tag in
-                        Button {
-                            draft = ""
-                            commit(items + [tag])
-                        } label: {
-                            Text(tag)
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 1)
-                                .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.4)))
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
+                SuggestionChips(suggestions: matches, pick: pick)
             }
         }
     }
 
+    /// What to suggest for what's typed: notes for a `[[link]]`, otherwise tags (for tags).
+    private var matches: [String] {
+        guard isFocused else { return [] }
+        if !isTags, let typing = wikiLinkBeingTyped(in: draft) {
+            return Array(noteTitles(typing.partial).prefix(8))
+        }
+        return suggestions(draft, items)
+    }
+
+    /// Adds a suggestion as an item: a note as a link to it.
+    private func pick(_ suggestion: String) {
+        let isLink = !isTags && wikiLinkBeingTyped(in: draft) != nil
+        draft = ""
+        commit(items + [isLink ? "[[" + suggestion + "]]" : suggestion])
+    }
+
     @ViewBuilder private var field: some View {
-        let base = TextField(items.isEmpty ? "Empty" : "Add…", text: $draft)
+        let base = TextField("", text: $draft)
             .textFieldStyle(.plain)
+            .modifier(PropertyPlaceholder(text: items.isEmpty ? "Empty" : "Add…", isShown: draft.isEmpty))
+            .modifier(TakesFirstSuggestion(suggestions: matches, pick: pick))
             .frame(minWidth: 60, maxWidth: 160)
             .fixedSize(horizontal: false, vertical: true)
             .focused($isFocused)

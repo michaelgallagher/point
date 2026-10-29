@@ -54,6 +54,8 @@ Part of [the plan](../PLAN.md).
   - **Adding properties:** a note without frontmatter needs a visible way to add one ("Add Property"). Typing YAML into the note doesn't create frontmatter, because `---` on its own line is a horizontal rule until the closing `---` exists.
   - **Dates:** date properties get a date picker, so dates never have to be typed.
   - **Web addresses:** a value that's a whole `http` or `https` address shows in the link colour, with an arrow after it (as web links in notes have) that opens it in the browser. The address itself stays an ordinary field, to select and edit. In a list, an address is a link, as a `[[wikilink]]` is (29 October 2026).
+  - **Links in properties:** typing `[[` in a text or list property suggests notes by title, as chips under the field, as tags are suggested. Click one, or Tab for the first, to finish the link (29 October 2026).
+  - **Placeholders:** "Empty" and "Add…" are drawn over the field, so they look the same clicked into or not. The field's own placeholder was darker until clicked into, then lighter, which looked like it moved (29 October 2026).
   - **Keys column:** as wide as the longest key, up to 240 points (was 180, and 4 points short of the key, which cut long keys) (29 October 2026).
 - **Headings:** H1 26pt bold. H2 18pt semibold. H3 body size, bold. H4 body size, italic, not bold. H5 and H6 match H4.
 - **Links:** wikilinks look as they do now. Web links get a small `arrow.up.right.circle` symbol after them, so the two are easy to tell apart. The symbol takes up space in the line, which slightly changes how text flows.

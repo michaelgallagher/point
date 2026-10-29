@@ -14,6 +14,7 @@ enum DebugSnapshots {
         scrollNoteIfAsked(for: model)
         scrollTestIfAsked(for: model)
         markerClickTestIfAsked(for: model)
+        focusFieldIfAsked(for: model)
         clickBackIfAsked(for: model)
         clickTreeIfAsked(for: model)
         cycleSidebarIfAsked(for: model)
@@ -376,6 +377,63 @@ enum DebugSnapshots {
             }
             NotificationCenter.default.removeObserver(observer)
             NSApp.terminate(nil)
+        }
+    }
+
+    /// `-PointFocusField <n>`: four seconds in (after `-PointScrollNote` has opened a note),
+    /// saves pictures of the window before the nth text field in it has the keyboard, with
+    /// it, and after, to `-PointWindowSnapshot`'s path with -1, -2 and -3 added; then quits.
+    /// `-PointFocusType <text>` types that into it first (`«` for `[`), and `-PointFocusTab YES`
+    /// then presses Tab; the note's file is traced at the end.
+    private static func focusFieldIfAsked(for model: VaultModel) {
+        guard UserDefaults.standard.object(forKey: "PointFocusField") != nil,
+              let path = UserDefaults.standard.string(forKey: "PointWindowSnapshot") else { return }
+        let index = UserDefaults.standard.integer(forKey: "PointFocusField")
+        func shot(_ n: Int) { save(model.window, to: URL(fileURLWithPath: path.replacingOccurrences(of: ".png", with: "-\(n).png"))) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+            guard let window = model.window else { return }
+            let fields = views(of: NSTextField.self, in: window.contentView).filter { $0.isEditable }
+            Trace.mark("focus test: fields \(fields.map { "\($0.placeholderString ?? "") \($0.convert($0.bounds, to: nil))" })")
+            guard fields.indices.contains(index) else { return }
+            shot(1)
+            // A click on the field, through the window, as a person's would go.
+            func click(at point: NSPoint) {
+                for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                    if let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                      windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                        if type == .leftMouseUp { NSApp.postEvent(event, atStart: false) } else { window.sendEvent(event) }
+                    }
+                }
+            }
+            let frame = fields[index].convert(fields[index].bounds, to: nil)
+            click(at: NSPoint(x: frame.minX + 20, y: frame.midY))
+            if let typed = UserDefaults.standard.string(forKey: "PointFocusType")?.replacingOccurrences(of: "«", with: "[") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    (window.firstResponder as? NSTextView)?.insertText(typed, replacementRange: NSRange(location: NSNotFound, length: 0))
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                Trace.mark("focus test: first responder \(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")")
+                shot(2)
+                if UserDefaults.standard.bool(forKey: "PointFocusTab"),
+                   let tab = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                              windowNumber: window.windowNumber, context: nil, characters: "\t", charactersIgnoringModifiers: "\t",
+                                              isARepeat: false, keyCode: 48) {
+                    window.sendEvent(tab)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        Trace.mark("focus test: after Tab, field holds \((window.firstResponder as? NSTextView)?.string ?? "-")")
+                    }
+                }
+                // Away again, after Tab has had its effect.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { window.makeFirstResponder(nil) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+                    shot(3)
+                    if let note = model.note(model.selection) {
+                        Trace.mark("focus test: file now\n" + ((try? String(contentsOf: note.url, encoding: .utf8)) ?? "?"))
+                    }
+                    NSApp.terminate(nil)
+                }
+            }
         }
     }
 
