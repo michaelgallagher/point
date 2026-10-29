@@ -69,13 +69,20 @@ extension VaultModel {
             if !pins.isEmpty { sections.append(section(.pinned, pins.map { .place($0, depth: 0) })) }
             // Shown one at a time, folders or tags have no label of their own, and can't be
             // folded away: the switch names them, and folding the only one would leave nothing.
-            func tree(_ name: SidebarSection, _ rows: [SidebarRow]) -> [SidebarRow] {
-                oneAtATime ? rows : section(name, rows)
+            // Straight below the switch (no pins between), they go on from it with no divider.
+            func addTree(_ name: SidebarSection, _ rows: [SidebarRow]) {
+                if !oneAtATime {
+                    sections.append(section(name, rows))
+                } else if pins.isEmpty {
+                    sections[0] += rows
+                } else {
+                    sections.append(rows)
+                }
             }
             if !oneAtATime || treeKind == .folders {
                 // The tree starts with the vault itself, for the notes at its top level.
                 let top: [SidebarRow] = content == .places ? [.place(.allNotes, depth: 0)] : []
-                if !subplaces.isEmpty || !top.isEmpty { sections.append(tree(.folders, top + folderRows(subplaces, depth: 0))) }
+                if !subplaces.isEmpty || !top.isEmpty { addTree(.folders, top + folderRows(subplaces, depth: 0)) }
             }
             if !tagTree.entries.isEmpty, !oneAtATime || treeKind == .tags {
                 // Nested tags show beneath a tag that's unfolded, as subfolders do.
@@ -83,7 +90,7 @@ extension VaultModel {
                     let parts = entry.tag.split(separator: "/")
                     return (1..<max(parts.count, 1)).allSatisfy { expanded.contains(Self.expansionKey(.tag(parts.prefix($0).joined(separator: "/")))) }
                 }
-                sections.append(tree(.tags, tags.map { .place(.tag($0.tag), depth: $0.depth) }))
+                addTree(.tags, tags.map { .place(.tag($0.tag), depth: $0.depth) })
             }
         } else if !subplaces.isEmpty {
             // Inside a folder (or tag) with folders (or tags) in it: labelled, as at the top.
@@ -330,7 +337,7 @@ struct SidebarTable: NSViewRepresentable {
             case .header, .dateGroup: model.sidebarDensity.headerHeight
             case .divider: model.sidebarDensity.dividerHeight
             case .place, .trashed: model.sidebarDensity.rowHeight
-            case .treeSwitch: model.sidebarDensity.rowHeight + 10
+            case .treeSwitch: model.sidebarDensity.rowHeight + 18
             case .note(let id):
                 // Two lines only for a note that has tags to show.
                 Self.noteHeight(hasTags: model.showsTagsInList && !model.listTags(for: id).isEmpty, density: model.sidebarDensity)
@@ -876,6 +883,8 @@ struct SidebarRowView: View {
         case .treeSwitch:
             CapsuleToggle(selection: .constant(model.treeKind))
                 .padding(.horizontal, 8)
+                // Some room above, apart from the trash.
+                .padding(.top, 8)
                 .frame(maxHeight: .infinity)
         case .trashed(let trashed):
             HStack(spacing: 6) {

@@ -75,7 +75,7 @@ A single flat list of notes won't scale, so the sidebar browses folders and tags
 - **New notes:** ⌘N inside a folder creates the note there. Elsewhere, it goes to the vault root.
 - **Moving notes:** drag a note onto a folder, or use "Move to Folder…". Links that spell out a path are updated, and so are the moved note's own relative links.
 - **Search** always covers the whole vault, wherever you are in the sidebar.
-- **Folders and tags one at a time** (the Folders/Tags switch): no heading under the switch, and they can't be folded away. The switch already names them. Their sort is on the switch's right-click menu, and on each folder's and tag's (28 October 2026).
+- **Folders and tags one at a time** (the Folders/Tags switch): no heading under the switch, and they can't be folded away. The switch already names them. Their sort is on the switch's right-click menu, and on each folder's and tag's (28 October 2026). No divider between the switch and its list, and a little room above the switch (29 October 2026).
 
 ## Note list
 
