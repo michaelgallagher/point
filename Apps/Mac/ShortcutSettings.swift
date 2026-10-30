@@ -11,32 +11,28 @@ struct ShortcutSettings: View {
     @State private var notice: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Click a shortcut and press the keys for it. Escape leaves it as it was; Delete removes it.")
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer()
-                Button("Restore Defaults") {
-                    shortcuts.resetAll()
-                    notice = nil
+        Form {
+            Section {
+                HStack {
+                    Text("Click a shortcut and press the keys for it. Escape leaves it as it was; Delete removes it.")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Restore Defaults") {
+                        shortcuts.resetAll()
+                        notice = nil
+                    }
+                    .disabled(shortcuts.changes.isEmpty)
                 }
-                .disabled(shortcuts.changes.isEmpty)
-            }
-            if let notice {
-                Label(notice, systemImage: "info.circle")
-                    .foregroundStyle(.secondary)
+                if let notice {
+                    Label(notice, systemImage: "info.circle")
+                        .foregroundStyle(.secondary)
+                }
             }
             ForEach(ShortcutAction.menus, id: \.self) { menu in
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(menu == "Highlight List Item" ? "Format › Highlight List Item" : menu)
-                        .font(.body.weight(.bold))
-                    Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 4) {
-                        ForEach(ShortcutAction.allCases.filter { $0.menu == menu }) { action in
-                            GridRow {
-                                Text(action.title)
-                                    .frame(minWidth: 220, alignment: .leading)
-                                ShortcutRecorder(action: action, recording: $recording, notice: $notice)
+                Section(menu == "Highlight List Item" ? "Format › Highlight List Item" : menu) {
+                    ForEach(ShortcutAction.allCases.filter { $0.menu == menu }) { action in
+                        LabeledContent(action.title) {
+                            HStack(spacing: 8) {
                                 Button {
                                     shortcuts.reset(action)
                                     notice = nil
@@ -47,6 +43,7 @@ struct ShortcutSettings: View {
                                 .help("Back to \(action.defaultShortcut?.label ?? "none")")
                                 .opacity(shortcuts.isChanged(action) ? 1 : 0)
                                 .disabled(!shortcuts.isChanged(action))
+                                ShortcutRecorder(action: action, recording: $recording, notice: $notice)
                             }
                         }
                     }
@@ -74,12 +71,16 @@ private struct ShortcutRecorder: View {
             Text(isRecording ? "Type a shortcut…" : shortcuts.label(for: action) ?? "None")
                 .monospacedDigit()
                 .foregroundStyle(isRecording ? Color.accentColor : shortcuts.label(for: action) == nil ? .secondary : .primary)
-                .frame(minWidth: 120)
+                .frame(width: 104)
         }
         .onChange(of: isRecording) { recording in
             if recording { startRecording() } else { stopRecording() }
         }
-        .onDisappear { stopRecording() }
+        // A row can leave the screen while the form scrolls: recording ends with it.
+        .onDisappear {
+            stopRecording()
+            if isRecording { recording = nil }
+        }
     }
 
     /// Takes the next key pressed, before the menus (or anything else) can.
