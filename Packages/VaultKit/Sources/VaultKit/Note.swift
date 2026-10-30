@@ -53,3 +53,39 @@ extension Sequence where Element == Note {
         }
     }
 }
+
+/// Headings for a note list sorted by date, newest first: Today, Yesterday, Previous 7 Days,
+/// then each month of this year (October), then each year before it (2025).
+public enum NoteDateGroup {
+    /// The heading a note with this date goes under.
+    public static func label(for date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
+        // A date in the future (a clock set wrong somewhere) counts as today.
+        if days <= 0 { return "Today" }
+        if days == 1 { return "Yesterday" }
+        if days < 7 { return "Previous 7 Days" }
+        var format = Date.FormatStyle(calendar: calendar, timeZone: calendar.timeZone)
+        if calendar.component(.year, from: date) == calendar.component(.year, from: now) {
+            format = format.month(.wide)
+        } else {
+            format = format.year()
+        }
+        return date.formatted(format)
+    }
+
+    /// The notes, in their order, under their headings: a heading starts wherever the label
+    /// changes. Only for the date sorts; sorted by title, there are none.
+    public static func grouped(_ notes: [Note], by sort: NoteSort, now: Date = Date(), calendar: Calendar = .current) -> [(label: String, notes: [Note])] {
+        guard sort != .title else { return [] }
+        var groups: [(label: String, notes: [Note])] = []
+        for note in notes {
+            let label = label(for: sort == .created ? note.created : note.modified, now: now, calendar: calendar)
+            if groups.last?.label == label {
+                groups[groups.count - 1].notes.append(note)
+            } else {
+                groups.append((label, [note]))
+            }
+        }
+        return groups
+    }
+}
