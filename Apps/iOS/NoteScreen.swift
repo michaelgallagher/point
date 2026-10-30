@@ -27,12 +27,16 @@ struct NoteScreen: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu("More", systemImage: "ellipsis") {
                         Button("Find in Note", systemImage: "text.magnifyingglass") { session.find("") }
+                        Button("Properties", systemImage: "list.bullet.rectangle") { session.showsProperties = true }
                         let bookmarked = store.isBookmarked(session.note.id)
                         Button(bookmarked ? "Remove Bookmark" : "Bookmark", systemImage: bookmarked ? "bookmark.slash" : "bookmark") {
                             store.toggleBookmark(session.note.id)
                         }
                     }
                 }
+            }
+            .sheet(isPresented: $session.showsProperties) {
+                PropertiesSheet(session: session).environmentObject(store)
             }
             .onAppear { store.noteOpened(session.note.id) }
             .onChange(of: store.findRequest) { _, text in
@@ -110,6 +114,10 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     private let store: PhoneStore
     weak var textView: PhoneTextView?
     weak var titleField: TitleView?
+    weak var header: NoteHeader?
+    /// The note's frontmatter, as its text is now.
+    @Published private(set) var frontmatter: Frontmatter?
+    @Published var showsProperties = false
     /// Why a title couldn't be used (the name's taken, say), until dismissed.
     @Published private(set) var titleProblem: String?
 
@@ -147,6 +155,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         let read = (CACurrentMediaTime() - readStart) * 1000
         let load = textView.load(text)
         onDisk = text
+        noteFrontmatter(of: text)
         if let draft = store.drafts.draft(for: note.id) {
             if draft.text == text { store.drafts.remove(for: note.id) } else { recoveredDraft = draft }
         }
@@ -185,6 +194,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
 
     func changed(_ text: String) {
         guard let textView else { return }
+        noteFrontmatter(of: text)
         if text != onDisk { store.noteEdited(note.id) }
         if showsTimings {
             timings = "\(openedTimings)\nLast keystroke \(String(format: "%.1f", textView.lastEditMilliseconds)) ms, slowest \(String(format: "%.1f", textView.slowestEditMilliseconds)) ms"
@@ -215,6 +225,40 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
                 + (kept ? " Your changes are kept." : " Copy them somewhere safe.")
             return false
         }
+    }
+
+    // MARK: Properties
+
+    private func noteFrontmatter(of text: String) {
+        let parsed = text.hasPrefix("---") ? Frontmatter.parse(text) : nil
+        guard parsed != frontmatter || frontmatter == nil else { return }
+        frontmatter = parsed
+        header?.showSummary(parsed.flatMap { $0.properties.isEmpty ? nil : Self.summary(of: $0) })
+    }
+
+    /// "3 properties · #work #idea"
+    private static func summary(of frontmatter: Frontmatter) -> String {
+        let count = frontmatter.properties.count
+        var parts = ["\(count) \(count == 1 ? "property" : "properties")"]
+        let tags = frontmatter.tags
+        if !tags.isEmpty { parts.append(tags.map { "#\($0)" }.joined(separator: " ")) }
+        return parts.joined(separator: " · ")
+    }
+
+    func setProperty(_ key: String, to values: [String], isList: Bool) {
+        let edit = frontmatter?.edit(setting: key, to: values, isList: isList)
+            ?? Frontmatter.edit(adding: key, values: values, isList: isList)
+        textView?.applyAboveBody(edit.0, with: edit.1)
+    }
+
+    func renameProperty(_ key: String, to newKey: String) {
+        guard let textView, let edit = frontmatter?.edit(renaming: key, to: newKey, in: textView.text) else { return }
+        textView.applyAboveBody(edit.0, with: edit.1)
+    }
+
+    func removeProperty(_ key: String) {
+        guard let edit = frontmatter?.edit(removing: key) else { return }
+        textView?.applyAboveBody(edit.0, with: edit.1)
     }
 
     // MARK: The title
@@ -248,6 +292,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     /// The title grew or shrank by a line: the note's text moves to suit.
     func textViewDidChange(_ textView: UITextView) {
         titleField?.updatePlaceholder()
+        header?.setNeedsLayout()
         self.textView?.setNeedsLayout()
     }
 
@@ -327,12 +372,56 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     }
 }
 
+/// What's above a note's text: its title, and below that a line summing up its properties, if
+/// it has any, which opens them.
+final class NoteHeader: UIView {
+    let title = TitleView()
+    var onSummary: (() -> Void)?
+    private let summary = UIButton(type: .system)
+    private static let summaryHeight: CGFloat = 20
+    private static let gap: CGFloat = 4
+
+    init() {
+        super.init(frame: .zero)
+        addSubview(title)
+        addSubview(summary)
+        summary.isHidden = true
+        summary.contentHorizontalAlignment = .leading
+        summary.titleLabel?.font = .preferredFont(forTextStyle: .footnote)
+        summary.titleLabel?.lineBreakMode = .byTruncatingTail
+        summary.setTitleColor(.secondaryLabel, for: .normal)
+        summary.addAction(UIAction { [weak self] _ in self?.onSummary?() }, for: .touchUpInside)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("Not used") }
+
+    func showSummary(_ text: String?) {
+        summary.setTitle(text, for: .normal)
+        summary.isHidden = text == nil
+        superview?.setNeedsLayout()
+    }
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        let height = title.sizeThatFits(size).height
+        return CGSize(width: size.width, height: height + (summary.isHidden ? 0 : Self.gap + Self.summaryHeight))
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let height = title.sizeThatFits(bounds.size).height
+        title.frame = CGRect(x: 0, y: 0, width: bounds.width, height: height)
+        summary.frame = CGRect(x: 0, y: height + Self.gap, width: bounds.width, height: Self.summaryHeight)
+    }
+}
+
 /// A note's title: as many lines as it needs, scrolling with the note rather than by itself.
 final class TitleView: UITextView {
     override var text: String! {
         didSet {
             updatePlaceholder()
             superview?.setNeedsLayout()
+            superview?.superview?.setNeedsLayout()
         }
     }
     private let placeholder = UILabel()
@@ -371,10 +460,13 @@ struct EditorView: UIViewRepresentable {
         let textView = PhoneTextView()
         session.textView = textView
         // The title, at the top, scrolling with the text.
-        let title = TitleView()
+        let header = NoteHeader()
+        let title = header.title
         title.delegate = session
         session.titleField = title
-        textView.header = title
+        session.header = header
+        header.onSummary = { [weak session] in session?.showsProperties = true }
+        textView.header = header
         let bar = FormatBar(textView: textView)
         textView.inputAccessoryView = bar
         textView.onCompletionChange = { [weak bar, weak session] completion in

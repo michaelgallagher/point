@@ -65,6 +65,7 @@ final class PhoneStore: ObservableObject {
         notes = scanned
         folders = (result?.folders ?? []).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         bookmarks = ObsidianBookmarks.load(vault: root)
+        propertyTypes = PropertyTypes.load(vault: root)
         // Notes left untitled when the app last stopped (none is open yet): named, or removed.
         if !isLaunched {
             isLaunched = true
@@ -144,6 +145,32 @@ final class PhoneStore: ObservableObject {
                         modified: Date(), created: Date(), isDownloaded: true)
         notes.append(note)
         return note.id
+    }
+
+    // MARK: Property types
+
+    /// The vault's property types, kept where Obsidian keeps them.
+    @Published private(set) var propertyTypes = PropertyTypes()
+
+    func setPropertyType(_ type: PropertyType, forKey key: String) {
+        guard propertyTypes.type(forKey: key) != type else { return }
+        propertyTypes.set(type, forKey: key)
+        saveTypes()
+    }
+
+    /// A property renamed in a note: its type goes with the new name, for that name.
+    func renamePropertyType(_ key: String, to newKey: String) {
+        let before = propertyTypes
+        propertyTypes.rename(key, to: newKey)
+        if propertyTypes != before { saveTypes() }
+    }
+
+    private func saveTypes() {
+        do {
+            try propertyTypes.save(vault: root)
+        } catch {
+            PhoneVault.log("couldn't save property types: \(error.localizedDescription)")
+        }
     }
 
     // MARK: New notes

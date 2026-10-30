@@ -136,6 +136,24 @@ public final class PhoneTextView: UITextView {
         replace(range, withText: edit.replacement)
         selectedRange = edit.selection
     }
+
+    /// Replaces text in the frontmatter, keeping the cursor on the same text in the body. This
+    /// goes straight to the text, not through the text system as `apply` does: with a field in
+    /// the properties sheet focused, the text system punctuates what's inserted to suit that
+    /// field, and `---` came out as a dash.
+    public func applyAboveBody(_ range: NSRange, with replacement: String) {
+        let old = (textStorage.string as NSString).substring(with: range)
+        let length = (replacement as NSString).length
+        undoManager?.registerUndo(withTarget: self) {
+            $0.applyAboveBody(NSRange(location: range.location, length: length), with: old)
+        }
+        var selection = selectedRange
+        if selection.location >= NSMaxRange(range) { selection.location += length - range.length }
+        textStorage.replaceCharacters(in: range, with: replacement)
+        // Restyled now, so the frontmatter's end is known before the cursor goes back.
+        restylePending()
+        selectedRange = selection
+    }
 }
 
 extension PhoneTextView: UITextViewDelegate {

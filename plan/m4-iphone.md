@@ -183,7 +183,7 @@ After Mike tried it, home became like the Notes app's list of folders:
 
 ## Mike's notes, worked through (30 October 2026)
 
-After Mike tried it. These change "What it leaves out": the app now has sorting, a search page with commands, and (still to come) a properties editor. It's no longer two screens and a button. The real vault waits; Mike said not yet.
+After Mike tried it. These change "What it leaves out": the app now has sorting, a search page with commands, and a properties editor. It's no longer two screens and a button. The real vault waits; Mike said not yet.
 
 **The order:** lists and titles, then editing, then search, then properties, then the real vault.
 
@@ -196,6 +196,9 @@ After Mike tried it. These change "What it leaves out": the app now has sorting,
 - **The editor (`PhoneTextView`):** Return continues lists and quotes. The frontmatter can't be selected, typed in or deleted. A checkbox ticks on a tap. A link opens on a tap while reading; with the keyboard up, the tap places the cursor, so a link's text can be edited. A link to a note that doesn't exist makes it, as on the Mac.
 - **Coming back:** the app reopens the note being worked on the same day, with the cursor where it was and the keyboard up, until going home or opening another note.
 - **Search (`SearchScreen`):** a page of its own, from the bottom toolbar of every page, the note included. It opens with the field not focused, so its lists can be seen and picked from: Recent (opened on this phone, five at most, without the current note), Bookmarks, Commands. Typing shows results in their place. From a note, the first result is "Find in …" with a count, as Safari's "On This Page": it goes back to the note and opens the system's find bar, also in the note's ⋯ menu. A note picked from search takes the search page's place, so Back goes to where search was opened from. This, not tabs, is how to switch notes.
+- **Properties (`NoteHeader`, `PropertiesSheet`):** a line under the title sums them up ("5 properties · #work #plans") and opens the sheet, also in the ⋯ menu, for notes with none yet. Each value edits to suit its type, as on the Mac: fields, a switch, the system's date picker, tokens for lists and tags. Tap the icon to change the type, the name to rename, swipe to delete. Types are kept in `.obsidian/types.json`. A value nested under its key is left for the Mac.
+
+**Found and fixed: `---` saved as a dash.** Adding the first property to a note wrote `-—` in place of the frontmatter's fences. `replace(_:withText:)` punctuates what's inserted unless the view is the one focused, whatever its own smart-punctuation settings, so anything set from the sheet could change (quotes and `--` too). `applyAboveBody` now changes the text directly and does its own undo. Checkbox taps still use `replace`, and only ever insert a space or an `x`.
 
 **Decided (Mike):**
 - Search opens without focus.
@@ -205,11 +208,10 @@ After Mike tried it. These change "What it leaves out": the app now has sorting,
 
 **Tried:** in the Simulator, on sample notes: every item above but the items marked below. `MarkdownEditingTests` passes.
 
-**Not tried:** the iPhone itself; the keyboard's autocorrection and suggestions around Return; the Heading menu, indent buttons by tap, and the bar scrolling (their commands were run, not tapped); `#` suggestions on screen (tested as logic).
+**Not tried:** the iPhone itself; the keyboard's autocorrection and suggestions around Return; the Heading menu, indent buttons by tap, and the bar scrolling (their commands were run, not tapped); `#` suggestions on screen (tested as logic). In the properties sheet: the date-and-time picker, a nested value, the repeated-key warning, tag suggestions.
 
 **Still to do:**
 - Suggestions on the search page (between Bookmarks and Commands): the current note's links and backlinks are a good start.
-- Properties: the summary line, then the sheet. `Frontmatter` and `PropertyTypes` are shared; edits should go through the open note's text, for saving and undo.
 - From the Mac's editor: backspace at the start of a heading or list item removes its formatting (on the phone it deletes a hidden marker), and the cursor rules around hidden markers.
 - Tag pills stick out past the left margin.
 - Links with other schemes (`zoommtg:`): the Mac asks first; the phone ignores them for now.
