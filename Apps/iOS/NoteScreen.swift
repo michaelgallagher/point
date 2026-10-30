@@ -125,7 +125,10 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     }
 
     /// Going to the background (the phone locked, another app): saved.
-    @objc private func resignActive() { save() }
+    @objc private func resignActive() {
+        save()
+        if let textView { store.noteCursor(textView.selectedRange.location) }
+    }
 
     func open() {
         guard let textView else { return }
@@ -141,8 +144,13 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
             if draft.text == text { store.drafts.remove(for: note.id) } else { recoveredDraft = draft }
         }
         titleField?.text = store.isUntitled(note.id) ? "" : note.title
-        // A new note: straight to typing its title.
-        if isNew { focusTitle() }
+        // A new note: straight to typing its title. Come back to: straight back to typing.
+        if isNew {
+            focusTitle()
+        } else if let cursor = store.resumeCursor(for: note.id) {
+            textView.selectedRange = NSRange(location: min(cursor, (text as NSString).length), length: 0)
+            textView.becomeFirstResponder()
+        }
         openedTimings = "Read \(Int(read)) ms, shown \(Int(load)) ms (\(text.count / 1000)k characters)"
         if showsTimings {
             timings = openedTimings

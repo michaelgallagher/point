@@ -22,6 +22,8 @@ struct HomeScreen: View {
     /// The note just made with New Note, which opens with the cursor in its title.
     @State private var newNote: Note.ID?
     @State private var showsSettings = false
+    /// Whether the note being worked on has had its chance to reopen, once, at launch.
+    @State private var hasResumed = false
     /// New Folder: where it goes ("" for the top level), and the name being typed.
     @State private var newFolderParent: String?
     @State private var newFolderName = ""
@@ -69,7 +71,17 @@ struct HomeScreen: View {
             }
         }
         .onAppear { if quickActions.newNoteRequests > 0 { createNote() } }
+        .onChange(of: path) { _, path in
+            // Home, or another note: that's the end of coming back to this one.
+            guard let working = store.workingOn?.note.id else { return }
+            if case .note(let id)? = path.last, store.currentID(id) == working { return }
+            store.stopWorking()
+        }
         .onChange(of: store.notes) { _, notes in
+            if !hasResumed, !notes.isEmpty {
+                hasResumed = true
+                if path.isEmpty, let id = store.resumeWorking() { path = [.note(id)] }
+            }
             // `-SpikeTypeTest YES` opens the long note by itself, to time typing in it.
             if UserDefaults.standard.bool(forKey: "SpikeTypeTest"), path.isEmpty,
                let long = notes.first(where: { $0.title == PhoneVault.longTitle }) {

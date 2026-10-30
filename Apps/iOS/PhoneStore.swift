@@ -359,6 +359,29 @@ final class PhoneStore: ObservableObject {
         return (note, date)
     }
 
+    /// Where the cursor was in the note being worked on, kept for coming back to it.
+    func noteCursor(_ location: Int) { UserDefaults.standard.set(location, forKey: "workingOnCursor") }
+
+    /// Going home, or to another note: the app no longer comes back to this one.
+    func stopWorking() { UserDefaults.standard.removeObject(forKey: "workingOn") }
+
+    /// Coming back into the note being worked on, at launch: its ID, its cursor kept for
+    /// `resumeCursor(for:)`.
+    func resumeWorking() -> Note.ID? {
+        guard let id = workingOn?.note.id else { return nil }
+        resuming = (id, UserDefaults.standard.integer(forKey: "workingOnCursor"))
+        return id
+    }
+
+    private var resuming: (id: Note.ID, cursor: Int)?
+
+    /// Where to put the cursor in a note being opened, if it's being come back to.
+    func resumeCursor(for id: Note.ID) -> Int? {
+        guard let resuming, resuming.id == id else { return nil }
+        self.resuming = nil
+        return resuming.cursor
+    }
+
     // MARK: Bookmarks
 
     func isBookmarked(_ id: Note.ID) -> Bool { bookmarks.contains { $0.path == id } }
