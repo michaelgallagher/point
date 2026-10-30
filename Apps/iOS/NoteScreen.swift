@@ -343,6 +343,7 @@ struct EditorView: UIViewRepresentable {
         title.delegate = session
         session.titleField = title
         textView.header = title
+        textView.inputAccessoryView = FormatBar(textView: textView)
         textView.onTextChange = { [weak session] in session?.changed($0) }
         DispatchQueue.main.async { session.open() }
         return textView

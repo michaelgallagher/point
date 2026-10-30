@@ -114,6 +114,11 @@ public final class PhoneTextView: UITextView {
         selectedRange = NSRange(location: bodyStart, length: 0)
     }
 
+    /// Runs a formatting command on the selection.
+    public func format(_ command: (MarkdownEditing) -> MarkdownEdit?) {
+        if let edit = command(MarkdownEditing(text: textStorage.string, selection: selectedRange)) { apply(edit) }
+    }
+
     /// Makes an edit through the text system, so it can be undone, and sets the selection.
     public func apply(_ edit: MarkdownEdit) {
         guard let start = position(from: beginningOfDocument, offset: edit.range.location),

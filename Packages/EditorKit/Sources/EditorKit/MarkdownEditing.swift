@@ -265,7 +265,8 @@ public struct MarkdownEditing {
         return nil
     }
 
-    private func inserting(_ string: String) -> MarkdownEdit {
+    /// Puts `string` in place of the selection, the cursor after it.
+    public func inserting(_ string: String) -> MarkdownEdit {
         MarkdownEdit(range: selection, replacement: string, selection: NSRange(location: selection.location + (string as NSString).length, length: 0))
     }
 
