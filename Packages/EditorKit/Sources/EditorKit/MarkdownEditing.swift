@@ -282,4 +282,64 @@ public struct MarkdownEditing {
         let replacement = "[[" + text.substring(with: inner) + "]]"
         return MarkdownEdit(range: inner, replacement: replacement, selection: NSRange(location: inner.location + (replacement as NSString).length, length: 0))
     }
+
+    // MARK: Completing
+
+    /// What's being typed at the cursor that can be completed: `partial`, after `[[` or `#`, at
+    /// `range`.
+    public struct Completion: Equatable, Sendable {
+        public enum Kind: Sendable { case note, tag }
+        public let kind: Kind
+        public let partial: String
+        public let range: NSRange
+    }
+
+    /// The completion at a cursor, if there is one. Static, without parsing: it's asked each
+    /// time the cursor moves.
+    public static func completion(in text: String, at cursor: Int) -> Completion? {
+        let text = text as NSString
+        guard cursor <= text.length else { return nil }
+        let line = text.lineRange(for: NSRange(location: cursor, length: 0))
+        let before = text.substring(with: NSRange(location: line.location, length: cursor - line.location)) as NSString
+
+        let open = before.range(of: "[[", options: .backwards)
+        if open.location != NSNotFound {
+            let partial = before.substring(from: NSMaxRange(open))
+            if !partial.contains("]") {
+                return Completion(kind: .note, partial: partial, range: NSRange(location: line.location + NSMaxRange(open), length: (partial as NSString).length))
+            }
+        }
+
+        // A tag: `#` at the start of a word, then what a tag can hold, up to the cursor.
+        var start = before.length
+        while start > 0, let scalar = Unicode.Scalar(before.character(at: start - 1)),
+              CharacterSet.alphanumerics.contains(scalar) || "_-/".unicodeScalars.contains(scalar) { start -= 1 }
+        guard start > 0, before.character(at: start - 1) == 35 else { return nil } // #
+        if start > 1, let scalar = Unicode.Scalar(before.character(at: start - 2)), !CharacterSet.whitespaces.contains(scalar) { return nil }
+        let partial = before.substring(from: start)
+        return Completion(kind: .tag, partial: partial, range: NSRange(location: line.location + start, length: (partial as NSString).length))
+    }
+
+    /// Finishes a completion: a note's title with the brackets closed (past any already
+    /// there), or a tag followed by a space.
+    public func complete(_ completion: Completion, with choice: String) -> MarkdownEdit {
+        switch completion.kind {
+        case .note:
+            // Up to any closing brackets on the line: the cursor can be partway through a link.
+            let start = completion.range.location
+            let end = NSMaxRange(completion.range)
+            let line = text.lineRange(for: NSRange(location: end, length: 0))
+            let close = text.range(of: "]]", options: [], range: NSRange(location: end, length: NSMaxRange(line) - end))
+            guard close.location != NSNotFound else {
+                let replacement = choice + "]]"
+                return MarkdownEdit(range: completion.range, replacement: replacement, selection: NSRange(location: start + (replacement as NSString).length, length: 0))
+            }
+            return MarkdownEdit(range: NSRange(location: start, length: close.location - start), replacement: choice,
+                                selection: NSRange(location: start + (choice as NSString).length + 2, length: 0))
+        case .tag:
+            let replacement = choice + " "
+            return MarkdownEdit(range: completion.range, replacement: replacement,
+                                selection: NSRange(location: completion.range.location + (replacement as NSString).length, length: 0))
+        }
+    }
 }

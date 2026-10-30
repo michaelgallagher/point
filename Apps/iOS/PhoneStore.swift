@@ -102,6 +102,37 @@ final class PhoneStore: ObservableObject {
         }
     }
 
+    /// Note titles for completing a `[[link`, as on the Mac: names starting with the typed text
+    /// first, then names with a word starting with it, then names containing it anywhere.
+    func titleSuggestions(for partial: String) -> [String] {
+        let query = partial.lowercased().trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return Array(recent.prefix(20).map(\.title)) }
+        func rank(_ title: String) -> Int? {
+            let lowered = title.lowercased()
+            if lowered.hasPrefix(query) { return 0 }
+            if lowered.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).contains(where: { $0.hasPrefix(query) }) { return 1 }
+            if lowered.contains(query) { return 2 }
+            return nil
+        }
+        var ranked: [(title: String, rank: Int)] = []
+        for note in notes {
+            if let rank = rank(note.title) { ranked.append((note.title, rank)) }
+        }
+        ranked.sort { $0.rank != $1.rank ? $0.rank < $1.rank : $0.title.count < $1.title.count }
+        var seen = Set<String>()
+        var titles: [String] = []
+        for entry in ranked where titles.count < 20 && seen.insert(entry.title.lowercased()).inserted {
+            titles.append(entry.title)
+        }
+        return titles
+    }
+
+    /// Tags for completing a `#tag`: those starting with the typed text.
+    func tagSuggestions(for partial: String) -> [String] {
+        let query = partial.lowercased()
+        return Array(tags.map(\.tag).filter { $0.lowercased().hasPrefix(query) }.prefix(20))
+    }
+
     private func createLinkedNote(named target: String) -> Note.ID? {
         let name = target.split(separator: "#").first.map(String.init) ?? target
         let title = NoteFiles.sanitizedTitle((name as NSString).lastPathComponent)

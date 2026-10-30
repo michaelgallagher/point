@@ -21,6 +21,9 @@ public final class PhoneTextView: UITextView {
     public private(set) var lastParseMilliseconds: Double = 0
     /// Called after each edit, with the text as it is now.
     public var onTextChange: ((String) -> Void)?
+    /// Called as the cursor moves into or out of a `[[link` or `#tag` being typed.
+    public var onCompletionChange: ((MarkdownEditing.Completion?) -> Void)?
+    private var completion: MarkdownEditing.Completion?
     /// Called when a link is tapped.
     public var onOpenLink: ((LinkTarget) -> Void)?
     /// A view above the text (the note's title), scrolling with it, as wide as the text.
@@ -156,7 +159,7 @@ extension PhoneTextView: UITextViewDelegate {
     public func textViewDidChangeSelection(_ textView: UITextView) {
         let start = bodyStart
         let selection = selectedRange
-        guard selection.location < start else { return }
+        guard selection.location < start else { return updateCompletion() }
         selectedRange = NSRange(location: start, length: max(NSMaxRange(selection) - start, 0))
     }
 }
@@ -190,6 +193,15 @@ extension PhoneTextView: @preconcurrency NSTextStorageDelegate {
         restyle(edited)
         let text = textStorage.string
         onTextChange?(text)
+        updateCompletion()
+    }
+
+    /// Says when what can be completed at the cursor has changed.
+    func updateCompletion() {
+        let new = selectedRange.length == 0 ? MarkdownEditing.completion(in: textStorage.string, at: selectedRange.location) : nil
+        guard new != completion else { return }
+        completion = new
+        onCompletionChange?(new)
     }
 
     /// Parses the note again and restyles `edited` (all of it, if a code block or frontmatter

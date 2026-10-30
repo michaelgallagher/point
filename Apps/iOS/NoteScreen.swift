@@ -153,6 +153,14 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
 
     func open(_ link: LinkTarget) { store.open(link, from: note.id) }
 
+    /// What the format bar offers for a `[[link` or `#tag` being typed.
+    func choices(for completion: MarkdownEditing.Completion) -> [String] {
+        switch completion.kind {
+        case .note: store.titleSuggestions(for: completion.partial).filter { $0 != note.title }
+        case .tag: store.tagSuggestions(for: completion.partial)
+        }
+    }
+
     func changed(_ text: String) {
         guard let textView else { return }
         if text != onDisk { store.noteEdited(note.id) }
@@ -345,7 +353,11 @@ struct EditorView: UIViewRepresentable {
         title.delegate = session
         session.titleField = title
         textView.header = title
-        textView.inputAccessoryView = FormatBar(textView: textView)
+        let bar = FormatBar(textView: textView)
+        textView.inputAccessoryView = bar
+        textView.onCompletionChange = { [weak bar, weak session] completion in
+            bar?.show(completion, choices: completion.flatMap { session?.choices(for: $0) } ?? [])
+        }
         textView.onTextChange = { [weak session] in session?.changed($0) }
         textView.onOpenLink = { [weak session] in session?.open($0) }
         DispatchQueue.main.async { session.open() }

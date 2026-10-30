@@ -102,4 +102,43 @@ struct MarkdownEditingTests {
         let word = MarkdownEditing(text: "a note", selection: NSRange(location: 2, length: 4)).wikiLink()
         #expect(word == MarkdownEdit(range: NSRange(location: 2, length: 4), replacement: "[[note]]", selection: NSRange(location: 10, length: 0)))
     }
+
+    @Test func findsWhatCanBeCompleted() {
+        func completion(_ marked: String) -> MarkdownEditing.Completion? {
+            let (text, selection) = Self.parse(marked)
+            return MarkdownEditing.completion(in: text, at: selection.location)
+        }
+        #expect(completion("see [[Te|")?.partial == "Te")
+        #expect(completion("see [[Te|")?.kind == .note)
+        #expect(completion("see [[|]]")?.partial == "")
+        #expect(completion("see [[Team]] and|") == nil)
+        #expect(completion("#wo|")?.partial == "wo")
+        #expect(completion("a #work/po|")?.partial == "work/po")
+        #expect(completion("a #work/po|")?.kind == .tag)
+        #expect(completion("# Hea|ding") == nil)
+        #expect(completion("a#b|") == nil)
+        #expect(completion("plain|") == nil)
+    }
+
+    @Test func completes() {
+        let open = "see [[Te"
+        let openEdit = MarkdownEditing(text: open, selection: NSRange(location: 8, length: 0))
+            .complete(MarkdownEditing.completion(in: open, at: 8)!, with: "Team sync")
+        #expect(openEdit == MarkdownEdit(range: NSRange(location: 6, length: 2), replacement: "Team sync]]", selection: NSRange(location: 17, length: 0)))
+
+        let closed = "[[]] after"
+        let closedEdit = MarkdownEditing(text: closed, selection: NSRange(location: 2, length: 0))
+            .complete(MarkdownEditing.completion(in: closed, at: 2)!, with: "Team")
+        #expect(closedEdit == MarkdownEdit(range: NSRange(location: 2, length: 0), replacement: "Team", selection: NSRange(location: 8, length: 0)))
+
+        let middle = "[[Team sync]] after"
+        let middleEdit = MarkdownEditing(text: middle, selection: NSRange(location: 4, length: 0))
+            .complete(MarkdownEditing.completion(in: middle, at: 4)!, with: "Tea party")
+        #expect(middleEdit == MarkdownEdit(range: NSRange(location: 2, length: 9), replacement: "Tea party", selection: NSRange(location: 13, length: 0)))
+
+        let tag = "a #wo"
+        let tagEdit = MarkdownEditing(text: tag, selection: NSRange(location: 5, length: 0))
+            .complete(MarkdownEditing.completion(in: tag, at: 5)!, with: "work")
+        #expect(tagEdit == MarkdownEdit(range: NSRange(location: 3, length: 2), replacement: "work ", selection: NSRange(location: 8, length: 0)))
+    }
 }
