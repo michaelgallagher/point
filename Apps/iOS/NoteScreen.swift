@@ -202,7 +202,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         if text == "\n" {
             commitTitle()
             self.textView?.becomeFirstResponder()
-            self.textView?.selectedRange = NSRange(location: 0, length: 0)
+            self.textView?.moveToBodyStart()
             return false
         }
         guard text.rangeOfCharacter(from: .newlines) != nil else { return true }

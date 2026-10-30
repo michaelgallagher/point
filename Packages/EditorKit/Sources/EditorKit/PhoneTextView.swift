@@ -3,9 +3,9 @@ import MarkdownKit
 import UIKit
 
 /// The note editor on the iPhone: a `UITextView` on TextKit 1, sharing the Mac's styler and
-/// layout manager, so notes look the same and the Markdown stays hidden. The first version,
-/// for the spike: styling and restyling as you type, without the Mac's folding, cursor rules
-/// or formatting commands yet.
+/// layout manager, so notes look the same and the Markdown stays hidden. It restyles as you
+/// type, and takes the Mac's formatting commands as edits (`MarkdownEditing`), but doesn't yet
+/// have its folding or cursor rules.
 public final class PhoneTextView: UITextView {
     public private(set) var tokens: [MarkdownToken] = []
     private var styler = MarkdownStyler()
@@ -48,6 +48,7 @@ public final class PhoneTextView: UITextView {
         pointLayoutManager = layoutManager
         super.init(frame: .zero, textContainer: container)
         storage.delegate = self
+        delegate = self
         styler.theme.typography.bodySize = 17 // The iPhone's own body size.
         styler.theme.typography.headings[0].size = 22.0 / 17 // Below the note's title, at 24.
         layoutManager.theme = styler.theme
@@ -91,13 +92,63 @@ public final class PhoneTextView: UITextView {
         pendingRestyle = nil
         restyle(NSRange(location: 0, length: textStorage.length))
         undoManager?.removeAllActions()
-        selectedRange = NSRange(location: 0, length: 0)
+        selectedRange = NSRange(location: bodyStart, length: 0)
         layoutIfNeeded()
         // What's on screen, laid out now.
         pointLayoutManager.ensureLayout(forBoundingRect: CGRect(origin: .zero, size: bounds.size), in: textContainer)
         return (CACurrentMediaTime() - start) * 1000
     }
 
+    /// Where the note's body starts: after its frontmatter, which is hidden and edited as
+    /// properties, so nothing above this can be selected, typed in or deleted.
+    public var bodyStart: Int {
+        guard let token = tokens.first, token.kind == .frontmatter, token.range.length > 0 else { return 0 }
+        let text = textStorage.string as NSString
+        let last = min(NSMaxRange(token.range) - 1, text.length - 1)
+        guard last >= 0 else { return 0 }
+        return NSMaxRange(text.lineRange(for: NSRange(location: last, length: 0)))
+    }
+
+    /// Puts the cursor at the start of the note's body.
+    public func moveToBodyStart() {
+        selectedRange = NSRange(location: bodyStart, length: 0)
+    }
+
+    /// Makes an edit through the text system, so it can be undone, and sets the selection.
+    public func apply(_ edit: MarkdownEdit) {
+        guard let start = position(from: beginningOfDocument, offset: edit.range.location),
+              let end = position(from: start, offset: edit.range.length),
+              let range = textRange(from: start, to: end) else { return }
+        replace(range, withText: edit.replacement)
+        selectedRange = edit.selection
+    }
+}
+
+extension PhoneTextView: UITextViewDelegate {
+    /// Keeps edits out of the frontmatter, and has Return continue lists and quotes.
+    public func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+        let start = bodyStart
+        guard range.location >= start else { return false }
+        let content = textStorage.string as NSString
+        // A note that's only frontmatter, with no line break after it: typing starts a new line.
+        if start > 0, start == content.length, content.character(at: start - 1) != 10, !text.isEmpty {
+            apply(MarkdownEdit(range: range, replacement: "\n" + text, selection: NSRange(location: start + 1 + (text as NSString).length, length: 0)))
+            return false
+        }
+        if text == "\n", let edit = MarkdownEditing(text: textStorage.string, selection: range).newline() {
+            apply(edit)
+            return false
+        }
+        return true
+    }
+
+    /// Never into the hidden frontmatter: what's selected can be deleted.
+    public func textViewDidChangeSelection(_ textView: UITextView) {
+        let start = bodyStart
+        let selection = selectedRange
+        guard selection.location < start else { return }
+        selectedRange = NSRange(location: start, length: max(NSMaxRange(selection) - start, 0))
+    }
 }
 
 extension PhoneTextView: @preconcurrency NSTextStorageDelegate {
