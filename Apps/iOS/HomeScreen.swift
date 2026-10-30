@@ -94,7 +94,7 @@ struct HomeScreen: View {
                 }
                 let folders = store.subfolders(of: "")
                 if !folders.isEmpty {
-                    Section("Folders") {
+                    Section {
                         ForEach(folders, id: \.self) { folder in
                             NavigationLink(value: Route.folder(folder)) { FolderRow(folder: folder) }
                         }
@@ -102,7 +102,7 @@ struct HomeScreen: View {
                 }
                 let notes = store.notes(in: "")
                 if !notes.isEmpty {
-                    Section("Notes") {
+                    Section {
                         ForEach(notes) { note in NoteLink(note: note) }
                     }
                 }
@@ -216,14 +216,14 @@ struct FolderScreen: View {
         let notes = store.notes(in: folder)
         List {
             if !folders.isEmpty {
-                Section("Folders") {
+                Section {
                     ForEach(folders, id: \.self) { folder in
                         NavigationLink(value: Route.folder(folder)) { FolderRow(folder: folder) }
                     }
                 }
             }
             if !notes.isEmpty {
-                Section("Notes") {
+                Section {
                     ForEach(notes) { note in NoteLink(note: note) }
                 }
             }
