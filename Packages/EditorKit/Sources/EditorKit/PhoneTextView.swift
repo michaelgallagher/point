@@ -9,7 +9,9 @@ import UIKit
 public final class PhoneTextView: UITextView {
     public private(set) var tokens: [MarkdownToken] = []
     private var styler = MarkdownStyler()
-    private let pointLayoutManager: PointLayoutManager
+    let pointLayoutManager: PointLayoutManager
+    /// Decides which taps are for `PhoneTextView+Links`.
+    var tapFilter: NSObject?
 
     /// How long the last edit took to parse and restyle, in milliseconds, and the slowest so
     /// far: what typing costs on this phone.
@@ -19,6 +21,8 @@ public final class PhoneTextView: UITextView {
     public private(set) var lastParseMilliseconds: Double = 0
     /// Called after each edit, with the text as it is now.
     public var onTextChange: ((String) -> Void)?
+    /// Called when a link is tapped.
+    public var onOpenLink: ((LinkTarget) -> Void)?
     /// A view above the text (the note's title), scrolling with it, as wide as the text.
     public var header: UIView? {
         didSet {
@@ -49,6 +53,7 @@ public final class PhoneTextView: UITextView {
         super.init(frame: .zero, textContainer: container)
         storage.delegate = self
         delegate = self
+        addTapRecognizer()
         styler.theme.typography.bodySize = 17 // The iPhone's own body size.
         styler.theme.typography.headings[0].size = 22.0 / 17 // Below the note's title, at 24.
         layoutManager.theme = styler.theme

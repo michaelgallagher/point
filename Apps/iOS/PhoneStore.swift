@@ -1,3 +1,4 @@
+import EditorKit
 import Foundation
 import IndexKit
 import MarkdownKit
@@ -78,6 +79,37 @@ final class PhoneStore: ObservableObject {
             PhoneVault.log("indexed \(changed) notes in \(Int((CACurrentMediaTime() - indexStart) * 1000)) ms")
             if !searchText.isEmpty { scheduleSearch() }
         }
+    }
+
+    // MARK: Links
+
+    /// Where a tapped link leads, for home's navigation to go to.
+    @Published var linkedRoute: Route?
+
+    /// Follows a link in a note, as on the Mac: a link to a note that doesn't exist makes it.
+    func open(_ link: LinkTarget, from sourceID: Note.ID) {
+        let resolver = LinkResolver(notes: notes)
+        switch link {
+        case .note(let target):
+            let id = resolver.resolve(wikiTarget: target, from: sourceID)?.id ?? createLinkedNote(named: target)
+            linkedRoute = id.map(Route.note)
+        case .file(let destination):
+            linkedRoute = resolver.resolve(markdownDestination: destination, from: sourceID).map { .note($0.id) }
+        case .web(let url):
+            if LinkTarget.opensWithoutAsking(url) { UIApplication.shared.open(url) }
+        case .tag(let tag):
+            linkedRoute = .tag(tag)
+        }
+    }
+
+    private func createLinkedNote(named target: String) -> Note.ID? {
+        let name = target.split(separator: "#").first.map(String.init) ?? target
+        let title = NoteFiles.sanitizedTitle((name as NSString).lastPathComponent)
+        guard !title.isEmpty, let url = try? NoteFiles.create(title: title, in: root) else { return nil }
+        let note = Note(id: url.lastPathComponent, url: url, title: url.deletingPathExtension().lastPathComponent,
+                        modified: Date(), created: Date(), isDownloaded: true)
+        notes.append(note)
+        return note.id
     }
 
     // MARK: New notes

@@ -58,6 +58,16 @@ struct HomeScreen: View {
         }
         .sheet(isPresented: $showsSettings) { SettingsScreen().environmentObject(store) }
         .onChange(of: quickActions.newNoteRequests) { _, _ in createNote() }
+        .onChange(of: store.linkedRoute) { _, route in
+            guard let route else { return }
+            store.linkedRoute = nil
+            // Back to it if it's open already, or on to it.
+            if let index = path.firstIndex(of: route) {
+                path.removeSubrange((index + 1)...)
+            } else {
+                path.append(route)
+            }
+        }
         .onAppear { if quickActions.newNoteRequests > 0 { createNote() } }
         .onChange(of: store.notes) { _, notes in
             // `-SpikeTypeTest YES` opens the long note by itself, to time typing in it.

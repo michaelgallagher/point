@@ -151,6 +151,8 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         }
     }
 
+    func open(_ link: LinkTarget) { store.open(link, from: note.id) }
+
     func changed(_ text: String) {
         guard let textView else { return }
         if text != onDisk { store.noteEdited(note.id) }
@@ -345,6 +347,7 @@ struct EditorView: UIViewRepresentable {
         textView.header = title
         textView.inputAccessoryView = FormatBar(textView: textView)
         textView.onTextChange = { [weak session] in session?.changed($0) }
+        textView.onOpenLink = { [weak session] in session?.open($0) }
         DispatchQueue.main.async { session.open() }
         return textView
     }
