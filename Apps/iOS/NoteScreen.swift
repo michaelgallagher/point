@@ -96,13 +96,13 @@ private struct Banner<Actions: View>: View {
 /// that fails keeps the edits as a draft, outside the vault, and says so; they're offered back
 /// when the note is next opened.
 @MainActor
-final class NoteSession: NSObject, ObservableObject, UITextFieldDelegate {
+final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     /// The note, renamed as its title is changed.
     @Published private(set) var note: Note
     let isNew: Bool
     private let store: PhoneStore
     weak var textView: PhoneTextView?
-    weak var titleField: UITextField?
+    weak var titleField: TitleView?
     /// Why a title couldn't be used (the name's taken, say), until dismissed.
     @Published private(set) var titleProblem: String?
 
@@ -196,15 +196,30 @@ final class NoteSession: NSObject, ObservableObject, UITextFieldDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in self?.focusTitle(tries: tries - 1) }
     }
 
-    /// Return in the title: on to the note's text, at its start.
-    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        commitTitle()
-        textView?.becomeFirstResponder()
-        textView?.selectedRange = NSRange(location: 0, length: 0)
+    /// Return in the title: on to the note's text, at its start. A title is one line, however
+    /// many it wraps to, so a pasted line break becomes a space.
+    func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+        if text == "\n" {
+            commitTitle()
+            self.textView?.becomeFirstResponder()
+            self.textView?.selectedRange = NSRange(location: 0, length: 0)
+            return false
+        }
+        guard text.rangeOfCharacter(from: .newlines) != nil else { return true }
+        let line = text.components(separatedBy: .newlines).joined(separator: " ")
+        textView.textStorage.replaceCharacters(in: range, with: line)
+        textView.selectedRange = NSRange(location: range.location + (line as NSString).length, length: 0)
+        textViewDidChange(textView)
         return false
     }
 
-    func textFieldDidEndEditing(_ textField: UITextField) { commitTitle() }
+    /// The title grew or shrank by a line: the note's text moves to suit.
+    func textViewDidChange(_ textView: UITextView) {
+        titleField?.updatePlaceholder()
+        self.textView?.setNeedsLayout()
+    }
+
+    func textViewDidEndEditing(_ textView: UITextView) { commitTitle() }
 
     /// Renames the note to the title typed, once its edits are saved. A title left empty
     /// goes back to the note's name (or, for a new note, waits: it's named from its first
@@ -280,6 +295,42 @@ final class NoteSession: NSObject, ObservableObject, UITextFieldDelegate {
     }
 }
 
+/// A note's title: as many lines as it needs, scrolling with the note rather than by itself.
+final class TitleView: UITextView {
+    override var text: String! {
+        didSet {
+            updatePlaceholder()
+            superview?.setNeedsLayout()
+        }
+    }
+    private let placeholder = UILabel()
+
+    init() {
+        super.init(frame: .zero, textContainer: nil)
+        font = .systemFont(ofSize: 24, weight: .bold)
+        backgroundColor = .clear
+        isScrollEnabled = false
+        textContainerInset = .zero
+        textContainer.lineFragmentPadding = 0
+        returnKeyType = .next
+        autocapitalizationType = .sentences
+        placeholder.text = "Title"
+        placeholder.font = font
+        placeholder.textColor = .placeholderText
+        addSubview(placeholder)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("Not used") }
+
+    func updatePlaceholder() { placeholder.isHidden = !text.isEmpty }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        placeholder.frame = bounds
+    }
+}
+
 /// The shared editor, for a note's session.
 struct EditorView: UIViewRepresentable {
     let session: NoteSession
@@ -288,12 +339,7 @@ struct EditorView: UIViewRepresentable {
         let textView = PhoneTextView()
         session.textView = textView
         // The title, at the top, scrolling with the text.
-        let title = UITextField()
-        title.font = .systemFont(ofSize: 28, weight: .bold)
-        title.placeholder = "Title"
-        title.returnKeyType = .next
-        title.autocapitalizationType = .sentences
-        title.clearButtonMode = .never
+        let title = TitleView()
         title.delegate = session
         session.titleField = title
         textView.header = title

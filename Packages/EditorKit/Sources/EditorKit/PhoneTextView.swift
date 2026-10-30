@@ -49,6 +49,7 @@ public final class PhoneTextView: UITextView {
         super.init(frame: .zero, textContainer: container)
         storage.delegate = self
         styler.theme.typography.bodySize = 17 // The iPhone's own body size.
+        styler.theme.typography.headings[0].size = 22.0 / 17 // Below the note's title, at 24.
         layoutManager.theme = styler.theme
         typingAttributes = styler.baseAttributes
         backgroundColor = .systemBackground
