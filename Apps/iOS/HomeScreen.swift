@@ -5,16 +5,15 @@ import VaultKit
 /// Where the app can go: a note, or one of the lists of notes.
 enum Route: Hashable {
     case note(Note.ID)
-    case bookmarks, recent, tags
+    case bookmarks, recent, tags, search
     case tag(String)
     case folder(String)
 }
 
 /// Home, as the Notes app's list of folders: Bookmarks, Recent and Tags, each a page of its
 /// own; the vault's folders; then the notes at its top level. Settings at the top right; along
-/// the bottom, the system's toolbar, with Add (a note or a folder) on the left and search on
-/// the right.
-/// Searching shows results in place.
+/// the bottom, on every page, the system's toolbar, with Add (a note or a folder) on the left
+/// and search, a page of its own, on the right.
 struct HomeScreen: View {
     @EnvironmentObject private var store: PhoneStore
     @ObservedObject private var quickActions = QuickActions.shared
@@ -35,8 +34,6 @@ struct HomeScreen: View {
                 .navigationTitle("Notes")
                 .navigationBarTitleDisplayMode(.large)
                 .navigationDestination(for: Route.self, destination: destination)
-                .searchable(text: $store.searchText, prompt: "Search")
-                .searchToolbarBehavior(.minimize)
                 .refreshable { await store.reload() }
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) { SortMenu() }
@@ -72,8 +69,9 @@ struct HomeScreen: View {
         }
         .onAppear { if quickActions.newNoteRequests > 0 { createNote() } }
         .onChange(of: path) { _, path in
-            // Home, or another note: that's the end of coming back to this one.
-            guard let working = store.workingOn?.note.id else { return }
+            // Home, or another note: that's the end of coming back to this one. (Searching from
+            // it isn't leaving it, until another note is picked.)
+            guard let working = store.workingOn?.note.id, path.last != .search else { return }
             if case .note(let id)? = path.last, store.currentID(id) == working { return }
             store.stopWorking()
         }
@@ -102,32 +100,30 @@ struct HomeScreen: View {
             }
         }
         ToolbarSpacer(.flexible, placement: .bottomBar)
-        DefaultToolbarItem(kind: .search, placement: .bottomBar)
+        ToolbarItem(placement: .bottomBar) {
+            Button("Search", systemImage: "magnifyingglass") { path.append(.search) }
+        }
     }
 
-    @ViewBuilder private var home: some View {
-        if let results = store.searchResults {
-            SearchResults(results: results, searchText: store.searchText)
-        } else {
-            List {
+    private var home: some View {
+        List {
+            Section {
+                NavigationLink(value: Route.bookmarks) { PlaceRow(title: "Bookmarks", symbol: "bookmark", count: store.bookmarks.count) }
+                NavigationLink(value: Route.recent) { PlaceRow(title: "Recent", symbol: "clock", count: nil) }
+                NavigationLink(value: Route.tags) { PlaceRow(title: "Tags", symbol: "number", count: store.tags.count) }
+            }
+            let folders = store.subfolders(of: "")
+            if !folders.isEmpty {
                 Section {
-                    NavigationLink(value: Route.bookmarks) { PlaceRow(title: "Bookmarks", symbol: "bookmark", count: store.bookmarks.count) }
-                    NavigationLink(value: Route.recent) { PlaceRow(title: "Recent", symbol: "clock", count: nil) }
-                    NavigationLink(value: Route.tags) { PlaceRow(title: "Tags", symbol: "number", count: store.tags.count) }
-                }
-                let folders = store.subfolders(of: "")
-                if !folders.isEmpty {
-                    Section {
-                        ForEach(folders, id: \.self) { folder in
-                            NavigationLink(value: Route.folder(folder)) { FolderRow(folder: folder) }
-                        }
+                    ForEach(folders, id: \.self) { folder in
+                        NavigationLink(value: Route.folder(folder)) { FolderRow(folder: folder) }
                     }
                 }
-                NoteSections(notes: store.notes(in: ""))
             }
-            .overlay { if store.notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text",
-                description: Text("Copy notes into Point’s folder in the Files app.")) } }
+            NoteSections(notes: store.notes(in: ""))
         }
+        .overlay { if store.notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text",
+            description: Text("Copy notes into Point’s folder in the Files app.")) } }
     }
 
     @ViewBuilder private func destination(_ route: Route) -> some View {
@@ -135,14 +131,42 @@ struct HomeScreen: View {
         case .note(let id):
             // By its ID now: renamed from its title, it keeps its screen.
             if let note = store.note(store.currentID(id)) {
-                NoteScreen(note: note, store: store, isNew: id == newNote)
+                NoteScreen(note: note, store: store, isNew: id == newNote).toolbar { bottomBar() }
             }
+        case .search:
+            SearchScreen(note: noteBelowSearch, open: openFromSearch, find: findFromSearch, newNote: createNote,
+                         showSettings: { showsSettings = true })
         case .bookmarks: BookmarksScreen().toolbar { bottomBar() }
         case .recent: RecentScreen().toolbar { bottomBar() }
         case .tags: TagsScreen().toolbar { bottomBar() }
         case .tag(let tag): TagScreen(tag: tag).toolbar { bottomBar() }
         case .folder(let folder): FolderScreen(folder: folder).toolbar { bottomBar(in: folder) }
         }
+    }
+
+    /// The note search was opened from, if it was.
+    private var noteBelowSearch: Note? {
+        guard path.count > 1, case .note(let id) = path[path.count - 2] else { return nil }
+        return store.note(store.currentID(id))
+    }
+
+    /// Opens a note in search's place: Back goes to where search was opened from, and a note
+    /// open already is gone back to.
+    private func openFromSearch(_ id: Note.ID) {
+        var path = path
+        path.removeAll { $0 == .search }
+        if let index = path.firstIndex(of: .note(id)) {
+            path.removeSubrange((index + 1)...)
+        } else {
+            path.append(.note(id))
+        }
+        self.path = path
+    }
+
+    /// Back to the note search was opened from, finding `text` there.
+    private func findFromSearch(_ text: String) {
+        path.removeLast()
+        store.findRequest = text
     }
 
     private func createFolder() {
@@ -354,22 +378,8 @@ private struct FolderRow: View {
     }
 }
 
-/// Search results, in place of the lists.
-private struct SearchResults: View {
-    let results: [SearchResult]
-    let searchText: String
-
-    var body: some View {
-        List(results) { result in
-            NavigationLink(value: Route.note(result.id)) { SearchRow(result: result) }
-        }
-        .listStyle(.plain)
-        .overlay { if results.isEmpty { ContentUnavailableView.search(text: searchText) } }
-    }
-}
-
 /// A note's title, as many lines as it needs, and anything to say below it.
-private struct NoteRow: View {
+struct NoteRow: View {
     let title: String
     var detail: String?
 
@@ -383,46 +393,5 @@ private struct NoteRow: View {
                     .monospacedDigit()
             }
         }
-    }
-}
-
-/// A search result: its title, and the matching text with the matches in bold.
-private struct SearchRow: View {
-    let result: SearchResult
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(result.title)
-                .fontWeight(result.matchedTitle ? .semibold : .regular)
-            if let snippet = result.snippet {
-                Text(Self.marked(snippet))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-        }
-    }
-
-    /// The snippet with each match (between `SearchResult.matchStart` and `matchEnd`) bold.
-    static func marked(_ snippet: String) -> AttributedString {
-        var result = AttributedString()
-        var bold = false
-        var run = ""
-        func flush() {
-            var part = AttributedString(run)
-            if bold { part.inlinePresentationIntent = .stronglyEmphasized }
-            result += part
-            run = ""
-        }
-        for character in snippet {
-            if character == SearchResult.matchStart || character == SearchResult.matchEnd {
-                flush()
-                bold = character == SearchResult.matchStart
-            } else {
-                run.append(character)
-            }
-        }
-        flush()
-        return result
     }
 }

@@ -83,6 +83,9 @@ final class PhoneStore: ObservableObject {
 
     // MARK: Links
 
+    /// Text to find in the open note, from search ("" to just open the find bar).
+    @Published var findRequest: String?
+
     /// Where a tapped link leads, for home's navigation to go to.
     @Published var linkedRoute: Route?
 
@@ -324,6 +327,12 @@ final class PhoneStore: ObservableObject {
     var recent: [Note] {
         let opened = opened
         return notes.sorted { max($0.modified, opened[$0.id] ?? .distantPast) > max($1.modified, opened[$1.id] ?? .distantPast) }
+    }
+
+    /// The notes last opened on this phone, for switching between them, newest first.
+    func recentlyOpened(limit: Int, excluding excluded: Note.ID?) -> [Note] {
+        let ids = opened.sorted { $0.value > $1.value }.map(\.key).filter { $0 != excluded }
+        return Array(ids.lazy.compactMap { self.note($0) }.prefix(limit))
     }
 
     /// `recent`, under date headings, as a sorted list's are.

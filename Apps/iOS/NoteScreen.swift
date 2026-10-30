@@ -26,6 +26,7 @@ struct NoteScreen: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu("More", systemImage: "ellipsis") {
+                        Button("Find in Note", systemImage: "text.magnifyingglass") { session.find("") }
                         let bookmarked = store.isBookmarked(session.note.id)
                         Button(bookmarked ? "Remove Bookmark" : "Bookmark", systemImage: bookmarked ? "bookmark.slash" : "bookmark") {
                             store.toggleBookmark(session.note.id)
@@ -34,6 +35,12 @@ struct NoteScreen: View {
                 }
             }
             .onAppear { store.noteOpened(session.note.id) }
+            .onChange(of: store.findRequest) { _, text in
+                guard let text else { return }
+                store.findRequest = nil
+                // Once this screen's back in place.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { session.find(text) }
+            }
             .onDisappear {
                 // Left: its title taken, saved, then (if it has no title) named from its first
                 // line, or removed if it's still empty.
@@ -160,6 +167,13 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     }
 
     func open(_ link: LinkTarget) { store.open(link, from: note.id) }
+
+    /// Opens the system's find bar on the note, with `text` searched for.
+    func find(_ text: String) {
+        guard let interaction = textView?.findInteraction else { return }
+        interaction.searchText = text
+        interaction.presentFindNavigator(showingReplace: false)
+    }
 
     /// What the format bar offers for a `[[link` or `#tag` being typed.
     func choices(for completion: MarkdownEditing.Completion) -> [String] {

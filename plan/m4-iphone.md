@@ -181,6 +181,39 @@ After Mike tried it, home became like the Notes app's list of folders:
 - **Settings:** a sheet saying where the notes are and how many there are (nothing to set yet).
 - **The note screen:** the text runs under the top bar, so the bar blurs what scrolls beneath it, as the system's bars do.
 
+## Mike's notes, worked through (30 October 2026)
+
+After Mike tried it. These change "What it leaves out": the app now has sorting, a search page with commands, and (still to come) a properties editor. It's no longer two screens and a button. The real vault waits; Mike said not yet.
+
+**The order:** lists and titles, then editing, then search, then properties, then the real vault.
+
+**Built:**
+- **Lists:** no "Folders" and "Notes" subheadings. Titles run to as many lines as they need. Notes sit under date headings (`NoteDateGroup`, brought across from `main` unchanged, with its tests).
+- **Sorting:** Date Edited, Date Created or Title, one choice for every list, as on the Mac. Sorted by title there are no headings, and each note's date goes below its title. Recent keeps its own order, and it's the only list that opening a note changes; elsewhere the dates are the note's own.
+- **The note's title:** as many lines as it needs (`TitleView`), at 24 pt, with the phone's H1 down to 22 pt to stay below it.
+- **Formatting commands:** `MarkdownEditing`, the Mac's commands as plain text edits. `MarkdownEditingTests` runs each one through the Mac's editor and this code, from the same text and selection, and they must agree.
+- **The bar above the keyboard (`FormatBar`):** links, tags, lists, indenting, headings and styles, scrolling sideways, with Hide Keyboard fixed at the right. While a `[[link` or `#tag` is being typed, suggestions take the tools' place.
+- **The editor (`PhoneTextView`):** Return continues lists and quotes. The frontmatter can't be selected, typed in or deleted. A checkbox ticks on a tap. A link opens on a tap while reading; with the keyboard up, the tap places the cursor, so a link's text can be edited. A link to a note that doesn't exist makes it, as on the Mac.
+- **Coming back:** the app reopens the note being worked on the same day, with the cursor where it was and the keyboard up, until going home or opening another note.
+- **Search (`SearchScreen`):** a page of its own, from the bottom toolbar of every page, the note included. It opens with the field not focused, so its lists can be seen and picked from: Recent (opened on this phone, five at most, without the current note), Bookmarks, Commands. Typing shows results in their place. From a note, the first result is "Find in …" with a count, as Safari's "On This Page": it goes back to the note and opens the system's find bar, also in the note's ⋯ menu. A note picked from search takes the search page's place, so Back goes to where search was opened from. This, not tabs, is how to switch notes.
+
+**Decided (Mike):**
+- Search opens without focus.
+- Properties: a line under the title, opening a sheet to edit. In-place editing would put date pickers and tag fields inside the text view's header.
+
+**Keeping `main` merging cleanly:** `main` is ahead on the Mac, with changes in `MarkdownTextView+Formatting.swift`, `MarkdownTextView.swift` and `PointLayoutManager.swift`. So the Mac's editor files aren't touched here: the iPhone's code is in new files, which repeats some of the Mac's logic for now. After merging, the Mac can move onto `MarkdownEditing`. `MarkdownEditing` and `LinkTarget` (iOS only, for now) are the pieces to fold together.
+
+**Tried:** in the Simulator, on sample notes: every item above but the items marked below. `MarkdownEditingTests` passes.
+
+**Not tried:** the iPhone itself; the keyboard's autocorrection and suggestions around Return; the Heading menu, indent buttons by tap, and the bar scrolling (their commands were run, not tapped); `#` suggestions on screen (tested as logic).
+
+**Still to do:**
+- Suggestions on the search page (between Bookmarks and Commands): the current note's links and backlinks are a good start.
+- Properties: the summary line, then the sheet. `Frontmatter` and `PropertyTypes` are shared; edits should go through the open note's text, for saving and undo.
+- From the Mac's editor: backspace at the start of a heading or list item removes its formatting (on the phone it deletes a hidden marker), and the cursor rules around hidden markers.
+- Tag pills stick out past the left margin.
+- Links with other schemes (`zoommtg:`): the Mac asks first; the phone ignores them for now.
+
 ## Decided (27 October 2026)
 
 1. **Bookmarks are Obsidian's** (`.obsidian/bookmarks.json`): the phone shows the notes in it, in its order, and bookmarking or reordering on the phone writes it back, keeping everything else in the file (folders, searches and headings Obsidian bookmarks too, which the phone doesn't show). The Mac can move to the same file later.

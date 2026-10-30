@@ -73,6 +73,7 @@ public final class PhoneTextView: UITextView {
         autocorrectionType = .default
         spellCheckingType = .yes
         dataDetectorTypes = []
+        isFindInteractionEnabled = true
     }
 
     @available(*, unavailable)
