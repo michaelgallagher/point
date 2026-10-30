@@ -37,6 +37,7 @@ struct HomeScreen: View {
                 .searchToolbarBehavior(.minimize)
                 .refreshable { await store.reload() }
                 .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) { SortMenu() }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("Settings", systemImage: "gear") { showsSettings = true }
                     }
@@ -100,12 +101,7 @@ struct HomeScreen: View {
                         }
                     }
                 }
-                let notes = store.notes(in: "")
-                if !notes.isEmpty {
-                    Section {
-                        ForEach(notes) { note in NoteLink(note: note) }
-                    }
-                }
+                NoteSections(notes: store.notes(in: ""))
             }
             .overlay { if store.notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text",
                 description: Text("Copy notes into Point’s folder in the Files app.")) } }
@@ -120,9 +116,9 @@ struct HomeScreen: View {
                 NoteScreen(note: note, store: store, isNew: id == newNote)
             }
         case .bookmarks: BookmarksScreen().toolbar { bottomBar() }
-        case .recent: NoteListScreen(title: "Recent", notes: store.recent).toolbar { bottomBar() }
+        case .recent: RecentScreen().toolbar { bottomBar() }
         case .tags: TagsScreen().toolbar { bottomBar() }
-        case .tag(let tag): NoteListScreen(title: "#" + tag, notes: store.notes(taggedWith: tag)).toolbar { bottomBar() }
+        case .tag(let tag): TagScreen(tag: tag).toolbar { bottomBar() }
         case .folder(let folder): FolderScreen(folder: folder).toolbar { bottomBar(in: folder) }
         }
     }
@@ -175,14 +171,34 @@ struct BookmarksScreen: View {
     }
 }
 
-/// A list of notes (Recent, or a tag's), newest first.
-struct NoteListScreen: View {
-    let title: String
-    let notes: [Note]
+/// Every note, the most recently edited or opened first, under date headings.
+struct RecentScreen: View {
+    @EnvironmentObject private var store: PhoneStore
 
     var body: some View {
-        List(notes) { note in NoteLink(note: note) }
-            .navigationTitle(title)
+        let groups = store.recentGroups
+        List {
+            ForEach(groups, id: \.label) { group in
+                Section(group.label) {
+                    ForEach(group.notes) { note in NoteLink(note: note) }
+                }
+            }
+        }
+        .navigationTitle("Recent")
+        .overlay { if groups.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text") } }
+    }
+}
+
+/// A tag's notes, in the chosen order.
+struct TagScreen: View {
+    @EnvironmentObject private var store: PhoneStore
+    let tag: String
+
+    var body: some View {
+        let notes = store.notes(taggedWith: tag)
+        List { NoteSections(notes: notes) }
+            .navigationTitle("#" + tag)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { SortMenu() } }
             .overlay { if notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text") } }
     }
 }
@@ -222,26 +238,62 @@ struct FolderScreen: View {
                     }
                 }
             }
-            if !notes.isEmpty {
-                Section {
-                    ForEach(notes) { note in NoteLink(note: note) }
-                }
-            }
+            NoteSections(notes: notes)
         }
         .navigationTitle((folder as NSString).lastPathComponent)
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { SortMenu() } }
         .overlay { if folders.isEmpty && notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "folder") } }
     }
 }
 
-/// A note in a list, with when it was last edited or opened, and a bookmark on long-press.
+/// Notes in the chosen order: under date headings, or, sorted by title, together with each
+/// note's date below its title.
+private struct NoteSections: View {
+    @EnvironmentObject private var store: PhoneStore
+    let notes: [Note]
+
+    var body: some View {
+        if store.sort == .title {
+            if !notes.isEmpty {
+                Section {
+                    ForEach(notes) { note in NoteLink(note: note, detail: HomeScreen.label(for: note.modified)) }
+                }
+            }
+        } else {
+            ForEach(NoteDateGroup.grouped(notes, by: store.sort), id: \.label) { group in
+                Section(group.label) {
+                    ForEach(group.notes) { note in NoteLink(note: note) }
+                }
+            }
+        }
+    }
+}
+
+/// How the note lists are sorted, as on the Mac.
+private struct SortMenu: View {
+    @EnvironmentObject private var store: PhoneStore
+
+    var body: some View {
+        Menu("Sort", systemImage: "arrow.up.arrow.down") {
+            Picker("Sort", selection: $store.sort) {
+                Text("Date Edited").tag(NoteSort.modified)
+                Text("Date Created").tag(NoteSort.created)
+                Text("Title").tag(NoteSort.title)
+            }
+        }
+    }
+}
+
+/// A note in a list, with a bookmark on long-press.
 private struct NoteLink: View {
     @EnvironmentObject private var store: PhoneStore
     let note: Note
     var title: String?
+    var detail: String?
 
     var body: some View {
         NavigationLink(value: Route.note(note.id)) {
-            NoteRow(title: title ?? note.title, detail: HomeScreen.label(for: store.lastTouched(note)))
+            NoteRow(title: title ?? note.title, detail: detail)
         }
         .contextMenu {
             let bookmarked = store.isBookmarked(note.id)
@@ -294,15 +346,14 @@ private struct SearchResults: View {
     }
 }
 
+/// A note's title, as many lines as it needs, and anything to say below it.
 private struct NoteRow: View {
     let title: String
     var detail: String?
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
+        VStack(alignment: .leading, spacing: 2) {
             Text(title)
-                .lineLimit(1)
-            Spacer(minLength: 8)
             if let detail {
                 Text(detail)
                     .font(.subheadline)
@@ -321,7 +372,6 @@ private struct SearchRow: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(result.title)
                 .fontWeight(result.matchedTitle ? .semibold : .regular)
-                .lineLimit(1)
             if let snippet = result.snippet {
                 Text(Self.marked(snippet))
                     .font(.subheadline)

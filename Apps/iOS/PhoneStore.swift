@@ -20,6 +20,11 @@ final class PhoneStore: ObservableObject {
     }
     /// Results for `searchText`, or nil when not searching.
     @Published private(set) var searchResults: [SearchResult]?
+    /// How folders, the top level and tags list their notes, as on the Mac. Recent keeps its own
+    /// order, and is the only list that opening a note changes.
+    @Published var sort = UserDefaults.standard.string(forKey: "noteSort").flatMap(NoteSort.init) ?? .modified {
+        didSet { UserDefaults.standard.set(sort.rawValue, forKey: "noteSort") }
+    }
 
     let root = PhoneVault.root
     private var index: SearchIndex?
@@ -201,9 +206,9 @@ final class PhoneStore: ObservableObject {
         folders.filter { ($0 as NSString).deletingLastPathComponent == folder }
     }
 
-    /// The notes directly in `folder`, the most recently edited or opened first.
+    /// The notes directly in `folder`, in the chosen order.
     func notes(in folder: String) -> [Note] {
-        recent.filter { ($0.id as NSString).deletingLastPathComponent == folder }
+        notes.filter { ($0.id as NSString).deletingLastPathComponent == folder }.sorted(by: sort)
     }
 
     /// How many notes are in a folder, and the folders inside it.
@@ -227,20 +232,20 @@ final class PhoneStore: ObservableObject {
         return counts.map { ($0.key, $0.value) }.sorted { $0.tag.localizedStandardCompare($1.tag) == .orderedAscending }
     }
 
-    /// The notes with a tag (or one nested under it), the most recently edited or opened first.
+    /// The notes with a tag (or one nested under it), in the chosen order.
     func notes(taggedWith tag: String) -> [Note] {
         let lowered = tag.lowercased()
-        return recent.filter { note in
+        return notes.filter { note in
             (tagsByNote[note.id] ?? []).contains { $0.lowercased() == lowered || $0.lowercased().hasPrefix(lowered + "/") }
-        }
+        }.sorted(by: sort)
     }
 
     // MARK: Recent
 
     /// When each note was last opened on this phone, by ID.
-    private var opened: [Note.ID: Date] {
-        get { UserDefaults.standard.data(forKey: "opened").flatMap { try? JSONDecoder().decode([Note.ID: Date].self, from: $0) } ?? [:] }
-        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: "opened") }
+    private var opened: [Note.ID: Date] = UserDefaults.standard.data(forKey: "opened")
+        .flatMap { try? JSONDecoder().decode([Note.ID: Date].self, from: $0) } ?? [:] {
+        didSet { UserDefaults.standard.set(try? JSONEncoder().encode(opened), forKey: "opened") }
     }
 
     func noteOpened(_ id: Note.ID) {
@@ -258,8 +263,22 @@ final class PhoneStore: ObservableObject {
         return notes.sorted { max($0.modified, opened[$0.id] ?? .distantPast) > max($1.modified, opened[$1.id] ?? .distantPast) }
     }
 
-    /// When a note was last edited or opened, whichever is later, for the list.
-    func lastTouched(_ note: Note) -> Date { max(note.modified, opened[note.id] ?? .distantPast) }
+    /// `recent`, under date headings, as a sorted list's are.
+    var recentGroups: [(label: String, notes: [Note])] {
+        var groups: [(label: String, notes: [Note])] = []
+        for note in recent {
+            let label = NoteDateGroup.label(for: lastTouched(note))
+            if groups.last?.label == label {
+                groups[groups.count - 1].notes.append(note)
+            } else {
+                groups.append((label, [note]))
+            }
+        }
+        return groups
+    }
+
+    /// When a note was last edited or opened, whichever is later.
+    private func lastTouched(_ note: Note) -> Date { max(note.modified, opened[note.id] ?? .distantPast) }
 
     // MARK: The note being worked on
 
