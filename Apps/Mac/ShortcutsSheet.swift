@@ -33,7 +33,8 @@ struct ShortcutsSheet: View {
             (.commands([.newTabOnOtherSide]), "New tab on the other side"),
             (.commands([.closeTab]), "Close tab"),
             (.commands([.previousTab, .nextTab]), "Previous, next tab"),
-            (.commands([.switchToTab]), "Switch to a tab (in the palette)"),
+            (.commands([.switchToTab]), "Switch tabs: hold ⌃, tap Tab, let go"),
+            (.commands([.tab1, .tab8, .lastTab]), "Tab 1 to 8, last tab"),
             (.commands([.tabList]), "Show this side's tab list"),
             (.commands([.split]), "Split, or merge both sides into tabs"),
             (.commands([.newWindow]), "New window"),
@@ -80,6 +81,8 @@ struct ShortcutsSheet: View {
             guard !labels.isEmpty else { return nil }
             // Body text, then headings 1 to 6: "⌘0 … ⌘6".
             if actions == [.bodyText, .heading1, .heading6], labels.count == 3 { return "\(labels[0]) … \(labels[2])" }
+            // Tabs 1 to 8, then the last: "⌥⌘1 … ⌥⌘8  ⌥⌘9".
+            if actions == [.tab1, .tab8, .lastTab], labels.count == 3 { return "\(labels[0]) … \(labels[1])  \(labels[2])" }
             return labels.joined(separator: "  ")
         }
     }

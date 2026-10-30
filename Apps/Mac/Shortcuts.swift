@@ -63,7 +63,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
     case explorer, searchVault, searchInList, findInNote
     // View
     case toggleNoteList, biggerText, smallerText, actualSize, split, moveTabToOtherSide, nextTab, previousTab,
-         tabList, switchToTab, showMarkdown, focus, reloadNotes
+         tabList, switchToTab, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, lastTab, showMarkdown, focus, reloadNotes
     // Go
     case enclosingFolder, topLevel, back, forward
     // Format
@@ -85,7 +85,8 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
              .openVault, .closeTab, .renameNote, .moveToFolder, .addTag, .toggleBookmark, .showInFinder, .moveToTrash: "File"
         case .explorer, .searchVault, .searchInList, .findInNote: "Edit"
         case .toggleNoteList, .biggerText, .smallerText, .actualSize, .split, .moveTabToOtherSide, .nextTab, .previousTab,
-             .tabList, .switchToTab, .showMarkdown, .focus, .reloadNotes: "View"
+             .tabList, .switchToTab, .tab1, .tab2, .tab3, .tab4, .tab5, .tab6, .tab7, .tab8, .lastTab,
+             .showMarkdown, .focus, .reloadNotes: "View"
         case .enclosingFolder, .topLevel, .back, .forward: "Go"
         case .highlightOrange, .highlightRed, .highlightYellow, .highlightGreen, .highlightTeal, .highlightPurple,
              .highlightGrey, .highlightBrown, .removeHighlight: "Highlight List Item"
@@ -128,6 +129,8 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .previousTab: "Show Previous Tab"
         case .tabList: "Show Tab List"
         case .switchToTab: "Switch to Tab…"
+        case .tab1, .tab2, .tab3, .tab4, .tab5, .tab6, .tab7, .tab8: "Tab \(tabNumber ?? 0)"
+        case .lastTab: "Last Tab"
         case .showMarkdown: "Show Markdown"
         case .focus: "Focus"
         case .reloadNotes: "Reload Notes"
@@ -183,6 +186,14 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The commands for going to a tab by its number, in order: ⌥⌘1 to ⌥⌘8, then the last.
+    static let tabCommands: [ShortcutAction] = [.tab1, .tab2, .tab3, .tab4, .tab5, .tab6, .tab7, .tab8, .lastTab]
+
+    /// The tab number a command goes to; nil for the rest, and for Last Tab.
+    var tabNumber: Int? {
+        Self.tabCommands.firstIndex(of: self).flatMap { self == .lastTab ? nil : $0 + 1 }
+    }
+
     var defaultShortcut: Shortcut? {
         switch self {
         case .newNote: Shortcut("n")
@@ -206,6 +217,9 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .previousTab: Shortcut("[", shift: true)
         case .tabList: Shortcut("t", shift: true)
         case .switchToTab: Shortcut("tab", command: false, control: true)
+        // Plain ⌥ and a digit type a character (# on a British keyboard), so ⌘ too.
+        case .tab1, .tab2, .tab3, .tab4, .tab5, .tab6, .tab7, .tab8: Shortcut("\(tabNumber ?? 0)", option: true)
+        case .lastTab: Shortcut("9", option: true)
         case .showMarkdown: Shortcut("m", shift: true)
         case .focus: Shortcut("\\", shift: true)
         case .reloadNotes: Shortcut("r")

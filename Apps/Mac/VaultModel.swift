@@ -485,6 +485,36 @@ final class VaultModel: ObservableObject {
         activePane = p
     }
 
+    /// Every tab in the window, in number order: the left side's, then the right's. A tab's
+    /// number is its place here, plus one, so closing a tab moves the ones after it down.
+    var numberedTabs: [NoteTab] { panes.flatMap(\.tabs) }
+
+    /// The number of the tab a note is open in.
+    func tabNumber(of id: Note.ID) -> Int? {
+        numberedTabs.firstIndex { $0.noteID == id }.map { $0 + 1 }
+    }
+
+    /// The number of a tab.
+    func tabNumber(ofTab id: NoteTab.ID) -> Int? {
+        numberedTabs.firstIndex { $0.id == id }.map { $0 + 1 }
+    }
+
+    /// ⌥⌘1 to ⌥⌘8: goes to the tab with that number. ⌥⌘9 (nil): goes to the last tab.
+    func goToTab(number: Int?) {
+        let tabs = numberedTabs
+        let index = number.map { $0 - 1 } ?? tabs.count - 1
+        guard tabs.indices.contains(index), let (p, t) = location(ofTab: tabs[index].id) else { return NSSound.beep() }
+        selectTab(t, inPane: p)
+    }
+
+    /// The tab shown before this one (the most recent with a note, if asked), for flipping
+    /// between two. Any other tab, if none has been shown yet.
+    func previousTab(withNote: Bool = false) -> NoteTab? {
+        let current = panes[activePane].tab.id
+        let tabs = numberedTabs.filter { $0.id != current && (!withNote || $0.noteID != nil) }
+        return recentTabs.lazy.compactMap { id in tabs.first { $0.id == id } }.first ?? tabs.first
+    }
+
     /// Goes to the tab a note is open in, wherever it is (unlike `selection`, which moves a
     /// note from behind the other side into this one).
     func goToTab(of id: Note.ID) {
@@ -1002,7 +1032,11 @@ final class VaultModel: ObservableObject {
     /// Results for `searchText`, or nil when not searching.
     @Published private(set) var searchResults: [SearchResult]?
     /// Whether the command palette is showing.
-    @Published var isPaletteShown = false
+    @Published var isPaletteShown = false {
+        didSet {
+            if !isPaletteShown { endTabSwitch() }
+        }
+    }
     /// Whether the palette searches and runs commands (Explorer, ⌘E) or browses folders and
     /// tags in two columns (Search Vault, ⌘F).
     @Published var paletteMode = PaletteMode.search
@@ -1020,6 +1054,56 @@ final class VaultModel: ObservableObject {
     enum PaletteMode { case search, explorer, tabs, moveNote, applyTemplate }
     /// ⌃Tab pressed again while the tabs palette shows: it moves to the next tab down.
     @Published private(set) var paletteCycleRequest = 0
+    /// The keys let go while the tabs palette shows: it goes to the tab highlighted.
+    @Published private(set) var paletteCommitRequest = 0
+    /// ⌃Tab presses before the tabs palette appeared, for it to move down by as it does.
+    var tabSwitchSteps = 0
+    /// The keys being held to switch tabs (⌃, unless Settings changed it), as with ⌘Tab.
+    private var tabSwitchKeys: NSEvent.ModifierFlags = []
+    private var tabSwitchMonitor: Any?
+    /// How long ⌃Tab is held before the palette appears: let go sooner, and it just flips to
+    /// the tab before, with nothing shown.
+    private static let tabSwitchDelay = 0.12
+
+    var isHoldingTabSwitch: Bool { !tabSwitchKeys.isEmpty }
+
+    /// ⌃Tab with ⌃ held: letting go of it goes to the tab chosen.
+    func beginTabSwitch(holding keys: NSEvent.ModifierFlags) {
+        tabSwitchKeys = keys
+        tabSwitchMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            let flags = event.modifierFlags
+            MainActor.assumeIsolated { self?.tabSwitchKeysChanged(flags) }
+            return event
+        }
+        if isPaletteShown { return showTabSwitcher() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.tabSwitchDelay) { [weak self] in
+            if self?.isHoldingTabSwitch == true { self?.showTabSwitcher() }
+        }
+    }
+
+    func tabSwitchKeysChanged(_ flags: NSEvent.ModifierFlags) {
+        guard isHoldingTabSwitch, flags.isDisjoint(with: tabSwitchKeys) else { return }
+        let isShown = isPaletteShown && paletteMode == .tabs
+        endTabSwitch()
+        if isShown {
+            paletteCommitRequest += 1
+        } else if let tab = previousTab(), let (p, t) = location(ofTab: tab.id) {
+            selectTab(t, inPane: p)
+        } else {
+            NSSound.beep()
+        }
+    }
+
+    private func showTabSwitcher() {
+        paletteMode = .tabs
+        isPaletteShown = true
+    }
+
+    private func endTabSwitch() {
+        tabSwitchKeys = []
+        if let tabSwitchMonitor { NSEvent.removeMonitor(tabSwitchMonitor) }
+        tabSwitchMonitor = nil
+    }
 
     /// The palette, listing folders to move the note to.
     /// The palette, listing templates to apply to the note.
@@ -1040,11 +1124,16 @@ final class VaultModel: ObservableObject {
         if mode == .tabs {
             if isPaletteShown && paletteMode == .tabs {
                 paletteCycleRequest += 1
+            } else if isHoldingTabSwitch {
+                // Pressed again before the palette appeared.
+                tabSwitchSteps += 1
+                showTabSwitcher()
             } else if openNoteIDs.isEmpty {
                 NSSound.beep()
             } else {
-                paletteMode = .tabs
-                isPaletteShown = true
+                // From the menu or the palette, nothing is held: it stays open to type in.
+                let held = NSEvent.modifierFlags.intersection([.command, .control, .option, .shift])
+                if held.isEmpty { showTabSwitcher() } else { beginTabSwitch(holding: held) }
             }
             return
         }

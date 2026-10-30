@@ -7,7 +7,8 @@ import VaultKit
 /// ⌘E, Explorer (mode `.search`): one place to open notes, search tags and run commands, all
 /// from the keyboard. ⌘F, Search Vault (mode `.explorer`): the same palette as two columns of
 /// folders, tags and their notes.
-/// ⌃Tab: only the open tabs, most recently shown first, to switch between them.
+/// ⌃Tab: only the open tabs, in number order, to switch between them. Letting go of ⌃ goes to
+/// the one highlighted, which starts as the tab shown before this.
 /// An empty tab shows the same palette as a page: the start page.
 struct CommandPalette: View {
     @EnvironmentObject private var model: VaultModel
@@ -71,6 +72,7 @@ struct CommandPalette: View {
                                 }
                                 // Open tabs have their own section, so aren't marked as well.
                                 PaletteRow(item: item, isHighlighted: offset == highlighted,
+                                           tabNumber: item.noteID.flatMap(model.tabNumber(of:)),
                                            isViewing: item.noteID != nil && item.noteID == model.selection,
                                            isBookmarked: item.noteID.map(model.isBookmarked) ?? false)
                                     .contentShape(Rectangle())
@@ -99,6 +101,12 @@ struct CommandPalette: View {
                 model.paletteSeed = nil
             }
             if isExploring { explorer.load(model) }
+            // At once: ⌃ can be let go at any moment, and a later refresh would lose the row.
+            if isSwitchingTabs {
+                refresh()
+                tags = (try? await model.index?.allTags()) ?? []
+                return
+            }
             tags = (try? await model.index?.allTags()) ?? []
             refresh()
         }
@@ -120,6 +128,13 @@ struct CommandPalette: View {
         // ⌃Tab again: the next tab down.
         .onChange(of: model.paletteCycleRequest) { _ in
             if isSwitchingTabs { move(1) }
+        }
+        .onChange(of: model.paletteCommitRequest) { _ in
+            if isSwitchingTabs { run() }
+        }
+        // Gone to another app with ⌃ down: its release won't be seen, so it can't choose a tab.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            if isSwitchingTabs, model.isHoldingTabSwitch { close() }
         }
         .onChange(of: model.startPageRequest.count) { _ in
             // ⌘E or ⌘F on a start page switches the page itself.
@@ -184,10 +199,8 @@ struct CommandPalette: View {
         if isMovingNote { return refreshFolders() }
         if isApplyingTemplate { return refreshTemplates() }
         let commands = PaletteCommand.all(for: model)
-        // Notes open in tabs come first; the one being viewed last of them, as going to it
-        // does nothing.
-        let allOpen = model.openNoteIDs.compactMap { model.note($0) }
-        let openNotes = allOpen.filter { $0.id != model.selection } + allOpen.filter { $0.id == model.selection }
+        // Notes open in tabs come first, in number order, wherever the one being viewed is.
+        let openNotes = model.openNoteIDs.compactMap { model.note($0) }
         let openSet = Set(openNotes.map(\.id))
         openIDs = openSet
         let bookmarked = model.bookmarkedNotes
@@ -254,17 +267,17 @@ struct CommandPalette: View {
             }
             items = all
             headers = labels
-            highlighted = keeping.map { max(0, min($0, items.count - 1)) } ?? 0
+            // Past the note being viewed, as going to it does nothing.
+            let first = open.count > 1 && all.first?.noteID == model.selection ? 1 : 0
+            highlighted = keeping.map { max(0, min($0, items.count - 1)) } ?? first
         }
     }
 
-    /// The open tabs' notes, most recently shown first (both sides), filtered by what's typed.
-    /// With nothing typed, the one shown before this is highlighted, so ⌃Tab and Return flip
-    /// between two notes.
+    /// The open tabs' notes, in number order (both sides), filtered by what's typed. With
+    /// nothing typed, the one shown before this is highlighted, so a quick ⌃Tab flips between
+    /// two notes, and ⌃Tab again moves down from there.
     private func refreshTabs(keeping: Int?) {
-        let tabs = model.panes.flatMap(\.tabs)
-        let order = model.recentTabs + tabs.map(\.id).filter { !model.recentTabs.contains($0) }
-        var notes = order.compactMap { id in tabs.first { $0.id == id }?.noteID }.compactMap { model.note($0) }
+        var notes = model.openNoteIDs.compactMap { model.note($0) }
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         if !trimmed.isEmpty { notes = Self.rank(notes, by: trimmed, name: \.title) }
         openIDs = Set(notes.map(\.id))
@@ -273,7 +286,10 @@ struct CommandPalette: View {
         if let keeping {
             highlighted = max(0, min(keeping, items.count - 1))
         } else {
-            highlighted = trimmed.isEmpty && items.count > 1 && items.first?.noteID == model.selection ? 1 : 0
+            let previous = model.previousTab(withNote: true)?.noteID
+            let first = trimmed.isEmpty ? items.firstIndex { $0.noteID == previous } ?? 0 : 0
+            highlighted = items.isEmpty ? 0 : (first + model.tabSwitchSteps) % items.count
+            model.tabSwitchSteps = 0
         }
     }
 
@@ -440,6 +456,8 @@ struct PaletteSectionHeader: View {
 struct PaletteRow: View {
     let item: PaletteItem
     let isHighlighted: Bool
+    /// An open tab's number, shown in place of its icon.
+    var tabNumber: Int?
     /// The note on screen now, marked as such.
     var isViewing = false
     /// A bookmarked note, shown with the bookmark symbol.
@@ -447,9 +465,16 @@ struct PaletteRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: icon)
-                .frame(width: 18)
-                .foregroundStyle(isHighlighted ? .white : .secondary)
+            Group {
+                if let tabNumber {
+                    Text("\(tabNumber)")
+                        .monospacedDigit()
+                } else {
+                    Image(systemName: icon)
+                }
+            }
+            .frame(width: 18)
+            .foregroundStyle(isHighlighted ? .white : .secondary)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
                     .lineLimit(1)

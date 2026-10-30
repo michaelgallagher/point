@@ -28,6 +28,8 @@ Part of [the plan](../PLAN.md).
 
 **Unchanged:** ⇧⌘[ / ⇧⌘] move to the previous and next tab; ⌘W, ⌘T, ⌃⌘T and ⌘Z (reopen the tab just closed) work as now.
 
+**Changed (30 October 2026):** tabs are numbered across the window, left side then right, and that's the order everywhere: the tab menu, ⌃Tab and Explorer's Open Tabs. ⌥⌘1 to ⌥⌘8 go to a tab by number and ⌥⌘9 to the last (plain ⌥ and a digit type a character, # on a British keyboard). ⌃Tab now works like ⌘Tab: a quick one flips to the tab before with nothing shown; held, the palette appears, Tab moves down, and letting go of ⌃ goes to the tab highlighted. From the menu or palette, nothing is held, so it stays open to type in, as before. The tab button's badge shows this tab's number, not how many are open.
+
 **Settled (25 October 2026):** the page's own path goes (header item 7); the header's folders open in the sidebar or explorer (header item 5); the tab menu keeps tab order rather than most recent first (tab menu item 2).
 
 **Built (25 October 2026, uncommitted on `no-visible-tabs`):**

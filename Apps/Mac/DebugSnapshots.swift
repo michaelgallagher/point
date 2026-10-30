@@ -24,6 +24,7 @@ enum DebugSnapshots {
         conflictIfAsked(for: model)
         safetyIfAsked(for: model)
         shortcutTestIfAsked(for: model)
+        tabTestIfAsked(for: model)
         scanIfAsked(for: model)
         // `-PointOpenSettings YES`: opens Settings (at `-settingsPage`), for checking it.
         if UserDefaults.standard.bool(forKey: "PointOpenSettings") {
@@ -936,6 +937,61 @@ enum DebugSnapshots {
                         Trace.mark("scan test: done")
                     }
                 }
+            }
+        }
+    }
+
+    /// `-PointTabTest YES`, on a vault of at least four notes: opens four tabs, then checks
+    /// their numbers, ⌥⌘1 to ⌥⌘9, and ⌃Tab: a quick one, one held until the palette shows, and
+    /// one pressed twice. (Letting go of ⌃ is called directly: it can't be pressed from here.)
+    private static func tabTestIfAsked(for model: VaultModel) {
+        guard UserDefaults.standard.bool(forKey: "PointTabTest") else { return }
+        func check(_ name: String, _ ok: Bool, _ detail: String = "") {
+            Trace.mark("tab test: \(ok ? "PASS" : "FAIL") \(name)\(detail.isEmpty ? "" : " — \(detail)")")
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            let ids = Array(model.notes.prefix(4).map(\.id))
+            guard ids.count == 4 else { return check("four notes", false) }
+            // From one tab, whatever the last run left open.
+            while model.numberedTabs.count > 1 { model.closeTab() }
+            model.selection = ids[0]
+            ids.dropFirst().forEach { model.newTab(noteID: $0) }
+            @MainActor func at() -> Int { model.selection.flatMap(model.tabNumber(of:)) ?? 0 }
+            func go(_ number: Int?) -> @MainActor () -> Void { { model.goToTab(number: number) } }
+            let steps: [(Double, @MainActor () -> Void)] = [
+                (0.2, { check("numbers follow tab order", ids.map(model.tabNumber(of:)) == [1, 2, 3, 4]) }),
+                (0.2, {
+                    let menu = NSApp.mainMenu?.items.first { $0.title == "View" }?.submenu?.items.first { $0.title == "Go to Tab" }?.submenu
+                    let keys = (menu?.items ?? []).map { "\($0.title) \($0.keyEquivalent) \($0.keyEquivalentModifierMask == [.command, .option])" }
+                    check("the menu has ⌥⌘1 to ⌥⌘9", keys.count == 9 && keys[2] == "Tab 3 3 true" && keys[8] == "Last Tab 9 true", "\(keys)")
+                }),
+                (0.2, go(2)), (0.2, { check("⌥⌘2 goes to tab 2", at() == 2, "\(at())") }),
+                (0.2, go(nil)), (0.2, { check("⌥⌘9 goes to the last", at() == 4, "\(at())") }),
+                (0.2, go(9)), (0.2, { check("past the end stays put", at() == 4, "\(at())") }),
+                // Tab 2, then 4: a quick ⌃Tab goes back to 2, with no palette.
+                (0.2, { model.beginTabSwitch(holding: .control); model.tabSwitchKeysChanged([]) }),
+                (0.3, { check("quick ⌃Tab flips", at() == 2 && !model.isPaletteShown, "tab \(at()), palette \(model.isPaletteShown)") }),
+                // Held until the palette shows: letting go goes to the tab before, 4.
+                (0.2, { model.beginTabSwitch(holding: .control) }),
+                (0.6, { check("held ⌃Tab shows the palette", model.isPaletteShown && model.paletteMode == .tabs) }),
+                (0.2, { model.tabSwitchKeysChanged([.control, .shift]) }),
+                (0.2, { check("another key held keeps it open", model.isPaletteShown) }),
+                (0.2, { model.tabSwitchKeysChanged([]) }),
+                (0.4, { check("letting go goes to the tab before", at() == 4 && !model.isPaletteShown, "tab \(at())") }),
+                // Twice before it shows: one down from the tab before (2), which is 3.
+                (0.2, { model.beginTabSwitch(holding: .control); model.togglePalette(.tabs) }),
+                (0.6, { model.tabSwitchKeysChanged([]) }),
+                (0.4, { check("⌃Tab twice moves down", at() == 3 && !model.isPaletteShown, "tab \(at())") }),
+                (0.2, go(1)),
+                (0.2, { model.moveTabToOtherSide() }),
+                (0.4, { check("the left side's come first", model.tabNumber(of: ids[1]) == 1 && model.tabNumber(of: ids[0]) == 4,
+                              "\(ids.map(model.tabNumber(of:)))") }),
+                (0.2, { Trace.mark("tab test: done"); NSApp.terminate(nil) }),
+            ]
+            var delay = 0.5
+            for (wait, step) in steps {
+                delay += wait
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { MainActor.assumeIsolated { step() } }
             }
         }
     }

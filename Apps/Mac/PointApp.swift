@@ -288,6 +288,13 @@ struct AppCommands: Commands {
             Button("Switch to Tab…") { model?.togglePalette(.tabs) }
                 .shortcut(.switchToTab, in: shortcuts)
                 .disabled(model == nil || store.root == nil)
+            Menu("Go to Tab") {
+                ForEach(ShortcutAction.tabCommands) { action in
+                    Button(action.title) { model?.goToTab(number: action.tabNumber) }
+                        .shortcut(action, in: shortcuts)
+                        .disabled(model == nil)
+                }
+            }
             Divider()
             Toggle("Show Markdown", isOn: $store.showsMarkdown)
                 .shortcut(.showMarkdown, in: shortcuts)
