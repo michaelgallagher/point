@@ -121,7 +121,7 @@ Each ends with a build on the iPhone to try. Free-account builds work for steps 
 - **Debug builds mislead:** unoptimised, the same 272,000-character note took 64 ms a keystroke (58 ms of it parsing). Measure in Release.
 - **What this means for finding 13 of the [27 October review](app-review-2026-10-27.md),** that each edit re-parses the whole note: in Release it costs about 6 ms in the largest note. Incremental parsing isn't needed for now, on either the iPhone or the Mac.
 - **Still to do before step 3:**
-  - Tag pills stick out past the left margin.
+  - Tag pills stick out past the left margin. (Done, 31 October.)
   - Type on the phone by hand: the keyboard, autocorrect and the magnifier, around the hidden markers.
 
 **On the iPhone:** the target is signed with Mike's personal team (a free account, so builds last 7 days). With the iPhone connected and unlocked (and, the first time, the developer profile trusted in Settings › General › VPN & Device Management), choose the `Point-iOS` scheme and the iPhone in Xcode, and run. For the typing test, add `-SpikeTypeTest YES` (and `-SpikeSections 900`) to the scheme's arguments. The timings show above the note, and in `spike-timings.txt` (Files › On My iPhone › Point).
@@ -215,7 +215,7 @@ After Mike tried it. These change "What it leaves out": the app now has sorting,
 
 **Still to do:**
 - The Mac shades a link while the cursor is inside its end, so it's clear that typing goes on with the link. The phone has the stop but not the shading, and doesn't yet take a tap to the right of a link as after it.
-- Tag pills stick out past the left margin.
+- Tag pills: a tag starting a line now starts its pill at the margin, its line moved in to make room. A tag wrapped to the start of a line can't be moved, so its pill is cut off at the margin and sits tight against the `#`. On an empty last line after a line starting with a tag, the cursor sits 6 points in.
 - Links with other schemes (`zoommtg:`): the Mac asks first; the phone ignores them for now.
 
 ## Decided (27 October 2026)

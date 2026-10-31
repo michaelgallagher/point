@@ -196,6 +196,9 @@ struct MarkdownStyler {
             storage.addAttributes(pointing([.pointTag: true]), range: range)
             if range.location > 0, text.character(at: range.location - 1) != 10 {
                 storage.addAttribute(.kern, value: Self.tagSpace, range: NSRange(location: range.location - 1, length: 1))
+            } else if theme.keepsTagsInsideMargin {
+                let style = paragraphStyle { $0.firstLineHeadIndent = Self.tagSpace }
+                storage.addAttribute(.paragraphStyle, value: style, range: text.lineRange(for: NSRange(location: range.location, length: 0)))
             }
             storage.addAttribute(.kern, value: Self.tagSpace, range: NSRange(location: NSMaxRange(range) - 1, length: 1))
         case .footnoteReference:

@@ -213,7 +213,11 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         // The glyphs' bounds include the space added after the tag's last letter; leave it out.
         let trailing = storage.attribute(.kern, at: NSMaxRange(range) - 1, effectiveRange: nil) as? CGFloat ?? 0
         // 6 points either side of the text, and 2 above and below.
-        let rect = CGRect(x: origin.x + bounds.minX - 6, y: baseline - font.ascender - 2, width: bounds.width - trailing + 12, height: height)
+        var rect = CGRect(x: origin.x + bounds.minX - 6, y: baseline - font.ascender - 2, width: bounds.width - trailing + 12, height: height)
+        // Wrapped to the start of a line, where there's no room made for it.
+        if theme.keepsTagsInsideMargin, rect.minX < origin.x + line.minX {
+            rect = rect.divided(atDistance: origin.x + line.minX - rect.minX, from: .minXEdge).remainder
+        }
         // The highlight colour, a quarter of the way towards the page colour, so pills stay light.
         let fill = PlatformColor.selectedTextBackgroundColor.blended(withFraction: 0.25, of: .textBackgroundColor) ?? .selectedTextBackgroundColor
         fill.setFill()

@@ -43,6 +43,9 @@ struct ListMarkerDecoration: Hashable {
 
 /// Sizes and colours for the editor. Apple Notes is the reference for the feel.
 struct EditorTheme {
+    /// Whether a tag's pill stays inside the text's left edge: on the phone the text is the page's
+    /// margin, shared with the note's title.
+    var keepsTagsInsideMargin = false
     /// The chosen sizes and styles.
     var typography = Typography()
     /// ⌘+ and ⌘−: how much bigger or smaller than chosen everything is.
