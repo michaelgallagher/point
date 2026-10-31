@@ -125,7 +125,7 @@ private struct PropertyRow: View {
                 }
             } label: {
                 Image(systemName: type.symbol)
-                    .frame(width: 24)
+                    .frame(minWidth: 24)
             }
             .foregroundStyle(.secondary)
             .accessibilityLabel("Type: \(type.name)")

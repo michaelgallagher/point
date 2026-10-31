@@ -46,6 +46,8 @@ public final class PhoneTextView: UITextView {
     private var cursor = 0
     /// Set while the selection is put somewhere the cursor can't rest, on the way to an edit.
     private var isAdjustingSelection = false
+    /// Which load the gradual layout belongs to, so a newer load stops an older run.
+    private var layoutRun = 0
 
     public init() {
         // TextKit 1, built by hand so the layout manager can hide markers, as on the Mac.
@@ -64,8 +66,10 @@ public final class PhoneTextView: UITextView {
         styler.theme.typography.bodySize = 17 // The iPhone's own body size.
         styler.theme.typography.headings[0].size = 22.0 / 17 // Below the note's title, at 24.
         styler.theme.keepsTagsInsideMargin = true
-        layoutManager.theme = styler.theme
-        typingAttributes = styler.baseAttributes
+        applyTextSize()
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (view: PhoneTextView, _: UITraitCollection) in
+            view.textSizeChanged()
+        }
         backgroundColor = .systemBackground
         alwaysBounceVertical = true
         keyboardDismissMode = .interactive
@@ -83,6 +87,25 @@ public final class PhoneTextView: UITextView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("Not used") }
+
+    /// Sizes the text to the phone's text size setting, and the room for list markers with it.
+    private func applyTextSize() {
+        let scale = UIFontMetrics(forTextStyle: .body).scaledValue(for: 17) / 17
+        let standard = EditorTheme()
+        styler.theme.scale = scale
+        styler.theme.indentPerLevel = standard.indentPerLevel * scale
+        styler.theme.markerWidth = standard.markerWidth * scale
+        styler.theme.bulletWidth = standard.bulletWidth * scale
+        pointLayoutManager.theme = styler.theme
+        typingAttributes = styler.baseAttributes
+    }
+
+    /// The phone's text size changed, with a note open.
+    private func textSizeChanged() {
+        applyTextSize()
+        restyle(NSRange(location: 0, length: textStorage.length))
+        setNeedsLayout()
+    }
 
     /// Places the header at the top, and starts the text below it.
     public override func layoutSubviews() {
@@ -110,7 +133,43 @@ public final class PhoneTextView: UITextView {
         layoutIfNeeded()
         // What's on screen, laid out now.
         pointLayoutManager.ensureLayout(forBoundingRect: CGRect(origin: .zero, size: bounds.size), in: textContainer)
-        return (CACurrentMediaTime() - start) * 1000
+        let milliseconds = (CACurrentMediaTime() - start) * 1000
+        completeLayoutGradually()
+        return milliseconds
+    }
+
+    /// Lays out the rest of the note, a piece at a time, after it opens, as the Mac does: only
+    /// what's on screen is laid out at first, which leaves everything further down a guess.
+    private func completeLayoutGradually() {
+        layoutRun += 1
+        let run = layoutRun
+        func step(from start: Int) {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, run == layoutRun, start < textStorage.length else { return }
+                let end = min(start + 20_000, textStorage.length)
+                pointLayoutManager.ensureLayout(forCharacterRange: NSRange(location: start, length: end - start))
+                step(from: end)
+            }
+        }
+        step(from: 0)
+    }
+
+    /// Lays out everything up to `location`, so that its place on the page is real, not a guess.
+    private func layOut(through location: Int) {
+        pointLayoutManager.ensureLayout(forCharacterRange: NSRange(location: 0, length: min(location, textStorage.length)))
+    }
+
+    /// Puts the cursor anywhere in the note, however far down.
+    public func placeCursor(at location: Int) {
+        let location = min(location, textStorage.length)
+        layOut(through: location)
+        selectedRange = NSRange(location: location, length: 0)
+    }
+
+    /// Going to something further down (Find, say) goes to where it really is.
+    public override func scrollRangeToVisible(_ range: NSRange) {
+        layOut(through: NSMaxRange(range))
+        super.scrollRangeToVisible(range)
     }
 
     /// Where the note's body starts: after its frontmatter, which is hidden and edited as

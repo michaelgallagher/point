@@ -452,6 +452,7 @@ final class PhoneStore: ObservableObject {
     func isBookmarked(_ id: Note.ID) -> Bool { bookmarks.contains { $0.path == id } }
 
     func toggleBookmark(_ id: Note.ID) {
+        UISelectionFeedbackGenerator().selectionChanged()
         do {
             if isBookmarked(id) { try ObsidianBookmarks.remove(id, vault: root) } else { try ObsidianBookmarks.add(id, vault: root) }
         } catch {

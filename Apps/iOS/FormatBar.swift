@@ -15,6 +15,8 @@ final class FormatBar: UIInputView {
         super.init(frame: CGRect(x: 0, y: 0, width: 0, height: 48), inputViewStyle: .keyboard)
         allowsSelfSizing = false
         autoresizingMask = .flexibleWidth
+        // Its height is fixed, as the keyboard's own rows are.
+        maximumContentSizeCategory = .extraExtraExtraLarge
 
         let tools = UIStackView(arrangedSubviews: [
             button("Link to a Note", title: "[[") { $0.format { $0.wikiLink() } },

@@ -48,6 +48,7 @@ extension PhoneTextView {
     @objc private func tapped(_ recognizer: UITapGestureRecognizer) {
         let point = recognizer.location(in: self)
         if let state = checkboxState(at: point) {
+            UISelectionFeedbackGenerator().selectionChanged()
             apply(MarkdownEdit(range: state.range, replacement: state.done ? " " : "x", selection: selectedRange))
         } else if let target = link(at: point) {
             onOpenLink?(target)

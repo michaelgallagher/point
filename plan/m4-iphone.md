@@ -198,6 +198,12 @@ After Mike tried it. These change "What it leaves out": the app now has sorting,
 - **Coming back:** the app reopens the note being worked on the same day, with the cursor where it was and the keyboard up, until going home or opening another note.
 - **Search (`SearchScreen`):** a page of its own, from the bottom toolbar of every page, the note included. It opens with the field not focused, so its lists can be seen and picked from: Recent (opened on this phone, five at most, without the current note), Bookmarks, Linked (notes the current note links to, then notes linking to it, five at most, leaving out any already listed), Commands. Typing shows results in their place. From a note, the first result is "Find in …" with a count, as Safari's "On This Page": it goes back to the note and opens the system's find bar, also in the note's ⋯ menu. A note picked from search takes the search page's place, so Back goes to where search was opened from. This, not tabs, is how to switch notes.
 - **Properties (`NoteHeader`, `PropertiesSheet`):** a line under the title sums them up ("5 properties · #work #plans") and opens the sheet, also in the ⋯ menu, for notes with none yet. Each value edits to suit its type, as on the Mac: fields, a switch, the system's date picker, tokens for lists and tags. Tap the icon to change the type, the name to rename, swipe to delete. Types are kept in `.obsidian/types.json`. A value nested under its key is left for the Mac.
+- **Text size:** the note, its title and the properties line follow the phone's text size, and change as it does, without reopening. List indents grow with the text. The bar above the keyboard stops growing at Extra Extra Extra Large, its height being fixed, as the keyboard's own rows are.
+- **Dark mode:** nothing needed changing. Every colour in the note follows the system, and changes with a note open.
+- **Haptics:** a light tap on ticking a checkbox and on changing a bookmark.
+- **VoiceOver:** the title and the note have names. The bar's buttons and the toolbars had them already.
+
+**Found and fixed: a long note went to the wrong place.** Only what's on screen is laid out when a note opens, so anywhere further down was an estimate. Coming back to a cursor 200,000 characters into a note showed Section 163 of what should have been 662, with the cursor off screen. The rest of the note is now laid out gradually after it opens, as on the Mac, and everything up to a place is laid out before going there (`placeCursor`, `scrollRangeToVisible`), which is how Find gets there too.
 
 **Found and fixed: `---` saved as a dash.** Adding the first property to a note wrote `-—` in place of the frontmatter's fences. `replace(_:withText:)` punctuates what's inserted unless the view is the one focused, whatever its own smart-punctuation settings, so anything set from the sheet could change (quotes and `--` too). `applyAboveBody` now changes the text directly and does its own undo. Checkbox taps still use `replace`, and only ever insert a space or an `x`.
 
@@ -211,11 +217,14 @@ After Mike tried it. These change "What it leaves out": the app now has sorting,
 
 **Tried:** in the Simulator, on sample notes: every item above but the items marked below. `MarkdownEditingTests` passes.
 
-**Not tried:** the iPhone itself; the keyboard's autocorrection and suggestions around Return; the Heading menu, indent buttons by tap, and the bar scrolling (their commands were run, not tapped); `#` suggestions on screen (tested as logic); dragging the cursor (the magnifier, or the space bar as a trackpad) past hidden markers, where nothing tells the editor a drag is under way, as the Mac's `stillSelecting` does. In the properties sheet: the date-and-time picker, a nested value, the repeated-key warning, tag suggestions.
+**Not tried:** the iPhone itself; the keyboard's autocorrection and suggestions around Return; the Heading menu, indent buttons by tap, and the bar scrolling (their commands were run, not tapped); `#` suggestions on screen (tested as logic); dragging the cursor (the magnifier, or the space bar as a trackpad) past hidden markers, where nothing tells the editor a drag is under way, as the Mac's `stillSelecting` does. In the properties sheet: the date-and-time picker, a nested value, the repeated-key warning, tag suggestions. Haptics (the Simulator has none), and VoiceOver itself (labels were checked in the code). How the gradual layout feels while typing straight after opening the largest note, in a Release build.
 
 **Still to do:**
 - The Mac shades a link while the cursor is inside its end, so it's clear that typing goes on with the link. The phone has the stop but not the shading, and doesn't yet take a tap to the right of a link as after it.
 - Tag pills: a tag starting a line now starts its pill at the margin, its line moved in to make room. A tag wrapped to the start of a line can't be moved, so its pill is cut off at the margin and sits tight against the `#`. On an empty last line after a line starting with a tag, the cursor sits 6 points in.
+- VoiceOver reads a note's raw Markdown, hidden markers and frontmatter included, and has no way to tick a checkbox or open a link.
+- At the largest text sizes a bullet's dot stays small, being drawn at a fixed size in the shared layout manager. An inline `code` pill starting a wrapped line sticks out 2 points past the margin, as the tag pill did.
+- With the keyboard down, a tap in the band between Add and Search does nothing: the toolbar takes it. With a hardware keyboard, the bar above the keyboard sits over the note's last lines.
 
 ## Decided (27 October 2026)
 

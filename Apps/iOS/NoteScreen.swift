@@ -164,7 +164,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         if isNew {
             focusTitle()
         } else if let cursor = store.resumeCursor(for: note.id) {
-            textView.selectedRange = NSRange(location: min(cursor, (text as NSString).length), length: 0)
+            textView.placeCursor(at: cursor)
             textView.becomeFirstResponder()
         }
         openedTimings = "Read \(Int(read)) ms, shown \(Int(load)) ms (\(text.count / 1000)k characters)"
@@ -378,7 +378,7 @@ final class NoteHeader: UIView {
     let title = TitleView()
     var onSummary: (() -> Void)?
     private let summary = UIButton(type: .system)
-    private static let summaryHeight: CGFloat = 20
+    private var summaryHeight: CGFloat { UIFontMetrics(forTextStyle: .footnote).scaledValue(for: 20) }
     private static let gap: CGFloat = 4
 
     init() {
@@ -388,6 +388,7 @@ final class NoteHeader: UIView {
         summary.isHidden = true
         summary.contentHorizontalAlignment = .leading
         summary.titleLabel?.font = .preferredFont(forTextStyle: .footnote)
+        summary.titleLabel?.adjustsFontForContentSizeCategory = true
         summary.titleLabel?.lineBreakMode = .byTruncatingTail
         summary.setTitleColor(.secondaryLabel, for: .normal)
         summary.addAction(UIAction { [weak self] _ in self?.onSummary?() }, for: .touchUpInside)
@@ -404,14 +405,14 @@ final class NoteHeader: UIView {
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
         let height = title.sizeThatFits(size).height
-        return CGSize(width: size.width, height: height + (summary.isHidden ? 0 : Self.gap + Self.summaryHeight))
+        return CGSize(width: size.width, height: height + (summary.isHidden ? 0 : Self.gap + summaryHeight))
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         let height = title.sizeThatFits(bounds.size).height
         title.frame = CGRect(x: 0, y: 0, width: bounds.width, height: height)
-        summary.frame = CGRect(x: 0, y: height + Self.gap, width: bounds.width, height: Self.summaryHeight)
+        summary.frame = CGRect(x: 0, y: height + Self.gap, width: bounds.width, height: summaryHeight)
     }
 }
 
@@ -428,7 +429,9 @@ final class TitleView: UITextView {
 
     init() {
         super.init(frame: .zero, textContainer: nil)
-        font = .systemFont(ofSize: 24, weight: .bold)
+        font = UIFontMetrics(forTextStyle: .title2).scaledFont(for: .systemFont(ofSize: 24, weight: .bold))
+        adjustsFontForContentSizeCategory = true
+        accessibilityLabel = "Title"
         backgroundColor = .clear
         isScrollEnabled = false
         textContainerInset = .zero
@@ -437,6 +440,7 @@ final class TitleView: UITextView {
         autocapitalizationType = .sentences
         placeholder.text = "Title"
         placeholder.font = font
+        placeholder.adjustsFontForContentSizeCategory = true
         placeholder.textColor = .placeholderText
         addSubview(placeholder)
     }
@@ -458,6 +462,7 @@ struct EditorView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> PhoneTextView {
         let textView = PhoneTextView()
+        textView.accessibilityLabel = "Note"
         session.textView = textView
         // The title, at the top, scrolling with the text.
         let header = NoteHeader()
