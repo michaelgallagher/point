@@ -57,8 +57,8 @@ final class FormatBar: UIView {
         glass.contentView.addSubview(choices)
 
         var configuration = UIButton.Configuration.prominentGlass()
-        configuration.image = UIImage(systemName: "keyboard.chevron.compact.down")
-        configuration.baseForegroundColor = .white
+        configuration.image = UIImage(systemName: "keyboard.chevron.compact.down")?
+            .withTintColor(.white, renderingMode: .alwaysOriginal)
         let hide = UIButton(configuration: configuration, primaryAction: UIAction { [weak self] _ in
             self?.textView?.resignFirstResponder()
         })

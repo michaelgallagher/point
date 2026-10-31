@@ -225,7 +225,7 @@ After Mike tried it. These change "What it leaves out": the app now has sorting,
 - The Mac shades a link while the cursor is inside its end, so it's clear that typing goes on with the link. The phone has the stop but not the shading, and doesn't yet take a tap to the right of a link as after it.
 - VoiceOver reads a note's raw Markdown, hidden markers and frontmatter included, and has no way to tick a checkbox or open a link.
 - At the largest text sizes a bullet's dot stays small, being drawn at a fixed size in the shared layout manager. An inline `code` pill starting a wrapped line sticks out 2 points past the margin, as the tag pill did.
-- With the keyboard down, a tap in the band between Add and Search does nothing: the toolbar takes it. With a hardware keyboard, the bar above the keyboard sits over the note's last lines.
+- With the keyboard down, a tap in the band between Add and Search does nothing: the toolbar takes it. With a hardware keyboard, the bar above the keyboard sits over the note's last lines, and now over Add and Explorer too, the bar being see-through.
 
 ## Mike's second notes (31 October 2026)
 
