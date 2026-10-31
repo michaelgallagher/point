@@ -55,7 +55,7 @@ public final class PhoneTextView: UITextView {
         let layoutManager = PointLayoutManager()
         layoutManager.allowsNonContiguousLayout = true
         storage.addLayoutManager(layoutManager)
-        let container = NSTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        let container = PhoneTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         container.widthTracksTextView = true
         layoutManager.addTextContainer(container)
         pointLayoutManager = layoutManager
@@ -66,6 +66,9 @@ public final class PhoneTextView: UITextView {
         styler.theme.typography.bodySize = 17 // The iPhone's own body size.
         styler.theme.typography.headings[0].size = 22.0 / 17 // Below the note's title, at 24.
         styler.theme.keepsTagsInsideMargin = true
+        styler.theme.tagSpace = 8
+        styler.theme.tagRise = 3
+        container.tagSpace = styler.theme.tagSpace
         applyTextSize()
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (view: PhoneTextView, _: UITraitCollection) in
             view.textSizeChanged()

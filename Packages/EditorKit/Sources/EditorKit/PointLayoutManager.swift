@@ -223,15 +223,11 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         let line = lineFragmentRect(forGlyphAt: glyphs.location, effectiveRange: nil)
         let bounds = boundingRect(forGlyphRange: glyphs, in: container)
         let baseline = origin.y + line.minY + location(forGlyphAt: glyphs.location).y
-        let height = (font.ascender - font.descender + 4).rounded()
+        let height = (font.ascender - font.descender + theme.tagRise * 2).rounded()
         // The glyphs' bounds include the space added after the tag's last letter; leave it out.
         let trailing = storage.attribute(.kern, at: NSMaxRange(range) - 1, effectiveRange: nil) as? CGFloat ?? 0
-        // 6 points either side of the text, and 2 above and below.
-        var rect = CGRect(x: origin.x + bounds.minX - 6, y: baseline - font.ascender - 2, width: bounds.width - trailing + 12, height: height)
-        // Wrapped to the start of a line, where there's no room made for it.
-        if theme.keepsTagsInsideMargin, rect.minX < origin.x + line.minX {
-            rect = rect.divided(atDistance: origin.x + line.minX - rect.minX, from: .minXEdge).remainder
-        }
+        let rect = CGRect(x: origin.x + bounds.minX - theme.tagSpace, y: baseline - font.ascender - theme.tagRise,
+                          width: bounds.width - trailing + theme.tagSpace * 2, height: height)
         // The highlight colour, a quarter of the way towards the page colour, so pills stay light.
         let fill = PlatformColor.selectedTextBackgroundColor.blended(withFraction: 0.25, of: .textBackgroundColor) ?? .selectedTextBackgroundColor
         fill.setFill()

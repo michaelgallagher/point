@@ -46,6 +46,10 @@ struct EditorTheme {
     /// Whether a tag's pill stays inside the text's left edge: on the phone the text is the page's
     /// margin, shared with the note's title.
     var keepsTagsInsideMargin = false
+    /// How far a tag's pill reaches past its text at each side, which is the room made for it.
+    var tagSpace: CGFloat = 6
+    /// How far a tag's pill reaches above and below its text.
+    var tagRise: CGFloat = 2
     /// The chosen sizes and styles.
     var typography = Typography()
     /// ⌘+ and ⌘−: how much bigger or smaller than chosen everything is.

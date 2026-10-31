@@ -195,12 +195,12 @@ struct MarkdownStyler {
             // Drawn as a pill by the layout manager, with a little room on each side for it.
             storage.addAttributes(pointing([.pointTag: true]), range: range)
             if range.location > 0, text.character(at: range.location - 1) != 10 {
-                storage.addAttribute(.kern, value: Self.tagSpace, range: NSRange(location: range.location - 1, length: 1))
+                storage.addAttribute(.kern, value: theme.tagSpace, range: NSRange(location: range.location - 1, length: 1))
             } else if theme.keepsTagsInsideMargin {
-                let style = paragraphStyle { $0.firstLineHeadIndent = Self.tagSpace }
+                let style = paragraphStyle { $0.firstLineHeadIndent = theme.tagSpace }
                 storage.addAttribute(.paragraphStyle, value: style, range: text.lineRange(for: NSRange(location: range.location, length: 0)))
             }
-            storage.addAttribute(.kern, value: Self.tagSpace, range: NSRange(location: NSMaxRange(range) - 1, length: 1))
+            storage.addAttribute(.kern, value: theme.tagSpace, range: NSRange(location: NSMaxRange(range) - 1, length: 1))
         case .footnoteReference:
             storage.addAttributes([
                 .font: PlatformFont.systemFont(ofSize: theme.bodySize * 0.75),
@@ -215,9 +215,6 @@ struct MarkdownStyler {
             storage.addAttribute(.pointHidden, value: true, range: marker)
         }
     }
-
-    /// Room made on each side of a tag for its pill (which reaches 6 points past the text).
-    static let tagSpace: CGFloat = 6
 
     static func isWebAddress(_ destination: String) -> Bool {
         guard let scheme = URL(string: destination)?.scheme?.lowercased() else { return false }

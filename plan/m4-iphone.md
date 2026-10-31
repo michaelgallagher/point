@@ -223,7 +223,6 @@ After Mike tried it. These change "What it leaves out": the app now has sorting,
 
 **Still to do:**
 - The Mac shades a link while the cursor is inside its end, so it's clear that typing goes on with the link. The phone has the stop but not the shading, and doesn't yet take a tap to the right of a link as after it.
-- Tag pills: a tag starting a line now starts its pill at the margin, its line moved in to make room. A tag wrapped to the start of a line can't be moved, so its pill is cut off at the margin and sits tight against the `#`. On an empty last line after a line starting with a tag, the cursor sits 6 points in.
 - VoiceOver reads a note's raw Markdown, hidden markers and frontmatter included, and has no way to tick a checkbox or open a link.
 - At the largest text sizes a bullet's dot stays small, being drawn at a fixed size in the shared layout manager. An inline `code` pill starting a wrapped line sticks out 2 points past the margin, as the tag pill did.
 - With the keyboard down, a tap in the band between Add and Search does nothing: the toolbar takes it. With a hardware keyboard, the bar above the keyboard sits over the note's last lines.
@@ -236,7 +235,11 @@ After trying the first draft, on `ios-second-draft`. One commit per step.
 2. **Explorer.** The search page becomes Explorer: it fades in over whatever's showing rather than being pushed, with the field focused and a white background. There's no Back: the system's X beside the field closes it, because it's already there while searching, and a second one at the top would only repeat it. Its button's icon is `map`. As it's no longer a page in the stack, closing it can't count as leaving the note it was opened from.
 3. **Home.** Settings moves to the top left. Bookmarks, Recent and a new Notes row, which opens the notes at the vault's top level as a second page, with Sort; then folders; then the tags, as a section. The Tags page goes, and home is titled Point, so two pages aren't both called Notes.
 4. **Keyboard tools.** The tools go in a Liquid Glass capsule that scrolls sideways, with Hide Keyboard apart from it at the right, on the highlight colour. Tag goes, along with Highlight, Strikethrough and Code. Heading levels stay in a menu; Bold, Italic and Quote stay one tap each, because a menu would make every use of them two. The link, list and indent tools stay: the note was about styles.
-5. **Tags.** More padding around a tag's text, which needs more room made either side, so what's beside it doesn't crowd it.
+5. **Tags.** More padding around a tag's text, on the phone (the Mac's are unchanged): 8 points at the sides, 3 above and below. A tag wrapped to the start of a line used to have its pill cut off at the margin; `PhoneTextContainer` now starts such a line in from the margin, which costs nothing while typing (1.4 ms a keystroke at 272,000 characters, with or without it, in Release).
+
+**Tried:** all five in the Simulator, in light mode, without a real iPhone. Both apps build, and the package tests pass.
+
+**Not tried:** the iPhone itself, dark mode, the largest text sizes on the new button and bar, and a vault with many tags on home.
 
 ## Decided (27 October 2026)
 
