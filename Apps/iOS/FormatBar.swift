@@ -1,39 +1,38 @@
 import EditorKit
 import UIKit
 
-/// The bar above the keyboard while writing a note: links, tags, lists and styles, scrolling
-/// sideways, in the order they're reached for; and at its right, always in reach, hiding the
-/// keyboard. While a `[[link` or `#tag` is being typed, what it could be takes the tools' place.
-final class FormatBar: UIInputView {
+/// The bar above the keyboard while writing a note: links, styles and lists in a glass capsule,
+/// scrolling sideways, in the order they're reached for; and apart from it at the right, always
+/// in reach, hiding the keyboard. While a `[[link` or `#tag` is being typed, what it could be
+/// takes the tools' place.
+final class FormatBar: UIView {
     private weak var textView: PhoneTextView?
     private let scroller = UIScrollView()
     private let choices = UIScrollView()
     private let choiceStack = UIStackView()
+    private static let height: CGFloat = 44
 
     init(textView: PhoneTextView) {
         self.textView = textView
-        super.init(frame: CGRect(x: 0, y: 0, width: 0, height: 48), inputViewStyle: .keyboard)
-        allowsSelfSizing = false
+        super.init(frame: CGRect(x: 0, y: 0, width: 0, height: Self.height + 8))
         autoresizingMask = .flexibleWidth
         // Its height is fixed, as the keyboard's own rows are.
         maximumContentSizeCategory = .extraExtraExtraLarge
 
         let tools = UIStackView(arrangedSubviews: [
             button("Link to a Note", title: "[[") { $0.format { $0.wikiLink() } },
-            button("Tag", symbol: "number") { $0.format { $0.inserting("#") } },
+            button("Bold", symbol: "bold") { $0.format { $0.toggleBold() } },
+            button("Italic", symbol: "italic") { $0.format { $0.toggleItalic() } },
+            headingButton(),
+            button("Quote", symbol: "text.quote") { $0.format { $0.toggleBlockQuote() } },
             button("Checklist", symbol: "checklist") { $0.format { $0.toggleChecklist() } },
             button("Bulleted List", symbol: "list.bullet") { $0.format { $0.toggleBulletList() } },
             button("Outdent", symbol: "decrease.indent") { $0.format { $0.outdent() } },
             button("Indent", symbol: "increase.indent") { $0.format { $0.indent() } },
-            headingButton(),
-            button("Bold", symbol: "bold") { $0.format { $0.toggleBold() } },
-            button("Italic", symbol: "italic") { $0.format { $0.toggleItalic() } },
-            button("Highlight", symbol: "highlighter") { $0.format { $0.toggleHighlight() } },
-            button("Strikethrough", symbol: "strikethrough") { $0.format { $0.toggleStrikethrough() } },
-            button("Quote", symbol: "text.quote") { $0.format { $0.toggleBlockQuote() } },
-            button("Code", symbol: "chevron.left.forwardslash.chevron.right") { $0.format { $0.toggleCode() } },
         ])
         tools.spacing = 2
+        tools.isLayoutMarginsRelativeArrangement = true
+        tools.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 6)
         tools.translatesAutoresizingMaskIntoConstraints = false
 
         scroller.showsHorizontalScrollIndicator = false
@@ -42,25 +41,45 @@ final class FormatBar: UIInputView {
 
         choiceStack.spacing = 4
         choiceStack.alignment = .center
+        choiceStack.isLayoutMarginsRelativeArrangement = true
+        choiceStack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 6)
         choiceStack.translatesAutoresizingMaskIntoConstraints = false
         choices.showsHorizontalScrollIndicator = false
         choices.translatesAutoresizingMaskIntoConstraints = false
         choices.isHidden = true
         choices.addSubview(choiceStack)
 
-        let hide = button("Hide Keyboard", symbol: "keyboard.chevron.compact.down") { $0.resignFirstResponder() }
+        let glass = UIVisualEffectView(effect: UIGlassEffect())
+        glass.cornerConfiguration = .capsule()
+        glass.clipsToBounds = true
+        glass.translatesAutoresizingMaskIntoConstraints = false
+        glass.contentView.addSubview(scroller)
+        glass.contentView.addSubview(choices)
+
+        var configuration = UIButton.Configuration.prominentGlass()
+        configuration.image = UIImage(systemName: "keyboard.chevron.compact.down")
+        configuration.baseForegroundColor = .white
+        let hide = UIButton(configuration: configuration, primaryAction: UIAction { [weak self] _ in
+            self?.textView?.resignFirstResponder()
+        })
+        hide.accessibilityLabel = "Hide Keyboard"
         hide.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(scroller)
-        addSubview(choices)
+        addSubview(glass)
         addSubview(hide)
         NSLayoutConstraint.activate([
-            scroller.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            scroller.topAnchor.constraint(equalTo: topAnchor),
-            scroller.bottomAnchor.constraint(equalTo: bottomAnchor),
-            scroller.trailingAnchor.constraint(equalTo: hide.leadingAnchor, constant: -4),
-            hide.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            glass.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            glass.centerYAnchor.constraint(equalTo: centerYAnchor),
+            glass.heightAnchor.constraint(equalToConstant: Self.height),
+            glass.trailingAnchor.constraint(equalTo: hide.leadingAnchor, constant: -8),
+            hide.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             hide.centerYAnchor.constraint(equalTo: centerYAnchor),
+            hide.widthAnchor.constraint(equalToConstant: Self.height),
+            hide.heightAnchor.constraint(equalToConstant: Self.height),
+            scroller.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor),
+            scroller.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor),
+            scroller.topAnchor.constraint(equalTo: glass.contentView.topAnchor),
+            scroller.bottomAnchor.constraint(equalTo: glass.contentView.bottomAnchor),
             tools.leadingAnchor.constraint(equalTo: scroller.leadingAnchor),
             tools.trailingAnchor.constraint(equalTo: scroller.trailingAnchor),
             tools.topAnchor.constraint(equalTo: scroller.topAnchor),
@@ -80,6 +99,12 @@ final class FormatBar: UIInputView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("Not used") }
+
+    /// Between and around its pieces, taps reach the note behind.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let view = super.hitTest(point, with: event)
+        return view === self ? nil : view
+    }
 
     /// Offers `choices` for a completion, or goes back to the tools if there are none.
     func show(_ completion: MarkdownEditing.Completion?, choices titles: [String]) {
