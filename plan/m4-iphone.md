@@ -48,7 +48,7 @@ Two screens and a button.
 
 ```
 ┌─────────────────────────────┐
-│ ‹                       ⋯   │  Back; a menu with Bookmark, Share, Delete.
+│ ‹                       ⋯   │  Back; a menu with Find, Properties, Bookmark, Share, Delete.
 │                             │
 │ Workshop notes              │  The title is the file name.
 │                             │
@@ -203,6 +203,8 @@ After Mike tried it. These change "What it leaves out": the app now has sorting,
 - **Haptics:** a light tap on ticking a checkbox and on changing a bookmark.
 - **VoiceOver:** the title and the note have names. The bar's buttons and the toolbars had them already.
 
+**Share and Delete, in the note's ⋯ menu.** Share saves first, then offers the note's file in the system's share sheet. Delete asks, then moves the note, with its latest edits, to the vault's `.trash`, with its bookmark and the coming back into it. The phone has no trash list, so a note comes back through the Mac or Obsidian. The move waits until the note's screen has gone, so nothing can write it back. The phone keeps no trash record for the Mac, so the Mac's clear-out after 30 days leaves these alone.
+
 **Found and fixed: a long note went to the wrong place.** Only what's on screen is laid out when a note opens, so anywhere further down was an estimate. Coming back to a cursor 200,000 characters into a note showed Section 163 of what should have been 662, with the cursor off screen. The rest of the note is now laid out gradually after it opens, as on the Mac, and everything up to a place is laid out before going there (`placeCursor`, `scrollRangeToVisible`), which is how Find gets there too.
 
 **Found and fixed: `---` saved as a dash.** Adding the first property to a note wrote `-—` in place of the frontmatter's fences. `replace(_:withText:)` punctuates what's inserted unless the view is the one focused, whatever its own smart-punctuation settings, so anything set from the sheet could change (quotes and `--` too). `applyAboveBody` now changes the text directly and does its own undo. Checkbox taps still use `replace`, and only ever insert a space or an `x`.
@@ -217,7 +219,7 @@ After Mike tried it. These change "What it leaves out": the app now has sorting,
 
 **Tried:** in the Simulator, on sample notes: every item above but the items marked below. `MarkdownEditingTests` passes.
 
-**Not tried:** the iPhone itself; the keyboard's autocorrection and suggestions around Return; the Heading menu, indent buttons by tap, and the bar scrolling (their commands were run, not tapped); `#` suggestions on screen (tested as logic); dragging the cursor (the magnifier, or the space bar as a trackpad) past hidden markers, where nothing tells the editor a drag is under way, as the Mac's `stillSelecting` does. In the properties sheet: the date-and-time picker, a nested value, the repeated-key warning, tag suggestions. Haptics (the Simulator has none), and VoiceOver itself (labels were checked in the code). How the gradual layout feels while typing straight after opening the largest note, in a Release build.
+**Not tried:** the iPhone itself; the keyboard's autocorrection and suggestions around Return; the Heading menu, indent buttons by tap, and the bar scrolling (their commands were run, not tapped); `#` suggestions on screen (tested as logic); dragging the cursor (the magnifier, or the space bar as a trackpad) past hidden markers, where nothing tells the editor a drag is under way, as the Mac's `stillSelecting` does. In the properties sheet: the date-and-time picker, a nested value, the repeated-key warning, tag suggestions. Haptics (the Simulator has none), and VoiceOver itself (labels were checked in the code). How the gradual layout feels while typing straight after opening the largest note, in a Release build. Sharing through to another app (the sheet opened with the right file); a delete that fails; putting a phone-deleted note back on the Mac.
 
 **Still to do:**
 - The Mac shades a link while the cursor is inside its end, so it's clear that typing goes on with the link. The phone has the stop but not the shading, and doesn't yet take a tap to the right of a link as after it.

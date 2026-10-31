@@ -279,6 +279,32 @@ final class PhoneStore: ObservableObject {
         return renamed
     }
 
+    /// Moves a note to the vault's trash, as the Mac does, where the Mac and Obsidian can put it
+    /// back: the phone has no trash list. What it was known by (opened, worked on, its bookmark)
+    /// goes with it.
+    func moveToTrash(_ id: Note.ID) {
+        guard let note = note(id) else { return }
+        do {
+            _ = try VaultTrash.move(note.url, vault: root)
+        } catch {
+            trashProblem = "“\(note.title)” is still in your notes (\(error.localizedDescription))."
+            return
+        }
+        untitled.remove(id)
+        notes.removeAll { $0.id == id }
+        var dates = opened
+        if dates.removeValue(forKey: id) != nil { opened = dates }
+        if UserDefaults.standard.string(forKey: "workingOn") == id { stopWorking() }
+        if isBookmarked(id) {
+            try? ObsidianBookmarks.remove(id, vault: root)
+            bookmarks = ObsidianBookmarks.load(vault: root)
+        }
+        Task { await reload() }
+    }
+
+    /// Why a note couldn't be deleted, for home to say: its own screen has gone by then.
+    @Published var trashProblem: String?
+
     /// A note's file renamed: the list, and what it was known by (opened, worked on, its
     /// bookmarks), follow it.
     @discardableResult

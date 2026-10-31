@@ -9,6 +9,9 @@ import VaultKit
 struct NoteScreen: View {
     @EnvironmentObject private var store: PhoneStore
     @StateObject private var session: NoteSession
+    @Environment(\.dismiss) private var dismiss
+    @State private var confirmsDelete = false
+    @State private var isDeleting = false
 
     init(note: Note, store: PhoneStore, isNew: Bool = false) {
         _session = StateObject(wrappedValue: NoteSession(note: note, store: store, isNew: isNew))
@@ -32,11 +35,29 @@ struct NoteScreen: View {
                         Button(bookmarked ? "Remove Bookmark" : "Bookmark", systemImage: bookmarked ? "bookmark.slash" : "bookmark") {
                             store.toggleBookmark(session.note.id)
                         }
+                        Button("Share", systemImage: "square.and.arrow.up") { session.share() }
+                        Divider()
+                        Button("Delete", systemImage: "trash", role: .destructive) { confirmsDelete = true }
                     }
                 }
             }
             .sheet(isPresented: $session.showsProperties) {
                 PropertiesSheet(session: session).environmentObject(store)
+            }
+            .sheet(isPresented: $session.showsShare) {
+                ShareSheet(url: session.note.url)
+                    .presentationDetents([.medium, .large])
+                    .ignoresSafeArea()
+            }
+            .alert("Delete “\(session.note.title)”?", isPresented: $confirmsDelete) {
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) {
+                    // Gone from the list once this screen has left, not while it's showing.
+                    isDeleting = true
+                    dismiss()
+                }
+            } message: {
+                Text("It moves to the vault’s trash, where the Mac or Obsidian can put it back.")
             }
             .onAppear { store.noteOpened(session.note.id) }
             .onChange(of: store.findRequest) { _, text in
@@ -46,6 +67,7 @@ struct NoteScreen: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { session.find(text) }
             }
             .onDisappear {
+                guard !isDeleting else { return session.moveToTrash() }
                 // Left: its title taken, saved, then (if it has no title) named from its first
                 // line, or removed if it's still empty.
                 session.commitTitle()
@@ -78,6 +100,17 @@ struct NoteScreen: View {
                 .background(.bar)
         }
     }
+}
+
+/// The system's share sheet, for a note's file.
+private struct ShareSheet: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
 /// Above the note: something went wrong, and what can be done.
@@ -118,6 +151,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     /// The note's frontmatter, as its text is now.
     @Published private(set) var frontmatter: Frontmatter?
     @Published var showsProperties = false
+    @Published var showsShare = false
     /// Why a title couldn't be used (the name's taken, say), until dismissed.
     @Published private(set) var titleProblem: String?
 
@@ -225,6 +259,17 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
                 + (kept ? " Your changes are kept." : " Copy them somewhere safe.")
             return false
         }
+    }
+
+    /// Shares the note's file, as it is now, under the title as typed.
+    func share() {
+        commitTitle()
+        if save() { showsShare = true }
+    }
+
+    /// Moves the note to the trash, with its latest edits. Those that can't be saved keep it here.
+    func moveToTrash() {
+        if save() { store.moveToTrash(note.id) } else { store.trashProblem = saveProblem }
     }
 
     // MARK: Properties
