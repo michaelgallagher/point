@@ -2,14 +2,15 @@ import IndexKit
 import SwiftUI
 import VaultKit
 
-/// The search page, from any page. It opens without the field focused, so its lists can be seen
-/// and picked from: recent notes (which stand in for tabs), bookmarks, notes linked with the one
-/// it was opened from, and commands. Typing shows results in their place. Opened from a note, the
-/// first result finds the text in that note.
-struct SearchScreen: View {
+/// Explorer, over any page. It opens with the field focused, ready to type, above lists to pick
+/// from: recent notes (which stand in for tabs), bookmarks, notes linked with the one it was
+/// opened from, and commands. Typing shows results in their place. Opened from a note, the first
+/// result finds the text in that note.
+struct ExplorerScreen: View {
     @EnvironmentObject private var store: PhoneStore
-    /// The note search was opened from, if any.
+    /// The note Explorer was opened from, if any.
     let note: Note?
+    let close: () -> Void
     let open: (Note.ID) -> Void
     let find: (String) -> Void
     let newNote: () -> Void
@@ -18,20 +19,31 @@ struct SearchScreen: View {
     @State private var noteText = ""
     /// The notes linked with the note.
     @State private var linked: [Note] = []
+    @State private var isSearching = false
 
     private var query: String { store.searchText.trimmingCharacters(in: .whitespaces) }
 
     var body: some View {
-        List {
-            if query.isEmpty {
-                lists
-            } else {
-                results
+        NavigationStack {
+            List {
+                if query.isEmpty {
+                    lists
+                } else {
+                    results
+                }
             }
+            .listStyle(.plain)
+            .navigationTitle("Explorer")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $store.searchText, isPresented: $isSearching, prompt: "Search")
+            .searchPresentationToolbarBehavior(.avoidHidingContent)
         }
-        .navigationTitle("Search")
-        .searchable(text: $store.searchText, prompt: "Search")
+        // The field's own close button, beside it, closes Explorer: it's always in search.
+        .onChange(of: isSearching) { _, searching in
+            if !searching { close() }
+        }
         .onAppear {
+            isSearching = true
             if let note { noteText = (try? NoteReader.read(note)) ?? "" }
         }
         .task {

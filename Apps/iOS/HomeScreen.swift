@@ -5,7 +5,7 @@ import VaultKit
 /// Where the app can go: a note, or one of the lists of notes.
 enum Route: Hashable {
     case note(Note.ID)
-    case bookmarks, recent, tags, search
+    case bookmarks, recent, tags
     case tag(String)
     case folder(String)
 }
@@ -13,7 +13,7 @@ enum Route: Hashable {
 /// Home, as the Notes app's list of folders: Bookmarks, Recent and Tags, each a page of its
 /// own; the vault's folders; then the notes at its top level. Settings at the top right; along
 /// the bottom, on every page, the system's toolbar, with Add (a note or a folder) on the left
-/// and search, a page of its own, on the right.
+/// and Explorer, which fades in over any page, on the right.
 struct HomeScreen: View {
     @EnvironmentObject private var store: PhoneStore
     @ObservedObject private var quickActions = QuickActions.shared
@@ -21,6 +21,7 @@ struct HomeScreen: View {
     /// The note just made with New Note, which opens with the cursor in its title.
     @State private var newNote: Note.ID?
     @State private var showsSettings = false
+    @State private var showsExplorer = false
     /// Whether the note being worked on has had its chance to reopen, once, at launch.
     @State private var hasResumed = false
     /// New Folder: where it goes ("" for the top level), and the name being typed.
@@ -42,6 +43,15 @@ struct HomeScreen: View {
                     }
                 }
                 .toolbar { bottomBar() }
+        }
+        .overlay {
+            if showsExplorer {
+                ExplorerScreen(note: noteBelowExplorer, close: closeExplorer, open: openFromExplorer, find: findFromExplorer, newNote: createNote) {
+                    closeExplorer()
+                    showsSettings = true
+                }
+                .transition(.opacity)
+            }
         }
         .alert("New Folder", isPresented: Binding(get: { newFolderParent != nil }, set: { if !$0 { newFolderParent = nil } })) {
             TextField("Name", text: $newFolderName)
@@ -75,18 +85,12 @@ struct HomeScreen: View {
         .onChange(of: store.linkedRoute) { _, route in
             guard let route else { return }
             store.linkedRoute = nil
-            // Back to it if it's open already, or on to it.
-            if let index = path.firstIndex(of: route) {
-                path.removeSubrange((index + 1)...)
-            } else {
-                path.append(route)
-            }
+            go(to: route)
         }
         .onAppear { if quickActions.newNoteRequests > 0 { createNote() } }
         .onChange(of: path) { _, path in
-            // Home, or another note: that's the end of coming back to this one. (Searching from
-            // it isn't leaving it, until another note is picked.)
-            guard let working = store.workingOn?.note.id, path.last != .search else { return }
+            // Home, or another note: that's the end of coming back to this one.
+            guard let working = store.workingOn?.note.id else { return }
             if case .note(let id)? = path.last, store.currentID(id) == working { return }
             store.stopWorking()
         }
@@ -103,7 +107,7 @@ struct HomeScreen: View {
         }
     }
 
-    /// Add (a note, or a folder where you are) on the left, search on the right, on every page.
+    /// Add (a note, or a folder where you are) on the left, Explorer on the right, on every page.
     @ToolbarContentBuilder private func bottomBar(in folder: String = "") -> some ToolbarContent {
         ToolbarItem(placement: .bottomBar) {
             Menu("Add", systemImage: "plus") {
@@ -116,7 +120,9 @@ struct HomeScreen: View {
         }
         ToolbarSpacer(.flexible, placement: .bottomBar)
         ToolbarItem(placement: .bottomBar) {
-            Button("Search", systemImage: "magnifyingglass") { path.append(.search) }
+            Button("Explorer", systemImage: "map") {
+                withAnimation(.easeInOut(duration: 0.2)) { showsExplorer = true }
+            }
         }
     }
 
@@ -148,9 +154,6 @@ struct HomeScreen: View {
             if let note = store.note(store.currentID(id)) {
                 NoteScreen(note: note, store: store, isNew: id == newNote).toolbar { bottomBar() }
             }
-        case .search:
-            SearchScreen(note: noteBelowSearch, open: openFromSearch, find: findFromSearch, newNote: createNote,
-                         showSettings: { showsSettings = true })
         case .bookmarks: BookmarksScreen().toolbar { bottomBar() }
         case .recent: RecentScreen().toolbar { bottomBar() }
         case .tags: TagsScreen().toolbar { bottomBar() }
@@ -159,28 +162,33 @@ struct HomeScreen: View {
         }
     }
 
-    /// The note search was opened from, if it was.
-    private var noteBelowSearch: Note? {
-        guard path.count > 1, case .note(let id) = path[path.count - 2] else { return nil }
+    /// Back to a route if it's open already, or on to it.
+    private func go(to route: Route) {
+        if let index = path.firstIndex(of: route) {
+            path.removeSubrange((index + 1)...)
+        } else {
+            path.append(route)
+        }
+    }
+
+    /// The note Explorer was opened from, if it was.
+    private var noteBelowExplorer: Note? {
+        guard case .note(let id)? = path.last else { return nil }
         return store.note(store.currentID(id))
     }
 
-    /// Opens a note in search's place: Back goes to where search was opened from, and a note
-    /// open already is gone back to.
-    private func openFromSearch(_ id: Note.ID) {
-        var path = path
-        path.removeAll { $0 == .search }
-        if let index = path.firstIndex(of: .note(id)) {
-            path.removeSubrange((index + 1)...)
-        } else {
-            path.append(.note(id))
-        }
-        self.path = path
+    private func closeExplorer() {
+        withAnimation(.easeInOut(duration: 0.2)) { showsExplorer = false }
     }
 
-    /// Back to the note search was opened from, finding `text` there.
-    private func findFromSearch(_ text: String) {
-        path.removeLast()
+    private func openFromExplorer(_ id: Note.ID) {
+        closeExplorer()
+        go(to: .note(id))
+    }
+
+    /// Back to the note Explorer was opened from, finding `text` there.
+    private func findFromExplorer(_ text: String) {
+        closeExplorer()
         store.findRequest = text
     }
 
@@ -198,7 +206,7 @@ struct HomeScreen: View {
     private func createNote() {
         guard let id = store.createNote() else { return }
         newNote = id
-        store.searchText = ""
+        closeExplorer()
         path = [.note(id)]
     }
 
