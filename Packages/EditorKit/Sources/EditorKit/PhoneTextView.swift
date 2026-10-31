@@ -4,8 +4,8 @@ import UIKit
 
 /// The note editor on the iPhone: a `UITextView` on TextKit 1, sharing the Mac's styler and
 /// layout manager, so notes look the same and the Markdown stays hidden. It restyles as you
-/// type, and takes the Mac's formatting commands as edits (`MarkdownEditing`), but doesn't yet
-/// have its folding or cursor rules.
+/// type, takes the Mac's formatting commands as edits (`MarkdownEditing`), and keeps its rules
+/// around hidden Markdown (`HiddenMarkers`), but doesn't yet have its folding.
 public final class PhoneTextView: UITextView {
     public private(set) var tokens: [MarkdownToken] = []
     private var styler = MarkdownStyler()
@@ -42,6 +42,10 @@ public final class PhoneTextView: UITextView {
     var restyleScheduled = false
     /// Set while restyling, whose attribute changes aren't edits.
     var isRestyling = false
+    /// Where the cursor last settled, to tell which way it's moving.
+    private var cursor = 0
+    /// Set while the selection is put somewhere the cursor can't rest, on the way to an edit.
+    private var isAdjustingSelection = false
 
     public init() {
         // TextKit 1, built by hand so the layout manager can hide markers, as on the Mac.
@@ -101,7 +105,7 @@ public final class PhoneTextView: UITextView {
         pendingRestyle = nil
         restyle(NSRange(location: 0, length: textStorage.length))
         undoManager?.removeAllActions()
-        selectedRange = NSRange(location: bodyStart, length: 0)
+        moveToBodyStart()
         layoutIfNeeded()
         // What's on screen, laid out now.
         pointLayoutManager.ensureLayout(forBoundingRect: CGRect(origin: .zero, size: bounds.size), in: textContainer)
@@ -118,9 +122,62 @@ public final class PhoneTextView: UITextView {
         return NSMaxRange(text.lineRange(for: NSRange(location: last, length: 0)))
     }
 
-    /// Puts the cursor at the start of the note's body.
+    /// Puts the cursor at the start of the note's body, after any markers there.
     public func moveToBodyStart() {
+        cursor = bodyStart
         selectedRange = NSRange(location: bodyStart, length: 0)
+        settleCursor()
+    }
+
+    private var hiddenMarkers: HiddenMarkers {
+        HiddenMarkers(storage: textStorage, tokens: tokens, bodyStart: bodyStart)
+    }
+
+    /// Keeps the cursor out of hidden markers. Not before an edit is restyled, when what's hidden
+    /// isn't known: restyling settles it, judged from where it was before the edit.
+    func settleCursor() {
+        guard pendingRestyle == nil, markedTextRange == nil, !isAdjustingSelection else { return }
+        // Undo selects the markers it brings back, which the next key would then replace.
+        guard selectedRange.length == 0 || hiddenMarkers.isHidden(selectedRange) else { return }
+        cursor = hiddenMarkers.snapped(NSMaxRange(selectedRange), from: cursor)
+        if selectedRange != NSRange(location: cursor, length: 0) { selectedRange = NSRange(location: cursor, length: 0) }
+    }
+
+    private func setSelectionDirectly(_ range: NSRange) {
+        isAdjustingSelection = true
+        selectedRange = range
+        isAdjustingSelection = false
+    }
+
+    /// Delete, by the Mac's rules: at the start of a heading, list item or quote it removes the
+    /// formatting; otherwise it takes visible text, never a hidden marker.
+    public override func deleteBackward() {
+        guard markedTextRange == nil else { return super.deleteBackward() }
+        restylePending()
+        guard selectedRange.length == 0 else {
+            setSelectionDirectly(hiddenMarkers.wholeTokens(in: selectedRange))
+            return super.deleteBackward()
+        }
+        switch hiddenMarkers.delete(at: selectedRange.location) {
+        case .nothing:
+            break
+        case .removeMarkers(let run):
+            apply(MarkdownEdit(range: run, replacement: "", selection: NSRange(location: run.location, length: 0)))
+        case .delete(let location):
+            setSelectionDirectly(NSRange(location: location, length: 0))
+            super.deleteBackward()
+        }
+    }
+
+    /// Typing over a selection takes its hidden markers too.
+    public override func insertText(_ text: String) {
+        if selectedRange.length > 0, markedTextRange == nil { setSelectionDirectly(hiddenMarkers.wholeTokens(in: selectedRange)) }
+        super.insertText(text)
+    }
+
+    public override func cut(_ sender: Any?) {
+        setSelectionDirectly(hiddenMarkers.wholeTokens(in: selectedRange))
+        super.cut(sender)
     }
 
     /// Runs a formatting command on the selection.
@@ -151,7 +208,10 @@ public final class PhoneTextView: UITextView {
         if selection.location >= NSMaxRange(range) { selection.location += length - range.length }
         textStorage.replaceCharacters(in: range, with: replacement)
         // Restyled now, so the frontmatter's end is known before the cursor goes back.
+        isAdjustingSelection = true
         restylePending()
+        isAdjustingSelection = false
+        cursor = selection.location
         selectedRange = selection
     }
 }
@@ -174,11 +234,14 @@ extension PhoneTextView: UITextViewDelegate {
         return true
     }
 
-    /// Never into the hidden frontmatter: what's selected can be deleted.
+    /// Never into the hidden frontmatter, where what's selected can be deleted, nor hidden markers.
     public func textViewDidChangeSelection(_ textView: UITextView) {
         let start = bodyStart
         let selection = selectedRange
-        guard selection.location < start else { return updateCompletion() }
+        guard selection.location < start else {
+            settleCursor()
+            return updateCompletion()
+        }
         selectedRange = NSRange(location: start, length: max(NSMaxRange(selection) - start, 0))
     }
 }
@@ -210,6 +273,7 @@ extension PhoneTextView: @preconcurrency NSTextStorageDelegate {
         guard let edited = pendingRestyle else { return }
         pendingRestyle = nil
         restyle(edited)
+        settleCursor()
         let text = textStorage.string
         onTextChange?(text)
         updateCompletion()

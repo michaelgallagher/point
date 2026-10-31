@@ -194,11 +194,14 @@ After Mike tried it. These change "What it leaves out": the app now has sorting,
 - **Formatting commands:** `MarkdownEditing`, the Mac's commands as plain text edits. `MarkdownEditingTests` runs each one through the Mac's editor and this code, from the same text and selection, and they must agree.
 - **The bar above the keyboard (`FormatBar`):** links, tags, lists, indenting, headings and styles, scrolling sideways, with Hide Keyboard fixed at the right. While a `[[link` or `#tag` is being typed, suggestions take the tools' place.
 - **The editor (`PhoneTextView`):** Return continues lists and quotes. The frontmatter can't be selected, typed in or deleted. A checkbox ticks on a tap. A link opens on a tap while reading; with the keyboard up, the tap places the cursor, so a link's text can be edited. A link to a note that doesn't exist makes it, as on the Mac.
+- **Around hidden Markdown (`HiddenMarkers`):** the Mac's rules, which `HiddenMarkersTests` holds to the Mac's results. The cursor never rests inside hidden markers, and skips code fences. Delete at the start of a heading, list item or quote removes the formatting, otherwise it takes visible text, and it won't join a line to a code fence. Deleting or typing over all of a formatted span's text takes its markers too.
 - **Coming back:** the app reopens the note being worked on the same day, with the cursor where it was and the keyboard up, until going home or opening another note.
 - **Search (`SearchScreen`):** a page of its own, from the bottom toolbar of every page, the note included. It opens with the field not focused, so its lists can be seen and picked from: Recent (opened on this phone, five at most, without the current note), Bookmarks, Linked (notes the current note links to, then notes linking to it, five at most, leaving out any already listed), Commands. Typing shows results in their place. From a note, the first result is "Find in …" with a count, as Safari's "On This Page": it goes back to the note and opens the system's find bar, also in the note's ⋯ menu. A note picked from search takes the search page's place, so Back goes to where search was opened from. This, not tabs, is how to switch notes.
 - **Properties (`NoteHeader`, `PropertiesSheet`):** a line under the title sums them up ("5 properties · #work #plans") and opens the sheet, also in the ⋯ menu, for notes with none yet. Each value edits to suit its type, as on the Mac: fields, a switch, the system's date picker, tokens for lists and tags. Tap the icon to change the type, the name to rename, swipe to delete. Types are kept in `.obsidian/types.json`. A value nested under its key is left for the Mac.
 
 **Found and fixed: `---` saved as a dash.** Adding the first property to a note wrote `-—` in place of the frontmatter's fences. `replace(_:withText:)` punctuates what's inserted unless the view is the one focused, whatever its own smart-punctuation settings, so anything set from the sheet could change (quotes and `--` too). `applyAboveBody` now changes the text directly and does its own undo. Checkbox taps still use `replace`, and only ever insert a space or an `x`.
+
+**Found and fixed: undo selected hidden markers.** Undoing a removed list marker left the `- ` selected, unseen, so the next key would have replaced it. A selection of only hidden text now collapses to a cursor after it.
 
 **Decided (Mike):**
 - Search opens without focus.
@@ -208,10 +211,10 @@ After Mike tried it. These change "What it leaves out": the app now has sorting,
 
 **Tried:** in the Simulator, on sample notes: every item above but the items marked below. `MarkdownEditingTests` passes.
 
-**Not tried:** the iPhone itself; the keyboard's autocorrection and suggestions around Return; the Heading menu, indent buttons by tap, and the bar scrolling (their commands were run, not tapped); `#` suggestions on screen (tested as logic). In the properties sheet: the date-and-time picker, a nested value, the repeated-key warning, tag suggestions.
+**Not tried:** the iPhone itself; the keyboard's autocorrection and suggestions around Return; the Heading menu, indent buttons by tap, and the bar scrolling (their commands were run, not tapped); `#` suggestions on screen (tested as logic); dragging the cursor (the magnifier, or the space bar as a trackpad) past hidden markers, where nothing tells the editor a drag is under way, as the Mac's `stillSelecting` does. In the properties sheet: the date-and-time picker, a nested value, the repeated-key warning, tag suggestions.
 
 **Still to do:**
-- From the Mac's editor: backspace at the start of a heading or list item removes its formatting (on the phone it deletes a hidden marker), and the cursor rules around hidden markers.
+- The Mac shades a link while the cursor is inside its end, so it's clear that typing goes on with the link. The phone has the stop but not the shading, and doesn't yet take a tap to the right of a link as after it.
 - Tag pills stick out past the left margin.
 - Links with other schemes (`zoommtg:`): the Mac asks first; the phone ignores them for now.
 
