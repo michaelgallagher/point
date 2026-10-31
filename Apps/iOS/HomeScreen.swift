@@ -5,14 +5,14 @@ import VaultKit
 /// Where the app can go: a note, or one of the lists of notes.
 enum Route: Hashable {
     case note(Note.ID)
-    case bookmarks, recent, tags
+    case notes, bookmarks, recent
     case tag(String)
     case folder(String)
 }
 
-/// Home, as the Notes app's list of folders: Bookmarks, Recent and Tags, each a page of its
-/// own; the vault's folders; then the notes at its top level. Settings at the top right; along
-/// the bottom, on every page, the system's toolbar, with Add (a note or a folder) on the left
+/// Home, as the Notes app's list of folders: Notes (those at the vault's top level), Bookmarks
+/// and Recent, each a page of its own; the vault's folders; then its tags. Settings at the top
+/// left; along the bottom, on every page, the system's toolbar, with Add (a note or a folder) on the left
 /// and Explorer, which fades in over any page, on the right.
 struct HomeScreen: View {
     @EnvironmentObject private var store: PhoneStore
@@ -32,13 +32,12 @@ struct HomeScreen: View {
     var body: some View {
         NavigationStack(path: $path) {
             home
-                .navigationTitle("Notes")
+                .navigationTitle("Point")
                 .navigationBarTitleDisplayMode(.large)
                 .navigationDestination(for: Route.self, destination: destination)
                 .refreshable { await store.reload() }
                 .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) { SortMenu() }
-                    ToolbarItem(placement: .topBarTrailing) {
+                    ToolbarItem(placement: .topBarLeading) {
                         Button("Settings", systemImage: "gear") { showsSettings = true }
                     }
                 }
@@ -129,9 +128,9 @@ struct HomeScreen: View {
     private var home: some View {
         List {
             Section {
+                NavigationLink(value: Route.notes) { PlaceRow(title: "Notes", symbol: "doc.text", count: store.notes(in: "").count) }
                 NavigationLink(value: Route.bookmarks) { PlaceRow(title: "Bookmarks", symbol: "bookmark", count: store.bookmarks.count) }
                 NavigationLink(value: Route.recent) { PlaceRow(title: "Recent", symbol: "clock", count: nil) }
-                NavigationLink(value: Route.tags) { PlaceRow(title: "Tags", symbol: "number", count: store.tags.count) }
             }
             let folders = store.subfolders(of: "")
             if !folders.isEmpty {
@@ -141,7 +140,19 @@ struct HomeScreen: View {
                     }
                 }
             }
-            NoteSections(notes: store.notes(in: ""))
+            if !store.tags.isEmpty {
+                // Nested tags under their parents.
+                Section("Tags") {
+                    ForEach(store.tags, id: \.tag) { entry in
+                        NavigationLink(value: Route.tag(entry.tag)) {
+                            let depth = entry.tag.split(separator: "/").count - 1
+                            PlaceRow(title: depth > 0 ? String(entry.tag.split(separator: "/").last ?? "") : entry.tag,
+                                     symbol: "number", count: entry.count)
+                                .padding(.leading, CGFloat(depth) * 20)
+                        }
+                    }
+                }
+            }
         }
         .overlay { if store.notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text",
             description: Text("Copy notes into Point’s folder in the Files app.")) } }
@@ -154,9 +165,9 @@ struct HomeScreen: View {
             if let note = store.note(store.currentID(id)) {
                 NoteScreen(note: note, store: store, isNew: id == newNote).toolbar { bottomBar() }
             }
+        case .notes: NotesScreen().toolbar { bottomBar() }
         case .bookmarks: BookmarksScreen().toolbar { bottomBar() }
         case .recent: RecentScreen().toolbar { bottomBar() }
-        case .tags: TagsScreen().toolbar { bottomBar() }
         case .tag(let tag): TagScreen(tag: tag).toolbar { bottomBar() }
         case .folder(let folder): FolderScreen(folder: folder).toolbar { bottomBar(in: folder) }
         }
@@ -221,6 +232,19 @@ struct HomeScreen: View {
     }
 }
 
+/// The notes at the vault's top level, in the chosen order.
+struct NotesScreen: View {
+    @EnvironmentObject private var store: PhoneStore
+
+    var body: some View {
+        let notes = store.notes(in: "")
+        List { NoteSections(notes: notes) }
+            .navigationTitle("Notes")
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { SortMenu() } }
+            .overlay { if notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text") } }
+    }
+}
+
 /// Bookmarks: Obsidian's, in its order. Drag to reorder; long-press to remove.
 struct BookmarksScreen: View {
     @EnvironmentObject private var store: PhoneStore
@@ -269,25 +293,6 @@ struct TagScreen: View {
             .navigationTitle("#" + tag)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { SortMenu() } }
             .overlay { if notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text") } }
-    }
-}
-
-/// Every tag, with how many notes have it; nested tags under their parents.
-struct TagsScreen: View {
-    @EnvironmentObject private var store: PhoneStore
-
-    var body: some View {
-        let tags = store.tags
-        List(tags, id: \.tag) { entry in
-            NavigationLink(value: Route.tag(entry.tag)) {
-                let depth = entry.tag.split(separator: "/").count - 1
-                PlaceRow(title: depth > 0 ? String(entry.tag.split(separator: "/").last ?? "") : entry.tag,
-                         symbol: "number", count: entry.count)
-                    .padding(.leading, CGFloat(depth) * 20)
-            }
-        }
-        .navigationTitle("Tags")
-        .overlay { if tags.isEmpty { ContentUnavailableView("No Tags", systemImage: "number") } }
     }
 }
 
