@@ -52,9 +52,7 @@ targets:
     settings:
       base:
         PRODUCT_NAME: Point
-        # Kept from when the app was called Imprint: a new identifier would mean a new
-        # sandbox container, losing the settings and the vault's saved access.
-        PRODUCT_BUNDLE_IDENTIFIER: org.mikegallagher.imprint
+        PRODUCT_BUNDLE_IDENTIFIER: org.mikegallagher.point
         # Ad-hoc signing ("Sign to Run Locally") until there is a paid developer account.
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGN_STYLE: Manual
@@ -116,7 +114,7 @@ targets:
     settings:
       base:
         PRODUCT_NAME: PointDockTile
-        PRODUCT_BUNDLE_IDENTIFIER: org.mikegallagher.imprint.docktile
+        PRODUCT_BUNDLE_IDENTIFIER: org.mikegallagher.point.docktile
         WRAPPER_EXTENSION: docktileplugin
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_NSPrincipalClass: PointDockTilePlugIn

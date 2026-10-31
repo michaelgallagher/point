@@ -9,6 +9,20 @@ import MarkdownKit
 /// bullets, checkboxes, quote bars, callout and code backgrounds, and rules.
 final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
     var theme = EditorTheme()
+    /// Called when some of the layout is thrown away, to lay it all out again.
+    var onInvalidateLayout: (() -> Void)?
+
+    // The delegate's `layoutManagerDidInvalidateLayout` isn't called for every change (not a
+    // new width, after layout is complete), so these are watched instead.
+    override func invalidateLayout(forCharacterRange charRange: NSRange, actualCharacterRange actualCharRange: NSRangePointer?) {
+        super.invalidateLayout(forCharacterRange: charRange, actualCharacterRange: actualCharRange)
+        onInvalidateLayout?()
+    }
+
+    override func textContainerChangedGeometry(_ container: NSTextContainer) {
+        super.textContainerChangedGeometry(container)
+        onInvalidateLayout?()
+    }
 
     override init() {
         super.init()
@@ -430,7 +444,7 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
     }
 
     /// Where a list item's marker is drawn, for its line's baseline and font.
-    private func markerRect(_ marker: ListMarker, x: CGFloat, baseline: CGFloat, font: PlatformFont) -> CGRect {
+    func markerRect(_ marker: ListMarker, x: CGFloat, baseline: CGFloat, font: PlatformFont) -> CGRect {
         switch marker {
         case .bullet: return bulletRect(x: x, baseline: baseline, font: font)
         case .task: return checkboxRect(x: x, baseline: baseline, font: font)

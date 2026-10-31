@@ -453,8 +453,8 @@ extension MarkdownTextView {
             setFolded(!folds.contains(line), line: line)
             return
         }
-        if toggleCheckbox(at: point) { return }
         if showHighlightMenu(at: point, for: event) { return }
+        if toggleCheckbox(at: point) { return }
         if addCursor(for: event) { return } // ⌥-click adds a cursor (but not on a link).
         if openLink(for: event) { return } // ⌥-click places the cursor in a link instead.
         super.mouseDown(with: event)
@@ -493,49 +493,112 @@ extension MarkdownTextView {
 // MARK: Highlighting list items
 
 extension MarkdownTextView {
-    /// Clicking a bullet offers the highlight colours: choosing one writes its character at the
-    /// start of the item (`- ! text`), as the List Callouts plugin for Obsidian reads them.
+    /// ⌘-clicking a bullet or a checkbox offers the highlight colours: choosing one writes its
+    /// character at the start of the item (`- ! text`, `- [ ] ! text`), as the List Callouts
+    /// plugin for Obsidian reads them. (A plain click ticks a checkbox, so the menu can't be
+    /// on that, and bullets do the same, to match.)
     func showHighlightMenu(at point: NSPoint, for event: NSEvent) -> Bool {
-        guard !styler.listHighlights.isEmpty, let layoutManager = pointLayoutManager, let container = textContainer,
-              let storage = textStorage, storage.length > 0 else { return false }
-        let origin = textContainerOrigin
-        let local = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
-        let index = layoutManager.characterIndexForPoint(local, in: container)
-        let lineStart = lineStart(of: min(index, storage.length - 1))
-        guard let token = tokens.first(where: { $0.range.location == lineStart }),
-              case .listItem(.bullet, _) = token.kind,
-              let decoration = storage.attribute(.pointListMarker, at: lineStart, effectiveRange: nil) as? ListMarkerDecoration,
-              let marker = token.syntax.first else { return false }
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard modifiers.contains(.command), !modifiers.contains(.option),
+              let (item, marker) = listItemMarked(at: point), let menu = highlightMenu(item: item, marker: marker) else { return false }
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+        return true
+    }
 
+    /// The bulleted or task list item whose bullet or checkbox is at a point in the view, and
+    /// its marker's range in the text.
+    func listItemMarked(at point: NSPoint) -> (item: NSRange, marker: NSRange)? {
+        guard !styler.listHighlights.isEmpty, let layoutManager = pointLayoutManager, let container = textContainer,
+              let storage = textStorage, storage.length > 0 else { return nil }
+        let origin = textContainerOrigin
+        let index = layoutManager.characterIndexForPoint(NSPoint(x: point.x - origin.x, y: point.y - origin.y), in: container)
+        let lineStart = lineStart(of: min(index, storage.length - 1))
+        guard let token = tokens.first(where: { $0.range.location == lineStart }), let marker = token.syntax.first,
+              let target = markerTarget(onLineAt: lineStart), target.contains(point) else { return nil }
+        return (token.range, marker)
+    }
+
+    /// Where a bulleted or task item's bullet or checkbox is, in the view, with a little room
+    /// around it (a bullet is a small target). Numbered items have none: they aren't highlighted.
+    func markerTarget(onLineAt lineStart: Int) -> NSRect? {
+        guard let layoutManager = pointLayoutManager, let container = textContainer, let storage = textStorage,
+              let token = blockTokens[lineStart], case .listItem(let kind, _) = token.kind,
+              let decoration = storage.attribute(.pointListMarker, at: lineStart, effectiveRange: nil) as? ListMarkerDecoration else { return nil }
+        if case .ordered = kind { return nil }
         let line = layoutManager.lineRect(containing: lineStart, storage: storage)
         let font = layoutManager.textFont(near: lineStart, storage: storage)
         let visible = layoutManager.firstVisibleCharacter(onLineOf: lineStart, storage: storage)
         let baseline = line.minY + (visible.map { layoutManager.location(forGlyphAt: layoutManager.glyphIndexForCharacter(at: $0)).y } ?? font.ascender)
         let x = container.lineFragmentPadding + layoutManager.theme.indentPerLevel * CGFloat(decoration.level)
-        let dot = layoutManager.bulletRect(x: x, baseline: baseline, font: font).insetBy(dx: -6, dy: -6)
-        guard dot.contains(local) else { return false }
+        let room: CGFloat = kind == .bullet ? -6 : -5
+        let target = layoutManager.markerRect(kind, x: x, baseline: baseline, font: font).insetBy(dx: room, dy: room)
+        return target.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
+    }
 
-        let current = styler.listHighlight(after: marker, in: token.range, text: string as NSString)
+    /// The highlight colours for a list item, its own ticked, and No Highlight if it has one.
+    func highlightMenu(item: NSRange, marker: NSRange) -> NSMenu? {
+        guard !listHighlights.isEmpty else { return nil }
+        let current = styler.listHighlight(after: marker, in: item, text: string as NSString)
         let menu = NSMenu()
         for highlight in listHighlights {
-            let item = NSMenuItem(title: Self.colourName(highlight.color), action: #selector(chooseHighlight(_:)), keyEquivalent: "")
-            item.target = self
-            item.image = Self.swatch(highlight.color)
-            item.representedObject = HighlightChoice(item: token.range, marker: marker, character: highlight.character)
+            let entry = NSMenuItem(title: Self.colourName(highlight.color), action: #selector(chooseHighlight(_:)), keyEquivalent: "")
+            entry.target = self
+            entry.image = Self.swatch(highlight.color)
+            entry.representedObject = HighlightChoice(item: item, marker: marker, character: highlight.character)
             if let current, (string as NSString).character(at: current.0.location) == highlight.character.utf16.first {
-                item.state = .on
+                entry.state = .on
             }
-            menu.addItem(item)
+            menu.addItem(entry)
         }
         if current != nil {
             menu.addItem(.separator())
             let none = NSMenuItem(title: "No Highlight", action: #selector(chooseHighlight(_:)), keyEquivalent: "")
             none.target = self
-            none.representedObject = HighlightChoice(item: token.range, marker: marker, character: nil)
+            none.representedObject = HighlightChoice(item: item, marker: marker, character: nil)
             menu.addItem(none)
         }
-        NSMenu.popUpContextMenu(menu, with: event, for: self)
-        return true
+        return menu
+    }
+
+    /// The Format menu's highlight commands: highlights the list items the selection touches
+    /// (or the cursor's) in a colour, named as `colourName` names them ("Orange"), or removes
+    /// their highlight. Beeps if the cursor isn't in a list, or no highlight has that colour.
+    @objc public func highlightListItems(_ sender: Any?) {
+        guard let request = sender as? ListHighlightRequest else { return }
+        let character: Character?
+        if let colour = request.colour {
+            guard let highlight = listHighlights.first(where: { Self.colourName($0.color) == colour }) else { return NSSound.beep() }
+            character = highlight.character
+        } else {
+            character = nil
+        }
+        let selection = selectedRange()
+        let lines = (string as NSString).lineRange(for: selection)
+        let items = tokens.filter { token in
+            guard case .listItem = token.kind, token.syntax.first != nil else { return false }
+            return NSLocationInRange(token.range.location, lines) || NSLocationInRange(lines.location, token.range)
+        }
+        guard !items.isEmpty else { return NSSound.beep() }
+        // One edit across the items' lines (one undo), each item's highlight character written
+        // or removed in it, from the last so the earlier positions hold. The selection grows and
+        // shrinks with the changes inside it, so it still covers the same items next time.
+        let text = string as NSString
+        let affected = NSUnionRange(items[0].range, items[items.count - 1].range)
+        let edited = NSMutableString(string: text.substring(with: affected))
+        var start = selection.location, end = NSMaxRange(selection)
+        for item in items.reversed() {
+            let marker = item.syntax[0]
+            let existing = styler.listHighlight(after: marker, in: item.range, text: text)?.0
+                ?? NSRange(location: NSMaxRange(marker), length: 0)
+            let replacement = character.map { "\($0) " } ?? ""
+            edited.replaceCharacters(in: NSRange(location: existing.location - affected.location, length: existing.length), with: replacement)
+            let delta = (replacement as NSString).length - existing.length
+            if existing.location < start { start += delta }
+            if existing.location <= end { end += delta }
+        }
+        guard edited as String != text.substring(with: affected) else { return }
+        replace(affected, with: edited as String, select: NSRange(location: start, length: max(end - start, 0)))
+        undoManager?.setActionName(character == nil ? "Remove Highlight" : "Highlight")
     }
 
     @objc private func chooseHighlight(_ sender: NSMenuItem) {
@@ -556,6 +619,12 @@ extension MarkdownTextView {
         let shift = (replacement as NSString).length - existing.length
         let select = previous.location >= NSMaxRange(existing) ? NSRange(location: previous.location + shift, length: previous.length) : previous
         replace(existing, with: replacement, select: select)
+    }
+
+    /// Which highlight `highlightListItems(_:)` applies: a colour's name, or nil for none.
+    public final class ListHighlightRequest: NSObject {
+        public let colour: String?
+        public init(colour: String?) { self.colour = colour }
     }
 
     private final class HighlightChoice: NSObject {

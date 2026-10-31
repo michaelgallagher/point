@@ -35,7 +35,7 @@ struct PaneView: View {
     private func page(_ pane: VaultModel.NotePane, index: Int, underBar: CGFloat) -> some View {
                 Group {
                     if let note = model.note(pane.tab.noteID) {
-                        NoteEditor(note: note, model: model, paneID: paneID, offersTemplates: note.id == model.freshNoteID)
+                        NoteEditor(note: note, model: model, paneID: paneID, tabID: pane.tab.id, offersTemplates: note.id == model.freshNoteID)
                             .environment(\.topBarCover, underBar)
                             .id(paneID.uuidString + note.id)
                     } else {

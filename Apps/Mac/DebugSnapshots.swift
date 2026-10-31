@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import EditorKit
 import SwiftUI
 import VaultKit
 
@@ -11,6 +12,9 @@ import VaultKit
 enum DebugSnapshots {
     static func runIfAsked(for model: VaultModel) {
         scrollNoteIfAsked(for: model)
+        scrollTestIfAsked(for: model)
+        markerClickTestIfAsked(for: model)
+        focusFieldIfAsked(for: model)
         clickBackIfAsked(for: model)
         clickTreeIfAsked(for: model)
         cycleSidebarIfAsked(for: model)
@@ -19,6 +23,8 @@ enum DebugSnapshots {
         probeCursorIfAsked(for: model)
         conflictIfAsked(for: model)
         safetyIfAsked(for: model)
+        shortcutTestIfAsked(for: model)
+        tabTestIfAsked(for: model)
         scanIfAsked(for: model)
         // `-PointOpenSettings YES`: opens Settings (at `-settingsPage`), for checking it.
         if UserDefaults.standard.bool(forKey: "PointOpenSettings") {
@@ -204,6 +210,230 @@ enum DebugSnapshots {
                     scrollView.reflectScrolledClipView(clip)
                 }
                 Trace.mark("scrolled \(id) by \(amount)")
+            }
+        }
+    }
+
+    /// `-PointScrollTest <note ID>`: opens that (long) note and traces, as PASS or FAIL:
+    /// whether a scroll to the end just after the width changes reaches the last line (the
+    /// note's height not a guess); whether the line at the top stays there as the window
+    /// narrows and widens and the sidebar hides and shows; and whether going to another tab
+    /// and back comes back to the same place.
+    private static func scrollTestIfAsked(for model: VaultModel) {
+        guard let id = UserDefaults.standard.string(forKey: "PointScrollTest") else { return }
+        func textView() -> MarkdownTextView? {
+            guard let content = model.window?.contentView else { return nil }
+            return scrollViews(in: content).lazy.compactMap { $0.documentView as? MarkdownTextView }.first
+        }
+        func check(_ name: String, _ ok: Bool, _ detail: String = "") {
+            Trace.mark("scroll test: \(ok ? "PASS" : "FAIL") \(name) \(detail)")
+        }
+        /// The character at the top, below the bars.
+        func top() -> Int {
+            guard let view = textView(), let scrollView = view.enclosingScrollView, let layoutManager = view.layoutManager,
+                  let container = view.textContainer else { return -1 }
+            let y = scrollView.contentView.bounds.minY + scrollView.contentInsets.top - view.textContainerOrigin.y
+            return layoutManager.characterIndexForGlyph(at: layoutManager.glyphIndex(for: NSPoint(x: 5, y: y), in: container))
+        }
+        func scroll(toFraction fraction: CGFloat) {
+            guard let view = textView(), let scrollView = view.enclosingScrollView else { return }
+            let clip = scrollView.contentView
+            let y = fraction >= 1 ? view.frame.height - clip.bounds.height : view.frame.height * fraction
+            clip.scroll(to: NSPoint(x: 0, y: max(-scrollView.contentInsets.top, y)))
+            scrollView.reflectScrolledClipView(clip)
+        }
+        /// Whether the note's last character is in sight.
+        func endInSight() -> Bool {
+            guard let view = textView(), let layoutManager = view.layoutManager, let container = view.textContainer else { return false }
+            let length = (view.string as NSString).length
+            let glyphs = layoutManager.glyphRange(forCharacterRange: NSRange(location: max(0, length - 1), length: 1), actualCharacterRange: nil)
+            var rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: container)
+            rect.origin.y += view.textContainerOrigin.y
+            return view.visibleRect.intersects(rect)
+        }
+        func resize(by amount: CGFloat) {
+            guard let window = model.window else { return }
+            var frame = window.frame
+            frame.size.width += amount
+            window.setFrame(frame, display: true)
+        }
+        var steps: [(Double, () -> Void)] = []
+        var before = -1
+        steps.append((2.5, {
+            model.window?.setFrame(NSRect(x: 100, y: 100, width: 1100, height: 800), display: true)
+            model.selection = id
+        }))
+        // Scrolling to the end soon after the width changes.
+        for (index, amount) in [-180.0, 180, -260, 260].enumerated() {
+            steps.append((1.5, {
+                // From the top, so nothing else lays out the whole note.
+                scroll(toFraction: 0)
+                resize(by: amount)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    // The height a fast scroll would stop at, then the real one, all laid out.
+                    guard let view = textView(), let layoutManager = view.layoutManager else { return }
+                    let shown = view.frame.height
+                    layoutManager.ensureLayout(forCharacterRange: NSRange(location: 0, length: (view.string as NSString).length))
+                    view.sizeToFit()
+                    scroll(toFraction: 1)
+                    check("height real soon after resize \(index + 1)", abs(view.frame.height - shown) < 2 && endInSight(),
+                          "height was \(Int(shown)), really \(Int(view.frame.height))")
+                }
+            }))
+        }
+        // The line at the top, through resizes and the sidebar.
+        steps.append((1.2, { scroll(toFraction: 0.45) }))
+        steps.append((0.5, { before = top() }))
+        for (name, change) in [("narrower", { resize(by: -240) }), ("wider", { resize(by: 240) }),
+                               ("sidebar toggled", { model.showsNoteList.toggle() }), ("sidebar toggled back", { model.showsNoteList.toggle() })] {
+            steps.append((0.1, change))
+            steps.append((1.0, {
+                let now = top()
+                check("top line kept, \(name)", abs(now - before) < 80, "was \(before), now \(now)")
+            }))
+        }
+        // Another tab and back.
+        var selection = NSRange()
+        steps.append((0.5, {
+            textView()?.setSelectedRange(NSRange(location: max(0, before + 5), length: 0))
+            selection = textView()?.selectedRange() ?? NSRange()
+            before = top()
+            let other = model.notes.first { $0.id != id }?.id
+            model.newTab(noteID: other)
+        }))
+        steps.append((1.5, { model.selection = id }))
+        steps.append((1.5, {
+            let now = top()
+            check("place kept across tabs", abs(now - before) < 80, "was \(before), now \(now)")
+            check("cursor kept across tabs", textView()?.selectedRange() == selection, "was \(selection), now \(textView()?.selectedRange() ?? NSRange())")
+            Trace.mark("scroll test: done")
+            NSApp.terminate(nil)
+        }))
+        var delay = 0.0
+        for (wait, step) in steps {
+            delay += wait
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: step)
+        }
+    }
+
+    /// `-PointMarkerClickTest <note ID>`: opens that note and ⌘-clicks across the start of
+    /// each of its list items (where the bullet or checkbox is), tracing which ones open the
+    /// highlight colours (closing the menu again), then plainly clicks the same places, tracing
+    /// whether the text changed (a checkbox ticked).
+    private static func markerClickTestIfAsked(for model: VaultModel) {
+        guard let id = UserDefaults.standard.string(forKey: "PointMarkerClickTest") else { return }
+        var opened: [String] = []
+        let observer = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu else { return }
+            opened.append(menu.items.map(\.title).joined(separator: "/"))
+            RunLoop.main.perform(inModes: [.eventTracking, .default, .modalPanel]) { menu.cancelTrackingWithoutAnimation() }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            model.window?.setFrame(NSRect(x: 100, y: 100, width: 1100, height: 800), display: true)
+            model.selection = id
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+            guard let content = model.window?.contentView,
+                  let view = scrollViews(in: content).lazy.compactMap({ $0.documentView as? MarkdownTextView }).first,
+                  let layoutManager = view.layoutManager, let window = view.window else { return }
+            func click(_ point: NSPoint, command: Bool) {
+                let location = view.convert(point, to: nil)
+                if let event = NSEvent.mouseEvent(with: .leftMouseDown, location: location, modifierFlags: command ? .command : [],
+                                                  timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                  context: nil, eventNumber: 0, clickCount: 1, pressure: 1),
+                   let up = NSEvent.mouseEvent(with: .leftMouseUp, location: location, modifierFlags: command ? .command : [],
+                                               timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                               context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                    NSApp.postEvent(up, atStart: false) // For the text view's own tracking of the click.
+                    view.mouseDown(with: event)
+                }
+            }
+            let text = view.string as NSString
+            var start = 0
+            while start < text.length {
+                let line = text.lineRange(for: NSRange(location: start, length: 0))
+                let content = text.substring(with: line).trimmingCharacters(in: .newlines)
+                start = NSMaxRange(line)
+                guard content.hasPrefix("- ") || content.hasPrefix("1. ") else { continue }
+                let rect = layoutManager.lineFragmentRect(forGlyphAt: layoutManager.glyphIndexForCharacter(at: line.location), effectiveRange: nil)
+                let y = rect.midY + view.textContainerOrigin.y
+                opened = []
+                var hits: [Int] = []
+                for dx in stride(from: 0, through: 40, by: 2) {
+                    let before = opened.count
+                    click(NSPoint(x: view.textContainerOrigin.x + CGFloat(dx), y: y), command: true)
+                    if opened.count > before { hits.append(dx) }
+                }
+                let menu = opened.first ?? "none"
+                var ticked: [Int] = []
+                for dx in stride(from: 0, through: 40, by: 2) {
+                    let before = view.string
+                    click(NSPoint(x: view.textContainerOrigin.x + CGFloat(dx), y: y), command: false)
+                    if view.string != before {
+                        ticked.append(dx)
+                        view.undoManager?.undo()
+                    }
+                }
+                Trace.mark("marker test: \(content) ⌘-click menu at \(hits.first ?? -1)…\(hits.last ?? -1): \(menu); plain click changed text at \(ticked.first ?? -1)…\(ticked.last ?? -1)")
+            }
+            NotificationCenter.default.removeObserver(observer)
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// `-PointFocusField <n>`: four seconds in (after `-PointScrollNote` has opened a note),
+    /// saves pictures of the window before the nth text field in it has the keyboard, with
+    /// it, and after, to `-PointWindowSnapshot`'s path with -1, -2 and -3 added; then quits.
+    /// `-PointFocusType <text>` types that into it first (`«` for `[`), and `-PointFocusTab YES`
+    /// then presses Tab; the note's file is traced at the end.
+    private static func focusFieldIfAsked(for model: VaultModel) {
+        guard UserDefaults.standard.object(forKey: "PointFocusField") != nil,
+              let path = UserDefaults.standard.string(forKey: "PointWindowSnapshot") else { return }
+        let index = UserDefaults.standard.integer(forKey: "PointFocusField")
+        func shot(_ n: Int) { save(model.window, to: URL(fileURLWithPath: path.replacingOccurrences(of: ".png", with: "-\(n).png"))) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+            guard let window = model.window else { return }
+            let fields = views(of: NSTextField.self, in: window.contentView).filter { $0.isEditable }
+            Trace.mark("focus test: fields \(fields.map { "\($0.placeholderString ?? "") \($0.convert($0.bounds, to: nil))" })")
+            guard fields.indices.contains(index) else { return }
+            shot(1)
+            // A click on the field, through the window, as a person's would go.
+            func click(at point: NSPoint) {
+                for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                    if let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                      windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                        if type == .leftMouseUp { NSApp.postEvent(event, atStart: false) } else { window.sendEvent(event) }
+                    }
+                }
+            }
+            let frame = fields[index].convert(fields[index].bounds, to: nil)
+            click(at: NSPoint(x: frame.minX + 20, y: frame.midY))
+            if let typed = UserDefaults.standard.string(forKey: "PointFocusType")?.replacingOccurrences(of: "«", with: "[") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    (window.firstResponder as? NSTextView)?.insertText(typed, replacementRange: NSRange(location: NSNotFound, length: 0))
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                Trace.mark("focus test: first responder \(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")")
+                shot(2)
+                if UserDefaults.standard.bool(forKey: "PointFocusTab"),
+                   let tab = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                              windowNumber: window.windowNumber, context: nil, characters: "\t", charactersIgnoringModifiers: "\t",
+                                              isARepeat: false, keyCode: 48) {
+                    window.sendEvent(tab)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        Trace.mark("focus test: after Tab, field holds \((window.firstResponder as? NSTextView)?.string ?? "-")")
+                    }
+                }
+                // Away again, after Tab has had its effect.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { window.makeFirstResponder(nil) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+                    shot(3)
+                    if let note = model.note(model.selection) {
+                        Trace.mark("focus test: file now\n" + ((try? String(contentsOf: note.url, encoding: .utf8)) ?? "?"))
+                    }
+                    NSApp.terminate(nil)
+                }
             }
         }
     }
@@ -705,6 +935,155 @@ enum DebugSnapshots {
                         check("only the other vault's notes", strays.isEmpty && store.notes.count == expected,
                               "\(store.notes.count) notes, \(strays.count) from the first vault, expected \(expected)")
                         Trace.mark("scan test: done")
+                    }
+                }
+            }
+        }
+    }
+
+    /// `-PointTabTest YES`, on a vault of at least four notes: opens four tabs, then checks
+    /// their numbers, ⌥⌘1 to ⌥⌘9, and ⌃Tab: a quick one, one held until the palette shows, and
+    /// one pressed twice. (Letting go of ⌃ is called directly: it can't be pressed from here.)
+    private static func tabTestIfAsked(for model: VaultModel) {
+        guard UserDefaults.standard.bool(forKey: "PointTabTest") else { return }
+        func check(_ name: String, _ ok: Bool, _ detail: String = "") {
+            Trace.mark("tab test: \(ok ? "PASS" : "FAIL") \(name)\(detail.isEmpty ? "" : " — \(detail)")")
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            let ids = Array(model.notes.prefix(4).map(\.id))
+            guard ids.count == 4 else { return check("four notes", false) }
+            // From one tab, whatever the last run left open.
+            while model.numberedTabs.count > 1 { model.closeTab() }
+            model.selection = ids[0]
+            ids.dropFirst().forEach { model.newTab(noteID: $0) }
+            @MainActor func at() -> Int { model.selection.flatMap(model.tabNumber(of:)) ?? 0 }
+            func go(_ number: Int?) -> @MainActor () -> Void { { model.goToTab(number: number) } }
+            let steps: [(Double, @MainActor () -> Void)] = [
+                (0.2, { check("numbers follow tab order", ids.map(model.tabNumber(of:)) == [1, 2, 3, 4]) }),
+                (0.2, {
+                    let menu = NSApp.mainMenu?.items.first { $0.title == "View" }?.submenu?.items.first { $0.title == "Go to Tab" }?.submenu
+                    let keys = (menu?.items ?? []).map { "\($0.title) \($0.keyEquivalent) \($0.keyEquivalentModifierMask == [.command, .option])" }
+                    check("the menu has ⌥⌘1 to ⌥⌘9", keys.count == 9 && keys[2] == "Tab 3 3 true" && keys[8] == "Last Tab 9 true", "\(keys)")
+                }),
+                (0.2, go(2)), (0.2, { check("⌥⌘2 goes to tab 2", at() == 2, "\(at())") }),
+                (0.2, go(nil)), (0.2, { check("⌥⌘9 goes to the last", at() == 4, "\(at())") }),
+                (0.2, go(9)), (0.2, { check("past the end stays put", at() == 4, "\(at())") }),
+                // Tab 2, then 4: a quick ⌃Tab goes back to 2, with no palette.
+                (0.2, { model.beginTabSwitch(holding: .control); model.tabSwitchKeysChanged([]) }),
+                (0.3, { check("quick ⌃Tab flips", at() == 2 && !model.isPaletteShown, "tab \(at()), palette \(model.isPaletteShown)") }),
+                // Held until the palette shows: letting go goes to the tab before, 4.
+                (0.2, { model.beginTabSwitch(holding: .control) }),
+                (0.6, { check("held ⌃Tab shows the palette", model.isPaletteShown && model.paletteMode == .tabs) }),
+                (0.2, { model.tabSwitchKeysChanged([.control, .shift]) }),
+                (0.2, { check("another key held keeps it open", model.isPaletteShown) }),
+                (0.2, { model.tabSwitchKeysChanged([]) }),
+                (0.4, { check("letting go goes to the tab before", at() == 4 && !model.isPaletteShown, "tab \(at())") }),
+                // Twice before it shows: one down from the tab before (2), which is 3.
+                (0.2, { model.beginTabSwitch(holding: .control); model.togglePalette(.tabs) }),
+                (0.6, { model.tabSwitchKeysChanged([]) }),
+                (0.4, { check("⌃Tab twice moves down", at() == 3 && !model.isPaletteShown, "tab \(at())") }),
+                (0.2, go(1)),
+                (0.2, { model.moveTabToOtherSide() }),
+                (0.4, { check("the left side's come first", model.tabNumber(of: ids[1]) == 1 && model.tabNumber(of: ids[0]) == 4,
+                              "\(ids.map(model.tabNumber(of:)))") }),
+                (0.2, { Trace.mark("tab test: done"); NSApp.terminate(nil) }),
+            ]
+            var delay = 0.5
+            for (wait, step) in steps {
+                delay += wait
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { MainActor.assumeIsolated { step() } }
+            }
+        }
+    }
+
+    /// `-PointShortcutTest <note ID>`, on a note whose first line is a list item: presses ⇧⌘1 and
+    /// ⇧⌘2 through the menus (orange and red highlights), gives orange ⌃⌘J and presses that, then
+    /// ⌘E and ⌘F (Explorer and Search Vault). Puts the shortcuts back as they were after.
+    private static func shortcutTestIfAsked(for model: VaultModel) {
+        guard let id = UserDefaults.standard.string(forKey: "PointShortcutTest") else { return }
+        func check(_ name: String, _ ok: Bool, _ detail: String = "") {
+            Trace.mark("shortcut test: \(ok ? "PASS" : "FAIL") \(name)\(detail.isEmpty ? "" : " — \(detail)")")
+        }
+        @MainActor func press(_ characters: String, keyCode: UInt16, _ flags: NSEvent.ModifierFlags, unmodified: String) -> Bool {
+            guard let window = model.window,
+                  let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                                               windowNumber: window.windowNumber, context: nil, characters: characters,
+                                               charactersIgnoringModifiers: unmodified, isARepeat: false, keyCode: keyCode) else { return false }
+            return NSApp.mainMenu?.performKeyEquivalent(with: event) ?? false
+        }
+        @MainActor func session() -> EditorSession? { EditorSession.live.allObjects.first { $0.note.id == id && $0.debugText != nil } }
+        let store = ShortcutStore.shared
+        let saved = UserDefaults.standard.dictionary(forKey: "shortcuts")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            model.selectFromList(id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                guard let text = session()?.debugText else { return check("note open", false) }
+                // In front, as when the keys are pressed for real: menu commands go to the key
+                // window, and the menus update for an app that's active.
+                NSApp.activate(ignoringOtherApps: true)
+                model.window?.makeKeyAndOrderFront(nil)
+                model.window?.makeFirstResponder(nil)
+                if let editor = Self.views(of: MarkdownTextView.self, in: model.window?.contentView).first {
+                    model.window?.makeFirstResponder(editor)
+                    editor.setSelectedRange(NSRange(location: 3, length: 0))
+                }
+                @MainActor func menuKey(_ title: String) -> String {
+                    func find(_ menu: NSMenu?) -> NSMenuItem? {
+                        for item in menu?.items ?? [] {
+                            if item.title == title { return item }
+                            if let found = find(item.submenu) { return found }
+                        }
+                        return nil
+                    }
+                    guard let item = find(NSApp.mainMenu?.items.first { $0.title == "Format" }?.submenu) else { return "none" }
+                    return "\(item.keyEquivalent) \(item.keyEquivalentModifierMask.rawValue)"
+                }
+                @MainActor func line() -> String { String((session()?.debugText ?? "").prefix(12)) }
+                // Steps a little apart: a menu command's action runs just after its key is matched.
+                @MainActor func menuItem(_ path: [String]) -> (NSMenu, Int)? {
+                    var menu = NSApp.mainMenu
+                    for title in path.dropLast() { menu = menu?.items.first { $0.title == title }?.submenu }
+                    guard let menu, let index = menu.items.firstIndex(where: { $0.title == path.last }) else { return nil }
+                    return (menu, index)
+                }
+                let editor = Self.views(of: MarkdownTextView.self, in: model.window?.contentView).first
+                // An app in the background has no key window, so a menu command that goes to the
+                // first responder finds no editor: the editor's command is sent to it directly, and
+                // the menus are checked for their keys (their actions, which need the window in
+                // front, can't be run here).
+                let steps: [@MainActor () -> Void] = [
+                    { check("editor takes the command", NSApp.sendAction(#selector(MarkdownTextView.highlightListItems(_:)), to: editor, from: MarkdownTextView.ListHighlightRequest(colour: "Orange"))) },
+                    { check("it highlights orange", line().hasPrefix("- ? "), line())
+                      NSApp.sendAction(#selector(MarkdownTextView.highlightListItems(_:)), to: editor, from: MarkdownTextView.ListHighlightRequest(colour: "Red")) },
+                    { check("then red", line().hasPrefix("- ! "), line())
+                      NSApp.sendAction(#selector(MarkdownTextView.highlightListItems(_:)), to: editor, from: MarkdownTextView.ListHighlightRequest(colour: nil)) },
+                    { check("then none", line().hasPrefix("- one"), line())
+                      check("⇧⌘1 is a menu key", press("!", keyCode: 18, [.command, .shift], unmodified: "1"))
+                      check("⇧⌘2 is a menu key", press("@", keyCode: 19, [.command, .shift], unmodified: "2"))
+                      Trace.mark("shortcut test: Orange's key before \(menuKey("Orange"))")
+                      store.set(Shortcut("j", control: true), for: .highlightOrange) },
+                    { Trace.mark("shortcut test: Orange's key 0.6 s after \(menuKey("Orange"))") },
+                    { Trace.mark("shortcut test: Orange's key 1.2 s after \(menuKey("Orange"))")
+                      check("⌃⌘J is a menu key once set", press("\u{0A}", keyCode: 38, [.command, .control], unmodified: "j"))
+                      check("palette label follows", store.label(for: .highlightOrange) == "⌃⌘J")
+                      check("⌘E is a menu key", press("e", keyCode: 14, .command, unmodified: "e"))
+                      check("⌘F is a menu key", press("f", keyCode: 3, .command, unmodified: "f"))
+                      check("⌘E is Edit › Explorer", menuItem(["Edit", "Explorer"]).map { $0.0.items[$0.1].keyEquivalent } == "e")
+                      check("⌘F is Edit › Search Vault", menuItem(["Edit", "Search Vault"]).map { $0.0.items[$0.1].keyEquivalent } == "f") },
+                ]
+                for (index, step) in steps.enumerated() {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.6) { MainActor.assumeIsolated { step() } }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + Double(steps.count) * 0.6) {
+                    do {
+                        // Back as they were, and the note too.
+                        store.resetAll()
+                        UserDefaults.standard.set(saved, forKey: "shortcuts")
+                        if let editor = Self.views(of: MarkdownTextView.self, in: model.window?.contentView).first {
+                            editor.setSelectedRange(NSRange(location: 0, length: (editor.string as NSString).length))
+                            editor.insertText(text, replacementRange: editor.selectedRange())
+                        }
+                        Trace.mark("shortcut test: done")
                     }
                 }
             }

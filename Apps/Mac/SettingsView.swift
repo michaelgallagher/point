@@ -4,22 +4,21 @@ import SwiftUI
 import VaultKit
 
 /// Point's Settings window (⌘,): its sections in a list down the left, each section's
-/// settings beside it, each with its label above its options.
+/// settings beside it, in full-width rows as in the system's and Xcode's settings.
 struct SettingsView: View {
     @EnvironmentObject private var store: VaultStore
     @AppStorage("settingsPage") private var page = Page.sidebar
 
     enum Page: String, CaseIterable, Identifiable {
-        case sidebar, notes, text, typography, templates, appIcon
+        case sidebar, notes, templates, shortcuts, appIcon
         var id: Self { self }
 
         var title: String {
             switch self {
             case .sidebar: "Sidebar"
             case .notes: "Notes"
-            case .text: "Text"
-            case .typography: "Typography"
             case .templates: "Templates"
+            case .shortcuts: "Shortcuts"
             case .appIcon: "App Icon"
             }
         }
@@ -27,10 +26,9 @@ struct SettingsView: View {
         var symbol: String {
             switch self {
             case .sidebar: "sidebar.left"
-            case .notes: "list.bullet"
-            case .text: "doc.text"
-            case .typography: "textformat.size"
+            case .notes: "doc.text"
             case .templates: "doc.on.doc"
+            case .shortcuts: "keyboard"
             case .appIcon: "app.badge"
             }
         }
@@ -48,32 +46,17 @@ struct SettingsView: View {
             .navigationSplitViewColumnWidth(190)
             .modifier(NoSidebarToggle())
         } detail: {
-            GeometryReader { geometry in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        switch page {
-                        case .sidebar: sidebarPage
-                        case .notes: notesPage
-                        case .text: textPage
-                        case .typography: TypographySettings(typography: $store.typography)
-                        case .templates: TemplatesSettings()
-                        case .appIcon: appIconPage
-                        }
-                    }
-                    .padding(28)
-                    // The whole page, however short, so a click anywhere off a control lands
-                    // on the background below.
-                    .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .topLeading)
-                    // A click away from a field (or anything else with the keyboard) lets go
-                    // of it, as elsewhere on the Mac: it kept its focus ring until another
-                    // control was clicked.
-                    .background(
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture { NSApp.keyWindow?.makeFirstResponder(nil) }
-                    )
+            Group {
+                switch page {
+                case .sidebar: sidebarPage
+                case .notes: notesPage
+                case .templates: scrolling { TemplatesSettings() }
+                case .shortcuts: ShortcutSettings()
+                case .appIcon: scrolling { appIconPage }
                 }
             }
+            .formStyle(.grouped)
+            .labeledContentStyle(SettingsRowStyle())
             // Back and forward, then the page's name, large, as in System Settings.
             // Back and forward, joined in one capsule, then the page's name, as in System
             // Settings. One item, so they stay in that order; no glass behind the item itself,
@@ -90,6 +73,30 @@ struct SettingsView: View {
         .frame(width: 780, height: 560)
         // No "Point Settings" in the title bar: the page's name is in the toolbar instead.
         .background(SettingsWindowStyle())
+    }
+
+    /// A page that isn't a form of rows.
+    private func scrolling<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        let content = content()
+        return GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    content
+                }
+                .padding(28)
+                // The whole page, however short, so a click anywhere off a control lands
+                // on the background below.
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .topLeading)
+                // A click away from a field (or anything else with the keyboard) lets go
+                // of it, as elsewhere on the Mac: it kept its focus ring until another
+                // control was clicked.
+                .background(
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { NSApp.keyWindow?.makeFirstResponder(nil) }
+                )
+            }
+        }
     }
 
     private var navigation: some View {
@@ -141,110 +148,89 @@ struct SettingsView: View {
         }
     }
 
-    @ViewBuilder private var sidebarPage: some View {
-            // The page is the sidebar's, so its settings are the headings.
-            VStack(alignment: .leading, spacing: 20) {
-                Setting("Layout", isHeading: true) {
-                    Picker("Layout", selection: $store.browsingStyle) {
-                        Text("One column: folders, tags and notes in one list").tag(VaultModel.BrowsingStyle.singleColumn)
-                        Text("Two columns: folders and tags beside the notes").tag(VaultModel.BrowsingStyle.twoColumns)
-                    }
-                    .pickerStyle(.radioGroup)
-                    .labelsHidden()
+    private var sidebarPage: some View {
+        Form {
+            Section {
+                Picker("Layout", selection: $store.browsingStyle) {
+                    Text("One Column").tag(VaultModel.BrowsingStyle.singleColumn)
+                    Text("Two Columns").tag(VaultModel.BrowsingStyle.twoColumns)
                 }
-                Setting("Density", isHeading: true) {
-                    Picker("Density", selection: $store.sidebarDensity) {
-                        Text("Comfortable").tag(VaultModel.SidebarDensity.comfortable)
-                        Text("Compact").tag(VaultModel.SidebarDensity.compact)
-                    }
-                    .pickerStyle(.radioGroup)
-                    .labelsHidden()
+                Picker("Density", selection: $store.sidebarDensity) {
+                    Text("Comfortable").tag(VaultModel.SidebarDensity.comfortable)
+                    Text("Compact").tag(VaultModel.SidebarDensity.compact)
                 }
-                Setting("Folders and tags", isHeading: true) {
-                    Picker("Folders and tags", selection: $store.treeLayout) {
-                        Text("Together, folders above tags").tag(VaultModel.TreeLayout.stacked)
-                        Text("One at a time, with a switch").tag(VaultModel.TreeLayout.toggle)
-                    }
-                    .pickerStyle(.radioGroup)
-                    .labelsHidden()
+                Picker("Folders and tags", selection: $store.treeLayout) {
+                    Text("Folders Above Tags").tag(VaultModel.TreeLayout.stacked)
+                    Text("One at a Time").tag(VaultModel.TreeLayout.toggle)
                 }
-                Setting("Showing and hiding", isHeading: true) {
-                    Toggle("Swipe sideways with two fingers to show and hide it", isOn: $store.swipesSidebar)
+            }
+
+            Section("Showing and hiding") {
+                Toggle("Swipe sideways with two fingers to show and hide", isOn: $store.swipesSidebar)
+                Toggle("Hide when the window is narrow", isOn: $store.autoHidesSidebar)
+                LabeledContent("Narrower than") {
                     HStack(spacing: 6) {
-                        Toggle("Hide it when the window is narrower than", isOn: $store.autoHidesSidebar)
                         TextField("Width", value: $store.sidebarAutoHideWidth, format: .number)
+                            .labelsHidden()
                             .frame(width: 56)
                             .multilineTextAlignment(.trailing)
-                            .disabled(!store.autoHidesSidebar)
                         Stepper("Width", value: $store.sidebarAutoHideWidth, in: 600...2400, step: 20)
                             .labelsHidden()
-                            .disabled(!store.autoHidesSidebar)
                         Text("points")
                             .foregroundStyle(.secondary)
                     }
                 }
+                .disabled(!store.autoHidesSidebar)
             }
 
-    }
-
-    @ViewBuilder private var notesPage: some View {
-            SettingsSection("Sorting") {
-                HStack(alignment: .top, spacing: 32) {
-                    Setting("Folders and tags") {
-                        Picker("Folders and tags", selection: $store.tagOrder) {
-                            Text("Name").tag(VaultModel.TagOrder.name)
-                            Text("Date Modified").tag(VaultModel.TagOrder.modified)
-                        }
-                        .labelsHidden()
-                        .fixedSize()
-                    }
-                    Setting("Notes") {
-                        Picker("Notes", selection: $store.sort) {
-                            Text("Date Edited").tag(NoteSort.modified)
-                            Text("Date Created").tag(NoteSort.created)
-                            Text("Title").tag(NoteSort.title)
-                        }
-                        .labelsHidden()
-                        .fixedSize()
-                    }
+            Section("Sorting") {
+                Picker("Folders and tags", selection: $store.tagOrder) {
+                    Text("Name").tag(VaultModel.TagOrder.name)
+                    Text("Date Modified").tag(VaultModel.TagOrder.modified)
+                }
+                Picker("Notes", selection: $store.sort) {
+                    Text("Date Edited").tag(NoteSort.modified)
+                    Text("Date Created").tag(NoteSort.created)
+                    Text("Title").tag(NoteSort.title)
                 }
             }
 
-            Divider()
+            Section("Note list") {
+                Picker("Dates", selection: $store.listDateStyle) {
+                    Text("In Groups").tag(VaultModel.ListDateStyle.groups)
+                    Text("Beside Titles").tag(VaultModel.ListDateStyle.beside)
+                    Text("Hidden").tag(VaultModel.ListDateStyle.off)
+                }
+                // Beside each title. (Groups follow the date the notes are sorted by.)
+                Picker("Date shown", selection: $store.listDate) {
+                    Text("Date Edited").tag(VaultModel.ListDate.edited)
+                    Text("Date Created").tag(VaultModel.ListDate.created)
+                }
+                .disabled(store.listDateStyle != .beside)
+                Toggle("Show tags", isOn: $store.showsTagsInList)
+            }
 
-            SettingsSection("Note list") {
-                VStack(alignment: .leading, spacing: 6) {
-                    Toggle("Show dates", isOn: $store.showsDateInList)
-                    Picker("Date shown", selection: $store.listDate) {
-                        Text("Date edited").tag(VaultModel.ListDate.edited)
-                        Text("Date created").tag(VaultModel.ListDate.created)
+            Section("Trash") {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text("Keep deleted notes for")
+                        Spacer()
+                        TextField("Days", value: $store.trashRetentionDays, format: .number)
+                            .labelsHidden()
+                            .frame(width: 44)
+                            .multilineTextAlignment(.trailing)
+                        Stepper("Days", value: $store.trashRetentionDays, in: 1...365)
+                            .labelsHidden()
+                        Text(store.trashRetentionDays == 1 ? "day" : "days")
+                            .foregroundStyle(.secondary)
                     }
-                    .pickerStyle(.radioGroup)
-                    .labelsHidden()
-                    .padding(.leading, 20)
-                    .disabled(!store.showsDateInList)
-                    Toggle("Show tags", isOn: $store.showsTagsInList)
+                    Text("Notes you delete in Point go to the vault's .trash folder, which Obsidian uses too, and are removed for good after this. Notes Obsidian put there stay until you empty the trash.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-
-            Divider()
-
-            SettingsSection("Trash") {
-                HStack(spacing: 6) {
-                    Text("Keep deleted notes for")
-                    TextField("Days", value: $store.trashRetentionDays, format: .number)
-                        .frame(width: 44)
-                        .multilineTextAlignment(.trailing)
-                    Stepper("Days", value: $store.trashRetentionDays, in: 1...365)
-                        .labelsHidden()
-                    Text(store.trashRetentionDays == 1 ? "day" : "days")
-                }
-                Text("Notes you delete in Point go to the vault's .trash folder, which Obsidian uses too, and are removed for good after this. Notes Obsidian put there stay until you empty the trash.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
+        }
     }
 
     @ViewBuilder private var appIconPage: some View {
@@ -253,83 +239,78 @@ struct SettingsView: View {
             }
     }
 
-    @ViewBuilder private var textPage: some View {
-            // As on the Sidebar page, the settings are the headings.
-            VStack(alignment: .leading, spacing: 20) {
-                Setting("Size", isHeading: true) {
+    private var notesPage: some View {
+        Form {
+            Section {
+                LabeledContent("Text size") {
                     HStack {
                         Text("\(Int((store.textScale * 100).rounded()))%")
                             .monospacedDigit()
-                            .frame(width: 44, alignment: .leading)
+                            .foregroundStyle(.secondary)
                         Stepper("Text size", onIncrement: store.makeTextBigger, onDecrement: store.makeTextSmaller)
                             .labelsHidden()
                         Button("Reset") { store.textScale = 1 }
                             .disabled(store.textScale == 1)
                     }
                 }
-                Setting("Maximum line width", isHeading: true) {
+                LabeledContent("Maximum line width") {
                     HStack {
                         Slider(value: $store.textColumnWidth, in: VaultStore.textColumnWidths, step: 20)
-                            .frame(width: 200)
+                            .labelsHidden()
+                            .frame(width: 180)
                         Text("\(Int(store.textColumnWidth)) pt")
                             .monospacedDigit()
-                            .frame(width: 56, alignment: .leading)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 52, alignment: .trailing)
                         Button("Reset") { store.textColumnWidth = 720 }
                             .disabled(store.textColumnWidth == 720)
                     }
                 }
             }
+            TypographySettings(typography: $store.typography)
+        }
     }
 }
 
-/// The Typography page: the body's size and line height, and each heading's size, weight
-/// and slant, each shown in its own style.
+/// The Notes page's typography: the body's size and line height, and each heading's size,
+/// weight and slant, each shown in its own style.
 private struct TypographySettings: View {
     @Binding var typography: Typography
 
     var body: some View {
-        SettingsSection("Body text") {
-            HStack(alignment: .top, spacing: 32) {
-                Setting("Size") {
-                    HStack {
-                        Text("\(Int(typography.bodySize)) pt")
-                            .monospacedDigit()
-                            .frame(width: 44, alignment: .leading)
-                        Stepper("Size", value: $typography.bodySize, in: 10...28, step: 1)
-                            .labelsHidden()
-                    }
+        Section("Body text") {
+            LabeledContent("Size") {
+                HStack {
+                    Text("\(Int(typography.bodySize)) pt")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                    Stepper("Size", value: $typography.bodySize, in: 10...28, step: 1)
+                        .labelsHidden()
                 }
-                Setting("Line height") {
-                    HStack {
-                        Text(typography.lineHeight.formatted(.number.precision(.fractionLength(2))))
-                            .monospacedDigit()
-                            .frame(width: 44, alignment: .leading)
-                        Stepper("Line height", value: $typography.lineHeight, in: 1...2.2, step: 0.05)
-                            .labelsHidden()
-                    }
+            }
+            LabeledContent("Line height") {
+                HStack {
+                    Text(typography.lineHeight.formatted(.number.precision(.fractionLength(2))))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                    Stepper("Line height", value: $typography.lineHeight, in: 1...2.2, step: 0.05)
+                        .labelsHidden()
                 }
             }
             Text("The quick brown fox jumps over the lazy dog, and the line after it shows the spacing between lines of a paragraph.")
                 .font(.system(size: typography.bodySize))
                 .lineSpacing(typography.bodySize * (typography.lineHeight - 1))
-                .frame(maxWidth: 420, alignment: .leading)
                 .foregroundStyle(.secondary)
         }
 
-        Divider()
-
-        SettingsSection("Headings") {
-            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
-                ForEach(0..<6, id: \.self) { index in
-                    GridRow {
-                        Text("Heading \(index + 1)")
-                            .font(font(for: index))
-                            .lineLimit(1)
-                            .frame(width: 200, alignment: .leading)
+        Section("Headings") {
+            ForEach(0..<6, id: \.self) { index in
+                LabeledContent {
+                    HStack {
                         HStack(spacing: 4) {
                             Text("\(Int(points(index).rounded())) pt")
                                 .monospacedDigit()
-                                .frame(width: 44, alignment: .trailing)
+                                .foregroundStyle(.secondary)
                             Stepper("Size", onIncrement: { setPoints(index, points(index) + 1) },
                                     onDecrement: { setPoints(index, points(index) - 1) })
                                 .labelsHidden()
@@ -339,12 +320,23 @@ private struct TypographySettings: View {
                         }
                         .labelsHidden()
                         .fixedSize()
+                        .frame(width: 104, alignment: .trailing) // So the rows' controls line up.
                         Toggle("Italic", isOn: $typography.headings[index].italic)
+                            .toggleStyle(.checkbox)
                     }
+                } label: {
+                    Text("Heading \(index + 1)")
+                        .font(font(for: index))
+                        .lineLimit(1)
                 }
             }
-            Button("Restore Defaults") { typography = Typography() }
-                .disabled(typography == Typography())
+        }
+
+        Section {
+            LabeledContent("Body text and headings") {
+                Button("Restore Defaults") { typography = Typography() }
+                    .disabled(typography == Typography())
+            }
         }
     }
 
@@ -396,7 +388,6 @@ private struct SettingsWindowStyle: NSViewRepresentable {
     }
 }
 
-/// A titled group of settings.
 /// The vault's templates, kept in Obsidian's settings so both apps use the same ones: where
 /// they are, which one daily notes start from, the templates themselves, and what can go in them.
 private struct TemplatesSettings: View {
@@ -519,21 +510,18 @@ private struct FormatField: View {
     }
 }
 
-private struct SettingsSection<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: Content
-
-    init(_ title: String, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.headline)
-            content
+/// A row's label and controls, centred on each other: the form's own style lines them up by
+/// baseline, which leaves a label high beside a taller control, or a larger heading. The form
+/// pads a row like this more than a toggle's, so the padding is taken back to match.
+private struct SettingsRowStyle: LabeledContentStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack {
+            configuration.label
+            Spacer()
+            configuration.content
+                .fixedSize(horizontal: true, vertical: false)
         }
+        .padding(.vertical, -4)
     }
 }
 

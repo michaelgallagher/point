@@ -100,16 +100,33 @@ extension MarkdownTextView {
         wikiLinkPartialRange() ?? super.rangeForUserCompletion
     }
 
+    /// Suggests note titles, with none chosen: AppKit fills in a chosen one as the cursor's
+    /// word while the list is open, and a key typed then keeps it, so typing `[[2026-10-28 W`
+    /// would have kept whichever note came first (most of all with notes named by date, which
+    /// share their start). A suggestion goes in only once picked from the list.
     public override func completions(forPartialWordRange charRange: NSRange, indexOfSelectedItem index: UnsafeMutablePointer<Int>) -> [String]? {
         guard wikiLinkPartialRange() != nil, let completeNoteTitle else {
             return super.completions(forPartialWordRange: charRange, indexOfSelectedItem: index)
         }
-        index.pointee = 0
-        return completeNoteTitle((string as NSString).substring(with: charRange))
+        index.pointee = -1
+        let typed = (string as NSString).substring(with: charRange)
+        let titles = completeNoteTitle(typed)
+        offeredCompletion = (typed, titles)
+        return titles
     }
 
+    /// Finishes the link with the title picked (Return, Tab or a click), adding its closing
+    /// brackets. A key typed while the list is open ends it with what was typed, not the
+    /// title showing.
     public override func insertCompletion(_ word: String, forPartialWordRange charRange: NSRange, movement: Int, isFinal flag: Bool) {
-        guard flag, wikiLinkPartialRange() != nil, movement != NSCancelTextMovement, movement != NSOtherTextMovement else {
+        guard wikiLinkPartialRange() != nil, let offered = offeredCompletion else {
+            return super.insertCompletion(word, forPartialWordRange: charRange, movement: movement, isFinal: flag)
+        }
+        if flag { offeredCompletion = nil }
+        if flag, (isTypingKey && movement == NSOtherTextMovement) || movement == NSCancelTextMovement {
+            return super.insertCompletion(offered.typed, forPartialWordRange: charRange, movement: movement, isFinal: flag)
+        }
+        guard flag, offered.titles.contains(word) else {
             return super.insertCompletion(word, forPartialWordRange: charRange, movement: movement, isFinal: flag)
         }
         // Finish the link, unless its closing brackets are already there.
@@ -117,6 +134,13 @@ extension MarkdownTextView {
         let after = NSMaxRange(charRange)
         let hasClose = after + 2 <= text.length && text.substring(with: NSRange(location: after, length: 2)) == "]]"
         super.insertCompletion(hasClose ? word : word + "]]", forPartialWordRange: charRange, movement: movement, isFinal: flag)
+    }
+
+    /// Whether a key is being typed (rather than a suggestion clicked), for `insertCompletion`.
+    public override func keyDown(with event: NSEvent) {
+        isTypingKey = true
+        defer { isTypingKey = false }
+        super.keyDown(with: event)
     }
 
     /// Shows note-title suggestions while a wikilink target is being typed.

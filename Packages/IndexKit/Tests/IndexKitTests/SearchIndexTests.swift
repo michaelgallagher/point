@@ -214,7 +214,7 @@ struct LinkIndexTests {
         #expect(backlinks.last?.context == "See Imprint for details.")
     }
 
-    /// From the live vault: most links to a note can be in other notes' properties.
+    /// From a real vault: most links to a note can be in other notes' properties.
     @Test func backlinksIncludeLinksInFrontmatter() async throws {
         let vault = try await Fixture([
             "Imprint.md": "# Imprint\n",

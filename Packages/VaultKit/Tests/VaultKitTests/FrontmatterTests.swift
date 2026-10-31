@@ -146,7 +146,7 @@ struct FrontmatterRewriteTests {
     @Test(arguments: [
         "---\npeople:\ntopics:\n---\n",
         "---\nsource: https://example.com/a?b=c&d=e\n---\n",
-        "---\ntitle: \"Carely — Ending the 8am Scramble\"\n---\n",
+        "---\ntitle: \"Meals — Ending the Morning Rush\"\n---\n",
         "---\ntitle: 'Single quoted'\n---\n",
         "---\nteam: []\n---\n",
         "---\ntags: [a, \"b c\"]\n---\n",

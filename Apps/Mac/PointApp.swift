@@ -119,6 +119,8 @@ struct AppCommands: Commands {
     @ObservedObject var store: VaultStore
     @FocusedObject private var model: VaultModel?
     @Environment(\.openWindow) private var openWindow
+    /// Each command's shortcut, as set in Settings (or its default).
+    @ObservedObject private var shortcuts = ShortcutStore.shared
 
     /// A binding to a property of the front window's model.
     private func bind<Value>(_ keyPath: ReferenceWritableKeyPath<VaultModel, Value>, _ fallback: Value) -> Binding<Value> {
@@ -140,29 +142,31 @@ struct AppCommands: Commands {
         }
         CommandGroup(replacing: .newItem) {
             Button("New Note") { model?.createNote() }
-                .keyboardShortcut("n")
+                .shortcut(.newNote, in: shortcuts)
                 .disabled(model == nil || store.root == nil)
             Button("New Note from Template…") { model?.isCreatingFromTemplate = true }
+                .shortcut(.newNoteFromTemplate, in: shortcuts)
                 .disabled(model == nil || store.root == nil)
             Button("New Folder…") { model?.newFolder() }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
+                .shortcut(.newFolder, in: shortcuts)
                 .disabled(model == nil || store.root == nil)
             Button("New Tab") { model?.newTab() }
-                .keyboardShortcut("t")
+                .shortcut(.newTab, in: shortcuts)
                 .disabled(model == nil)
             Button("New Tab on Other Side") { model?.newTabOnOtherSide() }
-                .keyboardShortcut("t", modifiers: [.command, .control])
+                .shortcut(.newTabOnOtherSide, in: shortcuts)
                 .disabled(model == nil)
             Button("New Window") { openWindow(id: "main", value: TabRequest()) }
-                .keyboardShortcut("n", modifiers: [.command, .option])
+                .shortcut(.newWindow, in: shortcuts)
             // No shortcut for now: ⇧⌘T shows the tab list.
             Button("Today's Note") { model?.openTodaysNote() }
+                .shortcut(.todaysNote, in: shortcuts)
                 .disabled(model == nil || store.root == nil)
             Button("Apply Template…") { model?.applyTemplateInPalette() }
-                .keyboardShortcut("t", modifiers: [.command, .option])
+                .shortcut(.applyTemplate, in: shortcuts)
                 .disabled(model?.selectedNote == nil)
             Button("Open Vault…") { store.chooseVault() }
-                .keyboardShortcut("o")
+                .shortcut(.openVault, in: shortcuts)
             Divider()
             // In a note window, closes a tab; in any other window (Settings), closes that.
             Button("Close Tab") {
@@ -172,57 +176,64 @@ struct AppCommands: Commands {
                     NSApp.keyWindow?.performClose(nil)
                 }
             }
-            .keyboardShortcut("w")
+            .shortcut(.closeTab, in: shortcuts)
             Divider()
             Button("Rename Note…") { model?.renaming = model?.selectedNote }
+                .shortcut(.renameNote, in: shortcuts)
                 .disabled(model?.selectedNote == nil)
             Button("Move to Folder…") { model?.moving = model?.selectedNote }
+                .shortcut(.moveToFolder, in: shortcuts)
                 .disabled(model?.selectedNote == nil)
             Button("Add Tag…") { model?.tagging = model?.selectedNote }
+                .shortcut(.addTag, in: shortcuts)
                 .disabled(model?.selectedNote == nil)
             Button(model.flatMap { m in m.selection.map(m.isBookmarked) } == true ? "Remove Bookmark" : "Add Bookmark") {
                 if let model, let id = model.selection { model.toggleBookmark(id) }
             }
+            .shortcut(.toggleBookmark, in: shortcuts)
             .disabled(model?.selectedNote == nil)
             Button("Show in Finder") { if let model, let note = model.selectedNote { model.showInFinder(note) } }
-                .keyboardShortcut("r", modifiers: [.command, .option])
+                .shortcut(.showInFinder, in: shortcuts)
                 .disabled(model?.selectedNote == nil)
             Button("Move to Trash") { if let model, let note = model.selectedNote { model.moveToTrash(note) } }
+                .shortcut(.moveToTrash, in: shortcuts)
                 .disabled(model?.selectedNote == nil)
         }
         // No divider first: the menu already has one between groups, and two showed a gap.
         CommandGroup(after: .textEditing) {
-            // The same in every layout: ⌘F searches and ⌘E explores, both in the palette.
-            Button("Search") { model?.togglePalette(.search) }
-                .keyboardShortcut("f")
+            // The same in every layout, both in the palette: ⌘E, Explorer, to search, open notes
+            // and run commands; ⌘F, Search Vault, to browse folders and tags in two columns.
+            Button("Explorer") { model?.togglePalette(.search) }
+                .shortcut(.explorer, in: shortcuts)
                 .disabled(model == nil || store.root == nil)
-            Button("Explorer") { model?.togglePalette(.explorer) }
-                .keyboardShortcut("e")
+            Button("Search Vault") { model?.togglePalette(.explorer) }
+                .shortcut(.searchVault, in: shortcuts)
                 .disabled(model == nil || store.root == nil)
             // The sidebar's own search field (there's no sidebar in Minimal).
             Button("Search in List") { model?.focusSearch() }
-                .keyboardShortcut("f", modifiers: [.command, .shift])
+                .shortcut(.searchInList, in: shortcuts)
                 .disabled(model == nil || store.root == nil)
             Button("Find in Note") { FindInNote.show() }
-                .keyboardShortcut("f", modifiers: [.command, .option])
+                .shortcut(.findInNote, in: shortcuts)
         }
         CommandGroup(after: .help) {
             Button("Keyboard Shortcuts") { model?.isShowingShortcuts = true }
-                .keyboardShortcut("/")
+                .shortcut(.keyboardShortcuts, in: shortcuts)
                 .disabled(model == nil)
         }
         CommandMenu("Go") {
             Button("Enclosing Folder") { model?.goUp() }
-                .keyboardShortcut(.upArrow)
+                .shortcut(.enclosingFolder, in: shortcuts)
                 .disabled(model == nil || model?.place == .allNotes)
             Button("Top Level") { model?.browse(.allNotes) }
+                .shortcut(.topLevel, in: shortcuts)
                 .disabled(model == nil)
             Divider()
             Button("Back") { model?.goBack() }
-                .keyboardShortcut("[")
+                .shortcut(.back, in: shortcuts)
                 .disabled(!(model.map { $0.canTravel(back: true, inPane: $0.activePane) } ?? false))
             Button("Forward") { model?.goForward() }
-                .keyboardShortcut("]")
+                .shortcut(.forward, in: shortcuts)
                 .disabled(!(model.map { $0.canTravel(back: false, inPane: $0.activePane) } ?? false))
         }
         CommandGroup(after: .toolbar) {
@@ -236,50 +247,63 @@ struct AppCommands: Commands {
                 Text("Date Modified").tag(VaultModel.TagOrder.modified)
             }
             Divider()
-            Toggle("Show Dates in List", isOn: $store.showsDateInList)
-            Picker("List Dates", selection: $store.listDate) {
+            Picker("Dates in List", selection: $store.listDateStyle) {
+                Text("In Groups").tag(VaultModel.ListDateStyle.groups)
+                Text("Beside Titles").tag(VaultModel.ListDateStyle.beside)
+                Text("Hidden").tag(VaultModel.ListDateStyle.off)
+            }
+            Picker("Date Shown in List", selection: $store.listDate) {
                 Text("Date Edited").tag(VaultModel.ListDate.edited)
                 Text("Date Created").tag(VaultModel.ListDate.created)
             }
-            .disabled(!store.showsDateInList)
+            .disabled(store.listDateStyle != .beside)
             Toggle("Show Tags in List", isOn: $store.showsTagsInList)
             Divider()
             Button((model?.showsNoteList ?? true) ? "Hide Note List" : "Show Note List") { model?.showsNoteList.toggle() }
-                .keyboardShortcut("s")
+                .shortcut(.toggleNoteList, in: shortcuts)
                 .disabled(model == nil)
             Button("Bigger Text") { store.makeTextBigger() }
-                .keyboardShortcut("=") // The ⌘+ key, without Shift.
+                .shortcut(.biggerText, in: shortcuts)
             Button("Smaller Text") { store.makeTextSmaller() }
-                .keyboardShortcut("-")
+                .shortcut(.smallerText, in: shortcuts)
             Button("Actual Size") { store.textScale = 1 }
+                .shortcut(.actualSize, in: shortcuts)
             Divider()
             Button((model?.isSplit ?? false) ? "Merge Split into Tabs" : "Split") { model?.toggleSplit() }
-                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .shortcut(.split, in: shortcuts)
                 .disabled(model == nil)
             Button((model?.isSplit ?? false) ? "Move Tab to Other Side" : "Move Tab to New Split") { model?.moveTabToOtherSide() }
+                .shortcut(.moveTabToOtherSide, in: shortcuts)
                 .disabled(model == nil)
             Button("Show Next Tab") { model?.cycleTab(1) }
-                .keyboardShortcut("]", modifiers: [.command, .shift])
+                .shortcut(.nextTab, in: shortcuts)
                 .disabled(model == nil)
             Button("Show Previous Tab") { model?.cycleTab(-1) }
-                .keyboardShortcut("[", modifiers: [.command, .shift])
+                .shortcut(.previousTab, in: shortcuts)
                 .disabled(model == nil)
             // Tabs aren't shown as tabs: these list them.
             Button("Show Tab List") { model?.toggleTabMenu() }
-                .keyboardShortcut("t", modifiers: [.command, .shift])
+                .shortcut(.tabList, in: shortcuts)
                 .disabled(model == nil)
             Button("Switch to Tab…") { model?.togglePalette(.tabs) }
-                .keyboardShortcut(.tab, modifiers: .control)
+                .shortcut(.switchToTab, in: shortcuts)
                 .disabled(model == nil || store.root == nil)
+            Menu("Go to Tab") {
+                ForEach(ShortcutAction.tabCommands) { action in
+                    Button(action.title) { model?.goToTab(number: action.tabNumber) }
+                        .shortcut(action, in: shortcuts)
+                        .disabled(model == nil)
+                }
+            }
             Divider()
             Toggle("Show Markdown", isOn: $store.showsMarkdown)
-                .keyboardShortcut("m", modifiers: [.command, .shift])
+                .shortcut(.showMarkdown, in: shortcuts)
             Toggle("Focus", isOn: bind(\.isFocused, false))
-                .keyboardShortcut("\\", modifiers: [.command, .shift])
+                .shortcut(.focus, in: shortcuts)
                 .disabled(model == nil)
             Divider()
             Button("Reload Notes") { Task { await store.reload() } }
-                .keyboardShortcut("r")
+                .shortcut(.reloadNotes, in: shortcuts)
                 .disabled(store.root == nil)
             Divider()
         }

@@ -406,14 +406,16 @@ private struct BookmarkAndTabButtons: View {
                         tint: isBookmarked ? .accentColor : nil) {
                 if let noteID { model.toggleBookmark(noteID) }
             }
-            CapsuleIcon(symbol: "square.stack", label: "Tabs", help: "Show Tab List (⇧⌘T)", enabled: pane.tabs.count > 1) {
+            let number = model.tabNumber(ofTab: pane.tab.id) ?? 1
+            let count = model.numberedTabs.count
+            CapsuleIcon(symbol: "square.stack", label: "Tabs", help: "Tab \(number) of \(count). Show Tab List (⇧⌘T)", enabled: pane.tabs.count > 1) {
                 guard Date().timeIntervalSince(closedAt) > 0.3 else { return }
                 isShown.wrappedValue.toggle()
             }
-            // How many tabs this side has open, once there's more than one.
+            // This tab's number, once the window has more than one.
             .overlay(alignment: .topTrailing) {
-                if pane.tabs.count > 1 {
-                    Text("\(pane.tabs.count)")
+                if count > 1 {
+                    Text("\(number)")
                         .font(.system(size: 10, weight: .semibold))
                         .monospacedDigit()
                         .foregroundStyle(.white)
@@ -425,7 +427,7 @@ private struct BookmarkAndTabButtons: View {
                         .accessibilityHidden(true)
                 }
             }
-            .accessibilityValue("\(pane.tabs.count) tabs")
+            .accessibilityValue("Tab \(number) of \(count)")
             .popover(isPresented: isShown, arrowEdge: .bottom) {
                 TabMenu(paneID: pane.id)
                     .environmentObject(model)
@@ -457,6 +459,7 @@ struct TabMenu: View {
                             TabMenuRow(
                                 id: tab.id,
                                 title: model.note(tab.noteID)?.title ?? "New Tab",
+                                number: model.tabNumber(ofTab: tab.id) ?? index + 1,
                                 isCurrent: index == pane.current,
                                 isHighlighted: highlighted == tab.id,
                                 select: { go(to: index, inPane: p) },
@@ -544,6 +547,7 @@ struct TabMenu: View {
 private struct TabMenuRow: View {
     let id: VaultModel.NoteTab.ID
     let title: String
+    let number: Int
     let isCurrent: Bool
     let isHighlighted: Bool
     let select: () -> Void
@@ -558,6 +562,11 @@ private struct TabMenuRow: View {
                 .font(.system(size: 11, weight: .semibold))
                 .frame(width: 14)
                 .opacity(isCurrent ? 1 : 0)
+                .allowsHitTesting(false)
+            Text("\(number)")
+                .monospacedDigit()
+                .foregroundStyle(isHighlighted ? .white : .secondary)
+                .frame(minWidth: 14, alignment: .trailing)
                 .allowsHitTesting(false)
             Text(title)
                 .lineLimit(1)
