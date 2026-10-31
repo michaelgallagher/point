@@ -100,9 +100,21 @@ final class PhoneStore: ObservableObject {
         case .file(let destination):
             linkedRoute = resolver.resolve(markdownDestination: destination, from: sourceID).map { .note($0.id) }
         case .web(let url):
-            if LinkTarget.opensWithoutAsking(url) { UIApplication.shared.open(url) }
+            if LinkTarget.opensWithoutAsking(url) { UIApplication.shared.open(url) } else { linkToConfirm = url }
         case .tag(let tag):
             linkedRoute = .tag(tag)
+        }
+    }
+
+    /// A link that isn't to a web page or email, for home to ask about first: a note from
+    /// somewhere else shouldn't start something in another app with one tap.
+    @Published var linkToConfirm: URL?
+    /// Set when no app on the phone took a link.
+    @Published var linkDidNotOpen = false
+
+    func openConfirmed(_ url: URL) {
+        UIApplication.shared.open(url) { [weak self] opened in
+            if !opened { self?.linkDidNotOpen = true }
         }
     }
 

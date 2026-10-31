@@ -55,6 +55,16 @@ struct HomeScreen: View {
         } message: {
             Text(folderProblem ?? "")
         }
+        .alert("Open This Link?", isPresented: Binding(get: { store.linkToConfirm != nil }, set: { if !$0 { store.linkToConfirm = nil } }),
+               presenting: store.linkToConfirm) { url in
+            Button("Cancel", role: .cancel) {}
+            Button("Open") { store.openConfirmed(url) }
+        } message: { url in
+            Text(url.absoluteString.count > 200 ? String(url.absoluteString.prefix(200)) + "…" : url.absoluteString)
+        }
+        .alert("No App Opens This Link", isPresented: $store.linkDidNotOpen) {
+            Button("OK", role: .cancel) {}
+        }
         .sheet(isPresented: $showsSettings) { SettingsScreen().environmentObject(store) }
         .onChange(of: quickActions.newNoteRequests) { _, _ in createNote() }
         .onChange(of: store.linkedRoute) { _, route in
