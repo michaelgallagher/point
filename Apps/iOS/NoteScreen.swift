@@ -30,7 +30,6 @@ struct NoteScreen: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu("More", systemImage: "ellipsis") {
                         Button("Find in Note", systemImage: "text.magnifyingglass") { session.find("") }
-                        Button("Properties", systemImage: "list.bullet.rectangle") { session.showsProperties = true }
                         let bookmarked = store.isBookmarked(session.note.id)
                         Button(bookmarked ? "Remove Bookmark" : "Bookmark", systemImage: bookmarked ? "bookmark.slash" : "bookmark") {
                             store.toggleBookmark(session.note.id)
@@ -278,16 +277,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         let parsed = text.hasPrefix("---") ? Frontmatter.parse(text) : nil
         guard parsed != frontmatter || frontmatter == nil else { return }
         frontmatter = parsed
-        header?.showSummary(parsed.flatMap { $0.properties.isEmpty ? nil : Self.summary(of: $0) })
-    }
-
-    /// "3 properties · #work #idea"
-    private static func summary(of frontmatter: Frontmatter) -> String {
-        let count = frontmatter.properties.count
-        var parts = ["\(count) \(count == 1 ? "property" : "properties")"]
-        let tags = frontmatter.tags
-        if !tags.isEmpty { parts.append(tags.map { "#\($0)" }.joined(separator: " ")) }
-        return parts.joined(separator: " · ")
+        header?.showProperties(count: parsed?.properties.count ?? 0)
     }
 
     func setProperty(_ key: String, to values: [String], isList: Bool) {
@@ -417,47 +407,55 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     }
 }
 
-/// What's above a note's text: its title, and below that a line summing up its properties, if
-/// it has any, which opens them.
+/// What's above a note's text: its title, and below that a button to its properties, saying how
+/// many there are.
 final class NoteHeader: UIView {
     let title = TitleView()
-    var onSummary: (() -> Void)?
-    private let summary = UIButton(type: .system)
-    private var summaryHeight: CGFloat { UIFontMetrics(forTextStyle: .footnote).scaledValue(for: 20) }
-    private static let gap: CGFloat = 4
+    var onProperties: (() -> Void)?
+    private let properties = UIButton(type: .system)
+    private static let gap: CGFloat = 8
+    /// Between the button and the note's text.
+    private static let below: CGFloat = 12
 
     init() {
         super.init(frame: .zero)
         addSubview(title)
-        addSubview(summary)
-        summary.isHidden = true
-        summary.contentHorizontalAlignment = .leading
-        summary.titleLabel?.font = .preferredFont(forTextStyle: .footnote)
-        summary.titleLabel?.adjustsFontForContentSizeCategory = true
-        summary.titleLabel?.lineBreakMode = .byTruncatingTail
-        summary.setTitleColor(.secondaryLabel, for: .normal)
-        summary.addAction(UIAction { [weak self] _ in self?.onSummary?() }, for: .touchUpInside)
+        addSubview(properties)
+        var configuration = UIButton.Configuration.filled()
+        configuration.baseBackgroundColor = .secondarySystemFill
+        configuration.baseForegroundColor = .secondaryLabel
+        configuration.cornerStyle = .capsule
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 5, leading: 12, bottom: 5, trailing: 12)
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
+            var attributes = $0
+            attributes.font = .preferredFont(forTextStyle: .footnote)
+            return attributes
+        }
+        properties.configuration = configuration
+        properties.titleLabel?.adjustsFontForContentSizeCategory = true
+        properties.addAction(UIAction { [weak self] _ in self?.onProperties?() }, for: .touchUpInside)
+        showProperties(count: 0)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("Not used") }
 
-    func showSummary(_ text: String?) {
-        summary.setTitle(text, for: .normal)
-        summary.isHidden = text == nil
-        superview?.setNeedsLayout()
+    func showProperties(count: Int) {
+        properties.configuration?.title = count == 0 ? "Add properties" : "\(count) \(count == 1 ? "property" : "properties")"
+        setNeedsLayout()
     }
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
         let height = title.sizeThatFits(size).height
-        return CGSize(width: size.width, height: height + (summary.isHidden ? 0 : Self.gap + summaryHeight))
+        return CGSize(width: size.width, height: height + Self.gap + properties.sizeThatFits(size).height + Self.below)
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         let height = title.sizeThatFits(bounds.size).height
         title.frame = CGRect(x: 0, y: 0, width: bounds.width, height: height)
-        summary.frame = CGRect(x: 0, y: height + Self.gap, width: bounds.width, height: summaryHeight)
+        let size = properties.sizeThatFits(bounds.size)
+        properties.frame = CGRect(x: 0, y: height + Self.gap, width: min(size.width, bounds.width), height: size.height)
     }
 }
 
@@ -515,7 +513,7 @@ struct EditorView: UIViewRepresentable {
         title.delegate = session
         session.titleField = title
         session.header = header
-        header.onSummary = { [weak session] in session?.showsProperties = true }
+        header.onProperties = { [weak session] in session?.showsProperties = true }
         textView.header = header
         let bar = FormatBar(textView: textView)
         textView.inputAccessoryView = bar

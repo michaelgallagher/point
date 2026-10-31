@@ -24,26 +24,21 @@ struct PropertiesSheet: View {
                         .font(.subheadline)
                         .symbolRenderingMode(.multicolor)
                 }
-                if !properties.isEmpty {
-                    Section {
-                        ForEach(properties) { property in
-                            PropertyRow(property: property, session: session) {
-                                name = property.key
-                                renaming = property.key
-                            }
-                            .swipeActions {
-                                Button("Delete", systemImage: "trash", role: .destructive) { session.removeProperty(property.key) }
-                            }
-                        }
+                ForEach(properties) { property in
+                    PropertyRow(property: property, session: session) {
+                        name = property.key
+                        renaming = property.key
+                    }
+                    .swipeActions {
+                        Button("Delete", systemImage: "trash", role: .destructive) { session.removeProperty(property.key) }
                     }
                 }
-                Section {
-                    Button("Add Property", systemImage: "plus") {
-                        name = ""
-                        isAdding = true
-                    }
+                Button("Add Property", systemImage: "plus") {
+                    name = ""
+                    isAdding = true
                 }
             }
+            .listStyle(.plain)
             .navigationTitle("Properties")
             .navigationBarTitleDisplayMode(.inline)
             .scrollDismissesKeyboard(.interactively)
@@ -66,6 +61,7 @@ struct PropertiesSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .presentationBackground(Color(.systemBackground))
     }
 
     /// Adds a property, of the vault's type for its name, or one suggested by the name.

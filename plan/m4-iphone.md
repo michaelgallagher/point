@@ -228,6 +228,16 @@ After Mike tried it. These change "What it leaves out": the app now has sorting,
 - At the largest text sizes a bullet's dot stays small, being drawn at a fixed size in the shared layout manager. An inline `code` pill starting a wrapped line sticks out 2 points past the margin, as the tag pill did.
 - With the keyboard down, a tap in the band between Add and Search does nothing: the toolbar takes it. With a hardware keyboard, the bar above the keyboard sits over the note's last lines.
 
+## Mike's second notes (31 October 2026)
+
+After trying the first draft, on `ios-second-draft`. One commit per step.
+
+1. **Properties.** The sheet loses its groupings: white, with a divider between items. On the note, a pale grey button under the title, always there: "Add properties", or "3 properties" (no tags beside it). It opens the sheet, and Properties leaves the ⋯ menu.
+2. **Explorer.** The search page becomes Explorer: it fades in over whatever's showing rather than being pushed, with Close in place of Back, the field focused, and a white background. Its button's icon is `map`. As it's no longer a page in the stack, closing it can't count as leaving the note it was opened from.
+3. **Home.** Settings moves to the top left. Bookmarks, Recent and a new Notes row, which opens the notes at the vault's top level as a second page, with Sort; then folders; then the tags, as a section. The Tags page goes, and home is titled Point, so two pages aren't both called Notes.
+4. **Keyboard tools.** The tools go in a Liquid Glass capsule that scrolls sideways, with Hide Keyboard apart from it at the right, on the highlight colour. Tag goes, along with Highlight, Strikethrough and Code. Heading levels stay in a menu; Bold, Italic and Quote stay one tap each, because a menu would make every use of them two. The link, list and indent tools stay: the note was about styles.
+5. **Tags.** More padding around a tag's text, which needs more room made either side, so what's beside it doesn't crowd it.
+
 ## Decided (27 October 2026)
 
 1. **Bookmarks are Obsidian's** (`.obsidian/bookmarks.json`): the phone shows the notes in it, in its order, and bookmarking or reordering on the phone writes it back, keeping everything else in the file (folders, searches and headings Obsidian bookmarks too, which the phone doesn't show). The Mac can move to the same file later.
