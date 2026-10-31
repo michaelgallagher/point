@@ -3,8 +3,9 @@ import SwiftUI
 import VaultKit
 
 /// The search page, from any page. It opens without the field focused, so its lists can be seen
-/// and picked from: recent notes (which stand in for tabs), bookmarks, and commands. Typing shows
-/// results in their place. Opened from a note, the first result finds the text in that note.
+/// and picked from: recent notes (which stand in for tabs), bookmarks, notes linked with the one
+/// it was opened from, and commands. Typing shows results in their place. Opened from a note, the
+/// first result finds the text in that note.
 struct SearchScreen: View {
     @EnvironmentObject private var store: PhoneStore
     /// The note search was opened from, if any.
@@ -15,6 +16,8 @@ struct SearchScreen: View {
     let showSettings: () -> Void
     /// The note's text, for counting matches in it.
     @State private var noteText = ""
+    /// The notes linked with the note.
+    @State private var linked: [Note] = []
 
     private var query: String { store.searchText.trimmingCharacters(in: .whitespaces) }
 
@@ -30,6 +33,9 @@ struct SearchScreen: View {
         .searchable(text: $store.searchText, prompt: "Search")
         .onAppear {
             if let note { noteText = (try? NoteReader.read(note)) ?? "" }
+        }
+        .task {
+            if let note { linked = await store.linkedNotes(of: note) }
         }
         .onDisappear { store.searchText = "" }
     }
@@ -48,6 +54,13 @@ struct SearchScreen: View {
                         row(note.id) { NoteRow(title: bookmark.title ?? note.title) }
                     }
                 }
+            }
+        }
+        // Those not listed already.
+        let others = linked.lazy.filter { note in !recent.contains { $0.id == note.id } && !store.isBookmarked(note.id) }.prefix(5)
+        if !others.isEmpty {
+            Section("Linked") {
+                ForEach(Array(others)) { note in row(note.id) { NoteRow(title: note.title) } }
             }
         }
         Section("Commands") {

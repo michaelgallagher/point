@@ -137,6 +137,23 @@ final class PhoneStore: ObservableObject {
         return Array(tags.map(\.tag).filter { $0.lowercased().hasPrefix(query) }.prefix(20))
     }
 
+    /// The notes linked with `note`: those it links to, then those linking to it, each once.
+    func linkedNotes(of note: Note) async -> [Note] {
+        let notes = notes
+        let outgoing = await Task.detached(priority: .userInitiated) { () -> [Note] in
+            guard let text = try? NoteReader.read(contentsOf: note.url) else { return [] }
+            let resolver = LinkResolver(notes: notes)
+            let wikiLinks = LinkUpdater.wikiLinks(in: text).compactMap { resolver.resolve(wikiTarget: $0.target, from: note.id) }
+            return wikiLinks + MarkdownParser.parse(text).compactMap { token in
+                guard case .link(let destination) = token.kind else { return nil }
+                return resolver.resolve(markdownDestination: destination, from: note.id)
+            }
+        }.value
+        let backlinks = (try? await index?.backlinks(to: note, notes: notes)) ?? []
+        var seen: Set<Note.ID> = [note.id]
+        return (outgoing.map(\.id) + backlinks.map(\.noteID)).filter { seen.insert($0).inserted }.compactMap { self.note($0) }
+    }
+
     private func createLinkedNote(named target: String) -> Note.ID? {
         let name = target.split(separator: "#").first.map(String.init) ?? target
         let title = NoteFiles.sanitizedTitle((name as NSString).lastPathComponent)
