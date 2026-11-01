@@ -38,10 +38,7 @@ struct PropertiesSheet: View {
                 }
                 .fullWidthSeparators()
                 Section {
-                    Button("Add Property", systemImage: "plus") {
-                        name = ""
-                        isAdding = true
-                    }
+                    Button("Add Property", systemImage: "plus") { isAdding = true }
                     TemplateMenu(session: session)
                 }
                 .fullWidthSeparators()
@@ -55,12 +52,7 @@ struct PropertiesSheet: View {
                     Button("Done", systemImage: "checkmark") { dismiss() }
                 }
             }
-            .alert("Add Property", isPresented: $isAdding) {
-                TextField("Name", text: $name)
-                    .textInputAutocapitalization(.never)
-                Button("Cancel", role: .cancel) {}
-                Button("Add", action: add)
-            }
+            .navigationDestination(isPresented: $isAdding) { AddPropertyScreen(session: session) }
             .alert("Rename Property", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
                 TextField("Name", text: $name)
                     .textInputAutocapitalization(.never)
@@ -71,15 +63,6 @@ struct PropertiesSheet: View {
         .presentationDetents([.medium, .large])
         // Solid: over the system's glass at the medium height, the white rows went grey.
         .presentationBackground(Color(.systemGroupedBackground))
-    }
-
-    /// Adds a property, of the vault's type for its name, or one suggested by the name.
-    private func add() {
-        let key = name.trimmingCharacters(in: .whitespaces)
-        guard !key.isEmpty, !properties.contains(where: { $0.key == key }) else { return }
-        let type = store.propertyTypes.type(forKey: key) ?? PropertyType.suggested(forKey: key)
-        store.setPropertyType(type, forKey: key)
-        session.setProperty(key, to: [], isList: type.isList)
     }
 
     private func rename() {
@@ -96,6 +79,108 @@ private extension View {
     /// Separators the same length whatever a row holds: by default they start at a row's text.
     func fullWidthSeparators() -> some View {
         alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+    }
+}
+
+/// Adds a property by picking its name: those the vault uses, most used first, narrowed by
+/// typing. A name that isn't among them can be added too, once typed, which is the only way a
+/// new name comes about.
+private struct AddPropertyScreen: View {
+    @EnvironmentObject private var store: PhoneStore
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var session: NoteSession
+    @State private var name = ""
+    @FocusState private var isFocused: Bool
+
+    /// YAML keys can't contain a colon; Obsidian also trims spaces.
+    private var key: String {
+        name.replacingOccurrences(of: ":", with: "").trimmingCharacters(in: .whitespaces)
+    }
+
+    /// The names on the note already, in lower case: Obsidian ignores case in them.
+    private var taken: Set<String> {
+        Set((session.frontmatter?.properties ?? []).map { $0.key.lowercased() })
+    }
+
+    /// The vault's name for what's typed, if it has one, in the vault's spelling.
+    private var known: String? {
+        store.suggestedPropertyNames.first { $0.name.lowercased() == key.lowercased() }?.name
+    }
+
+    /// Those not on the note that match what's typed: the name itself, then names starting
+    /// with it, then names containing it, each most used first.
+    private var suggestions: [(name: String, count: Int)] {
+        let query = key.lowercased()
+        let names = store.suggestedPropertyNames.filter { !taken.contains($0.name.lowercased()) }
+        guard !query.isEmpty else { return names }
+        func rank(_ name: String) -> Int {
+            name == query ? 0 : name.hasPrefix(query) ? 1 : 2
+        }
+        return names.filter { $0.name.lowercased().contains(query) }
+            .enumerated()
+            .sorted { (rank($0.element.name.lowercased()), $0.offset) < (rank($1.element.name.lowercased()), $1.offset) }
+            .map(\.element)
+    }
+
+    var body: some View {
+        List {
+            Section {
+                TextField("Name", text: $name)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.done)
+                    .focused($isFocused)
+                    .onSubmit { add(known ?? key) }
+            } footer: {
+                if taken.contains(key.lowercased()) {
+                    Text("“\(key)” is on this note already.")
+                }
+            }
+            if !suggestions.isEmpty {
+                Section(key.isEmpty ? "In This Vault" : "Matching") {
+                    ForEach(suggestions, id: \.name) { suggestion in
+                        Button {
+                            add(suggestion.name)
+                        } label: {
+                            HStack {
+                                Label(suggestion.name, systemImage: type(of: suggestion.name).symbol)
+                                Spacer()
+                                if suggestion.count > 0 {
+                                    Text("\(suggestion.count)")
+                                        .foregroundStyle(.secondary)
+                                        .monospacedDigit()
+                                }
+                            }
+                        }
+                        .foregroundStyle(.primary)
+                    }
+                }
+                .fullWidthSeparators()
+            }
+            if !key.isEmpty, known == nil, !taken.contains(key.lowercased()) {
+                Section {
+                    Button("Add “\(key)” as a New Property", systemImage: type(of: key).symbol) { add(key) }
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Add Property")
+        .navigationBarTitleDisplayMode(.inline)
+        .scrollDismissesKeyboard(.interactively)
+        .onAppear { isFocused = true }
+    }
+
+    /// The vault's type for a name, or one suggested by the name.
+    private func type(of name: String) -> PropertyType {
+        store.propertyTypes.type(forKey: name) ?? PropertyType.suggested(forKey: name)
+    }
+
+    private func add(_ key: String) {
+        guard !key.isEmpty, !taken.contains(key.lowercased()) else { return }
+        let type = type(of: key)
+        store.setPropertyType(type, forKey: key)
+        session.setProperty(key, to: [], isList: type.isList)
+        dismiss()
     }
 }
 
@@ -123,24 +208,33 @@ private struct PropertyRow: View {
     let property: Frontmatter.Property
     @ObservedObject var session: NoteSession
     let rename: () -> Void
+    /// A single line's height, whatever's in it: the tallest control, the date picker, sets it.
+    @ScaledMetric private var lineHeight: CGFloat = 36
 
     private var type: PropertyType { store.propertyTypes.type(of: property) }
     /// A value nested under the key, which isn't for editing here.
     private var isNested: Bool { !property.isList && property.values.isEmpty && property.range.length > property.key.count + 3 }
 
     var body: some View {
-        if type.isList, !isNested {
-            VStack(alignment: .leading, spacing: 8) {
-                name
-                value
-            }
-        } else {
-            HStack {
-                name
-                Spacer(minLength: 16)
-                value
+        Group {
+            if type.isList, !isNested {
+                VStack(alignment: .leading, spacing: 0) {
+                    name
+                        .frame(minHeight: lineHeight)
+                    value
+                        .padding(.bottom, 8)
+                }
+            } else {
+                HStack {
+                    name
+                    Spacer(minLength: 16)
+                    value
+                }
+                .frame(minHeight: lineHeight)
             }
         }
+        // The rest of the system's row height: a taller control would otherwise add to it.
+        .listRowInsets(.vertical, 8)
     }
 
     private var name: some View {

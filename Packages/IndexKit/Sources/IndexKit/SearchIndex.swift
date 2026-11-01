@@ -50,7 +50,7 @@ public struct Mention: Sendable, Identifiable, Equatable {
 /// The vault's search index: full-text search that forgives typos and partial words,
 /// plus tags and links, kept in a SQLite file outside the vault.
 public actor SearchIndex {
-    static let schemaVersion = "5" // 5: links in frontmatter count as links.
+    static let schemaVersion = "6" // 6: property names, for suggesting.
 
     private let db: Database
     /// Notes the last update couldn't read: kept as they were last indexed (or by title only,
@@ -73,7 +73,7 @@ public actor SearchIndex {
             try db.execute("""
                 DROP TABLE IF EXISTS notes; DROP TABLE IF EXISTS words; DROP TABLE IF EXISTS grams;
                 DROP TABLE IF EXISTS vocab; DROP TABLE IF EXISTS tags; DROP TABLE IF EXISTS links;
-                DROP TABLE IF EXISTS spelled; DROP TABLE IF EXISTS spellings;
+                DROP TABLE IF EXISTS spelled; DROP TABLE IF EXISTS spellings; DROP TABLE IF EXISTS property_names;
                 """)
         }
         try db.execute("""
@@ -87,6 +87,7 @@ public actor SearchIndex {
             CREATE INDEX IF NOT EXISTS tags_lowered ON tags(lowered);
             CREATE TABLE IF NOT EXISTS links(note INTEGER NOT NULL, name TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS links_name ON links(name);
+            CREATE TABLE IF NOT EXISTS property_names(note INTEGER NOT NULL, name TEXT NOT NULL);
             """)
         try db.query("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', ?)", [Self.schemaVersion])
         titles = try Self.loadTitles(db)
@@ -152,7 +153,7 @@ public actor SearchIndex {
                 try db.query("INSERT INTO \(table)(\(table), rowid, title, body, properties) VALUES ('delete', ?, ?, ?, ?)", [row, old[0], old[1], old[2]])
             }
         }
-        for table in ["notes WHERE row", "tags WHERE note", "links WHERE note"] {
+        for table in ["notes WHERE row", "tags WHERE note", "links WHERE note", "property_names WHERE note"] {
             try db.query("DELETE FROM \(table) = ?", [row])
         }
     }
@@ -163,7 +164,8 @@ public actor SearchIndex {
         let modified = text == nil ? 0 : note.modified.timeIntervalSince1970
         // Properties are searchable but kept apart from the text, so snippets read naturally.
         let body = text.map { PlainText.strippingMarkers(from: $0, includingFrontmatter: false) } ?? ""
-        let properties = text.flatMap(Frontmatter.parse)?.body ?? ""
+        let frontmatter = text.flatMap(Frontmatter.parse)
+        let properties = frontmatter?.body ?? ""
         try db.query("INSERT INTO notes(id, title, modified, body, properties) VALUES (?, ?, ?, ?, ?)",
                      [note.id, note.title, modified, body, properties])
         let row = db.lastInsertedRow
@@ -176,6 +178,9 @@ public actor SearchIndex {
         }
         for name in Set(Self.linkedNames(in: text)) {
             try db.query("INSERT INTO links(note, name) VALUES (?, ?)", [row, name])
+        }
+        for name in Set(frontmatter?.properties.map(\.key) ?? []) {
+            try db.query("INSERT INTO property_names(note, name) VALUES (?, ?)", [row, name])
         }
     }
 
@@ -319,6 +324,23 @@ public actor SearchIndex {
             result[row[0] as! String, default: []].append(row[1] as! String)
         }
         return result
+    }
+
+    /// Every property name in the vault with how many notes use it, most used first. Names
+    /// differing only in case are one, as they are to Obsidian, spelled as most notes spell it.
+    public func propertyNames() throws -> [(name: String, count: Int)] {
+        var names: [(name: String, count: Int)] = []
+        var positions: [String: Int] = [:]
+        for row in try db.query("SELECT name, COUNT(*) FROM property_names GROUP BY name ORDER BY COUNT(*) DESC, name") {
+            let name = row[0] as! String, count = row[1] as! Int
+            if let position = positions[name.lowercased()] {
+                names[position].count += count
+            } else {
+                positions[name.lowercased()] = names.count
+                names.append((name, count))
+            }
+        }
+        return names.sorted { $0.count != $1.count ? $0.count > $1.count : $0.name < $1.name }
     }
 
     // MARK: Links between notes

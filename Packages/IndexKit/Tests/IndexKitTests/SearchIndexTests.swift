@@ -134,6 +134,19 @@ struct SearchTests {
         #expect(tags["Garden.md"] == nil)
     }
 
+    @Test func listsPropertyNamesMostUsedFirst() async throws {
+        let vault = try await Fixture([
+            "A.md": "---\nstatus: open\nauthor: Sam\n---\nText",
+            "B.md": "---\nstatus: done\n---\nText",
+            "C.md": "---\nStatus: done\ncreated: 2026-01-01\ncreated: 2026-01-02\n---\nText",
+            "D.md": "No properties",
+        ])
+        defer { vault.cleanUp() }
+        let names = try await vault.index.propertyNames()
+        #expect(names.map(\.name) == ["status", "author", "created"])
+        #expect(names.map(\.count) == [3, 1, 1])
+    }
+
     @Test func keepsUpWithChangesAndDeletions() async throws {
         var vault = try await Fixture(files)
         defer { vault.cleanUp() }

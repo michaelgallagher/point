@@ -14,6 +14,8 @@ final class PhoneStore: ObservableObject {
     @Published private(set) var folders: [String] = []
     /// Each note's tags, from the search index (nested tags as written: `work/point`).
     @Published private(set) var tagsByNote: [Note.ID: [String]] = [:]
+    /// The property names used in notes, with how many notes use each, most used first.
+    @Published private(set) var propertyNames: [(name: String, count: Int)] = []
     @Published private(set) var bookmarks: [ObsidianBookmarks.Bookmark] = []
     /// What's typed in the search field; results follow as it changes.
     @Published var searchText = "" {
@@ -78,6 +80,7 @@ final class PhoneStore: ObservableObject {
         let indexStart = CACurrentMediaTime()
         let changed = (try? await index.update(notes: scanned)) ?? 0
         if changed > 0 || tagsByNote.isEmpty, let tags = try? await index.tagsByNote() { tagsByNote = tags }
+        if changed > 0 || propertyNames.isEmpty, let names = try? await index.propertyNames() { propertyNames = names }
         if changed > 0 {
             PhoneVault.log("indexed \(changed) notes in \(Int((CACurrentMediaTime() - indexStart) * 1000)) ms")
             if !searchText.isEmpty { scheduleSearch() }
@@ -194,6 +197,17 @@ final class PhoneStore: ObservableObject {
         guard propertyTypes.type(forKey: key) != type else { return }
         propertyTypes.set(type, forKey: key)
         saveTypes()
+    }
+
+    /// The property names to suggest: those in notes, most used first, then those only given a
+    /// type so far, and Obsidian's own. A name differing only in case isn't repeated.
+    var suggestedPropertyNames: [(name: String, count: Int)] {
+        let used = Set(propertyNames.map { $0.name.lowercased() })
+        let unused = (propertyTypes.raw.keys + ["aliases", "tags"])
+            .filter { !used.contains($0.lowercased()) }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        var seen: Set<String> = []
+        return propertyNames + unused.filter { seen.insert($0.lowercased()).inserted }.map { ($0, 0) }
     }
 
     /// A property renamed in a note: its type goes with the new name, for that name.
