@@ -311,11 +311,19 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     /// At the end of a live resize (the window dragged, or the sidebar sliding, which resizes
     /// the window), AppKit scrolls back to what it had in sight when it began, worked out from
     /// the layout then, which was partly a guess: by a line or more, or with the cursor out of
-    /// sight, all the way back to it. The line at the top stays instead.
+    /// sight, all the way back to it. The line at the top stays instead, or with the header in
+    /// sight, the place it was scrolled to.
     public override func viewDidEndLiveResize() {
         let anchor = scrollAnchor
+        let scrollView = enclosingScrollView
+        let origin = scrollView?.contentView.bounds.origin
         super.viewDidEndLiveResize()
-        if let anchor { scroll(to: anchor) }
+        if let anchor {
+            scroll(to: anchor)
+        } else if let scrollView, let origin, origin != scrollView.contentView.bounds.origin {
+            scrollView.contentView.scroll(to: origin)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
     }
 
     /// A place in the note to scroll back to: the character on the first line showing below
@@ -343,6 +351,14 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         let glyph = layoutManager.glyphIndex(for: NSPoint(x: container.lineFragmentPadding, y: top), in: container)
         let line = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
         return ScrollAnchor(index: layoutManager.characterIndexForGlyph(at: glyph), offset: max(0, top - line.minY))
+    }
+
+    /// Scrolls to the very top, below any bars over it.
+    public func scrollToTop() {
+        guard let scrollView = enclosingScrollView else { return }
+        let clip = scrollView.contentView
+        clip.scroll(to: NSPoint(x: clip.bounds.minX, y: -scrollView.contentInsets.top))
+        scrollView.reflectScrolledClipView(clip)
     }
 
     /// Scrolls so `anchor`'s line is back at the top, as far past it as it was.
@@ -835,7 +851,7 @@ private final class FlippedView: NSView {
 }
 
 /// The editor's scroll view. Where the window's top bars cover its top (its top content
-/// inset, from the window), it blurs the text scrolling beneath them under a light wash of
+/// inset), it blurs the text scrolling beneath them under a light wash of
 /// the page's colour, with a one-pixel hairline at the edge, like the system's scroll edge
 /// effect; both show only once the text has scrolled under the bars. The blur is a Core
 /// Image filter on what's behind a view inside the scroll view, above the text. (The
@@ -863,9 +879,22 @@ final class MarkdownScrollView: NSScrollView {
     }()
 
     private var isScrolledUnder = false
+    private var topInset: CGFloat = 0
+
+    /// Text at the very top stays there as the inset changes, rather than ending up under
+    /// the bars.
+    private func keepAtTop() {
+        guard contentInsets.top != topInset else { return }
+        let wasAtTop = contentView.bounds.minY <= -topInset + 0.5
+        topInset = contentInsets.top
+        guard wasAtTop else { return }
+        contentView.scroll(to: NSPoint(x: contentView.bounds.minX, y: -topInset))
+        reflectScrolledClipView(contentView)
+    }
 
     override func tile() {
         super.tile()
+        keepAtTop()
         let height = contentInsets.top
         guard height > 0 else {
             edgeBlur.removeFromSuperview()

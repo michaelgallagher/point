@@ -3,7 +3,8 @@ import SwiftUI
 import VaultKit
 
 /// The window has no title bar or toolbar of its own: the sidebar and each side of the split
-/// have their own bar along the top edge, so a split runs the full height of the window.
+/// have their own bar along the top edge, so a split runs the full height of the window. Each
+/// side has a second, shorter bar below it, for where its note is.
 enum TopBar {
     /// Twice the distance from the window's top to the middle of its close button, so the
     /// close, minimise and zoom buttons sit centred in the bars. Measured from the window.
@@ -25,6 +26,8 @@ enum TopBar {
     /// The gap between buttons in a bar (the HStack's spacing), and how far a side's bar
     /// starts past the sidebar's edge or the divider, so its buttons never touch either.
     static let buttonSpacing: CGFloat = 8
+    /// The height of a side's second bar, with its back and forward arrows and path.
+    static let pathBarHeight: CGFloat = 32
 
     /// The top bar's background, in every layout: the page's own colour.
     static let barColor = Color(nsColor: .textBackgroundColor)
@@ -56,10 +59,10 @@ struct SidebarTopBar: View {
     }
 }
 
-/// One side's top bar: back and forward, where the side's note is ("Projects / Point / Tabs
-/// idea"), then a button listing the side's tabs and a button for the split. Tabs aren't
-/// shown as tabs: they're reached from that list, the palette (⌃Tab) and ⇧⌘[ / ⇧⌘].
-struct PaneTopBar: View {
+/// One side's top bar: its tabs, a button for a new one, then the button for the split, on the
+/// far right: Split with one side, and on the right side of a split, closing the split (which
+/// keeps both sides' notes as tabs).
+struct PaneTabBar: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
     let paneIndex: Int
@@ -75,34 +78,24 @@ struct PaneTopBar: View {
         return model.windowButtonsInset + TopBar.sidebarButtonWidth
     }
 
-    /// The bar's contents. Too narrow for them all, the bookmark and tab buttons go first, then
-    /// the path, so nothing overlaps (in a narrow split, the buttons went under the sidebar
-    /// button and the divider).
-    private func contents(showsTabButtons: Bool, showsPath: Bool) -> some View {
+    var body: some View {
+        let isTabMenuShown = Binding(
+            get: { model.tabMenuPane == pane.id },
+            set: { shown in
+                if !shown, model.tabMenuPane == pane.id { model.tabMenuPane = nil }
+            })
         HStack(spacing: TopBar.buttonSpacing) {
-            BackForwardButtons(pane: pane, paneIndex: paneIndex)
-            if showsPath {
-                PanePath(pane: pane, paneIndex: paneIndex, slide: model.sidebarSlide)
-                    .padding(.horizontal, 4)
-                    // Room for at least a short name, for deciding what fits.
-                    .frame(minWidth: 80)
-            } else {
-                Spacer(minLength: 0)
-            }
-            if showsTabButtons { BookmarkAndTabButtons(pane: pane) }
-            if model.isSplit {
-                BarButton("Close This Side", systemImage: "xmark", help: "Close This Side") { model.closePane(paneIndex) }
-            } else {
+            PaneTabs(pane: pane, paneIndex: paneIndex)
+                .popover(isPresented: isTabMenuShown, arrowEdge: .bottom) {
+                    TabMenu(paneID: pane.id)
+                        .environmentObject(model)
+                }
+            BarIcon(symbol: "plus", label: "New Tab", help: "New Tab (⌘T)") { model.newTab(inPane: paneIndex) }
+            if paneIndex == 1 {
+                BarButton("Close Split", systemImage: "xmark", help: "Close Split (⇧⌘S)") { model.mergeIntoTabs() }
+            } else if !model.isSplit {
                 BarButton("Split", systemImage: "rectangle.split.2x1", help: "Split (⇧⌘S)") { model.toggleSplit() }
             }
-        }
-    }
-
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            contents(showsTabButtons: true, showsPath: true)
-            contents(showsTabButtons: false, showsPath: true)
-            contents(showsTabButtons: false, showsPath: false)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.leading, leadingInset)
@@ -113,7 +106,7 @@ struct PaneTopBar: View {
         .padding(.trailing, TopBar.buttonSpacing)
         .frame(height: model.topBarHeight)
         .background(WindowDragArea())
-        // A tab (dragged from a tab list) dropped on the bar goes at the end of this side's tabs.
+        // A tab dropped on the bar, past the tabs, goes at the end of this side's tabs.
         .background(TabDropArea { id, _, _ in
             id.map { model.location(ofTab: $0) != nil } ?? false
         } drop: { id, _, _ in
@@ -121,18 +114,185 @@ struct PaneTopBar: View {
             model.moveTab(id, toPane: paneIndex, at: model.panes[paneIndex].tabs.count)
             return true
         })
-        .background { barBackground }
+        .background { TopBarBackground() }
     }
+}
 
-    /// Before macOS 26, the page's colour with a hairline under it. From 26, nothing: the
-    /// system's hard scroll edge effect blurs the note scrolling beneath, with its own edge.
-    @ViewBuilder private var barBackground: some View {
+/// One side's second bar, below its tabs and shorter: back and forward, where the side's note
+/// is ("Projects / Point / Tabs idea"), and the note's bookmark. Plain icons, not glass.
+struct PanePathBar: View {
+    @EnvironmentObject private var model: VaultModel
+    let pane: VaultModel.NotePane
+    let paneIndex: Int
+
+    var body: some View {
+        HStack(spacing: 0) {
+            BackForwardButtons(pane: pane, paneIndex: paneIndex)
+            PanePath(pane: pane, paneIndex: paneIndex, slide: model.sidebarSlide)
+                .padding(.horizontal, 8)
+            BookmarkButton(pane: pane)
+        }
+        .padding(.horizontal, TopBar.buttonSpacing)
+        .frame(height: TopBar.pathBarHeight)
+        .background(WindowDragArea())
+        .background { TopBarBackground() }
+    }
+}
+
+/// Before macOS 26, the page's colour with a hairline under it. From 26, nothing: the note
+/// scrolling beneath blurs itself, under both of a side's bars (see `MarkdownScrollView`).
+private struct TopBarBackground: View {
+    var body: some View {
         if #available(macOS 26, *) {
             Color.clear
         } else {
             TopBar.barColor
                 .overlay(alignment: .bottom) { Divider().opacity(0.5) }
         }
+    }
+}
+
+// MARK: The tabs
+
+/// A side's tabs, as in Safari and Finder: all the same width, sharing the row. The current
+/// tab is shaded, and the others are plain titles with a line between them, shading on hover.
+/// Hover for a tab's close button, at its leading edge; right-click for its menu. Drag a tab
+/// along the row, to the other side's row or page, or to one half of the page to split the
+/// window. When the tabs don't all fit at their narrowest, the row scrolls.
+struct PaneTabs: View {
+    @EnvironmentObject private var model: VaultModel
+    let pane: VaultModel.NotePane
+    let paneIndex: Int
+
+    static let narrowest: CGFloat = 100
+    static let spacing: CGFloat = 2
+
+    var body: some View {
+        GeometryReader { geometry in
+            let count = CGFloat(pane.tabs.count)
+            let shared = ((geometry.size.width - Self.spacing * (count - 1)) / count).rounded(.down)
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Self.spacing) {
+                        ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
+                            PaneTab(
+                                id: tab.id,
+                                title: model.note(tab.noteID)?.title ?? "New Tab",
+                                help: tab.noteID ?? "",
+                                isCurrent: index == pane.current,
+                                isActiveSide: paneIndex == model.activePane,
+                                showsLine: index + 1 < pane.tabs.count && index != pane.current && index + 1 != pane.current,
+                                dragsWindow: !model.isSplit && pane.tabs.count == 1,
+                                width: max(shared, Self.narrowest),
+                                select: { model.selectTab(index, inPane: paneIndex) },
+                                close: { model.closeTab(index, inPane: paneIndex) },
+                                menu: { TabMenu.menu(for: index, tab: tab, inPane: paneIndex, model: model) }
+                            )
+                            .modifier(TabDropTarget(paneIndex: paneIndex, index: index))
+                            .id(tab.id)
+                        }
+                    }
+                    .frame(height: geometry.size.height)
+                }
+                .scrollDisabled(shared >= Self.narrowest)
+                // The current tab always in view.
+                .onAppear { proxy.scrollTo(pane.tab.id) }
+                .onChange(of: pane.tab.id) { id in
+                    withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id) }
+                }
+                .onChange(of: geometry.size.width) { _ in proxy.scrollTo(pane.tab.id) }
+            }
+        }
+        .frame(height: PaneTab.height)
+    }
+}
+
+private struct PaneTab: View {
+    let id: VaultModel.NoteTab.ID
+    let title: String
+    let help: String
+    let isCurrent: Bool
+    /// False on the side of a split not being worked on, whose current tab is shaded less.
+    let isActiveSide: Bool
+    /// Whether to draw the line after this tab.
+    let showsLine: Bool
+    let dragsWindow: Bool
+    let width: CGFloat
+    let select: () -> Void
+    let close: () -> Void
+    let menu: () -> NSMenu
+    @State private var isHovering = false
+
+    static let height: CGFloat = 30
+    private static let closeWidth: CGFloat = 26
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 12, weight: isCurrent ? .medium : .regular))
+            .foregroundStyle(isCurrent && isActiveSide ? .primary : .secondary)
+            .lineLimit(1)
+            .padding(.horizontal, Self.closeWidth)
+            .frame(width: width, height: Self.height)
+            .overlay(alignment: .leading) {
+                // Clicked through the tab's mouse area, which knows where it is.
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: Self.closeWidth, height: Self.height)
+                    .opacity(isHovering ? 1 : 0)
+            }
+            .overlay(alignment: .trailing) {
+                if showsLine {
+                    Rectangle()
+                        .fill(Color(nsColor: .separatorColor))
+                        .frame(width: 1, height: 14)
+                        .offset(x: PaneTabs.spacing / 2 + 0.5)
+                }
+            }
+            .background {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(isCurrent ? Color.primary.opacity(isActiveSide ? 0.09 : 0.05) : isHovering ? Color.primary.opacity(0.04) : .clear)
+            }
+            .allowsHitTesting(false) // Clicks go to the tab's mouse area, below.
+            // Clicks, drags, hover and the menu are handled in AppKit: the tabs sit where a
+            // title bar would, and there the window takes any drag not claimed first.
+            .background(TabMouseArea(id: id, title: title, select: select, close: close, closeEdge: .leading,
+                                     closeWidth: Self.closeWidth, selectsOnPress: true, dragsWindow: dragsWindow,
+                                     menu: menu, isHovering: $isHovering))
+            .help(help)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
+            .accessibilityAction { select() }
+            .accessibilityAction(named: "Close Tab") { close() }
+    }
+}
+
+/// A tab dropped on another tab goes before or after it, whichever half it's over.
+private struct TabDropTarget: ViewModifier {
+    @EnvironmentObject private var model: VaultModel
+    let paneIndex: Int
+    let index: Int
+    @State private var edge: HorizontalEdge?
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: edge == .leading ? .leading : .trailing) {
+                if edge != nil {
+                    Capsule()
+                        .fill(Color.accentColor)
+                        .frame(width: 2, height: 20)
+                        .offset(x: edge == .leading ? -2 : 2)
+                }
+            }
+            .background(TabDropArea { id, point, size in
+                edge = id.flatMap { model.location(ofTab: $0) } == nil ? nil : (point.x < size.width / 2 ? .leading : .trailing)
+                return edge != nil
+            } drop: { id, point, size in
+                edge = nil
+                guard model.location(ofTab: id) != nil else { return false }
+                model.moveTab(id, toPane: paneIndex, at: point.x < size.width / 2 ? index : index + 1)
+                return true
+            })
     }
 }
 
@@ -377,66 +537,8 @@ private struct PathRenameField: View {
 
 // MARK: The tab list
 
-/// The side's note's bookmark, joined with the button that lists the side's tabs. The tab
-/// button shows how many tabs there are, and is dimmed with only one, rather than hidden,
-/// so the bar doesn't shift.
-private struct BookmarkAndTabButtons: View {
-    @EnvironmentObject private var model: VaultModel
-    let pane: VaultModel.NotePane
-    /// When the menu last closed, so the click outside that closes it, if it lands on this
-    /// button, doesn't open it straight away again.
-    @State private var closedAt = Date.distantPast
-
-    var body: some View {
-        let isShown = Binding(
-            get: { model.tabMenuPane == pane.id },
-            set: { shown in
-                if shown {
-                    model.tabMenuPane = pane.id
-                } else if model.tabMenuPane == pane.id {
-                    model.tabMenuPane = nil
-                    closedAt = Date()
-                }
-            })
-        let noteID = pane.tab.noteID
-        let isBookmarked = noteID.map(model.isBookmarked) ?? false
-        JoinedButtons {
-            CapsuleIcon(symbol: isBookmarked ? "bookmark.fill" : "bookmark", label: isBookmarked ? "Remove Bookmark" : "Bookmark",
-                        help: isBookmarked ? "Remove Bookmark" : "Bookmark", enabled: noteID != nil,
-                        tint: isBookmarked ? .accentColor : nil) {
-                if let noteID { model.toggleBookmark(noteID) }
-            }
-            let number = model.tabNumber(ofTab: pane.tab.id) ?? 1
-            let count = model.numberedTabs.count
-            CapsuleIcon(symbol: "square.stack", label: "Tabs", help: "Tab \(number) of \(count). Show Tab List (⇧⌘T)", enabled: pane.tabs.count > 1) {
-                guard Date().timeIntervalSince(closedAt) > 0.3 else { return }
-                isShown.wrappedValue.toggle()
-            }
-            // This tab's number, once the window has more than one.
-            .overlay(alignment: .topTrailing) {
-                if count > 1 {
-                    Text("\(number)")
-                        .font(.system(size: 10, weight: .semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 4)
-                        .frame(minWidth: 16, minHeight: 16)
-                        .background(Capsule().fill(Color.accentColor))
-                        .offset(x: 8, y: -6)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
-            }
-            .accessibilityValue("Tab \(number) of \(count)")
-            .popover(isPresented: isShown, arrowEdge: .bottom) {
-                TabMenu(paneID: pane.id)
-                    .environmentObject(model)
-            }
-        }
-    }
-}
-
-/// A side's tabs, in order, the current one ticked. Click one to go to it; hover for its
+/// A side's list of tabs, shown with ⇧⌘T. The tabs themselves are along the top of the side.
+/// Its tabs, in order, the current one ticked. Click one to go to it; hover for its
 /// close button, right-click for more. Drag a row up or down to reorder, onto the page to
 /// split the window or onto the other side. Keys: ↑↓ move, Return goes to the tab, ⌫ or ⌘W
 /// closes it, Escape closes the menu.
@@ -464,7 +566,7 @@ struct TabMenu: View {
                                 isHighlighted: highlighted == tab.id,
                                 select: { go(to: index, inPane: p) },
                                 close: { model.closeTab(index, inPane: p) },
-                                menu: { menu(for: index, tab: tab, inPane: p) },
+                                menu: { Self.menu(for: index, tab: tab, inPane: p, model: model) },
                                 draggedOut: { model.tabMenuPane = nil }
                             )
                             .modifier(TabMenuDropTarget(paneIndex: p, index: index))
@@ -517,8 +619,8 @@ struct TabMenu: View {
         model.selectTab(index, inPane: p)
     }
 
-    /// A row's right-click menu: what a tab's menu used to offer.
-    private func menu(for index: Int, tab: VaultModel.NoteTab, inPane p: Int) -> NSMenu {
+    /// A tab's or a row's right-click menu.
+    static func menu(for index: Int, tab: VaultModel.NoteTab, inPane p: Int, model: VaultModel) -> NSMenu {
         let menu = NSMenu()
         menu.addItem(BlockMenuItem("Close Tab") { model.closeTab(index, inPane: p) })
         menu.addItem(BlockMenuItem("Close Other Tabs") { model.closeOtherTabs(index, inPane: p) })
@@ -722,38 +824,36 @@ private struct BackForwardButtons: View {
     let paneIndex: Int
 
     var body: some View {
-        JoinedButtons {
-            CapsuleIcon(symbol: "chevron.left", label: "Back", help: "Back (⌘[)", enabled: model.canTravel(back: true, inPane: paneIndex)) {
+        HStack(spacing: 0) {
+            BarIcon(symbol: "chevron.left", label: "Back", help: "Back (⌘[)", enabled: model.canTravel(back: true, inPane: paneIndex)) {
                 model.travel(back: true, inPane: paneIndex)
             }
-            CapsuleIcon(symbol: "chevron.right", label: "Forward", help: "Forward (⌘])", enabled: model.canTravel(back: false, inPane: paneIndex)) {
+            BarIcon(symbol: "chevron.right", label: "Forward", help: "Forward (⌘])", enabled: model.canTravel(back: false, inPane: paneIndex)) {
                 model.travel(back: false, inPane: paneIndex)
             }
         }
     }
 }
 
-/// Icon buttons joined in one glass capsule (from macOS 26), 36 points tall like the round
-/// bar buttons.
-struct JoinedButtons<Content: View>: View {
-    @ViewBuilder let content: Content
+/// The side's note's bookmark, filled and blue when set.
+private struct BookmarkButton: View {
+    @EnvironmentObject private var model: VaultModel
+    let pane: VaultModel.NotePane
 
     var body: some View {
-        let row = HStack(spacing: 0) { content }
-        if #available(macOS 26, *) {
-            row
-                .padding(.horizontal, 4)
-                .frame(height: 36)
-                .glassEffect(.regular, in: Capsule())
-        } else {
-            row
+        let noteID = pane.tab.noteID
+        let isBookmarked = noteID.map(model.isBookmarked) ?? false
+        BarIcon(symbol: isBookmarked ? "bookmark.fill" : "bookmark", label: isBookmarked ? "Remove Bookmark" : "Bookmark",
+                help: isBookmarked ? "Remove Bookmark" : "Bookmark", enabled: noteID != nil,
+                tint: isBookmarked ? .accentColor : nil) {
+            if let noteID { model.toggleBookmark(noteID) }
         }
     }
 }
 
-/// One icon in a joined capsule. Clicks are taken by an AppKit view under it: in the title
-/// bar's area, the window takes a click on a SwiftUI button and moves itself instead.
-struct CapsuleIcon: View {
+/// A plain icon in a bar. Clicks are taken by an AppKit view under it: in the title bar's
+/// area, the window takes a click on a SwiftUI button and moves itself instead.
+struct BarIcon: View {
     let symbol: String
     let label: String
     let help: String
@@ -853,17 +953,24 @@ struct BarButton: View {
     }
 }
 
-/// A tab list row's mouse handling: a click selects it, a drag picks it up, a right-click
-/// shows its menu. Dropped outside the list, the list closes.
+/// A tab's or a tab list row's mouse handling: a click selects it, a drag picks it up, a
+/// right-click shows its menu. Dropped outside the list, the list closes.
 private struct TabMouseArea: NSViewRepresentable {
     let id: VaultModel.NoteTab.ID
     let title: String
     let select: () -> Void
-    /// A click this close to the trailing edge, where the close button is, closes the tab.
+    /// A click this close to the edge with the close button closes the tab.
     let close: () -> Void
+    var closeEdge = HorizontalEdge.trailing
     let closeWidth: CGFloat
+    /// Selects as the mouse goes down, as a tab does, rather than as it comes up, as a menu
+    /// row does (so a row can be dragged without going to its tab).
+    var selectsOnPress = false
+    /// A drag moves the window instead of picking the tab up: nothing to reorder, and the tab
+    /// fills the row that would otherwise move it.
+    var dragsWindow = false
     let menu: () -> NSMenu
-    let draggedOut: () -> Void
+    var draggedOut: () -> Void = {}
     @Binding var isHovering: Bool
 
     func makeNSView(context: Context) -> TabMouseView { TabMouseView() }
@@ -873,7 +980,10 @@ private struct TabMouseArea: NSViewRepresentable {
         view.title = title
         view.select = select
         view.close = close
+        view.closeEdge = closeEdge
         view.closeWidth = closeWidth
+        view.selectsOnPress = selectsOnPress
+        view.dragsWindow = dragsWindow
         view.makeMenu = menu
         view.draggedOut = draggedOut
         view.onHover = { isHovering = $0 }
@@ -884,7 +994,10 @@ private struct TabMouseArea: NSViewRepresentable {
         var title = ""
         var select: () -> Void = {}
         var close: () -> Void = {}
+        var closeEdge = HorizontalEdge.trailing
         var closeWidth: CGFloat = 0
+        var selectsOnPress = false
+        var dragsWindow = false
         var makeMenu: () -> NSMenu = { NSMenu() }
         var draggedOut: () -> Void = {}
         var onHover: (Bool) -> Void = { _ in }
@@ -892,6 +1005,10 @@ private struct TabMouseArea: NSViewRepresentable {
 
         override var mouseDownCanMoveWindow: Bool { false }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        private func isOverClose(_ point: NSPoint) -> Bool {
+            closeEdge == .leading ? point.x < closeWidth : point.x > bounds.maxX - closeWidth
+        }
 
         /// Whether the pointer is over the tab, as last told to SwiftUI.
         private var isInside = false
@@ -944,7 +1061,14 @@ private struct TabMouseArea: NSViewRepresentable {
         override func mouseMoved(with event: NSEvent) { syncHover() }
         override func mouseExited(with event: NSEvent) { syncHover(leaving: true) }
 
-        override func mouseDown(with event: NSEvent) { mouseDownAt = event.locationInWindow }
+        override func mouseDown(with event: NSEvent) {
+            let isOverClose = isOverClose(convert(event.locationInWindow, from: nil))
+            if dragsWindow, !isOverClose {
+                return event.clickCount == 2 ? window?.performZoom(nil) ?? () : window?.performDrag(with: event) ?? ()
+            }
+            mouseDownAt = event.locationInWindow
+            if selectsOnPress, !isOverClose { select() }
+        }
 
         override func mouseDragged(with event: NSEvent) {
             guard let start = mouseDownAt, let tabID else { return }
@@ -960,13 +1084,12 @@ private struct TabMouseArea: NSViewRepresentable {
             session.animatesToStartingPositionsOnCancelOrFail = true
         }
 
-        /// On mouse up, as in a menu, so a row can be dragged without going to its tab.
         override func mouseUp(with event: NSEvent) {
             guard mouseDownAt != nil else { return }
             mouseDownAt = nil
             let point = convert(event.locationInWindow, from: nil)
             guard bounds.contains(point) else { return }
-            if point.x > bounds.maxX - closeWidth { close() } else { select() }
+            if isOverClose(point) { close() } else if !selectsOnPress { select() }
         }
 
         override func menu(for event: NSEvent) -> NSMenu? { makeMenu() }

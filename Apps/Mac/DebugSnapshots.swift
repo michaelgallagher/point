@@ -25,6 +25,7 @@ enum DebugSnapshots {
         safetyIfAsked(for: model)
         shortcutTestIfAsked(for: model)
         tabTestIfAsked(for: model)
+        tabBarIfAsked(for: model)
         scanIfAsked(for: model)
         // `-PointOpenSettings YES`: opens Settings (at `-settingsPage`), for checking it.
         if UserDefaults.standard.bool(forKey: "PointOpenSettings") {
@@ -522,6 +523,26 @@ enum DebugSnapshots {
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.4) {
             Trace.mark("closing split side \(side)")
             model.closePane(side)
+        }
+    }
+
+    /// `-PointTabBar <tabs> [split]`: opens that many notes in tabs (with `split`, the last on
+    /// the other side) and scrolls them under the bars, for pictures of the tab row.
+    private static func tabBarIfAsked(for model: VaultModel) {
+        guard let spec = UserDefaults.standard.string(forKey: "PointTabBar") else { return }
+        let words = spec.split(separator: " ")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            for note in model.notes.prefix(Int(words.first ?? "") ?? 3) { model.newTab(noteID: note.id) }
+            model.closeTab(0, inPane: 0)
+            if words.contains("split") { model.moveTabToOtherSide() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                guard UserDefaults.standard.object(forKey: "PointScrollBy") != nil, let content = model.window?.contentView else { return }
+                for scrollView in scrollViews(in: content) where scrollView.documentView is NSTextView {
+                    let clip = scrollView.contentView
+                    clip.scroll(to: NSPoint(x: 0, y: clip.bounds.origin.y + UserDefaults.standard.double(forKey: "PointScrollBy")))
+                    scrollView.reflectScrolledClipView(clip)
+                }
+            }
         }
     }
 

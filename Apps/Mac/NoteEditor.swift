@@ -25,7 +25,7 @@ struct NoteEditor: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Below the see-through top bar; only the text scrolls beneath it.
+            // Below the see-through top bars; only the text scrolls beneath them.
             Color.clear.frame(height: session.conflict != nil || session.message != nil
                               || session.saveProblem != nil || session.recoveredDraft != nil ? topBarCover : 0)
             if session.conflict != nil {
@@ -43,7 +43,7 @@ struct NoteEditor: View {
                 // away with the text instead of taking up room above it.
                 EditorView(session: session, model: model, paneID: paneID, tabID: tabID, offersTemplates: offersTemplates,
                            showsMarkdown: model.showsMarkdown, textScale: model.textScale, typography: model.store.typography,
-                           textColumnWidth: model.store.textColumnWidth)
+                           textColumnWidth: model.store.textColumnWidth, barBelowTitleBar: max(topBarCover - model.topBarHeight, 0))
             } else {
                 Color.clear
             }
@@ -333,9 +333,13 @@ private struct EditorView: NSViewRepresentable {
     let textScale: Double
     let typography: Typography
     let textColumnWidth: Double
+    /// How far the top bars reach below the title bar, which the window insets the text from
+    /// by itself.
+    let barBelowTitleBar: CGFloat
 
     func makeNSView(context: Context) -> NSScrollView {
         let (scrollView, textView) = MarkdownTextView.makeScrollable()
+        scrollView.additionalSafeAreaInsets.top = barBelowTitleBar
         textView.typography = typography
         textView.textScale = textScale
         textView.maxTextWidth = textColumnWidth
@@ -346,7 +350,10 @@ private struct EditorView: NSViewRepresentable {
         let isActivePane = model.paneIndex(paneID) == model.activePane
         // Back where this tab left the note, unless it's opening at a place in it (a link's).
         let placeKey = tabID.map { VaultModel.placeKey(tab: $0, note: session.note.id) }
-        var place = EditorSession.hasPendingReveal(in: session.note.id) ? nil : placeKey.flatMap { model.notePlaces[$0] }
+        let revealing = EditorSession.hasPendingReveal(in: session.note.id)
+        var place = revealing ? nil : placeKey.flatMap { model.notePlaces[$0] }
+        // Until it's shown: the insertion point moves it before it has a place to be.
+        var isShown = false
         context.coordinator.placeKey = placeKey
         context.coordinator.model = model
         session.attach(textView, takesFocus: !model.consumeListFocus() && isActivePane)
@@ -361,8 +368,13 @@ private struct EditorView: NSViewRepresentable {
             onHeight: { [weak textView, animator = HeaderHeightAnimator(textView: textView)] height in
                 animator.move(to: height)
                 // Scrolled back once the text is below the header, where it'll stay.
-                if let scroll = place?.scroll { textView?.scroll(to: scroll) }
+                if let scroll = place?.scroll {
+                    textView?.scroll(to: scroll)
+                } else if !isShown, !revealing {
+                    textView?.scrollToTop()
+                }
                 place = nil
+                isShown = true
                 textView?.alphaValue = 1
             }
         ))
@@ -399,6 +411,7 @@ private struct EditorView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? MarkdownTextView else { return }
+        scrollView.additionalSafeAreaInsets.top = barBelowTitleBar
         textView.showsMarkdown = showsMarkdown
         textView.textScale = textScale
         textView.typography = typography
