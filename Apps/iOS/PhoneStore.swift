@@ -21,7 +21,7 @@ final class PhoneStore: ObservableObject {
     }
     /// Results for `searchText`, or nil when not searching.
     @Published private(set) var searchResults: [SearchResult]?
-    /// How folders, the top level and tags list their notes, as on the Mac. Recent keeps its own
+    /// How folders, All notes and tags list their notes, as on the Mac. Recent keeps its own
     /// order, and is the only list that opening a note changes.
     @Published var sort = UserDefaults.standard.string(forKey: "noteSort").flatMap(NoteSort.init) ?? .modified {
         didSet { UserDefaults.standard.set(sort.rawValue, forKey: "noteSort") }
@@ -66,6 +66,8 @@ final class PhoneStore: ObservableObject {
         folders = (result?.folders ?? []).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         bookmarks = ObsidianBookmarks.load(vault: root)
         propertyTypes = PropertyTypes.load(vault: root)
+        settings = ObsidianSettings.load(vault: root)
+        templates = Templates.available(in: root, settings: settings)
         // Notes left untitled when the app last stopped (none is open yet): named, or removed.
         if !isLaunched {
             isLaunched = true
@@ -176,6 +178,13 @@ final class PhoneStore: ObservableObject {
         return note.id
     }
 
+    // MARK: Templates
+
+    /// The vault's Obsidian settings, which say where its templates are.
+    private(set) var settings = ObsidianSettings()
+    /// The templates in the vault's templates folder, by name.
+    @Published private(set) var templates: [(name: String, url: URL)] = []
+
     // MARK: Property types
 
     /// The vault's property types, kept where Obsidian keeps them.
@@ -210,19 +219,31 @@ final class PhoneStore: ObservableObject {
     /// goes if it's still empty. Kept across launches, for a note open when the app stopped.
     private var untitled: Set<Note.ID> {
         get { Set(UserDefaults.standard.stringArray(forKey: "untitled") ?? []) }
-        set { UserDefaults.standard.set(Array(newValue), forKey: "untitled") }
+        set {
+            UserDefaults.standard.set(Array(newValue), forKey: "untitled")
+            startingTexts = startingTexts.filter { newValue.contains($0.key) }
+        }
+    }
+
+    /// What new notes not yet named started with, if not nothing (a tag): left as it was, a
+    /// note goes just as an empty one does.
+    private var startingTexts: [Note.ID: String] {
+        get { UserDefaults.standard.dictionary(forKey: "untitledStarts") as? [Note.ID: String] ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: "untitledStarts") }
     }
 
     func isUntitled(_ id: Note.ID) -> Bool { untitled.contains(id) }
 
-    /// A new, empty note at the vault's top level, to be named from its first line.
-    func createNote() -> Note.ID? {
+    /// A new note in `folder` ("" for the vault's top level), starting with `text`, to be named
+    /// from its first line.
+    func createNote(in folder: String = "", text: String = "") -> Note.ID? {
         do {
-            let url = try NoteFiles.create(title: NoteFiles.untitledName(), in: root)
-            let note = Note(id: url.lastPathComponent, url: url, title: url.deletingPathExtension().lastPathComponent,
+            let url = try NoteFiles.create(title: NoteFiles.untitledName(), text: text, in: url(ofFolder: folder))
+            let note = Note(id: id(of: url, in: folder), url: url, title: url.deletingPathExtension().lastPathComponent,
                             modified: Date(), created: Date(), isDownloaded: true)
             notes.append(note)
             untitled.insert(note.id)
+            if !text.isEmpty { startingTexts[note.id] = text }
             return note.id
         } catch {
             PhoneVault.log("couldn't create a note: \(error.localizedDescription)")
@@ -230,9 +251,9 @@ final class PhoneStore: ObservableObject {
         }
     }
 
-    /// Names a new note from its first line, or removes it if it's empty, once it's been left
-    /// (and saved). Only a note read back as empty is removed; if it can't be read, renamed or
-    /// removed, it stays as it is, to try again next time.
+    /// Names a new note from its first line, or removes it if it's empty or as it started, once
+    /// it's been left (and saved). Only a note read back that way is removed; if it can't be
+    /// read, renamed or removed, it stays as it is, to try again next time.
     func finishUntitled(_ id: Note.ID) {
         guard untitled.contains(id) else { return }
         guard let note = note(id) ?? (FileManager.default.fileExists(atPath: root.appendingPathComponent(id).path)
@@ -242,7 +263,7 @@ final class PhoneStore: ObservableObject {
             return
         }
         guard let text = try? NoteReader.read(contentsOf: note.url) else { return }
-        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text == startingTexts[id] {
             guard (try? FileManager.default.removeItem(at: note.url)) != nil else { return }
             untitled.remove(id)
             notes.removeAll { $0.id == id }
@@ -279,6 +300,23 @@ final class PhoneStore: ObservableObject {
         return renamed
     }
 
+    /// Moves a note into a folder ("" for the vault's top level), as on the Mac: its bookmarks
+    /// follow, and links to it are updated behind it, by the time `links` is done. Throws if the
+    /// file can't be moved (the note's left as it was).
+    func move(_ id: Note.ID, toFolder folder: String) throws -> (note: Note, links: Task<Void, Never>) {
+        guard let note = note(id) else { throw CocoaError(.fileNoSuchFile) }
+        let vault = notes, root = root
+        let url = try NoteFiles.move(note.url, toFolder: url(ofFolder: folder))
+        let moved = moved(note, to: url, in: folder)
+        let newID = moved.id
+        let links = Task.detached(priority: .userInitiated) {
+            let result = LinkUpdater.updateLinks(afterMoving: note, to: newID, notes: vault, root: root)
+            if !result.updatedNotes.isEmpty { PhoneVault.log("updated links in \(result.updatedNotes.count) notes") }
+            await self.reload()
+        }
+        return (moved, links)
+    }
+
     /// Moves a note to the vault's trash, as the Mac does, where the Mac and Obsidian can put it
     /// back: the phone has no trash list. What it was known by (opened, worked on, its bookmark)
     /// goes with it.
@@ -308,13 +346,18 @@ final class PhoneStore: ObservableObject {
     /// A note's file renamed: the list, and what it was known by (opened, worked on, its
     /// bookmarks), follow it.
     @discardableResult
-    private func moved(_ note: Note, to url: URL) -> Note {
-        let folder = (note.id as NSString).deletingLastPathComponent
-        let newID = folder.isEmpty ? url.lastPathComponent : folder + "/" + url.lastPathComponent
+    private func moved(_ note: Note, to url: URL, in folder: String? = nil) -> Note {
+        let newID = id(of: url, in: folder ?? (note.id as NSString).deletingLastPathComponent)
         let renamed = Note(id: newID, url: url, title: url.deletingPathExtension().lastPathComponent,
                            modified: note.modified, created: note.created, isDownloaded: true)
         if let index = notes.firstIndex(where: { $0.id == note.id }) { notes[index] = renamed }
         renamedIDs[note.id] = newID
+        if untitled.contains(note.id) {
+            let start = startingTexts[note.id]
+            untitled.remove(note.id)
+            untitled.insert(newID)
+            startingTexts[newID] = start
+        }
         var dates = opened
         if let date = dates.removeValue(forKey: note.id) { dates[newID] = date; opened = dates }
         if UserDefaults.standard.string(forKey: "workingOn") == note.id { UserDefaults.standard.set(newID, forKey: "workingOn") }
@@ -326,6 +369,16 @@ final class PhoneStore: ObservableObject {
     }
 
     // MARK: Folders and tags
+
+    /// Where a folder is ("" for the vault's top level).
+    private func url(ofFolder folder: String) -> URL {
+        folder.isEmpty ? root : root.appendingPathComponent(folder, isDirectory: true)
+    }
+
+    /// The ID of the note at `url`, in `folder`.
+    private func id(of url: URL, in folder: String) -> Note.ID {
+        folder.isEmpty ? url.lastPathComponent : folder + "/" + url.lastPathComponent
+    }
 
     /// Makes a folder called `name` inside `parent` ("" for the vault's top level), as on the
     /// Mac, and returns its path. Throws with a message to show if the name can't be used.
@@ -343,6 +396,23 @@ final class PhoneStore: ObservableObject {
         return path
     }
 
+    /// Moves a folder, with everything in it, into another ("" for the vault's top level), as on
+    /// the Mac, and returns its new path. Links by name, as Obsidian makes them, keep working;
+    /// links written as paths aren't rewritten. Throws with a message to show if it can't move.
+    func moveFolder(_ path: String, into parent: String) throws -> String {
+        let prefix = path + "/"
+        let moving = notes.filter { $0.id.hasPrefix(prefix) }
+        let url = try NoteFiles.moveFolder(url(ofFolder: path), into: url(ofFolder: parent))
+        let newPath = parent.isEmpty ? url.lastPathComponent : parent + "/" + url.lastPathComponent
+        for note in moving {
+            let inside = note.id.dropFirst(prefix.count)
+            let folder = ((newPath + "/" + inside) as NSString).deletingLastPathComponent
+            moved(note, to: root.appendingPathComponent(newPath + "/" + inside), in: folder)
+        }
+        Task { await reload() }
+        return newPath
+    }
+
     struct FolderError: LocalizedError {
         let message: String
         init(_ message: String) { self.message = message }
@@ -353,6 +423,45 @@ final class PhoneStore: ObservableObject {
     func subfolders(of folder: String) -> [String] {
         folders.filter { ($0 as NSString).deletingLastPathComponent == folder }
     }
+
+    /// `folders` in the chosen order: as given (by name), or by the newest note inside each.
+    func sorted(folders: [String]) -> [String] {
+        guard sort != .title else { return folders }
+        var newest: [String: Date] = [:]
+        for note in notes {
+            var folder = FolderTree.folder(of: note.id)
+            while !folder.isEmpty {
+                newest[folder] = max(newest[folder] ?? .distantPast, sortDate(note))
+                folder = FolderTree.parent(of: folder)
+            }
+        }
+        return folders.sorted { (newest[$0] ?? .distantPast) > (newest[$1] ?? .distantPast) }
+    }
+
+    /// `tags` in the chosen order: as given (by name), or by the newest note with each, with
+    /// nested tags still under their parents.
+    func sorted(tags: [(tag: String, count: Int)]) -> [(tag: String, count: Int)] {
+        guard sort != .title else { return tags }
+        var newest: [String: Date] = [:]
+        for note in notes {
+            for tag in tagsByNote[note.id] ?? [] {
+                let parts = tag.split(separator: "/").map(String.init)
+                for depth in 1...max(parts.count, 1) {
+                    let tag = parts.prefix(depth).joined(separator: "/")
+                    newest[tag] = max(newest[tag] ?? .distantPast, sortDate(note))
+                }
+            }
+        }
+        let nested = Dictionary(grouping: tags) { ($0.tag as NSString).deletingLastPathComponent }
+        func walk(_ parent: String) -> [(tag: String, count: Int)] {
+            (nested[parent] ?? [])
+                .sorted { (newest[$0.tag] ?? .distantPast) > (newest[$1.tag] ?? .distantPast) }
+                .flatMap { [$0] + walk($0.tag) }
+        }
+        return walk("")
+    }
+
+    private func sortDate(_ note: Note) -> Date { sort == .created ? note.created : note.modified }
 
     /// The notes directly in `folder`, in the chosen order.
     func notes(in folder: String) -> [Note] {

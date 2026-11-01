@@ -2,54 +2,43 @@ import IndexKit
 import SwiftUI
 import VaultKit
 
-/// Explorer, over any page. It opens with the field focused, ready to type, above lists to pick
-/// from: recent notes (which stand in for tabs), bookmarks, notes linked with the one it was
-/// opened from, and commands. Typing shows results in their place. Opened from a note, the first
-/// result finds the text in that note.
-struct ExplorerScreen: View {
+/// Search, over the page while the system's search field is in use: lists to pick from, recent
+/// notes (which stand in for tabs), bookmarks, and notes linked with the one on the page. Typing
+/// shows results in their place. On a note's page, the first result finds the text in that note.
+struct SearchScreen: View {
     @EnvironmentObject private var store: PhoneStore
-    /// The note Explorer was opened from, if any.
+    @Environment(\.isSearching) private var isSearching
+    @Environment(\.dismissSearch) private var dismissSearch
+    /// The note on the page, if any.
     let note: Note?
-    let close: () -> Void
-    let open: (Note.ID) -> Void
-    let find: (String) -> Void
-    let newNote: () -> Void
-    let showSettings: () -> Void
     /// The note's text, for counting matches in it.
     @State private var noteText = ""
     /// The notes linked with the note.
     @State private var linked: [Note] = []
-    @State private var isSearching = false
 
     private var query: String { store.searchText.trimmingCharacters(in: .whitespaces) }
 
     var body: some View {
-        NavigationStack {
-            List {
-                if query.isEmpty {
-                    lists
-                } else {
-                    results
+        ZStack {
+            if isSearching {
+                List {
+                    if query.isEmpty {
+                        lists
+                    } else {
+                        results
+                    }
+                }
+                .listStyle(.plain)
+                .background(Color(.systemBackground))
+                .transition(.opacity)
+                .task {
+                    guard let note else { return }
+                    noteText = (try? NoteReader.read(note)) ?? ""
+                    linked = await store.linkedNotes(of: note)
                 }
             }
-            .listStyle(.plain)
-            .navigationTitle("Explorer")
-            .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $store.searchText, isPresented: $isSearching, prompt: "Search")
-            .searchPresentationToolbarBehavior(.avoidHidingContent)
         }
-        // The field's own close button, beside it, closes Explorer: it's always in search.
-        .onChange(of: isSearching) { _, searching in
-            if !searching { close() }
-        }
-        .onAppear {
-            isSearching = true
-            if let note { noteText = (try? NoteReader.read(note)) ?? "" }
-        }
-        .task {
-            if let note { linked = await store.linkedNotes(of: note) }
-        }
-        .onDisappear { store.searchText = "" }
+        .animation(.easeInOut(duration: 0.2), value: isSearching)
     }
 
     @ViewBuilder private var lists: some View {
@@ -75,19 +64,16 @@ struct ExplorerScreen: View {
                 ForEach(Array(others)) { note in row(note.id) { NoteRow(title: note.title) } }
             }
         }
-        Section("Commands") {
-            if note != nil {
-                command("Find in Note", symbol: "text.magnifyingglass") { find("") }
-            }
-            command("New Note", symbol: "square.and.pencil", action: newNote)
-            command("Settings", symbol: "gear", action: showSettings)
-        }
     }
 
     @ViewBuilder private var results: some View {
         if let note, matches > 0 {
             Section {
-                Button { find(query) } label: {
+                Button {
+                    // Before dismissing, which clears the field the query comes from.
+                    store.findRequest = query
+                    dismissSearch()
+                } label: {
                     HStack {
                         Label("Find in “\(note.title)”", systemImage: "text.magnifyingglass")
                         Spacer()
@@ -123,12 +109,10 @@ struct ExplorerScreen: View {
     }
 
     private func row<Label: View>(_ id: Note.ID, @ViewBuilder label: () -> Label) -> some View {
-        Button { open(id) } label: { label() }
-            .foregroundStyle(.primary)
-    }
-
-    private func command(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Label(title, systemImage: symbol) }
+        Button {
+            dismissSearch()
+            store.linkedRoute = .note(id)
+        } label: { label() }
             .foregroundStyle(.primary)
     }
 }

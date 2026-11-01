@@ -3,8 +3,8 @@ import VaultKit
 
 /// A note's properties, as the Mac edits them: each value edited to suit its type. Tap a
 /// property's icon to change its type, its name to rename it, or swipe to delete it. Types are
-/// the vault's, kept where Obsidian keeps them. Every change is an edit to the note's text, so
-/// it saves and undoes as typing does.
+/// the vault's, kept where Obsidian keeps them. Below them, adding one, or a template's. Every
+/// change is an edit to the note's text, so it saves and undoes as typing does.
 struct PropertiesSheet: View {
     @EnvironmentObject private var store: PhoneStore
     @ObservedObject var session: NoteSession
@@ -33,10 +33,15 @@ struct PropertiesSheet: View {
                         Button("Delete", systemImage: "trash", role: .destructive) { session.removeProperty(property.key) }
                     }
                 }
-                Button("Add Property", systemImage: "plus") {
-                    name = ""
-                    isAdding = true
+                HStack {
+                    Button("Add Property", systemImage: "plus") {
+                        name = ""
+                        isAdding = true
+                    }
+                    TemplateMenu(session: session)
                 }
+                .buttonStyle(.bordered)
+                .listRowSeparator(.hidden)
             }
             .listStyle(.plain)
             .navigationTitle("Properties")

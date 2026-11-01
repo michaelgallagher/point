@@ -35,6 +35,8 @@ final class FormatBar: UIView {
         tools.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 6)
         tools.translatesAutoresizingMaskIntoConstraints = false
 
+        // At the screen's bottom, with a hardware keyboard, the home bar's inset would lift the tools.
+        tools.insetsLayoutMarginsFromSafeArea = false
         scroller.showsHorizontalScrollIndicator = false
         scroller.translatesAutoresizingMaskIntoConstraints = false
         scroller.addSubview(tools)
@@ -44,6 +46,7 @@ final class FormatBar: UIView {
         choiceStack.isLayoutMarginsRelativeArrangement = true
         choiceStack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 6)
         choiceStack.translatesAutoresizingMaskIntoConstraints = false
+        choiceStack.insetsLayoutMarginsFromSafeArea = false
         choices.showsHorizontalScrollIndicator = false
         choices.translatesAutoresizingMaskIntoConstraints = false
         choices.isHidden = true

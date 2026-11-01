@@ -3,8 +3,9 @@ import SwiftUI
 import VaultKit
 
 /// One note, filling the screen, in the shared editor, its title at the top (its file name, as
-/// on the Mac: changing it renames the note). Its menu bookmarks it. A new note opens with the
-/// cursor in its title. Opened with `-SpikeTypeTest`, what opening and typing cost shows across
+/// on the Mac: changing it renames the note). At the top right, always there, are bookmarking,
+/// finding and sharing it; moving and deleting it are among the actions at the bottom. A new note
+/// opens with the cursor in its title. Opened with `-SpikeTypeTest`, what opening and typing cost shows across
 /// the top (see the spike).
 struct NoteScreen: View {
     @EnvironmentObject private var store: PhoneStore
@@ -12,9 +13,13 @@ struct NoteScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var confirmsDelete = false
     @State private var isDeleting = false
+    @State private var showsMove = false
+    /// Makes a note in the given folder.
+    private let newNote: (String) -> Void
 
-    init(note: Note, store: PhoneStore, isNew: Bool = false) {
+    init(note: Note, store: PhoneStore, isNew: Bool = false, newNote: @escaping (String) -> Void) {
         _session = StateObject(wrappedValue: NoteSession(note: note, store: store, isNew: isNew))
+        self.newNote = newNote
     }
 
     var body: some View {
@@ -27,21 +32,30 @@ struct NoteScreen: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu("More", systemImage: "ellipsis") {
-                        Button("Find in Note", systemImage: "text.magnifyingglass") { session.find("") }
-                        let bookmarked = store.isBookmarked(session.note.id)
-                        Button(bookmarked ? "Remove Bookmark" : "Bookmark", systemImage: bookmarked ? "bookmark.slash" : "bookmark") {
-                            store.toggleBookmark(session.note.id)
-                        }
-                        Button("Share", systemImage: "square.and.arrow.up") { session.share() }
-                        Divider()
-                        Button("Delete", systemImage: "trash", role: .destructive) { confirmsDelete = true }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    let bookmarked = store.isBookmarked(session.note.id)
+                    Button(bookmarked ? "Remove Bookmark" : "Bookmark", systemImage: bookmarked ? "bookmark.fill" : "bookmark") {
+                        store.toggleBookmark(session.note.id)
                     }
+                    Button("Find in Note", systemImage: "text.page.badge.magnifyingglass") { session.find("") }
+                    Button("Share", systemImage: "square.and.arrow.up") { session.share() }
                 }
             }
+            .pageBar(note: session.note) {
+                Button("New Note", systemImage: "square.and.pencil") { newNote(FolderTree.folder(of: session.note.id)) }
+                Button("Move Note", systemImage: "folder") { showsMove = true }
+                TemplateMenu(session: session)
+                Divider()
+                Button("Delete Note", systemImage: "trash", role: .destructive) { confirmsDelete = true }
+            }
+            // A hardware keyboard leaves the format bar at the bottom, on top of this one.
+            .toolbarVisibility(session.isWriting ? .hidden : .automatic, for: .bottomBar)
             .sheet(isPresented: $session.showsProperties) {
                 PropertiesSheet(session: session).environmentObject(store)
+            }
+            .sheet(isPresented: $showsMove) {
+                FolderPicker(title: "Move Note", current: FolderTree.folder(of: session.note.id)) { session.move(to: $0) }
+                    .environmentObject(store)
             }
             .sheet(isPresented: $session.showsShare) {
                 ShareSheet(url: session.note.url)
@@ -101,6 +115,21 @@ struct NoteScreen: View {
     }
 }
 
+/// The vault's templates, to apply one to a note. Off if the vault has none.
+struct TemplateMenu: View {
+    @EnvironmentObject private var store: PhoneStore
+    let session: NoteSession
+
+    var body: some View {
+        Menu("Apply Template", systemImage: "doc.text") {
+            ForEach(store.templates, id: \.url) { template in
+                Button(template.name) { session.applyTemplate(at: template.url) }
+            }
+        }
+        .disabled(store.templates.isEmpty)
+    }
+}
+
 /// The system's share sheet, for a note's file.
 private struct ShareSheet: UIViewControllerRepresentable {
     let url: URL
@@ -151,6 +180,8 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     @Published private(set) var frontmatter: Frontmatter?
     @Published var showsProperties = false
     @Published var showsShare = false
+    /// Writing in the body, when the format bar takes the bottom of the screen.
+    @Published private(set) var isWriting = false
     /// Why a title couldn't be used (the name's taken, say), until dismissed.
     @Published private(set) var titleProblem: String?
 
@@ -170,6 +201,13 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         self.isNew = isNew
         super.init()
         NotificationCenter.default.addObserver(self, selector: #selector(resignActive), name: UIApplication.willResignActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(editingChanged), name: UITextView.textDidBeginEditingNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(editingChanged), name: UITextView.textDidEndEditingNotification, object: nil)
+    }
+
+    @objc private func editingChanged(_ notification: Notification) {
+        guard notification.object as? PhoneTextView === textView else { return }
+        isWriting = textView?.isFirstResponder == true
     }
 
     /// Going to the background (the phone locked, another app): saved.
@@ -269,6 +307,55 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     /// Moves the note to the trash, with its latest edits. Those that can't be saved keep it here.
     func moveToTrash() {
         if save() { store.moveToTrash(note.id) } else { store.trashProblem = saveProblem }
+    }
+
+    /// Moves the note to `folder`, with its latest edits, and takes in any change that made to
+    /// the note's own links.
+    func move(to folder: String) {
+        commitTitle()
+        guard save() else { return }
+        do {
+            let moved = try store.move(note.id, toFolder: folder)
+            note = moved.note
+            Task { [weak self] in
+                await moved.links.value
+                self?.reloadIfUnedited()
+            }
+        } catch {
+            titleProblem = "Point couldn’t move this note (\(error.localizedDescription))."
+        }
+    }
+
+    /// Reads the note again if it's changed on disk and not here.
+    private func reloadIfUnedited() {
+        guard let textView, textView.text == onDisk, let text = try? NoteReader.read(note), text != onDisk else { return }
+        textView.load(text)
+        onDisk = text
+    }
+
+    /// Applies a template, filled in, as on the Mac: its properties merged into the note's, and
+    /// its body inserted at the cursor, or at the start if the cursor's yet to be placed. One step
+    /// to undo.
+    func applyTemplate(at url: URL) {
+        commitTitle()
+        guard let textView, let template = try? NoteReader.read(contentsOf: url) else { return }
+        let title = store.isUntitled(note.id) ? "" : note.title
+        let application = Templates.merge(Templates.render(template, title: title, settings: store.settings), into: textView.text)
+        let text = textView.text as NSString
+        let at = max(textView.selectedRange.location, textView.bodyStart)
+        var body = application.body
+        // Frontmatter with no line break after it: the body starts on a line of its own.
+        if at > 0, at == textView.bodyStart, text.character(at: at - 1) != 10, !body.isEmpty { body = "\n" + body }
+        // At the start of a line with text on it, that text stays on a line of its own.
+        if at < text.length, at == text.lineRange(for: NSRange(location: at, length: 0)).location,
+           text.character(at: at) != 10, !body.isEmpty, !body.hasSuffix("\n") { body += "\n" }
+        textView.undoManager?.beginUndoGrouping()
+        // The body first: it comes after the frontmatter, so the block's range stays right.
+        if !body.isEmpty { textView.applyAboveBody(NSRange(location: at, length: 0), with: body) }
+        if let range = application.frontmatterRange, let block = application.frontmatter, text.substring(with: range) != block {
+            textView.applyAboveBody(range, with: block)
+        }
+        textView.undoManager?.endUndoGrouping()
     }
 
     // MARK: Properties
@@ -472,7 +559,7 @@ final class TitleView: UITextView {
 
     init() {
         super.init(frame: .zero, textContainer: nil)
-        font = UIFontMetrics(forTextStyle: .title2).scaledFont(for: .systemFont(ofSize: 24, weight: .bold))
+        font = UIFontMetrics(forTextStyle: .title2).scaledFont(for: .systemFont(ofSize: 28, weight: .bold))
         adjustsFontForContentSizeCategory = true
         accessibilityLabel = "Title"
         backgroundColor = .clear

@@ -10,10 +10,9 @@ enum Route: Hashable {
     case folder(String)
 }
 
-/// Home, as the Notes app's list of folders: Notes (those at the vault's top level), Bookmarks
-/// and Recent, each a page of its own; the vault's folders; then its tags. Settings at the top
-/// left; along the bottom, on every page, the system's toolbar, with Add (a note or a folder) on the left
-/// and Explorer, which fades in over any page, on the right.
+/// Home, as the Notes app's list of folders: All notes, Bookmarks and Recent, each a page of its
+/// own; the vault's folders; then its tags. Settings at the top left; along the bottom, on every
+/// page, the system's search field and the actions for where you are.
 struct HomeScreen: View {
     @EnvironmentObject private var store: PhoneStore
     @ObservedObject private var quickActions = QuickActions.shared
@@ -21,13 +20,15 @@ struct HomeScreen: View {
     /// The note just made with New Note, which opens with the cursor in its title.
     @State private var newNote: Note.ID?
     @State private var showsSettings = false
-    @State private var showsExplorer = false
     /// Whether the note being worked on has had its chance to reopen, once, at launch.
     @State private var hasResumed = false
     /// New Folder: where it goes ("" for the top level), and the name being typed.
     @State private var newFolderParent: String?
     @State private var newFolderName = ""
     @State private var folderProblem: String?
+    /// The folder being moved, while choosing where to.
+    @State private var movingFolder: String?
+    @State private var moveProblem: String?
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -40,17 +41,9 @@ struct HomeScreen: View {
                     ToolbarItem(placement: .topBarLeading) {
                         Button("Settings", systemImage: "gear") { showsSettings = true }
                     }
+                    ToolbarItem(placement: .topBarTrailing) { SortMenu() }
                 }
-                .toolbar { bottomBar() }
-        }
-        .overlay {
-            if showsExplorer {
-                ExplorerScreen(note: noteBelowExplorer, close: closeExplorer, open: openFromExplorer, find: findFromExplorer, newNote: createNote) {
-                    closeExplorer()
-                    showsSettings = true
-                }
-                .transition(.opacity)
-            }
+                .pageBar { topLevelActions }
         }
         .alert("New Folder", isPresented: Binding(get: { newFolderParent != nil }, set: { if !$0 { newFolderParent = nil } })) {
             TextField("Name", text: $newFolderName)
@@ -63,6 +56,17 @@ struct HomeScreen: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(folderProblem ?? "")
+        }
+        .alert("Couldn’t Move the Folder", isPresented: Binding(get: { moveProblem != nil }, set: { if !$0 { moveProblem = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(moveProblem ?? "")
+        }
+        .sheet(isPresented: Binding(get: { movingFolder != nil }, set: { if !$0 { movingFolder = nil } })) {
+            if let movingFolder {
+                FolderPicker(title: "Move Folder", current: FolderTree.parent(of: movingFolder), moving: movingFolder) { moveFolder(movingFolder, into: $0) }
+                    .environmentObject(store)
+            }
         }
         .alert("Couldn’t Delete the Note", isPresented: Binding(get: { store.trashProblem != nil }, set: { if !$0 { store.trashProblem = nil } })) {
             Button("OK", role: .cancel) {}
@@ -80,13 +84,13 @@ struct HomeScreen: View {
             Button("OK", role: .cancel) {}
         }
         .sheet(isPresented: $showsSettings) { SettingsScreen().environmentObject(store) }
-        .onChange(of: quickActions.newNoteRequests) { _, _ in createNote() }
+        .onChange(of: quickActions.newNoteRequests) { _, _ in quickNote() }
         .onChange(of: store.linkedRoute) { _, route in
             guard let route else { return }
             store.linkedRoute = nil
             go(to: route)
         }
-        .onAppear { if quickActions.newNoteRequests > 0 { createNote() } }
+        .onAppear { if quickActions.newNoteRequests > 0 { quickNote() } }
         .onChange(of: path) { _, path in
             // Home, or another note: that's the end of coming back to this one.
             guard let working = store.workingOn?.note.id else { return }
@@ -106,33 +110,31 @@ struct HomeScreen: View {
         }
     }
 
-    /// Add (a note, or a folder where you are) on the left, Explorer on the right, on every page.
-    @ToolbarContentBuilder private func bottomBar(in folder: String = "") -> some ToolbarContent {
-        ToolbarItem(placement: .bottomBar) {
-            Menu("Add", systemImage: "plus") {
-                Button("New Note", systemImage: "square.and.pencil", action: createNote)
-                Button("New Folder", systemImage: "folder.badge.plus") {
-                    newFolderName = ""
-                    newFolderParent = folder
-                }
-            }
-        }
-        ToolbarSpacer(.flexible, placement: .bottomBar)
-        ToolbarItem(placement: .bottomBar) {
-            Button("Explorer", systemImage: "map") {
-                withAnimation(.easeInOut(duration: 0.2)) { showsExplorer = true }
-            }
+    /// At the top level, and on the pages that aren't a place of their own.
+    @ViewBuilder private var topLevelActions: some View {
+        newNoteButton(in: "")
+        newFolderButton(in: "")
+    }
+
+    private func newNoteButton(in folder: String) -> some View {
+        Button("New Note", systemImage: "square.and.pencil") { createNote(in: folder) }
+    }
+
+    private func newFolderButton(in parent: String) -> some View {
+        Button("New Folder", systemImage: "folder.badge.plus") {
+            newFolderName = ""
+            newFolderParent = parent
         }
     }
 
     private var home: some View {
         List {
             Section {
-                NavigationLink(value: Route.notes) { PlaceRow(title: "Notes", symbol: "doc.text", count: store.notes(in: "").count) }
+                NavigationLink(value: Route.notes) { PlaceRow(title: "All notes", symbol: "doc.text", count: store.notes.count) }
                 NavigationLink(value: Route.bookmarks) { PlaceRow(title: "Bookmarks", symbol: "bookmark", count: store.bookmarks.count) }
                 NavigationLink(value: Route.recent) { PlaceRow(title: "Recent", symbol: "clock", count: nil) }
             }
-            let folders = store.subfolders(of: "")
+            let folders = store.sorted(folders: store.subfolders(of: ""))
             if !folders.isEmpty {
                 Section {
                     ForEach(folders, id: \.self) { folder in
@@ -140,14 +142,15 @@ struct HomeScreen: View {
                     }
                 }
             }
-            if !store.tags.isEmpty {
+            let tags = store.sorted(tags: store.tags)
+            if !tags.isEmpty {
                 // Nested tags under their parents.
                 Section("Tags") {
-                    ForEach(store.tags, id: \.tag) { entry in
+                    ForEach(tags, id: \.tag) { entry in
                         NavigationLink(value: Route.tag(entry.tag)) {
                             let depth = entry.tag.split(separator: "/").count - 1
                             PlaceRow(title: depth > 0 ? String(entry.tag.split(separator: "/").last ?? "") : entry.tag,
-                                     symbol: "number", count: entry.count)
+                                     symbol: symbol("number.sign.circle", or: "number.circle"), count: entry.count)
                                 .padding(.leading, CGFloat(depth) * 20)
                         }
                     }
@@ -163,13 +166,23 @@ struct HomeScreen: View {
         case .note(let id):
             // By its ID now: renamed from its title, it keeps its screen.
             if let note = store.note(store.currentID(id)) {
-                NoteScreen(note: note, store: store, isNew: id == newNote).toolbar { bottomBar() }
+                NoteScreen(note: note, store: store, isNew: id == newNote) { folder in createNote(in: folder) }
             }
-        case .notes: NotesScreen().toolbar { bottomBar() }
-        case .bookmarks: BookmarksScreen().toolbar { bottomBar() }
-        case .recent: RecentScreen().toolbar { bottomBar() }
-        case .tag(let tag): TagScreen(tag: tag).toolbar { bottomBar() }
-        case .folder(let folder): FolderScreen(folder: folder).toolbar { bottomBar(in: folder) }
+        case .notes: NotesScreen().pageBar { topLevelActions }
+        case .bookmarks: BookmarksScreen().pageBar { topLevelActions }
+        case .recent: RecentScreen().pageBar { topLevelActions }
+        case .tag(let tag):
+            TagScreen(tag: tag).pageBar {
+                Button("New Note", systemImage: "square.and.pencil") {
+                    createNote(text: Frontmatter.edit(adding: "tags", values: [tag], isList: true).1)
+                }
+            }
+        case .folder(let folder):
+            FolderScreen(folder: folder).pageBar {
+                newNoteButton(in: folder)
+                newFolderButton(in: folder)
+                Button("Move Folder", systemImage: "folder") { movingFolder = folder }
+            }
         }
     }
 
@@ -182,27 +195,6 @@ struct HomeScreen: View {
         }
     }
 
-    /// The note Explorer was opened from, if it was.
-    private var noteBelowExplorer: Note? {
-        guard case .note(let id)? = path.last else { return nil }
-        return store.note(store.currentID(id))
-    }
-
-    private func closeExplorer() {
-        withAnimation(.easeInOut(duration: 0.2)) { showsExplorer = false }
-    }
-
-    private func openFromExplorer(_ id: Note.ID) {
-        closeExplorer()
-        go(to: .note(id))
-    }
-
-    /// Back to the note Explorer was opened from, finding `text` there.
-    private func findFromExplorer(_ text: String) {
-        closeExplorer()
-        store.findRequest = text
-    }
-
     private func createFolder() {
         guard let parent = newFolderParent else { return }
         newFolderParent = nil
@@ -213,11 +205,32 @@ struct HomeScreen: View {
         }
     }
 
-    /// Makes a note and opens it, from home or anywhere deeper (the quick action).
-    private func createNote() {
+    /// Moves a folder, and the page showing it with it.
+    private func moveFolder(_ folder: String, into parent: String) {
+        do {
+            let new = try store.moveFolder(folder, into: parent)
+            path = path.map { route in
+                guard case .folder(let open) = route, open == folder || open.hasPrefix(folder + "/") else { return route }
+                return .folder(new + open.dropFirst(folder.count))
+            }
+        } catch {
+            moveProblem = error.localizedDescription
+        }
+    }
+
+    /// Makes a note and opens it, on top of the page you're on. A new note still untitled goes
+    /// from under it: left, it may go altogether.
+    private func createNote(in folder: String = "", text: String = "") {
+        guard let id = store.createNote(in: folder, text: text) else { return }
+        newNote = id
+        if case .note(let below)? = path.last, store.isUntitled(store.currentID(below)) { path.removeLast() }
+        path.append(.note(id))
+    }
+
+    /// Makes a note and opens it straight from home, from wherever you were.
+    private func quickNote() {
         guard let id = store.createNote() else { return }
         newNote = id
-        closeExplorer()
         path = [.note(id)]
     }
 
@@ -232,14 +245,14 @@ struct HomeScreen: View {
     }
 }
 
-/// The notes at the vault's top level, in the chosen order.
+/// Every note, in the chosen order.
 struct NotesScreen: View {
     @EnvironmentObject private var store: PhoneStore
 
     var body: some View {
-        let notes = store.notes(in: "")
+        let notes = store.notes.sorted(by: store.sort)
         List { NoteSections(notes: notes) }
-            .navigationTitle("Notes")
+            .navigationTitle("All notes")
             .toolbar { ToolbarItem(placement: .topBarTrailing) { SortMenu() } }
             .overlay { if notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text") } }
     }
@@ -302,7 +315,7 @@ struct FolderScreen: View {
     let folder: String
 
     var body: some View {
-        let folders = store.subfolders(of: folder)
+        let folders = store.sorted(folders: store.subfolders(of: folder))
         let notes = store.notes(in: folder)
         List {
             if !folders.isEmpty {
@@ -317,6 +330,85 @@ struct FolderScreen: View {
         .navigationTitle((folder as NSString).lastPathComponent)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { SortMenu() } }
         .overlay { if folders.isEmpty && notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "folder") } }
+    }
+}
+
+/// A symbol, or for systems without it, the nearest they have.
+func symbol(_ name: String, or older: String) -> String {
+    UIImage(systemName: name) == nil ? older : name
+}
+
+/// What every page has: along the bottom, the system's search field and a menu of what can be
+/// done here, as Apple's own apps have them; and over the page, while searching, Search.
+private struct PageBar<Actions: View>: ViewModifier {
+    @EnvironmentObject private var store: PhoneStore
+    let note: Note?
+    @ViewBuilder let actions: Actions
+
+    func body(content: Content) -> some View {
+        content
+            .overlay { SearchScreen(note: note) }
+            .searchable(text: $store.searchText, prompt: "Search")
+            .toolbar {
+                DefaultToolbarItem(kind: .search, placement: .bottomBar)
+                ToolbarSpacer(.fixed, placement: .bottomBar)
+                ToolbarItem(placement: .bottomBar) {
+                    Menu("Actions", systemImage: symbol("text.menu", or: "line.3.horizontal")) { actions }
+                }
+            }
+    }
+}
+
+extension View {
+    /// `note` is the note on this page, if there is one, for Search to look in.
+    func pageBar<Actions: View>(note: Note? = nil, @ViewBuilder actions: () -> Actions) -> some View {
+        modifier(PageBar(note: note, actions: actions))
+    }
+}
+
+/// Where a note or a folder can move to: the top level, or any folder but the one it's in (and,
+/// for a folder, not itself or anything inside it).
+struct FolderPicker: View {
+    @EnvironmentObject private var store: PhoneStore
+    @Environment(\.dismiss) private var dismiss
+    let title: String
+    let current: String
+    var moving: String?
+    let pick: (String) -> Void
+
+    var body: some View {
+        NavigationStack {
+            List {
+                row("Top Level", folder: "", depth: 0)
+                ForEach(tree(of: "", depth: 0), id: \.folder) { row(FolderTree.name(of: $0.folder), folder: $0.folder, depth: $0.depth) }
+            }
+            .listStyle(.plain)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", systemImage: "xmark") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationBackground(Color(.systemBackground))
+    }
+
+    private func tree(of parent: String, depth: Int) -> [(folder: String, depth: Int)] {
+        store.subfolders(of: parent).filter { $0 != moving }.flatMap { [($0, depth)] + tree(of: $0, depth: depth + 1) }
+    }
+
+    private func row(_ name: String, folder: String, depth: Int) -> some View {
+        Button {
+            pick(folder)
+            dismiss()
+        } label: {
+            Label(name, systemImage: "folder")
+                .padding(.leading, CGFloat(depth) * 20)
+        }
+        .foregroundStyle(.primary)
+        .disabled(folder == current)
     }
 }
 

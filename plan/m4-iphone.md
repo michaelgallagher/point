@@ -225,7 +225,7 @@ After Mike tried it. These change "What it leaves out": the app now has sorting,
 - The Mac shades a link while the cursor is inside its end, so it's clear that typing goes on with the link. The phone has the stop but not the shading, and doesn't yet take a tap to the right of a link as after it.
 - VoiceOver reads a note's raw Markdown, hidden markers and frontmatter included, and has no way to tick a checkbox or open a link.
 - At the largest text sizes a bullet's dot stays small, being drawn at a fixed size in the shared layout manager. An inline `code` pill starting a wrapped line sticks out 2 points past the margin, as the tag pill did.
-- With the keyboard down, a tap in the band between Add and Search does nothing: the toolbar takes it. With a hardware keyboard, the bar above the keyboard sits over the note's last lines, and now over Add and Explorer too, the bar being see-through.
+- With the keyboard down, a tap in the band between Add and Search does nothing: the toolbar takes it. With a hardware keyboard, the bar above the keyboard sits over the note's last lines.
 
 ## Mike's second notes (31 October 2026)
 
@@ -240,6 +240,22 @@ After trying the first draft, on `ios-second-draft`. One commit per step.
 **Tried:** all five in the Simulator, in light mode, without a real iPhone. Both apps build, and the package tests pass.
 
 **Not tried:** the iPhone itself, dark mode, the largest text sizes on the new button and bar, and a vault with many tags on home.
+
+## Mike's third notes (1 November 2026)
+
+- **Xcode.** "Imprint" was a stale `Imprint.xcodeproj` from before the rename, gitignored and still open in Xcode beside `Point.xcodeproj`. It's closed and in the Trash. Nothing in `project.yml` or the real project used the name.
+- **Search.** Explorer is Search again, `magnifyingglass` and all, with its commands gone. Recent, Bookmarks and Linked stay. Opened from a note, the first result still finds the text in that note: that's a result with a count, not a command, though the find button at the top right does the same. The field and the menu are the system's own: `.searchable` on each page (outside the stack it shows only on the root), with `DefaultToolbarItem(kind: .search)`, a fixed spacer and the menu in the bottom bar (`PageBar`). Two home-made bars came first, and neither would do. A fixed-width toolbar item looked right on iOS 26.1 but went into a "…" overflow menu on iOS 27, which is what Mike saw in Xcode, so check on both. A `safeAreaBar` was wider than Apple's, moved when tapped, changed its icon's colour and weight, reloaded on every push, and sometimes wouldn't take typing. The system's field does none of this, and it's narrower than the page, with even margins. It hides the navigation bar while searching, so Search has no title, and its X closes it.
+- **Writing with a hardware keyboard.** The bar above the keyboard then sits at the bottom of the screen, on top of the search field and the menu, so the bottom bar hides while the body has the cursor (`isWriting`). The on-screen keyboard covers it anyway. The format bar's stacks ignore the safe area, which otherwise lifted the tools out of their capsule.
+- **Actions.** The menu at the bottom right now depends on the page: `PageBar` takes its contents, home's pages giving theirs and `NoteScreen` its own, as only it has the session. On a tag's page, New Note starts with the tag as a property. If that note's left as it started, it goes, as an empty one does (`startingTexts`). All notes, Bookmarks and Recent offer what home does. The system puts a bottom menu's first item nearest the thumb, so New Note is at the bottom of the menu and Delete Note furthest away, at the top.
+- **Move.** Move Note and Move Folder share `FolderPicker`, and use the Mac's `NoteFiles` and `LinkUpdater`. Moving a note can rewrite its own relative links in the background, so the note reloads after if it's not been edited since; without that, the next save would have made a conflict copy.
+- **Templates.** Apply Template is a submenu, in the action menu and in the properties sheet. If the vault has none it's greyed out in the sheet, and the system leaves the empty submenu out of the action menu. As on the Mac, a template's properties merge and its body goes in at the cursor. It reads `templates.json`, so it needs the vault's Obsidian folder.
+- **All notes.** It now lists every note, as its name says, not just the top level's. Mike renamed it after being told what it showed.
+- **The note.** Bookmark, Find and Share sit together at the top right, always visible, so the ⋯ menu has gone. The title is 28 points, from 24.
+- **Tags.** `number.sign.circle` at home; on a tag's page, a normal large title with the hash, as `#tag`.
+- **Sort.** Sort is at the top right of home as well. Home has no notes of its own, so its folders and tags follow it: by name, or by the newest note inside each, as on the Mac, with nested tags staying under their parents. A folder's page sorts its subfolders the same way. Folder pickers stay by name.
+- **Scrolled notes.** The one way found for a note to open scrolled is coming back: within the same day, relaunching the app reopens the last edited note with the keyboard up, moved so the cursor clears it. Opening from a list, a tag or Search lands at the top, keyboard or not.
+- **A list's end.** The empty last line of a note has no text of its own, so the system lays it out as the line above, and setting the typing attributes doesn't change that. `caretRect` puts the cursor at the margin there.
+- **Symbols.** `number.sign.circle` and `text.menu` arrived with iOS 27. On iOS 26.1, the Simulator's system, toolbars show the word "Actions" and the tag rows nothing. `symbol(_:or:)` falls back to `number.circle` and `line.3.horizontal`.
 
 ## Decided (27 October 2026)
 

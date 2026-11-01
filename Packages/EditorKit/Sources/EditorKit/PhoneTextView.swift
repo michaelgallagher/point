@@ -64,7 +64,7 @@ public final class PhoneTextView: UITextView {
         delegate = self
         addTapRecognizer()
         styler.theme.typography.bodySize = 17 // The iPhone's own body size.
-        styler.theme.typography.headings[0].size = 22.0 / 17 // Below the note's title, at 24.
+        styler.theme.typography.headings[0].size = 22.0 / 17 // Below the note's title, at 28.
         styler.theme.keepsTagsInsideMargin = true
         styler.theme.tagSpace = 8
         styler.theme.tagRise = 3
@@ -243,6 +243,16 @@ public final class PhoneTextView: UITextView {
         super.cut(sender)
     }
 
+    /// The empty line at the end has no text to place it, so the system lays it out as the line
+    /// above: a list's end would keep the list's indent until something's typed.
+    public override func caretRect(for position: UITextPosition) -> CGRect {
+        var rect = super.caretRect(for: position)
+        if offset(from: beginningOfDocument, to: position) == textStorage.length, textStorage.string.hasSuffix("\n") {
+            rect.origin.x = textContainerInset.left
+        }
+        return rect
+    }
+
     /// Runs a formatting command on the selection.
     public func format(_ command: (MarkdownEditing) -> MarkdownEdit?) {
         if let edit = command(MarkdownEditing(text: textStorage.string, selection: selectedRange)) { apply(edit) }
@@ -257,10 +267,10 @@ public final class PhoneTextView: UITextView {
         selectedRange = edit.selection
     }
 
-    /// Replaces text in the frontmatter, keeping the cursor on the same text in the body. This
-    /// goes straight to the text, not through the text system as `apply` does: with a field in
-    /// the properties sheet focused, the text system punctuates what's inserted to suit that
-    /// field, and `---` came out as a dash.
+    /// Replaces text in the frontmatter, or adds a template's to the body, keeping the cursor on
+    /// the same text after it. This goes straight to the text, not through the text system as
+    /// `apply` does: with a field in the properties sheet focused, the text system punctuates
+    /// what's inserted to suit that field, and `---` came out as a dash.
     public func applyAboveBody(_ range: NSRange, with replacement: String) {
         let old = (textStorage.string as NSString).substring(with: range)
         let length = (replacement as NSString).length
