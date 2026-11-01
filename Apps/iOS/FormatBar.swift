@@ -10,7 +10,12 @@ final class FormatBar: UIView {
     private let scroller = UIScrollView()
     private let choices = UIScrollView()
     private let choiceStack = UIStackView()
+    private let glass = UIVisualEffectView(effect: UIGlassEffect())
     private static let height: CGFloat = 44
+    /// Off in the title, which has no styles: only hiding the keyboard is left.
+    var showsTools = true {
+        didSet { glass.isHidden = !showsTools }
+    }
 
     init(textView: PhoneTextView) {
         self.textView = textView
@@ -52,7 +57,6 @@ final class FormatBar: UIView {
         choices.isHidden = true
         choices.addSubview(choiceStack)
 
-        let glass = UIVisualEffectView(effect: UIGlassEffect())
         glass.cornerConfiguration = .capsule()
         glass.clipsToBounds = true
         glass.translatesAutoresizingMaskIntoConstraints = false
@@ -63,7 +67,10 @@ final class FormatBar: UIView {
         configuration.image = UIImage(systemName: "keyboard.chevron.compact.down")?
             .withTintColor(.white, renderingMode: .alwaysOriginal)
         let hide = UIButton(configuration: configuration, primaryAction: UIAction { [weak self] _ in
-            self?.textView?.resignFirstResponder()
+            // The title shows this bar too, and may be what has the keyboard. Leaving the title
+            // hands the cursor to the note's text, its superview, so that's let go of as well.
+            self?.textView?.window?.endEditing(true)
+            DispatchQueue.main.async { self?.textView?.resignFirstResponder() }
         })
         hide.accessibilityLabel = "Hide Keyboard"
         hide.translatesAutoresizingMaskIntoConstraints = false

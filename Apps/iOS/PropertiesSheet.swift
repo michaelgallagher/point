@@ -1,10 +1,11 @@
+import EditorKit
 import SwiftUI
 import VaultKit
 
 /// A note's properties, as the Mac edits them: each value edited to suit its type. Tap a
 /// property's icon to change its type, its name to rename it, or swipe to delete it. Types are
-/// the vault's, kept where Obsidian keeps them. Below them, adding one, or a template's. Every
-/// change is an edit to the note's text, so it saves and undoes as typing does.
+/// the vault's, kept where Obsidian keeps them. In a group below them, adding one, or a
+/// template's. Every change is an edit to the note's text, so it saves and undoes as typing does.
 struct PropertiesSheet: View {
     @EnvironmentObject private var store: PhoneStore
     @ObservedObject var session: NoteSession
@@ -18,32 +19,34 @@ struct PropertiesSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                if let key = session.frontmatter?.repeatedKeys.first {
-                    Label("“\(key)” is here more than once, so Obsidian can’t read these properties. Remove one in either app.",
-                          systemImage: "exclamationmark.triangle.fill")
-                        .font(.subheadline)
-                        .symbolRenderingMode(.multicolor)
-                }
-                ForEach(properties) { property in
-                    PropertyRow(property: property, session: session) {
-                        name = property.key
-                        renaming = property.key
+                Section {
+                    if let key = session.frontmatter?.repeatedKeys.first {
+                        Label("“\(key)” is here more than once, so Obsidian can’t read these properties. Remove one in either app.",
+                              systemImage: "exclamationmark.triangle.fill")
+                            .font(.subheadline)
+                            .symbolRenderingMode(.multicolor)
                     }
-                    .swipeActions {
-                        Button("Delete", systemImage: "trash", role: .destructive) { session.removeProperty(property.key) }
+                    ForEach(properties) { property in
+                        PropertyRow(property: property, session: session) {
+                            name = property.key
+                            renaming = property.key
+                        }
+                        .swipeActions {
+                            Button("Delete", systemImage: "trash", role: .destructive) { session.removeProperty(property.key) }
+                        }
                     }
                 }
-                HStack {
+                .fullWidthSeparators()
+                Section {
                     Button("Add Property", systemImage: "plus") {
                         name = ""
                         isAdding = true
                     }
                     TemplateMenu(session: session)
                 }
-                .buttonStyle(.bordered)
-                .listRowSeparator(.hidden)
+                .fullWidthSeparators()
             }
-            .listStyle(.plain)
+            .listStyle(.insetGrouped)
             .navigationTitle("Properties")
             .navigationBarTitleDisplayMode(.inline)
             .scrollDismissesKeyboard(.interactively)
@@ -66,7 +69,8 @@ struct PropertiesSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
-        .presentationBackground(Color(.systemBackground))
+        // Solid: over the system's glass at the medium height, the white rows went grey.
+        .presentationBackground(Color(.systemGroupedBackground))
     }
 
     /// Adds a property, of the vault's type for its name, or one suggested by the name.
@@ -88,9 +92,34 @@ struct PropertiesSheet: View {
     }
 }
 
+private extension View {
+    /// Separators the same length whatever a row holds: by default they start at a row's text.
+    func fullWidthSeparators() -> some View {
+        alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+    }
+}
+
+/// A value that is a single wikilink, as Obsidian writes links in properties (`[[Note]]`,
+/// `[[Note|label]]`): shown as a link, without its brackets, as on the Mac.
+private struct WikiLink {
+    let target: String
+    let label: String
+
+    init?(_ value: String) {
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("[["), trimmed.hasSuffix("]]"), trimmed.count > 4 else { return nil }
+        let inside = trimmed.dropFirst(2).dropLast(2)
+        guard !inside.contains("[["), !inside.contains("]]") else { return nil }
+        let parts = inside.split(separator: "|", maxSplits: 1).map(String.init)
+        target = parts[0]
+        label = parts.count > 1 ? parts[1] : parts[0]
+    }
+}
+
 /// One property: its type, its name, and its value. Lists run below the name, to have the width.
 private struct PropertyRow: View {
     @EnvironmentObject private var store: PhoneStore
+    @Environment(\.dismiss) private var dismiss
     let property: Frontmatter.Property
     @ObservedObject var session: NoteSession
     let rename: () -> Void
@@ -132,9 +161,15 @@ private struct PropertyRow: View {
             .accessibilityLabel("Type: \(type.name)")
             Button(property.key, action: rename)
                 .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
+                .fontWeight(.semibold)
                 .lineLimit(1)
         }
+    }
+
+    /// Follows a link: from behind the sheet, so the sheet goes first.
+    private func open(_ target: String) {
+        dismiss()
+        session.open(.note(target))
     }
 
     @ViewBuilder private var value: some View {
@@ -144,7 +179,7 @@ private struct PropertyRow: View {
         } else {
             switch type {
             case .list, .tags, .aliases:
-                TokenEditor(items: Self.items(of: property, as: type), isTags: type == .tags, commit: set)
+                TokenEditor(items: Self.items(of: property, as: type), isTags: type == .tags, open: open, commit: set)
             case .checkbox:
                 Toggle(property.key, isOn: Binding(
                     get: { property.values.first?.lowercased() == "true" },
@@ -154,7 +189,7 @@ private struct PropertyRow: View {
             case .date, .datetime:
                 DateValue(property: property, hasTime: type == .datetime, set: set)
             case .text, .number:
-                TextValue(property: property, isNumber: type == .number, set: set)
+                TextValue(property: property, isNumber: type == .number, open: open, set: set)
             }
         }
     }
@@ -186,26 +221,53 @@ private struct PropertyRow: View {
     }
 }
 
-/// Text or a number, in a field, saved on Return or on leaving it.
+/// Text or a number, in a field, saved on Return or on leaving it. A link to a note shows as one
+/// until tapped beside to edit it.
 private struct TextValue: View {
     let property: Frontmatter.Property
     let isNumber: Bool
+    let open: (String) -> Void
     let set: ([String]) -> Void
     @State private var text = ""
+    @State private var isEditing = false
     @FocusState private var isFocused: Bool
 
     private var displayed: String { property.values.joined(separator: ", ") }
 
     var body: some View {
-        TextField("Empty", text: $text)
-            .multilineTextAlignment(.trailing)
-            .keyboardType(isNumber ? .numbersAndPunctuation : .default)
-            .focused($isFocused)
-            .onSubmit(commit)
-            .onChange(of: isFocused) { _, focused in if !focused { commit() } }
-            .onChange(of: property) { _, _ in if !isFocused { text = displayed } }
+        if !isEditing, !isFocused, let link = WikiLink(displayed) {
+            HStack(spacing: 0) {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: edit)
+                Button(link.label) { open(link.target) }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color(.link))
+                    .lineLimit(1)
+            }
             .onAppear { text = displayed }
-            .onDisappear(perform: commit)
+            .onChange(of: property) { _, _ in text = displayed }
+        } else {
+            TextField("Empty", text: $text)
+                .multilineTextAlignment(.trailing)
+                .keyboardType(isNumber ? .numbersAndPunctuation : .default)
+                .focused($isFocused)
+                .onSubmit(commit)
+                .onChange(of: isFocused) { _, focused in
+                    if !focused {
+                        isEditing = false
+                        commit()
+                    }
+                }
+                .onChange(of: property) { _, _ in if !isFocused { text = displayed } }
+                .onAppear { text = displayed }
+                .onDisappear(perform: commit)
+        }
+    }
+
+    private func edit() {
+        isEditing = true
+        DispatchQueue.main.async { isFocused = true }
     }
 
     private func commit() {
@@ -248,11 +310,13 @@ private struct DateValue: View {
 }
 
 /// A list's items as tokens, each with a remove button, then a field to add more: Return or a
-/// comma adds an item. Tags offer matching tags from the vault while typing.
+/// comma adds an item. Links to notes open from their token. Tags offer matching tags from the
+/// vault while typing.
 private struct TokenEditor: View {
     @EnvironmentObject private var store: PhoneStore
     let items: [String]
     let isTags: Bool
+    let open: (String) -> Void
     let commit: ([String]) -> Void
     @State private var text = ""
 
@@ -266,20 +330,7 @@ private struct TokenEditor: View {
             if !items.isEmpty {
                 TokenLayout {
                     ForEach(items, id: \.self) { item in
-                        Button {
-                            commit(items.filter { $0 != item })
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text(isTags ? "#" + item : item)
-                                Image(systemName: "xmark")
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                        .buttonBorderShape(.capsule)
-                        .foregroundStyle(.primary)
-                        .accessibilityHint("Removes it")
+                        token(item)
                     }
                 }
             }
@@ -305,6 +356,31 @@ private struct TokenEditor: View {
                 }
             }
         }
+    }
+
+    private func token(_ item: String) -> some View {
+        let link = WikiLink(item)
+        let title = link?.label ?? (isTags ? "#" + item : item)
+        return HStack(spacing: 6) {
+            if let link {
+                Button(title) { open(link.target) }
+                    .foregroundStyle(Color(.link))
+            } else {
+                Text(title)
+            }
+            Button {
+                commit(items.filter { $0 != item })
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityLabel("Remove \(title)")
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color(.tertiarySystemFill), in: .capsule)
     }
 
     private func add() {

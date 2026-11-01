@@ -38,13 +38,13 @@ struct NoteScreen: View {
                         store.toggleBookmark(session.note.id)
                     }
                     Button("Find in Note", systemImage: "text.page.badge.magnifyingglass") { session.find("") }
-                    Button("Share", systemImage: "square.and.arrow.up") { session.share() }
                 }
             }
             .pageBar(note: session.note) {
                 Button("New Note", systemImage: "square.and.pencil") { newNote(FolderTree.folder(of: session.note.id)) }
                 Button("Move Note", systemImage: "folder") { showsMove = true }
                 TemplateMenu(session: session)
+                Button("Share", systemImage: "square.and.arrow.up") { session.share() }
                 Divider()
                 Button("Delete Note", systemImage: "trash", role: .destructive) { confirmsDelete = true }
             }
@@ -176,11 +176,12 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     weak var textView: PhoneTextView?
     weak var titleField: TitleView?
     weak var header: NoteHeader?
+    weak var formatBar: FormatBar?
     /// The note's frontmatter, as its text is now.
     @Published private(set) var frontmatter: Frontmatter?
     @Published var showsProperties = false
     @Published var showsShare = false
-    /// Writing in the body, when the format bar takes the bottom of the screen.
+    /// Writing in the note, when the format bar takes the bottom of the screen.
     @Published private(set) var isWriting = false
     /// Why a title couldn't be used (the name's taken, say), until dismissed.
     @Published private(set) var titleProblem: String?
@@ -206,8 +207,9 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     }
 
     @objc private func editingChanged(_ notification: Notification) {
-        guard notification.object as? PhoneTextView === textView else { return }
-        isWriting = textView?.isFirstResponder == true
+        guard let view = notification.object as? UITextView, view === textView || view === titleField else { return }
+        isWriting = textView?.isFirstResponder == true || titleField?.isFirstResponder == true
+        formatBar?.showsTools = textView?.isFirstResponder == true
     }
 
     /// Going to the background (the phone locked, another app): saved.
@@ -604,6 +606,7 @@ struct EditorView: UIViewRepresentable {
         textView.header = header
         let bar = FormatBar(textView: textView)
         textView.inputAccessoryView = bar
+        session.formatBar = bar
         textView.onCompletionChange = { [weak bar, weak session] completion in
             bar?.show(completion, choices: completion.flatMap { session?.choices(for: $0) } ?? [])
         }

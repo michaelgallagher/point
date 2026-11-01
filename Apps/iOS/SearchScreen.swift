@@ -33,7 +33,8 @@ struct SearchScreen: View {
                 .transition(.opacity)
                 .task {
                     guard let note else { return }
-                    noteText = (try? NoteReader.read(note)) ?? ""
+                    // Off the main thread: a long note would hold up the opening animation.
+                    noteText = await Task.detached { (try? NoteReader.read(note)) ?? "" }.value
                     linked = await store.linkedNotes(of: note)
                 }
             }
