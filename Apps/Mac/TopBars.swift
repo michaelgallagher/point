@@ -59,9 +59,9 @@ struct SidebarTopBar: View {
     }
 }
 
-/// One side's top bar: its tabs, a button for a new one, then the button for the split, on the
-/// far right: Split with one side, and on the right side of a split, closing the split (which
-/// keeps both sides' notes as tabs).
+/// One side's top bar: its tabs, then the button for the split, on the far right: Split with
+/// one side, and on the right side of a split, closing the split (which keeps both sides'
+/// notes as tabs). Its empty space moves the window.
 struct PaneTabBar: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
@@ -90,7 +90,6 @@ struct PaneTabBar: View {
                     TabMenu(paneID: pane.id)
                         .environmentObject(model)
                 }
-            BarIcon(symbol: "plus", label: "New Tab", help: "New Tab (⌘T)") { model.newTab(inPane: paneIndex) }
             if paneIndex == 1 {
                 BarButton("Close Split", systemImage: "xmark", help: "Close Split (⇧⌘S)") { model.mergeIntoTabs() }
             } else if !model.isSplit {
@@ -154,36 +153,60 @@ private struct TopBarBackground: View {
 
 // MARK: The tabs
 
-/// A side's tabs, as in Safari and Finder: all the same width, sharing the row. The current
-/// tab is shaded, and the others are plain titles with a line between them, shading on hover.
-/// Hover for a tab's close button, at its leading edge; right-click for its menu. Drag a tab
-/// along the row, to the other side's row or page, or to one half of the page to split the
-/// window. When the tabs don't all fit at their narrowest, the row scrolls.
+/// A side's tabs, as in Safari, Finder and Xcode: a grey capsule holding the tabs, the current
+/// one a raised capsule of glass inside it. Unlike theirs, it's as tall as the bar's buttons and as wide as
+/// its titles, leaving the rest of the bar empty; when that's more than there's room for, the
+/// longest titles are cut first. Hover for a tab's close button, at its leading edge;
+/// right-click for its menu. Drag a tab along the row, to the other side's row or page, or to
+/// one half of the page to split the window. When the tabs don't all fit at their narrowest,
+/// the row scrolls.
 struct PaneTabs: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
     let paneIndex: Int
 
-    static let narrowest: CGFloat = 100
-    static let spacing: CGFloat = 2
+    static let height: CGFloat = 36
+    /// Between a tab and the capsule around it.
+    private static let inset: CGFloat = 2
+    private static let spacing: CGFloat = 2
+    private static let narrowest: CGFloat = 84
+    private static let font = NSFont.systemFont(ofSize: PaneTab.fontSize, weight: .medium)
+
+    /// Each tab's width in `available`: the width of its title, or if they don't all fit, no
+    /// wider than the width that shares out the room between them.
+    private static func widths(of titles: [String], in available: CGFloat) -> [CGFloat] {
+        let natural = titles.map { title in
+            max(ceil((title as NSString).size(withAttributes: [.font: font]).width) + PaneTab.padding * 2, narrowest)
+        }
+        var room = available - inset * 2 - spacing * CGFloat(titles.count - 1)
+        guard natural.reduce(0, +) > room else { return natural }
+        // Tabs narrower than their share keep their width, which leaves more for the others.
+        var left = titles.count
+        for width in natural.sorted() where width <= room / CGFloat(left) {
+            room -= width
+            left -= 1
+        }
+        let widest = (room / CGFloat(max(left, 1))).rounded(.down)
+        return natural.map { max(min($0, widest), narrowest) }
+    }
 
     var body: some View {
         GeometryReader { geometry in
-            let count = CGFloat(pane.tabs.count)
-            let shared = ((geometry.size.width - Self.spacing * (count - 1)) / count).rounded(.down)
+            let titles = pane.tabs.map { model.note($0.noteID)?.title ?? "New Tab" }
+            let widths = Self.widths(of: titles, in: geometry.size.width)
+            let rowWidth = widths.reduce(0, +) + Self.spacing * CGFloat(widths.count - 1) + Self.inset * 2
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: Self.spacing) {
                         ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
                             PaneTab(
                                 id: tab.id,
-                                title: model.note(tab.noteID)?.title ?? "New Tab",
+                                title: titles[index],
                                 help: tab.noteID ?? "",
                                 isCurrent: index == pane.current,
                                 isActiveSide: paneIndex == model.activePane,
                                 showsLine: index + 1 < pane.tabs.count && index != pane.current && index + 1 != pane.current,
-                                dragsWindow: !model.isSplit && pane.tabs.count == 1,
-                                width: max(shared, Self.narrowest),
+                                width: widths[index],
                                 select: { model.selectTab(index, inPane: paneIndex) },
                                 close: { model.closeTab(index, inPane: paneIndex) },
                                 menu: { TabMenu.menu(for: index, tab: tab, inPane: paneIndex, model: model) }
@@ -192,9 +215,14 @@ struct PaneTabs: View {
                             .id(tab.id)
                         }
                     }
-                    .frame(height: geometry.size.height)
+                    .padding(Self.inset)
                 }
-                .scrollDisabled(shared >= Self.narrowest)
+                .scrollDisabled(rowWidth <= geometry.size.width)
+                // Solid, so text scrolling under the bars doesn't show through.
+                .background(TopBar.barColor.overlay(Color.primary.opacity(0.09)))
+                .clipShape(Capsule())
+                // Only as wide as the tabs, so the bar's empty space still moves the window.
+                .frame(width: min(rowWidth, geometry.size.width))
                 // The current tab always in view.
                 .onAppear { proxy.scrollTo(pane.tab.id) }
                 .onChange(of: pane.tab.id) { id in
@@ -203,42 +231,63 @@ struct PaneTabs: View {
                 .onChange(of: geometry.size.width) { _ in proxy.scrollTo(pane.tab.id) }
             }
         }
-        .frame(height: PaneTab.height)
+        .frame(height: Self.height)
+    }
+}
+
+/// The current tab's raised capsule: glass from macOS 26.
+private struct RaisedTab: View {
+    let color: Color
+
+    var body: some View {
+        let capsule = Capsule().fill(color)
+        if #available(macOS 26, *) {
+            capsule.glassEffect(.regular, in: Capsule())
+        } else {
+            capsule
+        }
     }
 }
 
 private struct PaneTab: View {
+    @Environment(\.colorScheme) private var colorScheme
     let id: VaultModel.NoteTab.ID
     let title: String
     let help: String
     let isCurrent: Bool
-    /// False on the side of a split not being worked on, whose current tab is shaded less.
+    /// False on the side of a split not being worked on, whose current tab is less raised.
     let isActiveSide: Bool
     /// Whether to draw the line after this tab.
     let showsLine: Bool
-    let dragsWindow: Bool
     let width: CGFloat
     let select: () -> Void
     let close: () -> Void
     let menu: () -> NSMenu
     @State private var isHovering = false
 
-    static let height: CGFloat = 30
-    private static let closeWidth: CGFloat = 26
+    static let height: CGFloat = 32
+    static let fontSize: CGFloat = 13
+    /// Either side of the title: room for the close button, and to balance it.
+    static let padding: CGFloat = 20
+
+    /// The raised capsule of the current tab: lighter than what's around it.
+    private var raisedColor: Color {
+        colorScheme == .dark ? .white.opacity(isActiveSide ? 0.16 : 0.08) : .white.opacity(isActiveSide ? 0.95 : 0.55)
+    }
 
     var body: some View {
         Text(title)
-            .font(.system(size: 12, weight: isCurrent ? .medium : .regular))
+            .font(.system(size: Self.fontSize, weight: isCurrent ? .medium : .regular))
             .foregroundStyle(isCurrent && isActiveSide ? .primary : .secondary)
             .lineLimit(1)
-            .padding(.horizontal, Self.closeWidth)
+            .padding(.horizontal, Self.padding)
             .frame(width: width, height: Self.height)
             .overlay(alignment: .leading) {
                 // Clicked through the tab's mouse area, which knows where it is.
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(.secondary)
-                    .frame(width: Self.closeWidth, height: Self.height)
+                    .frame(width: Self.padding, height: Self.height)
                     .opacity(isHovering ? 1 : 0)
             }
             .overlay(alignment: .trailing) {
@@ -246,18 +295,23 @@ private struct PaneTab: View {
                     Rectangle()
                         .fill(Color(nsColor: .separatorColor))
                         .frame(width: 1, height: 14)
-                        .offset(x: PaneTabs.spacing / 2 + 0.5)
+                        .offset(x: 1.5)
                 }
             }
             .background {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(isCurrent ? Color.primary.opacity(isActiveSide ? 0.09 : 0.05) : isHovering ? Color.primary.opacity(0.04) : .clear)
+                if isCurrent {
+                    RaisedTab(color: raisedColor)
+                        .overlay { Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5) }
+                        .shadow(color: .black.opacity(isActiveSide ? 0.1 : 0), radius: 2, y: 1)
+                } else if isHovering {
+                    Capsule().fill(Color.primary.opacity(0.05))
+                }
             }
             .allowsHitTesting(false) // Clicks go to the tab's mouse area, below.
             // Clicks, drags, hover and the menu are handled in AppKit: the tabs sit where a
             // title bar would, and there the window takes any drag not claimed first.
             .background(TabMouseArea(id: id, title: title, select: select, close: close, closeEdge: .leading,
-                                     closeWidth: Self.closeWidth, selectsOnPress: true, dragsWindow: dragsWindow,
+                                     closeWidth: Self.padding, selectsOnPress: true,
                                      menu: menu, isHovering: $isHovering))
             .help(help)
             .accessibilityElement(children: .combine)
@@ -966,9 +1020,6 @@ private struct TabMouseArea: NSViewRepresentable {
     /// Selects as the mouse goes down, as a tab does, rather than as it comes up, as a menu
     /// row does (so a row can be dragged without going to its tab).
     var selectsOnPress = false
-    /// A drag moves the window instead of picking the tab up: nothing to reorder, and the tab
-    /// fills the row that would otherwise move it.
-    var dragsWindow = false
     let menu: () -> NSMenu
     var draggedOut: () -> Void = {}
     @Binding var isHovering: Bool
@@ -983,7 +1034,6 @@ private struct TabMouseArea: NSViewRepresentable {
         view.closeEdge = closeEdge
         view.closeWidth = closeWidth
         view.selectsOnPress = selectsOnPress
-        view.dragsWindow = dragsWindow
         view.makeMenu = menu
         view.draggedOut = draggedOut
         view.onHover = { isHovering = $0 }
@@ -997,7 +1047,6 @@ private struct TabMouseArea: NSViewRepresentable {
         var closeEdge = HorizontalEdge.trailing
         var closeWidth: CGFloat = 0
         var selectsOnPress = false
-        var dragsWindow = false
         var makeMenu: () -> NSMenu = { NSMenu() }
         var draggedOut: () -> Void = {}
         var onHover: (Bool) -> Void = { _ in }
@@ -1062,12 +1111,8 @@ private struct TabMouseArea: NSViewRepresentable {
         override func mouseExited(with event: NSEvent) { syncHover(leaving: true) }
 
         override func mouseDown(with event: NSEvent) {
-            let isOverClose = isOverClose(convert(event.locationInWindow, from: nil))
-            if dragsWindow, !isOverClose {
-                return event.clickCount == 2 ? window?.performZoom(nil) ?? () : window?.performDrag(with: event) ?? ()
-            }
             mouseDownAt = event.locationInWindow
-            if selectsOnPress, !isOverClose { select() }
+            if selectsOnPress, !isOverClose(convert(event.locationInWindow, from: nil)) { select() }
         }
 
         override func mouseDragged(with event: NSEvent) {
