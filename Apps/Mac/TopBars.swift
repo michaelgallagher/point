@@ -172,7 +172,7 @@ struct PaneTabs: View {
     private static let inset: CGFloat = 2
     private static let spacing: CGFloat = 2
     private static let narrowest: CGFloat = 84
-    private static let font = NSFont.systemFont(ofSize: PaneTab.fontSize, weight: .medium)
+    private static let font = NSFont.systemFont(ofSize: PaneTab.fontSize)
 
     /// Each tab's width in `available`: the width of its title, or if they don't all fit, no
     /// wider than the width that shares out the room between them.
@@ -279,7 +279,7 @@ private struct PaneTab: View {
 
     var body: some View {
         Text(title)
-            .font(.system(size: Self.fontSize, weight: isCurrent ? .medium : .regular))
+            .font(.system(size: Self.fontSize))
             .foregroundStyle(isCurrent && isActiveSide ? .primary : .secondary)
             .lineLimit(1)
             .padding(.horizontal, Self.padding)
