@@ -39,6 +39,8 @@ struct MarkdownEditingTests {
         "plain| |here",
         "**bo|ld** text",
         "*it|alic* and **bold**",
+        "see [[Road|map]] now",
+        "a [we|b](https://example.com) link",
         "==high|light==",
         "`co|de`",
         "# Hea|ding",

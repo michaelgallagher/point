@@ -60,6 +60,9 @@ struct MarkdownStyler {
             range = widened
         }
 
+        // Fonts set here have no emoji: the system's fallback (Apple Color Emoji) has to be put
+        // back. Restyling after an edit comes after the text storage has done that itself.
+        defer { storage.fixAttributes(in: range) }
         if showsMarkdown {
             storage.setAttributes([.font: theme.mono, .foregroundColor: PlatformColor.textColor,
                                    .paragraphStyle: baseParagraphStyle], range: range)

@@ -147,6 +147,19 @@ struct SearchTests {
         #expect(names.map(\.count) == [3, 1, 1])
     }
 
+    @Test func listsEachPropertysValuesMostUsedFirst() async throws {
+        let vault = try await Fixture([
+            "A.md": "---\npeople:\n  - \"[[Ann]]\"\n  - Sam\ntopics: [Design, Access]\n---\nText",
+            "B.md": "---\nPeople:\n  - \"[[Ann]]\"\ntopics: Design\n---\nText",
+            "C.md": "---\npeople: []\n---\nText",
+        ])
+        defer { vault.cleanUp() }
+        let values = try await vault.index.propertyValues()
+        #expect(values["people"]?.map(\.value) == ["[[Ann]]", "Sam"])
+        #expect(values["people"]?.map(\.count) == [2, 1])
+        #expect(values["topics"]?.first?.value == "Design")
+    }
+
     @Test func keepsUpWithChangesAndDeletions() async throws {
         var vault = try await Fixture(files)
         defer { vault.cleanUp() }

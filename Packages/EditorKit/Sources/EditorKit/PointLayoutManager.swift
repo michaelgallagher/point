@@ -269,6 +269,19 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         return lineFragmentRect(forGlyphAt: glyphIndexForCharacter(at: k), effectiveRange: nil)
     }
 
+    /// The last line fragment of the line holding `index`: where a line that wraps ends, which
+    /// `lineRect(containing:storage:)` (its first fragment) isn't.
+    func lastLineRect(containing index: Int, storage: NSTextStorage) -> CGRect {
+        guard storage.length > 0 else { return extraLineFragmentRect }
+        let text = storage.string as NSString
+        var start = 0, end = 0, contentsEnd = 0
+        text.getLineStart(&start, end: &end, contentsEnd: &contentsEnd, for: NSRange(location: min(index, text.length), length: 0))
+        var k = contentsEnd - 1
+        while k >= start, storage.attribute(.pointHidden, at: k, effectiveRange: nil) != nil { k -= 1 }
+        guard k >= start else { return lineRect(containing: index, storage: storage) }
+        return lineFragmentRect(forGlyphAt: glyphIndexForCharacter(at: k), effectiveRange: nil)
+    }
+
     /// The first visible character on the line holding `index`, or nil if the line is all hidden.
     func firstVisibleCharacter(onLineOf index: Int, storage: NSTextStorage) -> Int? {
         let text = storage.string as NSString
@@ -283,7 +296,7 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
     private func rect(forCharacters range: NSRange, in container: NSTextContainer, origin: CGPoint) -> CGRect {
         guard range.length > 0, let storage = textStorage else { return .zero }
         let first = lineRect(containing: range.location, storage: storage)
-        let last = lineRect(containing: NSMaxRange(range) - 1, storage: storage)
+        let last = lastLineRect(containing: NSMaxRange(range) - 1, storage: storage)
         let padding = container.lineFragmentPadding
         return CGRect(
             x: origin.x + first.minX + padding,
@@ -391,7 +404,7 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
                 bottom = markerRect(for: items[j], storage: storage, container: container, origin: origin).minY - gap
             } else {
                 // The list ends: stop where this item's marker would be on the line after.
-                let lastRect = lineRect(containing: max(NSMaxRange(lastLine) - 1, items[last].index), storage: storage)
+                let lastRect = lastLineRect(containing: max(NSMaxRange(lastLine) - 1, items[last].index), storage: storage)
                 let itemLine = lineRect(containing: item.index, storage: storage)
                 bottom = origin.y + lastRect.maxY + (marker.minY - (origin.y + itemLine.minY)) - gap
             }

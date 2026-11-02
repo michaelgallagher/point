@@ -46,7 +46,8 @@ public struct MarkdownEditing {
         }
 
         if selection.length == 0 {
-            let word = wordRange(at: selection.location)
+            // A cursor in a link takes in the whole link, as if it were a word.
+            let word = tokens.wideningToLinks(selection).length > 0 ? tokens.wideningToLinks(selection) : wordRange(at: selection.location)
             if word.length > 0 {
                 selection = word
             } else {
@@ -56,7 +57,7 @@ public struct MarkdownEditing {
         }
 
         // Spaces just inside the markers would stop the style from applying, so leave them out.
-        selection = trimmingWhitespace(selection)
+        selection = tokens.wideningToLinks(trimmingWhitespace(selection))
         guard selection.length > 0 else { return nil }
         let length = (marker as NSString).length
         return MarkdownEdit(range: selection, replacement: marker + text.substring(with: selection) + marker,

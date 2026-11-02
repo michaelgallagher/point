@@ -1,6 +1,7 @@
 #if canImport(AppKit)
 import AppKit
 import MarkdownKit
+import SwiftUI
 
 /// Formatting commands. Each one edits the Markdown text directly, as one undoable change.
 /// The app's menus send these selectors to the first responder.
@@ -30,7 +31,8 @@ extension MarkdownTextView {
         }
 
         if selection.length == 0 {
-            let word = wordRange(at: selection.location)
+            // A cursor in a link takes in the whole link, as if it were a word.
+            let word = tokens.wideningToLinks(selection).length > 0 ? tokens.wideningToLinks(selection) : wordRange(at: selection.location)
             if word.length > 0 {
                 selection = word
             } else {
@@ -41,7 +43,7 @@ extension MarkdownTextView {
         }
 
         // Spaces just inside the markers would stop the style from applying, so leave them out.
-        selection = trimmingWhitespace(selection)
+        selection = tokens.wideningToLinks(trimmingWhitespace(selection))
         guard selection.length > 0 else { return }
         let length = (marker as NSString).length
         replace(selection, with: marker + text.substring(with: selection) + marker,
@@ -215,14 +217,16 @@ extension MarkdownTextView {
     @objc public func moveLinesDown(_ sender: Any?) { moveLines(down: true) }
 
     /// Moves the line with the cursor (or every line the selection touches) up or down past
-    /// its neighbour, keeping the selection on it, as one undoable edit.
+    /// its neighbour, keeping the selection on it, as one undoable edit. A folded line and the
+    /// lines it hides count as one line: they move past, or with, it whole and stay folded.
     func moveLines(down: Bool) {
         let text = string as NSString
         let selection = selectedRange()
         // A selection that ends at the very start of a line doesn't take that line along.
         var end = NSMaxRange(selection)
         if selection.length > 0, end > 0, text.character(at: end - 1) == 10 { end -= 1 }
-        let block = text.lineRange(for: NSRange(location: selection.location, length: max(0, end - selection.location)))
+        var block = text.lineRange(for: NSRange(location: selection.location, length: max(0, end - selection.location)))
+        block = NSUnionRange(foldedUnit(around: block.location), foldedUnit(around: max(block.location, NSMaxRange(block) - 1)))
         let offset = selection.location - block.location
 
         /// A line's text and its line break ("" for the last line of the note).
@@ -232,9 +236,25 @@ extension MarkdownTextView {
             return (line, "")
         }
 
+        /// Puts back the folds in the lines moved, which the edit opened, where they now are.
+        func refold(in union: NSRange, block: NSRange, to blockStart: Int, other: NSRange, to otherStart: Int) -> () -> Void {
+            let moved = folds.filter { NSLocationInRange($0, union) }
+            return { [self] in
+                guard !moved.isEmpty, let storage = textStorage else { return }
+                folds.subtract(moved)
+                for line in moved {
+                    folds.insert(NSLocationInRange(line, block) ? blockStart + line - block.location : otherStart + line - other.location)
+                }
+                storage.beginEditing()
+                applyFolds()
+                storage.endEditing()
+                needsDisplay = true
+            }
+        }
+
         if down {
             guard NSMaxRange(block) < text.length else { return NSSound.beep() }
-            let below = text.lineRange(for: NSRange(location: NSMaxRange(block), length: 0))
+            let below = foldedUnit(around: NSMaxRange(block))
             let (blockText, blockBreak) = split(text.substring(with: block))
             let (belowText, belowBreak) = split(text.substring(with: below))
             // The last line has no break of its own; the moved lines end up last and give it theirs.
@@ -243,16 +263,32 @@ extension MarkdownTextView {
             let union = NSRange(location: block.location, length: NSMaxRange(below) - block.location)
             let start = block.location + (newBelow as NSString).length
             let length = min(selection.length, union.location + (replacement as NSString).length - start - offset)
-            replace(union, with: replacement, select: NSRange(location: start + offset, length: max(0, length)))
+            let refolding = refold(in: union, block: block, to: start, other: below, to: block.location)
+            if replace(union, with: replacement, select: NSRange(location: start + offset, length: max(0, length))) { refolding() }
         } else {
             guard block.location > 0 else { return NSSound.beep() }
-            let above = text.lineRange(for: NSRange(location: block.location - 1, length: 0))
+            let above = foldedUnit(around: block.location - 1)
             let (blockText, blockBreak) = split(text.substring(with: block))
             let (aboveText, aboveBreak) = split(text.substring(with: above))
             let replacement = blockText + aboveBreak + aboveText + blockBreak
             let union = NSRange(location: above.location, length: NSMaxRange(block) - above.location)
-            replace(union, with: replacement, select: NSRange(location: above.location + offset, length: selection.length))
+            let refolding = refold(in: union, block: block, to: above.location,
+                                   other: above, to: above.location + (blockText + aboveBreak as NSString).length)
+            if replace(union, with: replacement, select: NSRange(location: above.location + offset, length: selection.length)) { refolding() }
         }
+    }
+
+    /// The line holding `index`, or if it's folded or folded away, the outermost folded line
+    /// around it and everything that fold hides.
+    func foldedUnit(around index: Int) -> NSRange {
+        let text = string as NSString
+        var unit = text.lineRange(for: NSRange(location: min(index, text.length), length: 0))
+        for line in folds {
+            guard let hidden = foldRange(under: line) else { continue }
+            let whole = NSRange(location: line, length: NSMaxRange(hidden) - line)
+            if NSLocationInRange(unit.location, whole) { unit = NSUnionRange(unit, whole) }
+        }
+        return unit
     }
 
     @objc public func indentLines(_ sender: Any?) { changeIndent(by: 1) }
@@ -344,28 +380,23 @@ extension MarkdownTextView {
 
     // MARK: Links
 
-    /// Asks for a URL and links the selection to it.
+    /// Asks for a URL, in a sheet, and links the selection to it.
     @objc public func addLink(_ sender: Any?) {
         let selection = selectedRange()
-        let alert = NSAlert()
-        alert.messageText = "Add Link"
-        alert.informativeText = "Enter the address to link to."
-        alert.addButton(withTitle: "Add Link")
-        alert.addButton(withTitle: "Cancel")
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-        field.placeholderString = "https://"
-        if let clip = NSPasteboard.general.string(forType: .string), Self.isURL(clip) {
-            field.stringValue = clip.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        alert.accessoryView = field
-        alert.window.initialFirstResponder = field
         guard let window else { return }
-        alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn, let self else { return }
-            let url = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !url.isEmpty else { return }
+        var address = ""
+        if let clip = NSPasteboard.general.string(forType: .string), Self.isURL(clip) {
+            address = clip.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let hosting = NSHostingController(rootView: AddLinkSheet(address: address) { _ in })
+        let sheet = NSWindow(contentViewController: hosting)
+        hosting.rootView = AddLinkSheet(address: address) { [weak self, weak window, weak sheet] url in
+            if let sheet { window?.endSheet(sheet) }
+            guard let self, let url else { return }
+            self.window?.makeFirstResponder(self)
             self.link(selection, to: url)
         }
+        window.beginSheet(sheet)
     }
 
     func link(_ range: NSRange, to url: String) {
@@ -669,6 +700,33 @@ extension NSLayoutManager {
     func characterIndexForPoint(_ point: NSPoint, in container: NSTextContainer) -> Int {
         let glyph = glyphIndex(for: point, in: container)
         return characterIndexForGlyph(at: glyph)
+    }
+}
+/// The address for Add Link (⌘K), laid out as a Mac sheet: the buttons at the bottom right.
+private struct AddLinkSheet: View {
+    @State var address: String
+    /// The address to link to, or nil when cancelled.
+    let finish: (String?) -> Void
+
+    private var trimmed: String { address.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Add Link")
+                .font(.headline)
+            TextField("Address", text: $address, prompt: Text("https://"))
+                .onSubmit { if !trimmed.isEmpty { finish(trimmed) } }
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { finish(nil) }
+                    .keyboardShortcut(.cancelAction)
+                Button("Add Link") { finish(trimmed) }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(trimmed.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 340)
     }
 }
 #endif

@@ -195,6 +195,7 @@ final class VaultStore: ObservableObject {
         settings = ObsidianSettings.load(vault: url)
         propertyTypes = PropertyTypes.load(vault: url)
         indexedTags = [:]
+        propertyValues = [:]
         tagTree = TagTree(tagsByNote: [])
         pins = (UserDefaults.standard.stringArray(forKey: "pins." + Self.vaultKey(url)) ?? []).compactMap(SidebarPlace.init(key:))
         bookmarks = UserDefaults.standard.stringArray(forKey: "bookmarks." + Self.vaultKey(url)) ?? []
@@ -878,6 +879,9 @@ final class VaultStore: ObservableObject {
             if !unreadable.isEmpty { NSLog("Point: couldn't read \(unreadable.count) notes to index them; they'll be tried again") }
             guard generation == vaultGeneration else { return }
             if changed > 0 { indexGeneration += 1 }
+            if changed > 0 || propertyValues.isEmpty, let values = try? await index.propertyValues(), generation == vaultGeneration {
+                propertyValues = values
+            }
             if changed > 0 || tagTree.entries.isEmpty {
                 guard let tags = try? await index.tagsByNote(), generation == vaultGeneration else { return }
                 indexedTags = tags
@@ -1003,6 +1007,28 @@ final class VaultStore: ObservableObject {
     }
 
     /// Tags in the vault starting with (or containing) what's typed, for completing a tag.
+    /// The values each property is given across the vault (by its name, lowercased), most
+    /// used first, from the index.
+    private(set) var propertyValues: [String: [(value: String, count: Int)]] = [:]
+
+    /// Values given to the property `key` in other notes that fit what's typed, most used
+    /// first: a field suggests what's been put in it before ("[[Ann]]" in people, "Design"
+    /// in topics). Matched on the words shown, without a link's brackets.
+    func propertySuggestions(forKey key: String, typed: String, excluding: [String] = []) -> [String] {
+        let query = typed.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[] "))
+        guard !query.isEmpty else { return [] }
+        let taken = Set(excluding.map { $0.lowercased() })
+        func shown(_ value: String) -> String {
+            value.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        }
+        let values = (propertyValues[key.lowercased()] ?? []).filter { !taken.contains($0.value.lowercased()) }
+        let starting = values.filter { shown($0.value).hasPrefix(query) }
+        let wordStarting = values.filter { !shown($0.value).hasPrefix(query) && shown($0.value).split(separator: " ").contains { $0.hasPrefix(query) } }
+        // The same name written as a link and as plain text is one suggestion, as most used.
+        var seen = Set<String>()
+        return Array((starting + wordStarting).map(\.value).filter { seen.insert(shown($0)).inserted }.prefix(6))
+    }
+
     func tagSuggestions(for partial: String, excluding: [String] = []) -> [String] {
         let typed = partial.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "# "))
         guard !typed.isEmpty else { return [] }

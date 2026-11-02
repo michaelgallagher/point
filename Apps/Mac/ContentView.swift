@@ -620,10 +620,16 @@ private struct MoveSheet: View {
             Text("Move “\(note.title)”")
                 .font(.headline)
             TextField("Filter folders", text: $filter)
+            // The rows' edges on the field's, their icons where its text starts.
             List(folders, id: \.self, selection: $selection) { folder in
                 Label(folder.isEmpty ? "Vault (top level)" : folder, systemImage: "folder")
+                    .lineLimit(1)
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
             }
-            .frame(width: 360, height: 260)
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .frame(height: 260)
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
@@ -634,6 +640,7 @@ private struct MoveSheet: View {
             }
         }
         .padding(20)
+        .frame(width: 400)
         .onChange(of: filter) { _ in selection = folders.first }
     }
 

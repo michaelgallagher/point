@@ -62,6 +62,18 @@ struct InlineFormattingTests {
         #expect(view.tokens.contains { $0.kind == .strong })
     }
 
+    @Test func boldGoesAroundAWholeLink() {
+        let view = editor("see [[Road|map]] now")
+        view.toggleBold(nil)
+        #expect(view.string == "see **[[Roadmap]]** now")
+        view.toggleBold(nil)
+        #expect(view.string == "see [[Roadmap]] now")
+
+        let web = editor("a [we‹b›](https://example.com) link")
+        web.toggleBold(nil)
+        #expect(web.string == "a **[web](https://example.com)** link")
+    }
+
     @Test func selectionsAreTrimmedOfSpaces() {
         let view = editor("a‹ word ›b")
         view.toggleItalic(nil)

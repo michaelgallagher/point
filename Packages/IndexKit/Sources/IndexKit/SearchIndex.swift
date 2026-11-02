@@ -50,7 +50,7 @@ public struct Mention: Sendable, Identifiable, Equatable {
 /// The vault's search index: full-text search that forgives typos and partial words,
 /// plus tags and links, kept in a SQLite file outside the vault.
 public actor SearchIndex {
-    static let schemaVersion = "6" // 6: property names, for suggesting.
+    static let schemaVersion = "7" // 7: property values, for suggesting in each field.
 
     private let db: Database
     /// Notes the last update couldn't read: kept as they were last indexed (or by title only,
@@ -74,6 +74,7 @@ public actor SearchIndex {
                 DROP TABLE IF EXISTS notes; DROP TABLE IF EXISTS words; DROP TABLE IF EXISTS grams;
                 DROP TABLE IF EXISTS vocab; DROP TABLE IF EXISTS tags; DROP TABLE IF EXISTS links;
                 DROP TABLE IF EXISTS spelled; DROP TABLE IF EXISTS spellings; DROP TABLE IF EXISTS property_names;
+                DROP TABLE IF EXISTS property_values;
                 """)
         }
         try db.execute("""
@@ -88,6 +89,7 @@ public actor SearchIndex {
             CREATE TABLE IF NOT EXISTS links(note INTEGER NOT NULL, name TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS links_name ON links(name);
             CREATE TABLE IF NOT EXISTS property_names(note INTEGER NOT NULL, name TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS property_values(note INTEGER NOT NULL, name TEXT NOT NULL, value TEXT NOT NULL);
             """)
         try db.query("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', ?)", [Self.schemaVersion])
         titles = try Self.loadTitles(db)
@@ -153,7 +155,7 @@ public actor SearchIndex {
                 try db.query("INSERT INTO \(table)(\(table), rowid, title, body, properties) VALUES ('delete', ?, ?, ?, ?)", [row, old[0], old[1], old[2]])
             }
         }
-        for table in ["notes WHERE row", "tags WHERE note", "links WHERE note", "property_names WHERE note"] {
+        for table in ["notes WHERE row", "tags WHERE note", "links WHERE note", "property_names WHERE note", "property_values WHERE note"] {
             try db.query("DELETE FROM \(table) = ?", [row])
         }
     }
@@ -181,6 +183,14 @@ public actor SearchIndex {
         }
         for name in Set(frontmatter?.properties.map(\.key) ?? []) {
             try db.query("INSERT INTO property_names(note, name) VALUES (?, ?)", [row, name])
+        }
+        // Short values only: a long one is prose, not something to pick again.
+        var values = Set<String>()
+        for property in frontmatter?.properties ?? [] {
+            for value in property.values.map({ $0.trimmingCharacters(in: .whitespaces) }) where !value.isEmpty && value.count <= 80 {
+                guard values.insert(property.key.lowercased() + "\n" + value).inserted else { continue }
+                try db.query("INSERT INTO property_values(note, name, value) VALUES (?, ?, ?)", [row, property.key.lowercased(), value])
+            }
         }
     }
 
@@ -322,6 +332,16 @@ public actor SearchIndex {
         var result: [Note.ID: [String]] = [:]
         for row in try db.query("SELECT n.id, t.tag FROM tags t JOIN notes n ON n.row = t.note") {
             result[row[0] as! String, default: []].append(row[1] as! String)
+        }
+        return result
+    }
+
+    /// Every value given to each property (by its name, lowercased), with how many notes give
+    /// it, most used first: to suggest in that field again.
+    public func propertyValues() throws -> [String: [(value: String, count: Int)]] {
+        var result: [String: [(value: String, count: Int)]] = [:]
+        for row in try db.query("SELECT name, value, COUNT(DISTINCT note) FROM property_values GROUP BY name, value ORDER BY COUNT(DISTINCT note) DESC, value") {
+            result[row[0] as! String, default: []].append((row[1] as! String, row[2] as! Int))
         }
         return result
     }

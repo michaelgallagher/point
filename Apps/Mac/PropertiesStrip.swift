@@ -366,8 +366,11 @@ private struct PropertyValue: View {
             switch type {
             case .list, .tags, .aliases:
                 TokenEditor(items: Self.items(of: property, as: type), isTags: type == .tags,
-                            suggestions: { typed, items in type == .tags ? model.store.tagSuggestions(for: typed, excluding: items) : [] },
-                            noteTitles: model.titleSuggestions(for:), link: link, commit: { set($0) })
+                            suggestions: { typed, items in
+                                type == .tags ? model.store.tagSuggestions(for: typed, excluding: items)
+                                    : model.store.propertySuggestions(forKey: property.key, typed: typed, excluding: items)
+                            },
+                            noteTitles: noteTitles, link: link, commit: { set($0) })
             case .checkbox:
                 Toggle("", isOn: Binding(
                     get: { property.values.first?.lowercased() == "true" },
@@ -379,13 +382,26 @@ private struct PropertyValue: View {
                 DateValue(property: property, hasTime: type == .datetime, set: set)
             case .text, .number:
                 TextValue(property: property, isNumber: type == .number, link: link,
-                          noteTitles: type == .number ? { _ in [] } : model.titleSuggestions(for:), set: set)
+                          noteTitles: type == .number ? { _ in [] } : noteTitles,
+                          suggestions: { typed in
+                              type == .number ? [] : model.store.propertySuggestions(forKey: property.key, typed: typed, excluding: [typed])
+                          }, set: set)
             }
         }
     }
 
     private func set(_ values: [String]) {
         session.setProperty(property.key, to: values, isList: type.isList)
+    }
+
+    /// Notes for a `[[link]]` being typed: those linked in this field in other notes first
+    /// (people in `people`), then the rest.
+    private func noteTitles(_ partial: String) -> [String] {
+        let used = model.store.propertySuggestions(forKey: property.key, typed: partial)
+            .filter { $0.hasPrefix("[[") && $0.hasSuffix("]]") }
+            .map { String($0.dropFirst(2).dropLast(2)).components(separatedBy: "|")[0] }
+        var seen = Set<String>()
+        return (used + model.titleSuggestions(for: partial)).filter { seen.insert($0.lowercased()).inserted }
     }
 
     /// A value that is a wikilink (`[[Note]]`, `[[Note|label]]`) or a web address, shown as a
@@ -475,8 +491,9 @@ func wikiLinkBeingTyped(in text: String) -> (start: String.Index, partial: Strin
     return (open.lowerBound, String(partial))
 }
 
-/// Suggestions under a field, as outlined capsules to click: tags from the vault, or the
-/// titles of notes for a `[[link]]` being typed.
+/// Suggestions under a field, as outlined capsules to click: tags from the vault, what's been
+/// put in the field in other notes, or the titles of notes for a `[[link]]` being typed. A
+/// link shows as the note's name, without its brackets.
 private struct SuggestionChips: View {
     let suggestions: [String]
     let pick: (String) -> Void
@@ -485,7 +502,7 @@ private struct SuggestionChips: View {
         FlowLayout(spacing: 4) {
             ForEach(suggestions, id: \.self) { suggestion in
                 Button { pick(suggestion) } label: {
-                    Text(suggestion)
+                    Text(suggestion.hasPrefix("[[") && suggestion.hasSuffix("]]") ? String(suggestion.dropFirst(2).dropLast(2)) : suggestion)
                         .lineLimit(1)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 1)
@@ -523,6 +540,8 @@ private struct TextValue: View {
     let link: (String) -> PropertyLink?
     /// Note titles for a `[[link]]` being typed, best first.
     let noteTitles: (String) -> [String]
+    /// What's been put in this field in other notes, for what's typed.
+    let suggestions: (String) -> [String]
     let set: ([String]) -> Void
     @State private var text = ""
     @State private var isEditing = false
@@ -575,24 +594,30 @@ private struct TextValue: View {
         DispatchQueue.main.async { isFocused = true }
     }
 
-    /// Notes whose titles fit a `[[link]]` being typed.
-    private var linkSuggestions: [String] {
-        guard isFocused, let typing = wikiLinkBeingTyped(in: text) else { return [] }
-        return Array(noteTitles(typing.partial).prefix(8))
+    /// Notes whose titles fit a `[[link]]` being typed, otherwise what's been put in this
+    /// field before that fits what's typed.
+    private var fieldSuggestions: [String] {
+        guard isFocused else { return [] }
+        if let typing = wikiLinkBeingTyped(in: text) { return Array(noteTitles(typing.partial).prefix(8)) }
+        return suggestions(text)
     }
 
-    /// Finishes the `[[link]]` being typed with a note's title.
-    private func finishLink(_ title: String) {
-        guard let typing = wikiLinkBeingTyped(in: text) else { return }
-        text = String(text[..<typing.start]) + "[[" + title + "]]"
+    /// Finishes the `[[link]]` being typed with a note's title, or takes a value used before.
+    private func pick(_ suggestion: String) {
+        if let typing = wikiLinkBeingTyped(in: text) {
+            text = String(text[..<typing.start]) + "[[" + suggestion + "]]"
+        } else {
+            text = suggestion
+            commit()
+        }
     }
 
     private var field: some View {
         VStack(alignment: .leading, spacing: 4) {
             plainField
-                .modifier(TakesFirstSuggestion(suggestions: linkSuggestions, pick: finishLink))
-            if !linkSuggestions.isEmpty {
-                SuggestionChips(suggestions: linkSuggestions, pick: finishLink)
+                .modifier(TakesFirstSuggestion(suggestions: fieldSuggestions, pick: pick))
+            if !fieldSuggestions.isEmpty {
+                SuggestionChips(suggestions: fieldSuggestions, pick: pick)
             }
         }
     }

@@ -199,6 +199,7 @@ struct SidebarTable: NSViewRepresentable {
         scrollView.drawsBackground = false
         scrollView.wantsLayer = true
         context.coordinator.table = table
+        table.onWidthChange = { [weak coordinator = context.coordinator] in coordinator?.widthChanged() }
         context.coordinator.update(animated: false)
         return scrollView
     }
@@ -220,6 +221,24 @@ struct SidebarTable: NSViewRepresentable {
 
         static func noteHeight(hasTags: Bool, density: VaultModel.SidebarDensity) -> CGFloat {
             hasTags ? density.twoLineHeight : density.rowHeight
+        }
+
+        /// In the one-column sidebar, comfortable, a note's whole title shows, on as many
+        /// lines as it takes.
+        private var wrapsTitles: Bool { parent.content == .everything && model.sidebarDensity == .comfortable }
+
+        /// The table's width when its rows' heights were last worked out.
+        private var measuredWidth: CGFloat = 0
+
+        /// Titles wrap to the column's width, so a new width can change rows' heights.
+        func widthChanged() {
+            guard let table, wrapsTitles, abs(table.bounds.width - measuredWidth) > 0.5 else { return }
+            let notes = IndexSet(rows.indices.filter { if case .note = rows[$0] { true } else { false } })
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0
+                table.noteHeightOfRows(withIndexesChanged: notes)
+            }
+            shownHeights = rows.indices.map { tableView(table, heightOfRow: $0) }
         }
 
         init(_ parent: SidebarTable) { self.parent = parent }
@@ -341,7 +360,21 @@ struct SidebarTable: NSViewRepresentable {
             case .note(let id):
                 // Two lines only for a note that has tags to show.
                 Self.noteHeight(hasTags: model.showsTagsInList && !model.listTags(for: id).isEmpty, density: model.sidebarDensity)
+                    + extraTitleHeight(id, in: tableView)
             }
+        }
+
+        /// How much more than one line a note's title takes, wrapped.
+        private func extraTitleHeight(_ id: Note.ID, in tableView: NSTableView) -> CGFloat {
+            guard wrapsTitles, let note = model.notes.first(where: { $0.id == id }) else { return 0 }
+            measuredWidth = tableView.bounds.width
+            let width = SidebarNoteRow.titleWidth(of: note, model: model, rowWidth: tableView.bounds.width - SidebarTableView.rowInset * 2)
+            let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+            let height = (note.title as NSString).boundingRect(with: NSSize(width: width, height: .greatestFiniteMagnitude),
+                                                               options: [.usesLineFragmentOrigin, .usesFontLeading],
+                                                               attributes: [.font: font]).height
+            let line = ceil(font.ascender - font.descender + font.leading)
+            return max(0, ceil(height) - line)
         }
 
         func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
@@ -395,7 +428,8 @@ struct SidebarTable: NSViewRepresentable {
             let identifier = NSUserInterfaceItemIdentifier("row")
             let cell = tableView.makeView(withIdentifier: identifier, owner: nil) as? HostingCell ?? HostingCell()
             cell.identifier = identifier
-            cell.show(SidebarRowView(row: rows[row], model: model, collapsed: parent.collapsed, expanded: parent.expanded))
+            cell.show(SidebarRowView(row: rows[row], model: model, collapsed: parent.collapsed, expanded: parent.expanded,
+                                     wrapsTitles: wrapsTitles))
             return cell
         }
 
@@ -612,12 +646,19 @@ final class SidebarTableView: NSTableView {
     /// the last thing picked (the note list's is blue whenever the window's in front).
     var emphasizesOnlyWithKeyboard = false
 
+    /// How far in from each side the source list style puts its cells.
+    static let rowInset: CGFloat = 16
+
+    /// Called when its width changes.
+    var onWidthChange: (() -> Void)?
+
     /// Its one column always as wide as it is. (Columns only follow a table that resizes, from
     /// the width they start at: in the two-column view's narrow tree, the rows were drawn in
     /// a column narrower than the table, their names cut to a letter.)
     override func layout() {
         super.layout()
         if let column = tableColumns.first, abs(column.width - bounds.width) > 0.5 { sizeLastColumnToFit() }
+        onWidthChange?()
     }
 
     override func keyDown(with event: NSEvent) {
@@ -759,6 +800,8 @@ struct SidebarRowView: View {
     let collapsed: Set<SidebarSection>
     /// Folders unfolded to show their subfolders.
     var expanded: Set<String> = []
+    /// Notes' titles on as many lines as they take.
+    var wrapsTitles = false
     /// Selected, on the blue highlight: text and icons go white.
     var isEmphasized = false
     /// Where a folder's or tag's row starts (its icon), indented by depth.
@@ -878,7 +921,7 @@ struct SidebarRowView: View {
             .frame(maxHeight: .infinity)
         case .note(let id):
             if let note = model.notes.first(where: { $0.id == id }) {
-                SidebarNoteRow(note: note, model: model)
+                SidebarNoteRow(note: note, model: model, wrapsTitle: wrapsTitles)
             }
         case .treeSwitch:
             CapsuleToggle(selection: .constant(model.treeKind))
@@ -906,21 +949,51 @@ struct SidebarRowView: View {
 struct SidebarNoteRow: View {
     let note: Note
     @ObservedObject var model: VaultModel
+    /// On as many lines as it takes, rather than cut short.
+    var wrapsTitle = false
+
+    private static let padding: CGFloat = 8
+    private static let spacing: CGFloat = 6
+    private static let iCloudWidth: CGFloat = 16
+
+    private var showsDate: Bool {
+        // In groups, the heading over it gives the date (unless sorted by title).
+        model.listDateStyle == .beside || (model.listDateStyle == .groups && model.sort == .title)
+    }
+
+    private var indent: CGFloat { model.listDateStyle == .groups && model.sort != .title ? 12 : 0 }
+
+    /// The room a row `rowWidth` wide leaves its title.
+    @MainActor static func titleWidth(of note: Note, model: VaultModel, rowWidth: CGFloat) -> CGFloat {
+        let row = SidebarNoteRow(note: note, model: model)
+        var width = rowWidth - padding * 2 - row.indent
+        if !note.isDownloaded { width -= iCloudWidth + spacing }
+        if row.showsDate {
+            let font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .caption1).pointSize, weight: .regular)
+            width -= ceil((row.dateLabel as NSString).size(withAttributes: [.font: font]).width) + spacing
+        } else {
+            width -= 4 // The spacer's least.
+        }
+        return max(width, 20)
+    }
+
+    private var dateLabel: String { Self.label(for: model.listDate == .edited ? note.modified : note.created) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            HStack(spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: Self.spacing) {
                 Text(note.title)
-                    .lineLimit(1)
+                    .lineLimit(wrapsTitle ? nil : 1)
+                    .fixedSize(horizontal: false, vertical: wrapsTitle)
                 Spacer(minLength: 4)
                 if !note.isDownloaded {
                     Image(systemName: "icloud.and.arrow.down")
                         .foregroundStyle(.secondary)
+                        .frame(width: Self.iCloudWidth)
                         .help("In iCloud, not yet downloaded")
                 }
-                // In groups, the heading over it gives the date (unless sorted by title).
-                if model.listDateStyle == .beside || (model.listDateStyle == .groups && model.sort == .title) {
-                    Text(Self.label(for: model.listDate == .edited ? note.modified : note.created))
+                if showsDate {
+                    Text(dateLabel)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
@@ -933,9 +1006,9 @@ struct SidebarNoteRow: View {
                     .lineLimit(1)
             }
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, Self.padding)
         // Under date headings, indented, so the headings stand out.
-        .padding(.leading, model.listDateStyle == .groups && model.sort != .title ? 12 : 0)
+        .padding(.leading, indent)
         .frame(maxHeight: .infinity, alignment: .center)
         .help(note.id)
     }

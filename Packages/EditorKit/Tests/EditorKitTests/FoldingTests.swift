@@ -52,6 +52,31 @@ struct FoldingTests {
         #expect(isHidden("child", in: view))
     }
 
+    @Test func linesMovePastAFoldWithoutOpeningIt() {
+        let view = EditorTestSupport.makeEditor("- parent\n\t- child one\n\t- child two\n- moving")
+        view.setFolded(true, line: 0)
+        view.setSelectedRange(NSRange(location: location(of: "moving", in: view), length: 0))
+        view.moveLinesUp(nil)
+        #expect(view.string == "- moving\n- parent\n\t- child one\n\t- child two")
+        #expect(view.folds == [location(of: "- parent", in: view)])
+        #expect(isHidden("child one", in: view))
+        view.moveLinesDown(nil)
+        #expect(view.string == "- parent\n\t- child one\n\t- child two\n- moving")
+        #expect(view.folds == [0])
+        #expect(isHidden("child two", in: view))
+    }
+
+    @Test func aFoldedLineMovesWithWhatItHides() {
+        let view = EditorTestSupport.makeEditor("# Top\n## Folded\nhidden\n## Next\ntext")
+        let folded = location(of: "## Folded", in: view)
+        view.setFolded(true, line: folded)
+        view.setSelectedRange(NSRange(location: folded + 3, length: 0))
+        view.moveLinesUp(nil)
+        #expect(view.string == "## Folded\nhidden\n# Top\n## Next\ntext")
+        #expect(view.folds == [0])
+        #expect(isHidden("hidden", in: view))
+    }
+
     @Test func foldCommandFoldsTheItemTheCursorIsUnder() {
         let view = EditorTestSupport.makeEditor("# Head\nsome text\nmore")
         view.setSelectedRange(NSRange(location: location(of: "some", in: view) + 2, length: 0))
