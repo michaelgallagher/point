@@ -37,6 +37,10 @@ struct ContentView: View {
                 } side: {
                     NoteList(includesPlaces: false)
                         .padding(.top, model.topBarHeight)
+                        // The notes in the page's colour, the tree alone in the sidebar's grey,
+                        // and a line between the notes and the note (which share a colour).
+                        .background(Color(nsColor: .textBackgroundColor))
+                        .overlay(alignment: .trailing) { HStack(spacing: 0) { Divider() } }
                 }
                 .overlay(alignment: .top) { SidebarTopBar() }
             } else {
