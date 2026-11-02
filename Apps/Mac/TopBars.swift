@@ -366,13 +366,14 @@ struct PanePath: View {
             HStack(spacing: 0) {
                 if let note = model.note(pane.tab.noteID) {
                     let width = slide.isSliding && settledWidth > 0 ? settledWidth : geometry.size.width
-                    let parts = Self.parts(of: note, toFit: width - NoteMenuButton.width)
+                    let parts = Self.parts(of: note, toFit: width - NoteMenuButton.width - NoteMenuButton.gap)
                     // By what each part is; parts shown or hidden come and go at once.
                     ForEach(Self.identified(parts), id: \.id) { item in
                         segment(item.part, note: note)
                             .transition(.identity)
                     }
                     NoteMenuButton(note: note)
+                        .padding(.leading, NoteMenuButton.gap)
                 } else {
                     Text("New Tab")
                         .font(Self.font)
@@ -550,6 +551,9 @@ private struct NoteMenuButton: View {
     @State private var isHovering = false
 
     static let width: CGFloat = 24
+    /// Before it, past the name's own padding: so the dots look as far from the name as the
+    /// name does from the forward arrow.
+    static let gap: CGFloat = 3.5
 
     private func menu() -> NSMenu {
         let menu = NSMenu()
