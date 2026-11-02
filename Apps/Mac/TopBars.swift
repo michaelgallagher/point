@@ -381,7 +381,7 @@ struct PanePath: View {
                     }
                 } else {
                     Text("New Tab")
-                        .font(Self.font(.name))
+                        .font(Self.font)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .padding(.horizontal, Self.padding)
@@ -440,13 +440,13 @@ struct PanePath: View {
             PathButton(text: name, style: .folder, help: "Show “\(name)”") { model.reveal(folder: path) }
         case .folded(let paths):
             Text("…")
-                .font(Self.font(.folder))
+                .font(Self.font)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, Self.padding)
                 .help(paths.joined(separator: "\n"))
         case .separator:
             Text("/")
-                .font(Self.font(.folder))
+                .font(Self.font)
                 .foregroundStyle(.tertiary)
                 .padding(.horizontal, Self.separatorPadding)
         case .name(let name, let fits):
@@ -462,26 +462,23 @@ struct PanePath: View {
 
     enum Style { case folder, name }
 
-    static func font(_ style: Style) -> Font {
-        style == .name ? .system(size: nsFontSize, weight: .medium) : .system(size: nsFontSize)
-    }
+    static let font = Font.system(size: nsFontSize)
 
     private static let nsFontSize: CGFloat = 13
     /// Around each folder and the name: room for the shading on hover.
     static let padding: CGFloat = 5
     static let separatorPadding: CGFloat = 1
 
-    private static func width(_ text: String, _ style: Style) -> CGFloat {
-        let font = NSFont.systemFont(ofSize: nsFontSize, weight: style == .name ? .medium : .regular)
-        return ceil((text as NSString).size(withAttributes: [.font: font]).width)
+    private static func width(_ text: String) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: nsFontSize)]).width)
     }
 
     private static func width(of part: Part) -> CGFloat {
         switch part {
-        case .folder(let name, _): width(name, .folder) + padding * 2
-        case .folded: width("…", .folder) + padding * 2
-        case .separator: width("/", .folder) + separatorPadding * 2
-        case .name(let name, _): width(name, .name) + padding * 2
+        case .folder(let name, _): width(name) + padding * 2
+        case .folded: width("…") + padding * 2
+        case .separator: width("/") + separatorPadding * 2
+        case .name(let name, _): width(name) + padding * 2
         }
     }
 
@@ -530,7 +527,7 @@ private struct PathButton: View {
 
     var body: some View {
         Text(text)
-            .font(PanePath.font(style))
+            .font(PanePath.font)
             .foregroundStyle(style == .name ? .primary : .secondary)
             .lineLimit(1)
             .truncationMode(.middle)
@@ -564,7 +561,7 @@ private struct PathRenameField: View {
     var body: some View {
         TextField("Name", text: $draft)
             .textFieldStyle(.plain)
-            .font(PanePath.font(.name))
+            .font(PanePath.font)
             .padding(.horizontal, PanePath.padding)
             .padding(.vertical, 3)
             .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(TopBar.selectedTabColor))
