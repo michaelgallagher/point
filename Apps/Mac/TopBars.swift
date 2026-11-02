@@ -84,8 +84,8 @@ struct NoteListTopBar: View {
     }
 }
 
-/// One side's top bar: back and forward, its tabs, then on the far right its one menu (the
-/// note's options and the split). Its empty space moves the window.
+/// One side's top bar: back and forward, its tabs (when it has more than one), then on the far
+/// right its one menu (the note's options and the split). Its empty space moves the window.
 struct PaneTabBar: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
@@ -105,7 +105,12 @@ struct PaneTabBar: View {
     var body: some View {
         HStack(spacing: TopBar.buttonSpacing) {
             BackForwardButtons(paneIndex: paneIndex)
-            PaneTabs(pane: pane, paneIndex: paneIndex)
+            // No tabs for just one note.
+            if pane.tabs.count > 1 {
+                PaneTabs(pane: pane, paneIndex: paneIndex)
+            } else {
+                Spacer(minLength: 0)
+            }
             PaneMenuButton(pane: pane)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -178,7 +183,14 @@ struct PaneTabs: View {
             left -= 1
         }
         let widest = (room / CGFloat(max(left, 1))).rounded(.down)
-        return natural.map { max(min($0, widest), narrowest) }
+        // The points left over from rounding down go one each to the first cut tabs, so the
+        // row ends exactly where its room does (one button's gap before the menu).
+        var spare = Int(room - widest * CGFloat(left))
+        return natural.map { natural in
+            guard natural > widest, widest >= narrowest else { return max(min(natural, widest), narrowest) }
+            defer { spare -= 1 }
+            return spare > 0 ? widest + 1 : widest
+        }
     }
 
     var body: some View {
