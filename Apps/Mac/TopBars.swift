@@ -31,6 +31,8 @@ enum TopBar {
     static let barColor = Color(nsColor: .textBackgroundColor)
     /// Shading under something hovered in a bar: a little darker than the bar.
     static let selectedTabColor = Color.primary.opacity(0.07)
+    /// Shading under a hovered button on glass, a little stronger to show on the lighter glass.
+    static let hoverColor = Color.primary.opacity(0.1)
 
 }
 
@@ -77,7 +79,9 @@ struct NoteListTopBar: View {
                 SortButton()
             }
         }
-        .padding(.leading, 12)
+        // In line with the list's text: its date headings, and its notes when not grouped
+        // (the source list's row inset, then the row's own padding).
+        .padding(.leading, 24)
         .padding(.trailing, TopBar.buttonSpacing + TopBar.sidebarButtonWidth)
         .frame(height: model.topBarHeight)
         .background(WindowDragArea())
@@ -380,7 +384,9 @@ enum TabMenu {
 }
 
 /// Back and forward through the side's current tab's history, joined in one glass capsule (from
-/// macOS 26) at the start of the side's bar, as tall as the round bar buttons.
+/// macOS 26) at the start of the side's bar, as tall as the round bar buttons. As in the
+/// system's grouped toolbar buttons, each is a circle nearly as tall as the capsule, shaded on
+/// hover.
 private struct BackForwardButtons: View {
     @EnvironmentObject private var model: VaultModel
     let paneIndex: Int
@@ -396,8 +402,7 @@ private struct BackForwardButtons: View {
         }
         if #available(macOS 26, *) {
             row
-                .padding(.horizontal, 4)
-                .frame(height: 36)
+                .padding(2)
                 .glassEffect(.regular, in: Capsule())
         } else {
             row
@@ -461,8 +466,9 @@ struct SortButton: View {
     }
 }
 
-/// A plain icon in a bar, shaded on hover. Clicks are taken by an AppKit view under it: in the
-/// title bar's area, the window takes a click on a SwiftUI button and moves itself instead.
+/// A plain icon in a bar, in a circle shaded on hover. Clicks are taken by an AppKit view under
+/// it: in the title bar's area, the window takes a click on a SwiftUI button and moves itself
+/// instead.
 struct BarIcon: View {
     let symbol: String
     let label: String
@@ -471,14 +477,16 @@ struct BarIcon: View {
     let action: () -> Void
     @State private var isHovering = false
 
+    /// 32 points: in the back and forward capsule, 2 points in from its edge.
+    private static let size: CGFloat = 32
+
     var body: some View {
         Image(systemName: symbol)
             .font(.system(size: 14, weight: .medium))
             .foregroundStyle(enabled ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
-            .frame(width: 24, height: 22)
+            .frame(width: Self.size, height: Self.size)
             .background {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(isHovering && enabled ? TopBar.selectedTabColor : .clear)
+                Circle().fill(isHovering && enabled ? TopBar.hoverColor : .clear)
             }
             .allowsHitTesting(false) // The click area below takes the clicks.
             .background(ClickArea(enabled: enabled, help: help, action: action))
