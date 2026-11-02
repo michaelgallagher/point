@@ -31,7 +31,7 @@ enum TopBar {
 
     /// The top bar's background, in every layout: the page's own colour.
     static let barColor = Color(nsColor: .textBackgroundColor)
-    /// Shading under something hovered in a bar or the tab list: a little darker than the bar.
+    /// Shading under something hovered in a bar: a little darker than the bar.
     static let selectedTabColor = Color.primary.opacity(0.07)
 
 }
@@ -79,17 +79,8 @@ struct PaneTabBar: View {
     }
 
     var body: some View {
-        let isTabMenuShown = Binding(
-            get: { model.tabMenuPane == pane.id },
-            set: { shown in
-                if !shown, model.tabMenuPane == pane.id { model.tabMenuPane = nil }
-            })
         HStack(spacing: TopBar.buttonSpacing) {
             PaneTabs(pane: pane, paneIndex: paneIndex)
-                .popover(isPresented: isTabMenuShown, arrowEdge: .bottom) {
-                    TabMenu(paneID: pane.id)
-                        .environmentObject(model)
-                }
             if paneIndex == 1 {
                 BarButton("Close Split", systemImage: "xmark", help: "Close Split (⇧⌘S)") { model.mergeIntoTabs() }
             } else if !model.isSplit {
@@ -628,285 +619,29 @@ private struct PathRenameField: View {
     }
 }
 
-// MARK: The tab list
+// MARK: The tab's menu
 
-/// A side's list of tabs, shown with ⇧⌘T. The tabs themselves are along the top of the side.
-/// Its tabs, in order, the current one ticked. Click one to go to it; hover for its
-/// close button, right-click for more. Drag a row up or down to reorder, onto the page to
-/// split the window or onto the other side. Keys: ↑↓ move, Return goes to the tab, ⌫ or ⌘W
-/// closes it, Escape closes the menu.
-struct TabMenu: View {
-    @EnvironmentObject private var model: VaultModel
-    let paneID: VaultModel.NotePane.ID
-    /// The row picked with the arrow keys, by tab.
-    @State private var highlighted: VaultModel.NoteTab.ID?
-
-    static let rowHeight: CGFloat = 28
-    static let width: CGFloat = 280
-
-    var body: some View {
-        if let p = model.paneIndex(paneID) {
-            let pane = model.panes[p]
-            VStack(spacing: 0) {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
-                            TabMenuRow(
-                                id: tab.id,
-                                title: model.note(tab.noteID)?.title ?? "New Tab",
-                                number: model.tabNumber(ofTab: tab.id) ?? index + 1,
-                                isCurrent: index == pane.current,
-                                isHighlighted: highlighted == tab.id,
-                                select: { go(to: index, inPane: p) },
-                                close: { model.closeTab(index, inPane: p) },
-                                menu: { Self.menu(for: index, tab: tab, inPane: p, model: model) },
-                                draggedOut: { model.tabMenuPane = nil }
-                            )
-                            .modifier(TabMenuDropTarget(paneIndex: p, index: index))
-                        }
-                    }
-                    .padding(6)
-                }
-                .frame(height: min(CGFloat(pane.tabs.count) * Self.rowHeight + 12, 360))
-                Divider()
-                NewTabRow { model.tabMenuPane = nil; model.newTab(inPane: p) }
-                    .padding(6)
-            }
-            .frame(width: Self.width)
-            .background(TabMenuKeys(
-                move: { step in move(step, in: pane) },
-                choose: {
-                    guard let index = highlightedIndex(in: pane) else { return }
-                    go(to: index, inPane: p)
-                },
-                close: {
-                    guard let index = highlightedIndex(in: pane) else { return }
-                    // Highlight its neighbour, so ⌫ can be pressed again.
-                    let next = pane.tabs.indices.contains(index + 1) ? index + 1 : index - 1
-                    highlighted = pane.tabs.indices.contains(next) ? pane.tabs[next].id : nil
-                    model.closeTab(index, inPane: p)
-                },
-                dismiss: { model.tabMenuPane = nil }
-            ))
-            // Down to one tab, there's nothing to switch to, and ⌫ again would close the
-            // window's last tab (and the window).
-            .onChange(of: pane.tabs.count) { count in
-                if count < 2 { model.tabMenuPane = nil }
-            }
-        }
-    }
-
-    private func highlightedIndex(in pane: VaultModel.NotePane) -> Int? {
-        pane.tabs.firstIndex { $0.id == highlighted }
-    }
-
-    /// The first arrow press starts from the current tab.
-    private func move(_ step: Int, in pane: VaultModel.NotePane) {
-        let from = highlightedIndex(in: pane) ?? pane.current
-        let to = highlighted == nil ? pane.current + step : from + step
-        highlighted = pane.tabs[max(0, min(to, pane.tabs.count - 1))].id
-    }
-
-    private func go(to index: Int, inPane p: Int) {
-        model.tabMenuPane = nil
-        model.selectTab(index, inPane: p)
-    }
-
-    /// A tab's or a row's right-click menu.
+@MainActor
+enum TabMenu {
+    /// A tab's right-click menu.
     static func menu(for index: Int, tab: VaultModel.NoteTab, inPane p: Int, model: VaultModel) -> NSMenu {
         let menu = NSMenu()
         menu.addItem(BlockMenuItem("Close Tab") { model.closeTab(index, inPane: p) })
         menu.addItem(BlockMenuItem("Close Other Tabs") { model.closeOtherTabs(index, inPane: p) })
         menu.addItem(.separator())
         menu.addItem(BlockMenuItem(model.isSplit ? "Move to Other Side" : "Move to New Split") {
-            model.tabMenuPane = nil
             model.moveTabToOtherSide(index, inPane: p)
         })
         if model.isSplit {
-            menu.addItem(BlockMenuItem("Merge Both Sides into Tabs") {
-                model.tabMenuPane = nil
-                model.mergeIntoTabs()
-            })
+            menu.addItem(BlockMenuItem("Merge Both Sides into Tabs") { model.mergeIntoTabs() })
         }
         if let id = tab.noteID {
             menu.addItem(BlockMenuItem("Open in New Window") {
-                model.tabMenuPane = nil
                 model.closeTab(index, inPane: p)
                 model.openWindowHandler?(id)
             })
         }
         return menu
-    }
-}
-
-private struct TabMenuRow: View {
-    let id: VaultModel.NoteTab.ID
-    let title: String
-    let number: Int
-    let isCurrent: Bool
-    let isHighlighted: Bool
-    let select: () -> Void
-    let close: () -> Void
-    let menu: () -> NSMenu
-    let draggedOut: () -> Void
-    @State private var isHovering = false
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "checkmark")
-                .font(.system(size: 11, weight: .semibold))
-                .frame(width: 14)
-                .opacity(isCurrent ? 1 : 0)
-                .allowsHitTesting(false)
-            Text("\(number)")
-                .monospacedDigit()
-                .foregroundStyle(isHighlighted ? .white : .secondary)
-                .frame(minWidth: 14, alignment: .trailing)
-                .allowsHitTesting(false)
-            Text(title)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .allowsHitTesting(false) // Clicks go to the row's mouse area, below.
-            // Clicked through the row's mouse area, which knows where it is (a SwiftUI button
-            // here doesn't reliably get the click before the AppKit view behind it).
-            Image(systemName: "xmark")
-                .font(.system(size: 9, weight: .bold))
-                .frame(width: Self.closeWidth, height: 18)
-                .foregroundStyle(isHighlighted ? .white : .secondary)
-                .opacity(isHovering || isHighlighted ? 1 : 0)
-                .allowsHitTesting(false)
-        }
-        .foregroundStyle(isHighlighted ? .white : .primary)
-        .padding(.horizontal, 8)
-        .frame(height: TabMenu.rowHeight)
-        .background {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(isHighlighted ? Color.accentColor : isHovering ? TopBar.selectedTabColor : .clear)
-                .allowsHitTesting(false)
-        }
-        .background(TabMouseArea(id: id, title: title, select: select, close: close, closeWidth: Self.closeWidth + 8,
-                                 menu: menu, draggedOut: draggedOut, isHovering: $isHovering))
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction { select() }
-        .accessibilityAction(named: "Close Tab") { close() }
-    }
-
-    static let closeWidth: CGFloat = 18
-}
-
-private struct NewTabRow: View {
-    let action: () -> Void
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: "plus")
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: 14)
-                Text("New Tab")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Text("⌘T")
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 8)
-            .frame(height: TabMenu.rowHeight)
-            .background {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(isHovering ? TopBar.selectedTabColor : .clear)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-    }
-}
-
-/// The tab menu's keys, taken by an AppKit view that holds the keyboard while the menu shows.
-private struct TabMenuKeys: NSViewRepresentable {
-    let move: (Int) -> Void
-    let choose: () -> Void
-    let close: () -> Void
-    let dismiss: () -> Void
-
-    func makeNSView(context: Context) -> KeyView { KeyView() }
-
-    func updateNSView(_ view: KeyView, context: Context) {
-        view.move = move
-        view.choose = choose
-        view.close = close
-        view.dismiss = dismiss
-    }
-
-    final class KeyView: NSView {
-        var move: (Int) -> Void = { _ in }
-        var choose: () -> Void = {}
-        var close: () -> Void = {}
-        var dismiss: () -> Void = {}
-
-        override var acceptsFirstResponder: Bool { true }
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            DispatchQueue.main.async { [weak self] in
-                guard let self, let window else { return }
-                window.makeFirstResponder(self)
-            }
-        }
-
-        override func keyDown(with event: NSEvent) {
-            switch event.keyCode {
-            case 126: move(-1) // ↑
-            case 125: move(1) // ↓
-            case 36, 76: choose() // Return, Enter
-            case 51, 117: close() // ⌫, ⌦
-            case 53: dismiss() // Escape
-            default: super.keyDown(with: event)
-            }
-        }
-
-        /// ⌘W closes the highlighted tab, rather than reaching the File menu.
-        override func performKeyEquivalent(with event: NSEvent) -> Bool {
-            if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-               event.charactersIgnoringModifiers == "w" {
-                close()
-                return true
-            }
-            return super.performKeyEquivalent(with: event)
-        }
-    }
-}
-
-/// A row dropped on another row goes above or below it, whichever half it's over. The tab
-/// shown doesn't change.
-private struct TabMenuDropTarget: ViewModifier {
-    @EnvironmentObject private var model: VaultModel
-    let paneIndex: Int
-    let index: Int
-    @State private var edge: VerticalEdge?
-
-    func body(content: Content) -> some View {
-        content
-            .overlay(alignment: edge == .top ? .top : .bottom) {
-                if edge != nil {
-                    Capsule()
-                        .fill(Color.accentColor)
-                        .frame(height: 2)
-                        .padding(.horizontal, 4)
-                        .offset(y: edge == .top ? -1 : 1)
-                }
-            }
-            .background(TabDropArea { id, point, size in
-                edge = id.flatMap { model.location(ofTab: $0) } == nil ? nil : (point.y < size.height / 2 ? .top : .bottom)
-                return edge != nil
-            } drop: { id, point, size in
-                edge = nil
-                guard model.location(ofTab: id) != nil else { return false }
-                model.moveTab(id, toPane: paneIndex, at: point.y < size.height / 2 ? index : index + 1, selects: false)
-                return true
-            })
     }
 }
 

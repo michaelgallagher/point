@@ -35,7 +35,6 @@ struct ShortcutsSheet: View {
             (.commands([.previousTab, .nextTab]), "Previous, next tab"),
             (.commands([.switchToTab]), "Switch tabs: hold ⌃, tap Tab, let go"),
             (.commands([.tab1, .tab8, .lastTab]), "Tab 1 to 8, last tab"),
-            (.commands([.tabList]), "Show this side's tab list"),
             (.commands([.split]), "Split, or merge both sides into tabs"),
             (.commands([.newWindow]), "New window"),
             (.fixed("⌘-click a link"), "Open it in a new tab"),

@@ -281,10 +281,6 @@ struct AppCommands: Commands {
             Button("Show Previous Tab") { model?.cycleTab(-1) }
                 .shortcut(.previousTab, in: shortcuts)
                 .disabled(model == nil)
-            // Tabs aren't shown as tabs: these list them.
-            Button("Show Tab List") { model?.toggleTabMenu() }
-                .shortcut(.tabList, in: shortcuts)
-                .disabled(model == nil)
             Button("Switch to Tab…") { model?.togglePalette(.tabs) }
                 .shortcut(.switchToTab, in: shortcuts)
                 .disabled(model == nil || store.root == nil)

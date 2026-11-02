@@ -63,7 +63,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
     case explorer, searchVault, searchInList, findInNote
     // View
     case toggleNoteList, biggerText, smallerText, actualSize, split, moveTabToOtherSide, nextTab, previousTab,
-         tabList, switchToTab, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, lastTab, showMarkdown, focus, reloadNotes
+         switchToTab, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, lastTab, showMarkdown, focus, reloadNotes
     // Go
     case enclosingFolder, topLevel, back, forward
     // Format
@@ -85,7 +85,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
              .openVault, .closeTab, .renameNote, .moveToFolder, .addTag, .toggleBookmark, .showInFinder, .moveToTrash: "File"
         case .explorer, .searchVault, .searchInList, .findInNote: "Edit"
         case .toggleNoteList, .biggerText, .smallerText, .actualSize, .split, .moveTabToOtherSide, .nextTab, .previousTab,
-             .tabList, .switchToTab, .tab1, .tab2, .tab3, .tab4, .tab5, .tab6, .tab7, .tab8, .lastTab,
+             .switchToTab, .tab1, .tab2, .tab3, .tab4, .tab5, .tab6, .tab7, .tab8, .lastTab,
              .showMarkdown, .focus, .reloadNotes: "View"
         case .enclosingFolder, .topLevel, .back, .forward: "Go"
         case .highlightOrange, .highlightRed, .highlightYellow, .highlightGreen, .highlightTeal, .highlightPurple,
@@ -127,7 +127,6 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .moveTabToOtherSide: "Move Tab to Other Side"
         case .nextTab: "Show Next Tab"
         case .previousTab: "Show Previous Tab"
-        case .tabList: "Show Tab List"
         case .switchToTab: "Switch to Tab…"
         case .tab1, .tab2, .tab3, .tab4, .tab5, .tab6, .tab7, .tab8: "Tab \(tabNumber ?? 0)"
         case .lastTab: "Last Tab"
@@ -201,7 +200,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .newTab: Shortcut("t")
         case .newTabOnOtherSide: Shortcut("t", control: true)
         case .newWindow: Shortcut("n", option: true)
-        case .applyTemplate: Shortcut("t", option: true)
+        case .applyTemplate: Shortcut("t", shift: true)
         case .openVault: Shortcut("o")
         case .closeTab: Shortcut("w")
         case .showInFinder: Shortcut("r", option: true)
@@ -215,7 +214,6 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .split: Shortcut("s", shift: true)
         case .nextTab: Shortcut("]", shift: true)
         case .previousTab: Shortcut("[", shift: true)
-        case .tabList: Shortcut("t", shift: true)
         case .switchToTab: Shortcut("tab", command: false, control: true)
         // Plain ⌥ and a digit type a character (# on a British keyboard), so ⌘ too.
         case .tab1, .tab2, .tab3, .tab4, .tab5, .tab6, .tab7, .tab8: Shortcut("\(tabNumber ?? 0)", option: true)

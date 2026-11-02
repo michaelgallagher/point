@@ -204,22 +204,6 @@ final class VaultModel: ObservableObject {
         if recentTabs.count > 100 { recentTabs.removeLast() }
     }
 
-    /// The side whose tab menu is showing, if any.
-    @Published var tabMenuPane: NotePane.ID?
-
-    /// ⇧⌘T: shows (or hides) the active side's tab menu. It lists nothing to switch to with
-    /// only one tab, so it doesn't open then.
-    func toggleTabMenu() {
-        let pane = panes[activePane]
-        if tabMenuPane != nil {
-            tabMenuPane = nil
-        } else if pane.tabs.count > 1 {
-            tabMenuPane = pane.id
-        } else {
-            NSSound.beep()
-        }
-    }
-
     // MARK: Opening as it was left
 
     /// What's kept of the window last used, so the app opens the way it was left: its tabs on

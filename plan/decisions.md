@@ -132,7 +132,7 @@ A single flat list of notes won't scale, so the sidebar browses folders and tags
 | ⌘S | Hide or show the note list |
 | ⌘T | New tab |
 | ⇧⌘N | New folder, inside the folder being browsed (also "New Folder Inside…" on a folder's right-click menu) |
-| ⇧⌘T | Show the tab list (Today's Note has no shortcut for now; 25 October 2026) |
+| ⇧⌘T | Apply a template to the note (2 November 2026, branch `tabs-experiment`; was ⌥⌘T. The tab list it showed went, as the tabs are shown again) |
 | ⌘-click | Open a note or link in a new tab. On a bullet or checkbox: the colour menu |
 | ⌘, | Settings |
 

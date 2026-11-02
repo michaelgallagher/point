@@ -572,7 +572,6 @@ struct PaletteCommand {
                 // After the palette running this has closed.
                 DispatchQueue.main.async { model.togglePalette(.tabs) }
             },
-            PaletteCommand(name: "Show Tab List", shortcut: ShortcutStore.shared.label(for: .tabList)) { model.toggleTabMenu() },
         ]
         commands += [
             PaletteCommand(name: model.isSplit ? "Merge Split into Tabs" : "Split", shortcut: ShortcutStore.shared.label(for: .split)) { model.toggleSplit() },
