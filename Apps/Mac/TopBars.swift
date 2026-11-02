@@ -3,8 +3,8 @@ import SwiftUI
 import VaultKit
 
 /// The window has no title bar or toolbar of its own: the sidebar and each side of the split
-/// have their own bar along the top edge, so a split runs the full height of the window. Each
-/// side has a second, shorter bar below it, for where its note is.
+/// have their own bar along the top edge, so a split runs the full height of the window. Where
+/// a side's note is shows on its page, above the title (see `NoteHeader`).
 enum TopBar {
     /// Twice the distance from the window's top to the middle of its close button, so the
     /// close, minimise and zoom buttons sit centred in the bars. Measured from the window.
@@ -26,8 +26,6 @@ enum TopBar {
     /// The gap between buttons in a bar (the HStack's spacing), and how far a side's bar
     /// starts past the sidebar's edge or the divider, so its buttons never touch either.
     static let buttonSpacing: CGFloat = 8
-    /// The height of a side's second bar, with its back and forward arrows and path.
-    static let pathBarHeight: CGFloat = 35
 
     /// The top bar's background, in every layout: the page's own colour.
     static let barColor = Color(nsColor: .textBackgroundColor)
@@ -39,7 +37,8 @@ enum TopBar {
 /// The sidebar's top bar: room for the window buttons and the sidebar button, which sits at
 /// its trailing edge. Its empty space drags the window. In one column, a home button just
 /// left of the sidebar button goes back to the top level (it hides with the sidebar, which
-/// holds it, and is dimmed at the top level).
+/// holds it, and is dimmed at the top level). In two columns, it's over the tree alone: the
+/// note list has its own (see `NoteListTopBar`).
 struct SidebarTopBar: View {
     @EnvironmentObject private var model: VaultModel
 
@@ -59,9 +58,34 @@ struct SidebarTopBar: View {
     }
 }
 
-/// One side's top bar: its tabs, then the button for the split, on the far right: Split with
-/// one side, and on the right side of a split, closing the split (which keeps both sides'
-/// notes as tabs). Its empty space moves the window.
+/// The two-column note list's top bar: the folder or tag's name, then how its notes are sorted
+/// (or, in the trash, emptying it), clear of the sidebar button at its end. See-through, like a
+/// side's bar: the list scrolls up beneath it and blurs (see `BarEdgeScrollView`). Its empty
+/// space drags the window.
+struct NoteListTopBar: View {
+    @EnvironmentObject private var model: VaultModel
+
+    var body: some View {
+        HStack(spacing: TopBar.buttonSpacing) {
+            Text(model.place == .allNotes ? (model.root?.lastPathComponent ?? "Notes") : model.place.title)
+                .font(.headline)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            if model.place == .trash {
+                EmptyTrashButton()
+            } else {
+                SortButton()
+            }
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, TopBar.buttonSpacing + TopBar.sidebarButtonWidth)
+        .frame(height: model.topBarHeight)
+        .background(WindowDragArea())
+    }
+}
+
+/// One side's top bar: back and forward, its tabs, then on the far right its one menu (the
+/// note's options and the split). Its empty space moves the window.
 struct PaneTabBar: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
@@ -80,12 +104,9 @@ struct PaneTabBar: View {
 
     var body: some View {
         HStack(spacing: TopBar.buttonSpacing) {
+            BackForwardButtons(paneIndex: paneIndex)
             PaneTabs(pane: pane, paneIndex: paneIndex)
-            if paneIndex == 1 {
-                BarButton("Close Split", systemImage: "xmark", help: "Close Split (⇧⌘S)") { model.mergeIntoTabs() }
-            } else if !model.isSplit {
-                BarButton("Split", systemImage: "rectangle.split.2x1", help: "Split (⇧⌘S)") { model.toggleSplit() }
-            }
+            PaneMenuButton(pane: pane)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.leading, leadingInset)
@@ -108,31 +129,8 @@ struct PaneTabBar: View {
     }
 }
 
-/// One side's second bar, below its tabs and shorter: back and forward and where the side's
-/// note is ("Projects / Point / Tabs idea"), with a menu for the note. Plain icons, not glass.
-struct PanePathBar: View {
-    @EnvironmentObject private var model: VaultModel
-    let pane: VaultModel.NotePane
-    let paneIndex: Int
-
-    var body: some View {
-        HStack(spacing: 0) {
-            BackForwardButtons(pane: pane, paneIndex: paneIndex)
-            PanePath(pane: pane, paneIndex: paneIndex, slide: model.sidebarSlide)
-                .padding(.leading, 2)
-                .padding(.trailing, 8)
-        }
-        .padding(.horizontal, TopBar.buttonSpacing)
-        // Above the middle of the bar: evenly between the tabs and the bar's edge.
-        .padding(.bottom, 11)
-        .frame(height: TopBar.pathBarHeight)
-        .background(WindowDragArea())
-        .background { TopBarBackground() }
-    }
-}
-
 /// Before macOS 26, the page's colour with a hairline under it. From 26, nothing: the note
-/// scrolling beneath blurs itself, under both of a side's bars (see `MarkdownScrollView`).
+/// scrolling beneath blurs itself, under a side's bar (see `BarEdgeScrollView`).
 private struct TopBarBackground: View {
     var body: some View {
         if #available(macOS 26, *) {
@@ -343,286 +341,6 @@ private struct TabDropTarget: ViewModifier {
     }
 }
 
-// MARK: The path
-
-/// Where a side's note is in the vault, then its name: "Projects / Point / Tabs idea". The
-/// folders are dimmed, and clicking one shows it (in the sidebar, or the explorer); clicking
-/// the name renames the note. When it doesn't fit, the folders after the first fold into "…"
-/// one at a time; only then is the name cut, in its middle. With a split, the side not being
-/// worked on is dimmed. A menu for the note follows its name.
-struct PanePath: View {
-    @EnvironmentObject private var model: VaultModel
-    let pane: VaultModel.NotePane
-    let paneIndex: Int
-    @ObservedObject var slide: SidebarSlide
-    @State private var isRenaming = false
-    /// The room the path had when the sidebar last settled. While it slides, the path keeps the
-    /// folding it had (clipped at its end if need be) and folds again once it stops: changing
-    /// on the way, its parts crossed over each other as the bar moved.
-    @State private var settledWidth: CGFloat = 0
-
-    var body: some View {
-        GeometryReader { geometry in
-            HStack(spacing: 0) {
-                if let note = model.note(pane.tab.noteID) {
-                    let width = slide.isSliding && settledWidth > 0 ? settledWidth : geometry.size.width
-                    let parts = Self.parts(of: note, toFit: width - NoteMenuButton.width - NoteMenuButton.gap)
-                    // By what each part is; parts shown or hidden come and go at once.
-                    ForEach(Self.identified(parts), id: \.id) { item in
-                        segment(item.part, note: note)
-                            .transition(.identity)
-                    }
-                    NoteMenuButton(note: note)
-                        .padding(.leading, NoteMenuButton.gap)
-                } else {
-                    Text("New Tab")
-                        .font(Self.font)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .padding(.horizontal, Self.padding)
-                }
-            }
-            // While sliding, at its own width, clipped at its end, rather than squeezed into
-            // less room (which pushed its parts over each other).
-            .fixedSize(horizontal: slide.isSliding, vertical: false)
-            // From its leading edge (wider than its room, it would otherwise be centred in it).
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .help(model.note(pane.tab.noteID)?.id ?? "")
-            .contentTransition(.identity)
-            .onAppear { settledWidth = geometry.size.width }
-            .onChange(of: geometry.size.width) { width in
-                if !slide.isSliding { settledWidth = width }
-            }
-            .onChange(of: slide.isSliding) { sliding in
-                if !sliding { settledWidth = geometry.size.width }
-            }
-        }
-        .clipped()
-        .opacity(model.isSplit && paneIndex != model.activePane ? 0.55 : 1)
-        .onChange(of: pane.tab.noteID) { _ in isRenaming = false }
-    }
-
-    /// A piece of the path, as laid out.
-    enum Part: Equatable {
-        case folder(name: String, path: String)
-        /// Folders folded away, by path.
-        case folded([String])
-        case separator
-        /// The note's name, cut in its middle if `fits` is false.
-        case name(String, fits: Bool)
-    }
-
-    /// The parts, each with an identity: a folder by its path, the name as itself, a separator
-    /// by what comes after it.
-    static func identified(_ parts: [Part]) -> [(id: String, part: Part)] {
-        func id(_ part: Part) -> String {
-            switch part {
-            case .folder(_, let path): "folder:" + path
-            case .folded: "folded"
-            case .separator: "separator"
-            case .name: "name"
-            }
-        }
-        return parts.enumerated().map { index, part in
-            if case .separator = part, index + 1 < parts.count { return ("before:" + id(parts[index + 1]), part) }
-            return (id(part), part)
-        }
-    }
-
-    @ViewBuilder private func segment(_ part: Part, note: Note) -> some View {
-        switch part {
-        case .folder(let name, let path):
-            PathButton(text: name, style: .folder, help: "Show “\(name)”") { model.reveal(folder: path) }
-        case .folded(let paths):
-            Text("…")
-                .font(Self.font)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, Self.padding)
-                .help(paths.joined(separator: "\n"))
-        case .separator:
-            Text("/")
-                .font(Self.font)
-                .foregroundStyle(.tertiary)
-                .padding(.horizontal, Self.separatorPadding)
-        case .name(let name, let fits):
-            if isRenaming {
-                PathRenameField(note: note, isRenaming: $isRenaming)
-            } else {
-                PathButton(text: name, style: .name, cutsInMiddle: !fits, help: "Rename") { isRenaming = true }
-            }
-        }
-    }
-
-    // MARK: Fitting
-
-    enum Style { case folder, name }
-
-    static let font = Font.system(size: nsFontSize)
-
-    private static let nsFontSize: CGFloat = 13
-    /// Around each folder and the name: room for the shading on hover.
-    static let padding: CGFloat = 5
-    static let separatorPadding: CGFloat = 1
-
-    private static func width(_ text: String) -> CGFloat {
-        ceil((text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: nsFontSize)]).width)
-    }
-
-    private static func width(of part: Part) -> CGFloat {
-        switch part {
-        case .folder(let name, _): width(name) + padding * 2
-        case .folded: width("…") + padding * 2
-        case .separator: width("/") + separatorPadding * 2
-        case .name(let name, _): width(name) + padding * 2
-        }
-    }
-
-    /// The longest form of the path that fits: every folder; then the first folder, "…" and
-    /// fewer and fewer of the rest; then "…" and the name; then the name alone, cut to fit.
-    static func parts(of note: Note, toFit available: CGFloat) -> [Part] {
-        let names = note.id.split(separator: "/").dropLast().map(String.init)
-        let paths = names.indices.map { names[...$0].joined(separator: "/") }
-        let folders = zip(names, paths).map { Part.folder(name: $0, path: $1) }
-        let name = Part.name(note.title, fits: true)
-
-        func joined(_ pieces: [Part]) -> [Part] {
-            pieces.enumerated().flatMap { index, piece in index == 0 ? [piece] : [.separator, piece] }
-        }
-        func fits(_ parts: [Part]) -> Bool { parts.map(width(of:)).reduce(0, +) <= available }
-
-        let whole = joined(folders + [name])
-        if fits(whole) || folders.isEmpty { return fits(whole) ? whole : [.name(note.title, fits: false)] }
-        // Fold the folders after the first, one more each time, from the second on.
-        if folders.count > 1 {
-            for hidden in 1..<folders.count {
-                let kept = folders.dropFirst(1 + hidden)
-                let parts = joined([folders[0], .folded(Array(paths[1...hidden]))] + kept + [name])
-                if fits(parts) { return parts }
-            }
-        }
-        // Still too long: the first folder folds too ("… / Tabs idea"), and at last the name
-        // stands alone, cut in its middle. (Keeping the first folder whole squeezed the "…"
-        // and the name to nothing in a narrow side: "Projects / /".)
-        let first = folders.count > 1 ? [folders[0], .folded(Array(paths[1...]))] : [folders[0]]
-        if fits(joined(first + [name])) { return joined(first + [name]) }
-        if fits(joined([.folded(paths), name])) { return joined([.folded(paths), name]) }
-        return [.name(note.title, fits: false)]
-    }
-}
-
-/// A folder or the note's name in a side's path, taking clicks in AppKit (as the bar's other
-/// controls do), shaded on hover.
-private struct PathButton: View {
-    let text: String
-    let style: PanePath.Style
-    var cutsInMiddle = false
-    let help: String
-    let action: () -> Void
-    @State private var isHovering = false
-
-    var body: some View {
-        Text(text)
-            .font(PanePath.font)
-            .foregroundStyle(style == .name ? .primary : .secondary)
-            .lineLimit(1)
-            .truncationMode(.middle)
-            .fixedSize(horizontal: !cutsInMiddle, vertical: false)
-            .padding(.horizontal, PanePath.padding)
-            .padding(.vertical, 3)
-            .background {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(isHovering ? TopBar.selectedTabColor : .clear)
-            }
-            .layoutPriority(style == .name ? 0 : 1) // The name is what's cut.
-            .allowsHitTesting(false)
-            .background(ClickArea(help: help, action: action))
-            .onHover { isHovering = $0 }
-            .accessibilityElement()
-            .accessibilityLabel(text)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityAction { action() }
-    }
-}
-
-/// "…" after the note's name in a side's path: a menu of what can be done with the note.
-private struct NoteMenuButton: View {
-    @EnvironmentObject private var model: VaultModel
-    let note: Note
-    @State private var isHovering = false
-
-    static let width: CGFloat = 24
-    /// Before it, past the name's own padding: so the dots look as far from the name as the
-    /// name does from the forward arrow.
-    static let gap: CGFloat = 3.5
-
-    private func menu() -> NSMenu {
-        let menu = NSMenu()
-        let bookmark = BlockMenuItem("Bookmark") { model.toggleBookmark(note.id) }
-        bookmark.state = model.isBookmarked(note.id) ? .on : .off
-        menu.addItem(bookmark)
-        menu.addItem(BlockMenuItem("Move File…") { model.moving = note })
-        let markdown = BlockMenuItem("Show Markdown") { model.showsMarkdown.toggle() }
-        markdown.state = model.showsMarkdown ? .on : .off
-        menu.addItem(markdown)
-        menu.addItem(BlockMenuItem("Reveal in Finder") { model.showInFinder(note) })
-        menu.addItem(.separator())
-        menu.addItem(BlockMenuItem("Delete File") { model.moveToTrash(note) })
-        return menu
-    }
-
-    var body: some View {
-        Image(systemName: "ellipsis")
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(.secondary)
-            .frame(width: Self.width, height: 22)
-            .background {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(isHovering ? TopBar.selectedTabColor : .clear)
-            }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true) // The menu area below stands for it.
-            .background(MenuArea(help: "Note Options", menu: menu))
-            .onHover { isHovering = $0 }
-    }
-}
-
-/// The note's name in a side's path, being renamed: Return or clicking away renames the note
-/// (and its file, updating links), Escape puts it back, as with the title on the page.
-private struct PathRenameField: View {
-    @EnvironmentObject private var model: VaultModel
-    let note: Note
-    @Binding var isRenaming: Bool
-    @State private var draft = ""
-    @FocusState private var isFocused: Bool
-
-    var body: some View {
-        TextField("Name", text: $draft)
-            .textFieldStyle(.plain)
-            .font(PanePath.font)
-            .padding(.horizontal, PanePath.padding)
-            .padding(.vertical, 3)
-            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(TopBar.selectedTabColor))
-            .frame(minWidth: 120, maxWidth: 360)
-            .focused($isFocused)
-            .onSubmit { commit() }
-            .onExitCommand { isRenaming = false }
-            .onChange(of: isFocused) { focused in
-                if !focused, isRenaming { commit() }
-            }
-            .onAppear {
-                draft = note.title
-                DispatchQueue.main.async { isFocused = true }
-            }
-    }
-
-    private func commit() {
-        isRenaming = false
-        let title = NoteFiles.sanitizedTitle(draft)
-        guard !title.isEmpty, title != note.title else { return }
-        model.rename(note, to: title)
-    }
-}
-
 // MARK: The tab's menu
 
 @MainActor
@@ -649,14 +367,14 @@ enum TabMenu {
     }
 }
 
-/// Back and forward through the side's current tab's history, together, before the path.
+/// Back and forward through the side's current tab's history, joined in one glass capsule (from
+/// macOS 26) at the start of the side's bar, as tall as the round bar buttons.
 private struct BackForwardButtons: View {
     @EnvironmentObject private var model: VaultModel
-    let pane: VaultModel.NotePane
     let paneIndex: Int
 
     var body: some View {
-        HStack(spacing: 0) {
+        let row = HStack(spacing: 0) {
             BarIcon(symbol: "chevron.left", label: "Back", help: "Back (⌘[)", enabled: model.canTravel(back: true, inPane: paneIndex)) {
                 model.travel(back: true, inPane: paneIndex)
             }
@@ -664,6 +382,70 @@ private struct BackForwardButtons: View {
                 model.travel(back: false, inPane: paneIndex)
             }
         }
+        if #available(macOS 26, *) {
+            row
+                .padding(.horizontal, 4)
+                .frame(height: 36)
+                .glassEffect(.regular, in: Capsule())
+        } else {
+            row
+        }
+    }
+}
+
+/// The side's one menu, at the end of its bar: what can be done with its note, then the split
+/// (opening it, or closing it, which keeps both sides' notes as tabs).
+private struct PaneMenuButton: View {
+    @EnvironmentObject private var model: VaultModel
+    let pane: VaultModel.NotePane
+
+    private func menu() -> NSMenu {
+        let menu = NSMenu()
+        let note = model.note(pane.tab.noteID)
+        if let note {
+            let bookmark = BlockMenuItem("Bookmark") { model.toggleBookmark(note.id) }
+            bookmark.state = model.isBookmarked(note.id) ? .on : .off
+            menu.addItem(bookmark)
+            menu.addItem(BlockMenuItem("Move File…") { model.moving = note })
+            let markdown = BlockMenuItem("Show Markdown") { model.showsMarkdown.toggle() }
+            markdown.state = model.showsMarkdown ? .on : .off
+            menu.addItem(markdown)
+            menu.addItem(BlockMenuItem("Reveal in Finder") { model.showInFinder(note) })
+            menu.addItem(.separator())
+        }
+        if model.isSplit {
+            menu.addItem(BlockMenuItem("Close Split") { model.mergeIntoTabs() })
+        } else {
+            menu.addItem(BlockMenuItem("Split") { model.toggleSplit() })
+        }
+        if let note {
+            menu.addItem(.separator())
+            menu.addItem(BlockMenuItem("Delete File") { model.moveToTrash(note) })
+        }
+        return menu
+    }
+
+    var body: some View {
+        BarMenu("Note Options", systemImage: "ellipsis", help: "Note Options", menu: menu)
+    }
+}
+
+/// How the notes are sorted, in the two-column note list's top bar.
+struct SortButton: View {
+    @EnvironmentObject private var model: VaultModel
+
+    private func menu() -> NSMenu {
+        let menu = NSMenu()
+        for (title, sort) in [("Date Edited", NoteSort.modified), ("Date Created", .created), ("Title", .title)] {
+            let item = BlockMenuItem(title) { model.sort = sort }
+            item.state = model.sort == sort ? .on : .off
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    var body: some View {
+        BarMenu("Sort", systemImage: "arrow.up.arrow.down", help: "How notes are sorted", menu: menu)
     }
 }
 
@@ -806,6 +588,49 @@ struct BarButton: View {
             .help(help)
         }
     }
+}
+
+/// A `BarButton` that opens a menu below itself. (A SwiftUI menu drawn as glass wasn't the
+/// bar buttons' glass.)
+struct BarMenu: View {
+    let title: String
+    let systemImage: String
+    let help: String
+    let menu: () -> NSMenu
+    @State private var anchor = MenuAnchor.Holder()
+
+    init(_ title: String, systemImage: String, help: String, menu: @escaping () -> NSMenu) {
+        self.title = title
+        self.systemImage = systemImage
+        self.help = help
+        self.menu = menu
+    }
+
+    var body: some View {
+        BarButton(title, systemImage: systemImage, help: help) {
+            guard let view = anchor.view else { return }
+            menu().popUp(positioning: nil, at: NSPoint(x: 0, y: -6), in: view)
+        }
+        .background(MenuAnchor(holder: anchor))
+    }
+}
+
+/// An AppKit view behind a button, for a menu to open from; it takes no clicks itself.
+struct MenuAnchor: NSViewRepresentable {
+    final class Holder { weak var view: NSView? }
+    let holder: Holder
+
+    final class AnchorView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+
+    func makeNSView(context: Context) -> AnchorView {
+        let view = AnchorView()
+        holder.view = view
+        return view
+    }
+
+    func updateNSView(_ view: AnchorView, context: Context) { holder.view = view }
 }
 
 /// A tab's or a tab list row's mouse handling: a click selects it, a drag picks it up, a

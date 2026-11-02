@@ -46,7 +46,12 @@ extension VaultModel {
         // The two-column view's tree is always the top level, wherever its notes are.
         let place = content == .places ? SidebarPlace.allNotes : place
         if content != .places, place == .trash { return trashedNotes.map { .trashed($0) } }
-        guard content != .notes else { return noteRows(notes(in: place)) }
+        guard content != .notes else {
+            // Narrowed by the filter field below the list.
+            let filter = noteFilter.trimmingCharacters(in: .whitespaces)
+            let notes = notes(in: place)
+            return noteRows(filter.isEmpty ? notes : notes.filter { $0.title.localizedStandardContains(filter) })
+        }
         var sections: [[SidebarRow]] = []
         func section(_ name: SidebarSection, _ rows: [SidebarRow]) -> [SidebarRow] {
             [.header(name)] + (collapsed.contains(name) ? [] : rows)
@@ -192,7 +197,12 @@ struct SidebarTable: NSViewRepresentable {
         menu.delegate = context.coordinator
         table.menu = menu
 
-        let scrollView = NSScrollView()
+        // The two-column note list scrolls up beneath its see-through top bar, as a note does.
+        let scrollView = content == .notes ? BarEdgeScrollView() : NSScrollView()
+        if content == .notes {
+            scrollView.automaticallyAdjustsContentInsets = false
+            scrollView.contentInsets.top = model.topBarHeight
+        }
         scrollView.documentView = table
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
@@ -205,6 +215,9 @@ struct SidebarTable: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        if content == .notes, scrollView.contentInsets.top != model.topBarHeight {
+            scrollView.contentInsets.top = model.topBarHeight
+        }
         context.coordinator.parent = self
         context.coordinator.update(animated: true)
     }

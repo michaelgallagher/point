@@ -140,7 +140,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     /// An editor inside a scroll view, ready to put in a window.
     public static func makeScrollable() -> (NSScrollView, MarkdownTextView) {
         let textView = MarkdownTextView(markdown: ())
-        let scrollView = MarkdownScrollView()
+        let scrollView = BarEdgeScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
@@ -850,15 +850,15 @@ private final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
-/// The editor's scroll view. Where the window's top bars cover its top (its top content
-/// inset), it blurs the text scrolling beneath them under a light wash of
+/// The editor's scroll view, and the two-column sidebar's note list's. Where the window's top
+/// bars cover its top (its top content inset), it blurs the text scrolling beneath them under a light wash of
 /// the page's colour, with a one-pixel hairline at the edge, like the system's scroll edge
 /// effect; both show only once the text has scrolled under the bars. The blur is a Core
 /// Image filter on what's behind a view inside the scroll view, above the text. (The
 /// system's own effect needs a title bar that isn't transparent, which takes the top bars'
 /// clicks and drops; a blur from outside the scroll view doesn't pick up the text; and a
 /// within-window material either hides the text or, faded, shows it unblurred.)
-final class MarkdownScrollView: NSScrollView {
+public final class BarEdgeScrollView: NSScrollView {
     private let edgeBlur: NSView = {
         let view = NSView()
         view.wantsLayer = true
@@ -892,7 +892,7 @@ final class MarkdownScrollView: NSScrollView {
         reflectScrolledClipView(contentView)
     }
 
-    override func tile() {
+    public override func tile() {
         super.tile()
         keepAtTop()
         let height = contentInsets.top
@@ -913,12 +913,12 @@ final class MarkdownScrollView: NSScrollView {
         updateEdge(animated: false)
     }
 
-    override func reflectScrolledClipView(_ clipView: NSClipView) {
+    public override func reflectScrolledClipView(_ clipView: NSClipView) {
         super.reflectScrolledClipView(clipView)
         updateEdge(animated: true)
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateEdge(animated: false)
     }

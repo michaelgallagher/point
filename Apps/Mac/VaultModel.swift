@@ -1203,10 +1203,15 @@ final class VaultModel: ObservableObject {
         didSet { saveWindowState() }
     }
 
+    /// What's typed in the two-column note list's filter field: only notes whose names contain
+    /// it are listed. Cleared on going to another place.
+    @Published var noteFilter = ""
+
     func browse(_ place: SidebarPlace) {
         Trace.mark("browse \(place.key)")
         if place.isTag { lastTagPlace = place } else { lastFolderPlace = place }
         searchText = ""
+        noteFilter = ""
         if place == .trash { store.refreshTrash() } // Obsidian may have added to it.
         self.place = place
     }

@@ -2,10 +2,9 @@ import AppKit
 import SwiftUI
 import VaultKit
 
-/// One side of the window: its two top bars (tabs, then where the note is) above the current
-/// tab's note, or for an empty tab, a start page. From macOS 26 the note scrolls up beneath
-/// the bars, which have no background of their own: the note blurs what's under them (see
-/// `MarkdownScrollView`).
+/// One side of the window: its top bar above the current tab's note, or for an empty tab, a
+/// start page. From macOS 26 the note scrolls up beneath the bar, which has no background of
+/// its own: the note blurs what's under it (see `BarEdgeScrollView`).
 struct PaneView: View {
     @EnvironmentObject private var model: VaultModel
     let paneID: VaultModel.NotePane.ID
@@ -18,27 +17,20 @@ struct PaneView: View {
             if model.isFocused {
                 page(pane, index: index, underBar: 0)
             } else if #available(macOS 26, *) {
-                page(pane, index: index, underBar: model.topBarHeight + TopBar.pathBarHeight)
-                    .overlay(alignment: .top) { bars(pane, index: index) }
+                page(pane, index: index, underBar: model.topBarHeight)
+                    .overlay(alignment: .top) { PaneTabBar(pane: pane, paneIndex: index) }
             } else {
                 VStack(spacing: 0) {
-                    bars(pane, index: index)
+                    PaneTabBar(pane: pane, paneIndex: index)
                     page(pane, index: index, underBar: 0)
                 }
             }
         }
     }
 
-    private func bars(_ pane: VaultModel.NotePane, index: Int) -> some View {
-        VStack(spacing: 0) {
-            PaneTabBar(pane: pane, paneIndex: index)
-            PanePathBar(pane: pane, paneIndex: index)
-        }
-    }
-
-    /// The note or start page. `underBar` is how much of it the top bars cover: the note's
-    /// scroll view runs up beneath the bars (and is inset to match), anything else starts
-    /// below them.
+    /// The note or start page. `underBar` is how much of it the top bar covers: the note's
+    /// scroll view runs up beneath the bar (and is inset to match), anything else starts
+    /// below it.
     private func page(_ pane: VaultModel.NotePane, index: Int, underBar: CGFloat) -> some View {
                 Group {
                     if let note = model.note(pane.tab.noteID) {

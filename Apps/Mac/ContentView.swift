@@ -31,18 +31,19 @@ struct ContentView: View {
                 // 40/60, the notes wider, kept as the sidebar widens or narrows. (HSplitView
                 // gave any extra width to the tree, so it started at half.) The columns, and
                 // the divider between them, run to the window's top, under the top bar.
+                // Each column has its own top bar; the notes scroll up beneath theirs.
                 SideBySide(key: "treeColumnFraction", fraction: 0.4, minimumWidths: (120, 180)) {
                     PlaceTreeColumn()
                         .padding(.top, model.topBarHeight)
+                        .overlay(alignment: .top) { SidebarTopBar() }
                 } side: {
                     NoteList(includesPlaces: false)
-                        .padding(.top, model.topBarHeight)
+                        .overlay(alignment: .top) { NoteListTopBar() }
                         // The notes in the page's colour, the tree alone in the sidebar's grey,
                         // and a line between the notes and the note (which share a colour).
                         .background(Color(nsColor: .textBackgroundColor))
                         .overlay(alignment: .trailing) { HStack(spacing: 0) { Divider() } }
                 }
-                .overlay(alignment: .top) { SidebarTopBar() }
             } else {
                 VStack(spacing: 0) {
                     SidebarTopBar()
@@ -230,41 +231,31 @@ private struct NoteList: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if includesPlaces, model.place != .allNotes, model.searchResults == nil {
-                PlaceHeader()
-            } else if !includesPlaces, model.searchResults == nil {
-                HStack {
-                    Text(model.place == .allNotes ? (model.root?.lastPathComponent ?? "Notes") : model.place.title)
-                        .font(.headline)
-                        .lineLimit(1)
-                    Spacer()
-                    if model.place == .trash {
-                        EmptyTrashButton()
-                    } else {
-                        // How the notes are sorted, as on one column's Notes label.
-                        SortLabel(help: "How notes are sorted", selection: $model.sort,
-                                  options: [("Date Edited", .modified), ("Date Created", .created), ("Title", .title)])
+            if includesPlaces {
+                if model.place != .allNotes, model.searchResults == nil { PlaceHeader() }
+                searchField
+                if let results = model.searchResults {
+                    List(results, selection: $model.selection) { result in
+                        SearchResultRow(result: result)
                     }
-                }
-                .padding(.horizontal, 12)
-                .padding(.top, 6)
-            }
-            searchField
-            if let results = model.searchResults {
-                List(results, selection: $model.selection) { result in
-                    SearchResultRow(result: result)
-                }
-                // On the sidebar's material, not white, in both layouts.
-                .listStyle(.sidebar)
-                .scrollContentBackground(.hidden)
-                .overlay {
-                    if results.isEmpty {
-                        Text("No Results")
-                            .foregroundStyle(.secondary)
+                    // On the sidebar's material, not white.
+                    .listStyle(.sidebar)
+                    .scrollContentBackground(.hidden)
+                    .overlay {
+                        if results.isEmpty {
+                            Text("No Results")
+                                .foregroundStyle(.secondary)
+                        }
                     }
+                } else {
+                    browser
                 }
             } else {
+                // In two columns, the name and sort are in the column's top bar (see
+                // `NoteListTopBar`), and the field at its foot filters just this list.
                 browser
+                Divider()
+                filterField
             }
         }
         .onChange(of: model.searchFocusRequest) { _ in searchFocused = true }
@@ -278,6 +269,16 @@ private struct NoteList: View {
         }
     }
 
+    /// At the foot of the two-column note list: narrows the list to notes whose names match.
+    private var filterField: some View {
+        SearchField(text: $model.noteFilter, prompt: "Filter", isFocused: $searchFocused, height: VaultModel.SidebarDensity.comfortable.rowHeight) {
+            // Return opens the top note.
+            if let first = model.sidebarRows(collapsed: [], content: .notes).lazy.compactMap(\.noteID).first { model.selection = first }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+    }
+
     private var searchField: some View {
         // As tall as a comfortable row, in either density.
         SearchField(text: $model.searchText, isFocused: $searchFocused, height: VaultModel.SidebarDensity.comfortable.rowHeight) {
@@ -285,7 +286,6 @@ private struct NoteList: View {
             if let first = model.searchResults?.first { model.selection = first.id }
         }
         .padding(.horizontal, 10)
-        // A point lower than centred, to line up with a selected row in the tree beside it.
         .padding(.top, 7)
         .padding(.bottom, 5)
         // The tags the search is filtered by, each removable.
@@ -310,6 +310,9 @@ private struct NoteList: View {
             .overlay {
                 if model.notes(in: model.place).isEmpty, !includesPlaces || model.subplaces(of: model.place).isEmpty, model.place != .allNotes {
                     Text(model.place.isTag ? "No notes have this tag." : "This folder has no notes.")
+                        .foregroundStyle(.secondary)
+                } else if !includesPlaces, !model.noteFilter.isEmpty, model.sidebarRows(collapsed: [], content: .notes).isEmpty {
+                    Text("No Matches")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -351,7 +354,7 @@ private struct PlaceHeader: View {
 }
 
 /// Empties the trash, after asking: the notes in it go for good.
-private struct EmptyTrashButton: View {
+struct EmptyTrashButton: View {
     @EnvironmentObject private var model: VaultModel
     @State private var isConfirming = false
 
@@ -395,9 +398,10 @@ extension SidebarPlace {
     }
 }
 
-/// The search field above the note list.
+/// The search field above the note list, or the filter field below the two-column one.
 private struct SearchField: View {
     @Binding var text: String
+    var prompt = "Search"
     var isFocused: FocusState<Bool>.Binding
     /// The sidebar's row height, so the field is as tall as a selected row.
     let height: CGFloat
@@ -407,7 +411,7 @@ private struct SearchField: View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField("Search", text: $text)
+            TextField(prompt, text: $text)
                 .textFieldStyle(.plain)
                 .focused(isFocused)
                 .onSubmit(onSubmit)
