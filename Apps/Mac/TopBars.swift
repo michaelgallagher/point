@@ -27,7 +27,7 @@ enum TopBar {
     /// starts past the sidebar's edge or the divider, so its buttons never touch either.
     static let buttonSpacing: CGFloat = 8
     /// The height of a side's second bar, with its back and forward arrows and path.
-    static let pathBarHeight: CGFloat = 32
+    static let pathBarHeight: CGFloat = 35
 
     /// The top bar's background, in every layout: the page's own colour.
     static let barColor = Color(nsColor: .textBackgroundColor)
@@ -117,8 +117,8 @@ struct PaneTabBar: View {
     }
 }
 
-/// One side's second bar, below its tabs and shorter: back and forward, where the side's note
-/// is ("Projects / Point / Tabs idea"), and the note's bookmark. Plain icons, not glass.
+/// One side's second bar, below its tabs and shorter: back and forward and where the side's
+/// note is ("Projects / Point / Tabs idea"), with a menu for the note. Plain icons, not glass.
 struct PanePathBar: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
@@ -128,10 +128,12 @@ struct PanePathBar: View {
         HStack(spacing: 0) {
             BackForwardButtons(pane: pane, paneIndex: paneIndex)
             PanePath(pane: pane, paneIndex: paneIndex, slide: model.sidebarSlide)
-                .padding(.horizontal, 8)
-            BookmarkButton(pane: pane)
+                .padding(.leading, 2)
+                .padding(.trailing, 8)
         }
         .padding(.horizontal, TopBar.buttonSpacing)
+        // Above the middle of the bar: evenly between the tabs and the bar's edge.
+        .padding(.bottom, 11)
         .frame(height: TopBar.pathBarHeight)
         .background(WindowDragArea())
         .background { TopBarBackground() }
@@ -356,7 +358,7 @@ private struct TabDropTarget: ViewModifier {
 /// folders are dimmed, and clicking one shows it (in the sidebar, or the explorer); clicking
 /// the name renames the note. When it doesn't fit, the folders after the first fold into "…"
 /// one at a time; only then is the name cut, in its middle. With a split, the side not being
-/// worked on is dimmed.
+/// worked on is dimmed. A menu for the note follows its name.
 struct PanePath: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
@@ -373,12 +375,13 @@ struct PanePath: View {
             HStack(spacing: 0) {
                 if let note = model.note(pane.tab.noteID) {
                     let width = slide.isSliding && settledWidth > 0 ? settledWidth : geometry.size.width
-                    let parts = Self.parts(of: note, toFit: width)
+                    let parts = Self.parts(of: note, toFit: width - NoteMenuButton.width)
                     // By what each part is; parts shown or hidden come and go at once.
                     ForEach(Self.identified(parts), id: \.id) { item in
                         segment(item.part, note: note)
                             .transition(.identity)
                     }
+                    NoteMenuButton(note: note)
                 } else {
                     Text("New Tab")
                         .font(Self.font)
@@ -546,6 +549,45 @@ private struct PathButton: View {
             .accessibilityLabel(text)
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { action() }
+    }
+}
+
+/// "…" after the note's name in a side's path: a menu of what can be done with the note.
+private struct NoteMenuButton: View {
+    @EnvironmentObject private var model: VaultModel
+    let note: Note
+    @State private var isHovering = false
+
+    static let width: CGFloat = 24
+
+    private func menu() -> NSMenu {
+        let menu = NSMenu()
+        let bookmark = BlockMenuItem("Bookmark") { model.toggleBookmark(note.id) }
+        bookmark.state = model.isBookmarked(note.id) ? .on : .off
+        menu.addItem(bookmark)
+        menu.addItem(BlockMenuItem("Move File…") { model.moving = note })
+        let markdown = BlockMenuItem("Show Markdown") { model.showsMarkdown.toggle() }
+        markdown.state = model.showsMarkdown ? .on : .off
+        menu.addItem(markdown)
+        menu.addItem(BlockMenuItem("Reveal in Finder") { model.showInFinder(note) })
+        menu.addItem(.separator())
+        menu.addItem(BlockMenuItem("Delete File") { model.moveToTrash(note) })
+        return menu
+    }
+
+    var body: some View {
+        Image(systemName: "ellipsis")
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(.secondary)
+            .frame(width: Self.width, height: 22)
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isHovering ? TopBar.selectedTabColor : .clear)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true) // The menu area below stands for it.
+            .background(MenuArea(help: "Note Options", menu: menu))
+            .onHover { isHovering = $0 }
     }
 }
 
@@ -886,40 +928,28 @@ private struct BackForwardButtons: View {
     }
 }
 
-/// The side's note's bookmark, filled and blue when set.
-private struct BookmarkButton: View {
-    @EnvironmentObject private var model: VaultModel
-    let pane: VaultModel.NotePane
-
-    var body: some View {
-        let noteID = pane.tab.noteID
-        let isBookmarked = noteID.map(model.isBookmarked) ?? false
-        BarIcon(symbol: isBookmarked ? "bookmark.fill" : "bookmark", label: isBookmarked ? "Remove Bookmark" : "Bookmark",
-                help: isBookmarked ? "Remove Bookmark" : "Bookmark", enabled: noteID != nil,
-                tint: isBookmarked ? .accentColor : nil) {
-            if let noteID { model.toggleBookmark(noteID) }
-        }
-    }
-}
-
-/// A plain icon in a bar. Clicks are taken by an AppKit view under it: in the title bar's
-/// area, the window takes a click on a SwiftUI button and moves itself instead.
+/// A plain icon in a bar, shaded on hover. Clicks are taken by an AppKit view under it: in the
+/// title bar's area, the window takes a click on a SwiftUI button and moves itself instead.
 struct BarIcon: View {
     let symbol: String
     let label: String
     let help: String
     var enabled = true
-    /// A colour for the icon, such as for a bookmark that's set.
-    var tint: Color?
     let action: () -> Void
+    @State private var isHovering = false
 
     var body: some View {
         Image(systemName: symbol)
             .font(.system(size: 14, weight: .medium))
-            .foregroundStyle(!enabled ? AnyShapeStyle(.tertiary) : tint.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.primary))
-            .frame(width: 28, height: 28)
+            .foregroundStyle(enabled ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
+            .frame(width: 24, height: 22)
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isHovering && enabled ? TopBar.selectedTabColor : .clear)
+            }
             .allowsHitTesting(false) // The click area below takes the clicks.
             .background(ClickArea(enabled: enabled, help: help, action: action))
+            .onHover { isHovering = $0 }
             .accessibilityElement()
             .accessibilityLabel(label)
             .accessibilityAddTraits(.isButton)
@@ -957,6 +987,41 @@ struct ClickArea: NSViewRepresentable {
             // Only if the pointer is still over it, as with any button.
             guard isPressed, bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
             action()
+        }
+    }
+}
+
+/// Like `ClickArea`, for a menu: shows it below itself as the mouse goes down.
+struct MenuArea: NSViewRepresentable {
+    let help: String
+    let menu: () -> NSMenu
+
+    func makeNSView(context: Context) -> MenuView { MenuView() }
+
+    func updateNSView(_ view: MenuView, context: Context) {
+        view.makeMenu = menu
+        view.toolTip = help
+    }
+
+    final class MenuView: NSView {
+        var makeMenu: () -> NSMenu = { NSMenu() }
+
+        override var mouseDownCanMoveWindow: Bool { false }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        private func show() {
+            makeMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: -4), in: self)
+        }
+
+        override func mouseDown(with event: NSEvent) { show() }
+
+        override func isAccessibilityElement() -> Bool { true }
+        override func accessibilityRole() -> NSAccessibility.Role? { .button }
+        override func accessibilityLabel() -> String? { toolTip }
+
+        override func accessibilityPerformPress() -> Bool {
+            show()
+            return true
         }
     }
 }
