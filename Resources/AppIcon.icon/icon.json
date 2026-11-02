@@ -16,6 +16,23 @@
     {
       "layers" : [
         {
+          "image-name" : "app-icon-target.png",
+          "name" : "app-icon-target"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.3
+      }
+    },
+    {
+      "hidden" : true,
+      "layers" : [
+        {
           "glass" : false,
           "image-name" : "circles.svg",
           "name" : "circles"
@@ -31,6 +48,7 @@
       }
     },
     {
+      "hidden" : true,
       "layers" : [
         {
           "hidden" : true,
