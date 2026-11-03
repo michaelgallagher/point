@@ -38,6 +38,13 @@ struct AnimatedCursorTests {
         #expect(abs(bold.height - body.height) < 1)
     }
 
+    @Test func onAnEmptyLineItsWhereTextWouldBe() throws {
+        let text = try #require(editor("One\nTwo\nThree", at: 4).cursorRect())
+        let empty = try #require(editor("One\n\nThree", at: 4).cursorRect())
+        #expect(abs(empty.minY - text.minY) < 0.5)
+        #expect(abs(empty.height - text.height) < 0.5)
+    }
+
     @Test func onTheEmptyLastLineItsFullHeight() throws {
         let view = editor("Some text\n", at: 10)
         let rect = try #require(view.cursorRect())
@@ -140,6 +147,26 @@ struct SlidingLinesTests {
         #expect(try moves(view) { view.insertText("x", replacementRange: view.selectedRange()) }.isEmpty)
     }
 
+    @Test func typingThatWrapsMovesTheWrappedWordWithWhatWasTyped() throws {
+        let words = Array(repeating: "word", count: 40).joined(separator: " ")
+        let view = editor(words + "\nNext", at: 0)
+        // Typing at the end of the first line's last word, until it wraps.
+        let layoutManager = view.layoutManager!
+        var firstLine = NSRange()
+        layoutManager.lineFragmentRect(forGlyphAt: 0, effectiveRange: &firstLine)
+        let end = layoutManager.characterRange(forGlyphRange: firstLine, actualGlyphRange: nil)
+        let wordEnd = NSMaxRange(end) - 1 // Before the space the line breaks at.
+        view.setSelectionDirectly(NSRange(location: wordEnd, length: 0))
+        var moved: [MarkdownTextView.LineMove] = []
+        for _ in 0..<12 where moved.isEmpty {
+            moved = try moves(view) { view.insertText("x", replacementRange: view.selectedRange()) }
+        }
+        // The wrapped word, typed letter and all, comes down from the end of the first line.
+        let wrapped = try #require(moved.first)
+        #expect(wrapped.rect.minX == 0)
+        #expect(wrapped.offset.dy < -10 && wrapped.offset.dx > 100)
+    }
+
     @Test func indentingAListItemMovesItAcross() throws {
         let view = editor("- One\n- Two\n- Three", at: 9)
         let moved = try moves(view) { view.changeIndent(by: 1) }
@@ -160,6 +187,9 @@ struct SlidingLinesTests {
         view.movingLines { view.insertNewline(nil) }
         let container = try #require(view.slidingLines)
         #expect(container.superview === view && !container.subviews.isEmpty)
+        // Typing on that moves nothing leaves them sliding.
+        view.movingLines { view.insertText("x", replacementRange: view.selectedRange()) }
+        #expect(view.slidingLines === container)
         view.endLineSlide()
         #expect(view.slidingLines == nil && container.superview == nil)
     }

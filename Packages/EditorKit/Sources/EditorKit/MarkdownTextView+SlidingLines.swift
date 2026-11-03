@@ -72,9 +72,13 @@ extension MarkdownTextView {
         let offset: CGVector
     }
 
-    /// Runs an edit, sliding the lines it moves into place.
+    /// Runs an edit, sliding the lines it moves into place. Not for a key held down, whose
+    /// lines move faster than they could slide.
     func movingLines(_ edit: () -> Void) {
-        guard !isRecordingLineMoves, let start = lineMoveStart() else { return edit() }
+        guard !isRecordingLineMoves, !Self.isKeyRepeating, let start = lineMoveStart() else {
+            endLineSlide()
+            return edit()
+        }
         lineMoveEdits = nil
         isRecordingLineMoves = true
         edit()
@@ -85,7 +89,6 @@ extension MarkdownTextView {
     /// Notes where the lines on screen are, before an edit.
     func lineMoveStart() -> LineMoveStart? {
         guard window != nil, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, !hasMarkedText() else { return nil }
-        endLineSlide()
         if isTableSyncQueued { syncTableViews() }
         let text = string as NSString
         // Near the cursor: its paragraph, and those either side.
@@ -137,6 +140,10 @@ extension MarkdownTextView {
         let width = bounds.width
         let replaced = edits.replaced
         let replacedBefore = NSRange(location: replaced.location, length: max(0, replaced.length - edits.delta))
+        // An edit that adds or removes a line break splits or joins lines, so the text either
+        // side of it moves apart; otherwise what was typed moves with its line, as when it wraps.
+        let splits = text.substring(with: replaced).contains("\n")
+            || NSMaxRange(replacedBefore) <= old.length && old.substring(with: replacedBefore).contains("\n")
         var moves: [LineMove] = []
         var matched = Set<Int>()
         // How whole lines below the edit moved, for those that were off screen before.
@@ -147,12 +154,20 @@ extension MarkdownTextView {
                 let glyph = layoutManager.glyphIndexForCharacter(at: character)
                 return line.rect.minX + layoutManager.location(forGlyphAt: glyph).x
             }
-            // The line in pieces, either side of what the edit put there.
+            // The line, or its pieces either side of a line break the edit put in or took out.
             var pieces: [NSRange] = []
-            let beforeEdit = min(NSMaxRange(chars), replaced.location) - chars.location
-            if beforeEdit > 0 { pieces.append(NSRange(location: chars.location, length: beforeEdit)) }
-            let afterStart = max(chars.location, NSMaxRange(replaced))
-            if afterStart < NSMaxRange(chars) { pieces.append(NSRange(location: afterStart, length: NSMaxRange(chars) - afterStart)) }
+            if splits {
+                let beforeEdit = min(NSMaxRange(chars), replaced.location) - chars.location
+                if beforeEdit > 0 { pieces.append(NSRange(location: chars.location, length: beforeEdit)) }
+                let afterStart = max(chars.location, NSMaxRange(replaced))
+                if afterStart < NSMaxRange(chars) { pieces.append(NSRange(location: afterStart, length: NSMaxRange(chars) - afterStart)) }
+            } else {
+                // Some of it, besides its line break, was there before.
+                let breaks = chars.length > 0 && text.character(at: NSMaxRange(chars) - 1) == 10
+                if replaced.location > chars.location || NSMaxRange(replaced) < NSMaxRange(chars) - (breaks ? 1 : 0) {
+                    pieces = [chars]
+                }
+            }
 
             if pieces.isEmpty {
                 // All of it put there by the edit: the same as a line it replaced, moved or
@@ -174,20 +189,25 @@ extension MarkdownTextView {
             }
 
             for piece in pieces {
-                // The whole line, or all of it but what the edit put at its start (an indent).
-                let wholeLine = piece.location == chars.location || (replaced.location <= chars.location && piece.location == NSMaxRange(replaced))
-                let now = NSPoint(x: piece.location == chars.location ? line.start : across(piece.location), y: line.rect.minY)
+                // Followed by its first character that was there before.
+                var anchor = piece.location
+                if NSLocationInRange(anchor, replaced) { anchor = NSMaxRange(replaced) }
+                guard anchor < NSMaxRange(piece) else { continue }
+                let wholeLine = piece.location == chars.location
+                let now = NSPoint(x: anchor == chars.location ? line.start : across(anchor), y: line.rect.minY)
                 var offset: CGVector?
-                if let was = edits.before(piece.location).flatMap(start.place(of:)) {
+                if let was = edits.before(anchor).flatMap(start.place(of:)) {
                     offset = CGVector(dx: was.x - now.x, dy: was.y - now.y)
                 } else if piece.location >= NSMaxRange(replaced), wholeLine, let below {
                     offset = below
                 }
                 guard let offset else { continue }
                 if wholeLine, piece.location >= NSMaxRange(replaced), abs(offset.dx) < 1 { below = offset }
-                // Along its line only counts for a whole line (indented), not for the rest of a
-                // line typed into.
-                guard abs(offset.dy) >= 1 || (wholeLine && abs(offset.dx) >= 1) else { continue }
+                // Along its line only counts for a whole line with only an indent before what
+                // moved, not for the rest of a line typed into.
+                let lead = text.substring(with: NSRange(location: chars.location, length: anchor - chars.location))
+                let indented = wholeLine && lead.allSatisfy { $0 == " " || $0 == "\t" } && abs(offset.dx) >= 1
+                guard abs(offset.dy) >= 1 || indented else { continue }
                 let left = wholeLine ? 0 : now.x
                 let right = NSMaxRange(piece) >= NSMaxRange(chars) ? width : across(NSMaxRange(piece))
                 moves.append(LineMove(rect: NSRect(x: left, y: line.rect.minY, width: max(right - left, 1), height: line.rect.height),
@@ -217,15 +237,14 @@ extension MarkdownTextView {
         if isTableSyncQueued { syncTableViews() }
         let visible = visibleRect
         let moves = lineMoves(since: start).filter { $0.rect.intersects(visible) && abs($0.offset.dy) < visible.height }
-        guard !moves.isEmpty else { return }
-
-        let cursorWasHidden = cursorView.isHidden
-        cursorView.isHidden = true
-        let picture = bitmapImageRepForCachingDisplay(in: visible)
-        if let picture { cacheDisplay(in: visible, to: picture) }
-        cursorView.isHidden = cursorWasHidden
-        guard let picture, let whole = picture.cgImage else { return }
-        let scale = CGFloat(picture.pixelsWide) / visible.width
+        guard !moves.isEmpty else {
+            // Typing on while lines still slide (after one wrapped): they carry on, showing what
+            // was typed.
+            refreshSlidingLines()
+            return
+        }
+        endLineSlide()
+        guard let (whole, scale) = picture(of: visible) else { return }
 
         let container = SlidingLinesView(frame: visible)
         // Under each moved piece where it is now, the background, so the real one doesn't show.
@@ -242,6 +261,7 @@ extension MarkdownTextView {
             guard let image = whole.cropping(to: crop) else { continue }
             let piece = SlidingLinesView(frame: now.offsetBy(dx: move.offset.dx, dy: move.offset.dy))
             piece.image = NSImage(cgImage: image, size: now.size)
+            piece.end = now
             container.addSubview(piece)
             pieces.append((piece, now.origin))
         }
@@ -258,6 +278,35 @@ extension MarkdownTextView {
                 guard let self, let container, self.slidingLines === container else { return }
                 self.endLineSlide()
             }
+        }
+    }
+
+    /// The text as it is, in `rect`, without the cursor or lines sliding over it, and its scale.
+    /// Clear but for the text, so a piece sliding over another line doesn't blank it out.
+    private func picture(of rect: NSRect) -> (CGImage, CGFloat)? {
+        let cursorWasHidden = cursorView.isHidden
+        cursorView.isHidden = true
+        slidingLines?.isHidden = true
+        let drewBackground = drawsBackground
+        drawsBackground = false
+        defer {
+            drawsBackground = drewBackground
+            cursorView.isHidden = cursorWasHidden
+            slidingLines?.isHidden = false
+        }
+        guard let picture = bitmapImageRepForCachingDisplay(in: rect) else { return nil }
+        cacheDisplay(in: rect, to: picture)
+        guard let image = picture.cgImage else { return nil }
+        return (image, CGFloat(picture.pixelsWide) / rect.width)
+    }
+
+    /// Retakes the pictures of the lines sliding, for an edit to them that moved nothing.
+    private func refreshSlidingLines() {
+        guard let container = slidingLines, let (whole, scale) = picture(of: container.frame) else { return }
+        for case let piece as SlidingLinesView in container.subviews {
+            guard let end = piece.end else { continue }
+            let crop = CGRect(x: end.minX * scale, y: end.minY * scale, width: end.width * scale, height: end.height * scale).integral
+            if let image = whole.cropping(to: crop) { piece.image = NSImage(cgImage: image, size: end.size) }
         }
     }
 
@@ -281,6 +330,8 @@ final class SlidingLinesView: NSView {
     var fillsBackground = false {
         didSet { needsDisplay = true }
     }
+    /// For a piece of a picture, where it ends up, in what holds it.
+    var end: NSRect?
     override var isFlipped: Bool { true }
 
     override init(frame: NSRect) {

@@ -87,6 +87,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     var isCursorUpdateQueued = false
     var cursorAnimates = false
     var cursorClicked = false
+    var cursorKeepsUp = false
     /// The lines an edit moved, sliding to their new places (see +SlidingLines).
     var slidingLines: NSView?
     /// Set while an edit is watched for the lines it moves, and the edits it made.
@@ -356,7 +357,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         super.didChangeText()
         noteTableEdit(at: lastEditLocation)
         onTextChange?(self)
-        setNeedsCursorUpdate(animated: true)
+        setNeedsCursorUpdate(animated: true, edited: true)
     }
 
     // MARK: Layout

@@ -46,21 +46,32 @@ extension MarkdownTextView {
 
     /// Puts the cursor in place soon, once the text and its layout have settled.
     /// `animated` asks for the glide; any request without it in the meantime doesn't cancel it.
-    func setNeedsCursorUpdate(animated: Bool = false) {
+    /// `edited` says the text changed, for a key held down.
+    func setNeedsCursorUpdate(animated: Bool = false, edited: Bool = false) {
         cursorAnimates = cursorAnimates || animated
         if animated, let event = NSApp.currentEvent, [.leftMouseDown, .leftMouseUp, .leftMouseDragged].contains(event.type) {
             cursorClicked = true
         }
+        if edited, Self.isKeyRepeating { cursorKeepsUp = true }
         guard !isCursorUpdateQueued else { return }
         isCursorUpdateQueued = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.isCursorUpdateQueued = false
-            let animated = self.cursorAnimates, clicked = self.cursorClicked
+            // A key held down, typing or deleting: the cursor keeps up with the text rather
+            // than gliding behind it.
+            let animated = self.cursorAnimates && !self.cursorKeepsUp, clicked = self.cursorClicked
             self.cursorAnimates = false
             self.cursorClicked = false
+            self.cursorKeepsUp = false
             self.updateCursor(animated: animated, clicked: clicked)
         }
+    }
+
+    /// Whether the key being handled is one held down, repeating.
+    static var isKeyRepeating: Bool {
+        guard let event = NSApp.currentEvent, event.type == .keyDown else { return false }
+        return event.isARepeat
     }
 
     /// Whether our cursor shows: the editor has the keyboard, in the key window, and the
@@ -98,7 +109,13 @@ extension MarkdownTextView {
         let place = layoutManager.location(forGlyphAt: glyph)
         // After the last character, which isn't a line break, the cursor is past its glyph.
         let x = atEnd ? layoutManager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: textContainer).maxX : line.minX + place.x
-        let baseline = line.minY + place.y
+        var baseline = line.minY + place.y
+        if !atEnd, text.character(at: location) == 10, location == 0 || text.character(at: location - 1) == 10 {
+            // On an empty line, the line break's own baseline is lower than text's would be:
+            // where text would sit instead, its extra spacing shared above and below.
+            baseline = line.minY + (line.height - layoutManager.defaultLineHeight(for: font)) / 2
+                + layoutManager.defaultBaselineOffset(for: font)
+        }
         return NSRect(x: (x + origin.x).rounded(.down), y: baseline - font.ascender + origin.y,
                       width: Self.cursorWidth, height: height)
     }
