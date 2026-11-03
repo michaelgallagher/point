@@ -71,7 +71,7 @@ private struct NoteHeader: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 6) {
                 NotePath(note: session.note, model: model)
                 // Its file name, which can be edited here to rename the note.
                 TitleField(note: session.note, model: model)

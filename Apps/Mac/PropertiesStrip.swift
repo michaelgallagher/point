@@ -50,7 +50,7 @@ struct PropertiesStrip: View {
             }
 
             if isExpanded {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 0) {
                     ForEach(frontmatter.properties) { property in
                         row(for: property)
                             .opacity(dragging == property.key ? 0.4 : 1)
@@ -68,6 +68,7 @@ struct PropertiesStrip: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
                     }
+                    .frame(minHeight: Self.lineHeight)
                     .padding(.horizontal, Self.rowInset)
                     .padding(.vertical, Self.rowPadding)
                 }
@@ -116,7 +117,9 @@ struct PropertiesStrip: View {
     private static let columnSpacing: CGFloat = 8
     /// Room around each row's text, inside its hover background.
     private static let rowInset: CGFloat = 6
-    private static let rowPadding: CGFloat = 4
+    private static let rowPadding: CGFloat = 2
+    /// A row's height inside its padding: the compact date picker's, or a token's, if taller.
+    private static let lineHeight: CGFloat = 24
 
     /// The property under the pointer, shaded so it's clear it can be clicked.
     @State private var hoveredKey: String?
@@ -193,6 +196,9 @@ struct PropertiesStrip: View {
             .help("More")
             .opacity(hoveredKey == property.key || isSelected ? 1 : 0)
         }
+        // Every row as tall as the tallest one-line value, so a row doesn't jump as a date
+        // picker or a token takes the place of text.
+        .frame(minHeight: Self.lineHeight)
         .padding(.horizontal, Self.rowInset)
         .padding(.vertical, Self.rowPadding)
         .background {
@@ -653,33 +659,62 @@ private struct TextValue: View {
     }
 }
 
-/// A date, or a date and time, in the system's compact picker. An empty one shows a button
-/// that sets it to today.
+/// A date, or a date and time, in the system's compact picker, with a button on hover that
+/// sets it to today (or now). One written in a way Point doesn't read is shown as written,
+/// with the same button. An empty one shows a button that sets it to today.
 private struct DateValue: View {
     let property: Frontmatter.Property
     let hasTime: Bool
     let set: ([String]) -> Void
+    @State private var isHovering = false
 
     private var value: PropertyDate.Value? { property.values.first.flatMap { PropertyDate.parse($0) } }
 
     var body: some View {
         if let value {
-            DatePicker("", selection: Binding(
-                get: { value.date },
-                set: { set([PropertyDate.format($0, like: PropertyDate.Value(date: $0, hasTime: hasTime, separator: value.separator, hasSeconds: value.hasSeconds))]) }
-            ), displayedComponents: hasTime ? [.date, .hourAndMinute] : [.date])
-            .labelsHidden()
-            .datePickerStyle(.compact)
-            .fixedSize()
-        } else {
-            Button(property.values.first ?? "Empty") {
-                let now = Date()
-                set([PropertyDate.format(now, like: PropertyDate.Value(date: now, hasTime: hasTime))])
+            HStack(spacing: 6) {
+                DatePicker("", selection: Binding(
+                    get: { value.date },
+                    set: { set(formatted($0, like: value)) }
+                ), displayedComponents: hasTime ? [.date, .hourAndMinute] : [.date])
+                .labelsHidden()
+                .datePickerStyle(.compact)
+                .fixedSize()
+                // Not for a date that's already today.
+                setToToday(like: value, isShown: hasTime || !Calendar.current.isDateInToday(value.date))
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.tertiary)
-            .help("Set to now")
+            .onHover { isHovering = $0 }
+        } else if let text = property.values.first, !text.isEmpty {
+            HStack(spacing: 6) {
+                Text(text)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                setToToday(like: nil, isShown: true)
+            }
+            .onHover { isHovering = $0 }
+        } else {
+            Button("Empty") { set(formatted(Date(), like: nil)) }
+                .buttonStyle(.plain)
+                .foregroundStyle(.tertiary)
+                .help(hasTime ? "Set to now" : "Set to today")
         }
+    }
+
+    /// Shown on hover; always there, hidden, so the row doesn't move as it shows.
+    private func setToToday(like value: PropertyDate.Value?, isShown: Bool) -> some View {
+        let isVisible = isHovering && isShown
+        return Button(hasTime ? "Set to now" : "Set to today") { set(formatted(Date(), like: value)) }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .opacity(isVisible ? 1 : 0)
+            .allowsHitTesting(isVisible)
+            .accessibilityHidden(!isShown)
+    }
+
+    /// `date`, written the way the property's date is (its separator, seconds and so on), or
+    /// the usual way.
+    private func formatted(_ date: Date, like value: PropertyDate.Value?) -> [String] {
+        [PropertyDate.format(date, like: PropertyDate.Value(date: date, hasTime: hasTime, separator: value?.separator ?? "T", hasSeconds: value?.hasSeconds ?? false))]
     }
 }
 
