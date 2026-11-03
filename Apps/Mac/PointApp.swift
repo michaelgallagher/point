@@ -206,6 +206,10 @@ struct AppCommands: Commands {
             Button("Explorer") { model?.togglePalette(.search) }
                 .shortcut(.explorer, in: shortcuts)
                 .disabled(model == nil || store.root == nil)
+            // Only commands, for when it's an action you want and notes would be in the way.
+            Button("Run Command…") { model?.togglePalette(.commands) }
+                .shortcut(.runCommand, in: shortcuts)
+                .disabled(model == nil || store.root == nil)
             Button("Search Vault") { model?.togglePalette(.explorer) }
                 .shortcut(.searchVault, in: shortcuts)
                 .disabled(model == nil || store.root == nil)

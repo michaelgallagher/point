@@ -1033,9 +1033,9 @@ final class VaultModel: ObservableObject {
     /// ⌘E or ⌘F pressed while a start page is showing: the page switches to that mode.
     @Published private(set) var startPageRequest: (mode: PaletteMode, count: Int) = (.search, 0)
 
-    /// Searching and commands (Explorer, ⌘E), browsing folders and tags (Search Vault, ⌘F), only the open tabs (⌃Tab), or the
-    /// folders to move the note to (Move Note).
-    enum PaletteMode { case search, explorer, tabs, moveNote, applyTemplate }
+    /// Searching and commands (Explorer, ⌘E), only commands (Run Command, ⇧⌘E), browsing folders and tags (Search Vault, ⌘F),
+    /// only the open tabs (⌃Tab), or the folders to move the note to (Move Note).
+    enum PaletteMode { case search, commands, explorer, tabs, moveNote, applyTemplate }
     /// ⌃Tab pressed again while the tabs palette shows: it moves to the next tab down.
     @Published private(set) var paletteCycleRequest = 0
     /// The keys let go while the tabs palette shows: it goes to the tab highlighted.
@@ -1122,8 +1122,8 @@ final class VaultModel: ObservableObject {
             return
         }
         // On a start page, ⌘E and ⌘F switch the page itself between searching and
-        // exploring, rather than opening a palette on top of it.
-        if selection == nil, !isPaletteShown {
+        // exploring, rather than opening a palette on top of it. Run Command has no page.
+        if selection == nil, !isPaletteShown, mode != .commands {
             startPageRequest = (mode, startPageRequest.count + 1)
             return
         }

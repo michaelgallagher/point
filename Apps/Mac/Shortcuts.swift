@@ -60,7 +60,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
     case newNote, newNoteFromTemplate, newFolder, newTab, newTabOnOtherSide, newWindow, todaysNote, applyTemplate,
          openVault, closeTab, renameNote, moveToFolder, addTag, toggleBookmark, showInFinder, moveToTrash
     // Edit
-    case explorer, searchVault, searchInList, findInNote
+    case explorer, runCommand, searchVault, searchInList, findInNote
     // View
     case toggleNoteList, biggerText, smallerText, actualSize, split, moveTabToOtherSide, nextTab, previousTab,
          switchToTab, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, lastTab, showMarkdown, focus, reloadNotes
@@ -83,7 +83,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         switch self {
         case .newNote, .newNoteFromTemplate, .newFolder, .newTab, .newTabOnOtherSide, .newWindow, .todaysNote, .applyTemplate,
              .openVault, .closeTab, .renameNote, .moveToFolder, .addTag, .toggleBookmark, .showInFinder, .moveToTrash: "File"
-        case .explorer, .searchVault, .searchInList, .findInNote: "Edit"
+        case .explorer, .runCommand, .searchVault, .searchInList, .findInNote: "Edit"
         case .toggleNoteList, .biggerText, .smallerText, .actualSize, .split, .moveTabToOtherSide, .nextTab, .previousTab,
              .switchToTab, .tab1, .tab2, .tab3, .tab4, .tab5, .tab6, .tab7, .tab8, .lastTab,
              .showMarkdown, .focus, .reloadNotes: "View"
@@ -116,6 +116,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .showInFinder: "Show in Finder"
         case .moveToTrash: "Move to Trash"
         case .explorer: "Explorer"
+        case .runCommand: "Run Command…"
         case .searchVault: "Search Vault"
         case .searchInList: "Search in List"
         case .findInNote: "Find in Note"
@@ -205,6 +206,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .closeTab: Shortcut("w")
         case .showInFinder: Shortcut("r", option: true)
         case .explorer: Shortcut("e")
+        case .runCommand: Shortcut("e", shift: true)
         case .searchVault: Shortcut("f")
         case .searchInList: Shortcut("f", shift: true)
         case .findInNote: Shortcut("f", option: true)

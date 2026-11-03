@@ -5,7 +5,7 @@ import SwiftUI
 import VaultKit
 
 /// ⌘E, Explorer (mode `.search`): one place to open notes, search tags and run commands, all
-/// from the keyboard. ⌘F, Search Vault (mode `.explorer`): the same palette as two columns of
+/// from the keyboard. ⇧⌘E, Run Command (mode `.commands`): only the commands. ⌘F, Search Vault (mode `.explorer`): the same palette as two columns of
 /// folders, tags and their notes.
 /// ⌃Tab: only the open tabs, in number order, to switch between them. Letting go of ⌃ goes to
 /// the one highlighted, which starts as the tab shown before this.
@@ -31,11 +31,12 @@ struct CommandPalette: View {
     private var isSwitchingTabs: Bool { !isPage && model.paletteMode == .tabs }
     private var isMovingNote: Bool { !isPage && model.paletteMode == .moveNote }
     private var isApplyingTemplate: Bool { !isPage && model.paletteMode == .applyTemplate }
+    private var isRunningCommands: Bool { !isPage && model.paletteMode == .commands }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: isExploring ? "magnifyingglass" : isMovingNote ? "folder" : isApplyingTemplate ? "doc.on.doc" : "map")
+                Image(systemName: isExploring ? "magnifyingglass" : isMovingNote ? "folder" : isApplyingTemplate ? "doc.on.doc" : isRunningCommands ? "command" : "map")
                     .foregroundStyle(.secondary)
                     .frame(width: 20)
                 PaletteField(text: $query, placeholder: placeholder, fontSize: isPage ? 22 : 18,
@@ -149,6 +150,7 @@ struct CommandPalette: View {
     private var placeholder: String {
         if isExploring { return explorer.inNotes ? "Filter notes" : "Filter folders and tags" }
         if isSwitchingTabs { return "Switch to a tab" }
+        if isRunningCommands { return "Run a command" }
         if isMovingNote { return "Move “\(model.selectedNote?.title ?? "")” to…" }
         if isApplyingTemplate { return model.templates.isEmpty ? "No templates (choose a folder in Settings, under Templates)" : "Apply a template to “\(model.selectedNote?.title ?? "")”" }
         return "Search or use commands"
@@ -198,6 +200,7 @@ struct CommandPalette: View {
         if isSwitchingTabs { return refreshTabs(keeping: keeping) }
         if isMovingNote { return refreshFolders() }
         if isApplyingTemplate { return refreshTemplates() }
+        if isRunningCommands { return refreshCommands() }
         let commands = PaletteCommand.all(for: model)
         // Notes open in tabs come first, in number order, wherever the one being viewed is.
         let openNotes = model.openNoteIDs.compactMap { model.note($0) }
@@ -209,6 +212,7 @@ struct CommandPalette: View {
             var open: [PaletteItem] = [], marked: [PaletteItem] = [], notes: [PaletteItem] = []
             var tagItems: [PaletteItem] = [], commandItems: [PaletteItem] = []
             var notesTitle = "Notes"
+            var commandsFirst = false
             let trimmed = query.trimmingCharacters(in: .whitespaces)
 
             if trimmed.hasPrefix(">") {
@@ -253,11 +257,27 @@ struct CommandPalette: View {
                     notes.append(.create(title))
                 }
                 tagItems = tags.filter { Fuzzy.score(query: trimmed, name: $0.tag) != nil }.prefix(3).map { PaletteItem.tag($0.tag, $0.count) }
-                commandItems = Self.rank(commands, by: trimmed, name: \.name).prefix(3).map(PaletteItem.command)
+                // Commands whose names match better than any note's title come first, so "move"
+                // goes to Move Note… rather than a note that only mentions moving. Only when
+                // every word is a whole word or the start of one, so typing a new note's name
+                // and pressing Return still makes it.
+                let ranked = Self.rank(commands, by: trimmed, name: \.name)
+                let words = trimmed.split(whereSeparator: \.isWhitespace).map(String.init)
+                if !hasTags, trimmed.count >= 2, let best = ranked.first,
+                   words.allSatisfy({ (Fuzzy.score(query: $0, name: best.name) ?? .max) <= 2 }),
+                   let bestScore = Fuzzy.score(query: trimmed, name: best.name) {
+                    let bestTitle = (open + marked + notes).filter { $0.noteID != nil }
+                        .compactMap { Fuzzy.score(query: trimmed, name: $0.name) }.min()
+                    commandsFirst = bestScore < bestTitle ?? .max
+                }
+                commandItems = ranked.prefix(commandsFirst ? 5 : 3).map(PaletteItem.command)
             }
             guard !Task.isCancelled else { return }
-            // Nothing matched but the new note: it comes first, so Return makes it.
-            let groups = open.isEmpty && marked.isEmpty && notes.count == 1 && notes.first.map({ if case .create = $0 { true } else { false } }) == true
+            // Nothing matched but the new note (and no command first): it comes first, so
+            // Return makes it.
+            let groups = commandsFirst
+                ? [("Commands", commandItems), ("Open Tabs", open), ("Bookmarks", marked), (notesTitle, notes), ("Tags", tagItems)]
+                : open.isEmpty && marked.isEmpty && notes.count == 1 && notes.first.map({ if case .create = $0 { true } else { false } }) == true
                 ? [(notesTitle, notes), ("Tags", tagItems), ("Commands", commandItems)]
                 : [("Open Tabs", open), ("Bookmarks", marked), (notesTitle, notes), ("Tags", tagItems), ("Commands", commandItems)]
             var all: [PaletteItem] = [], labels: [Int: String] = [:]
@@ -291,6 +311,17 @@ struct CommandPalette: View {
             highlighted = items.isEmpty ? 0 : (first + model.tabSwitchSteps) % items.count
             model.tabSwitchSteps = 0
         }
+    }
+
+    /// Every command, filtered by what's typed (a leading ">", as in Explorer, is ignored).
+    private func refreshCommands() {
+        var commands = PaletteCommand.all(for: model)
+        var trimmed = query.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix(">") { trimmed = String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces) }
+        if !trimmed.isEmpty { commands = Self.rank(commands, by: trimmed, name: \.name) }
+        items = commands.map(PaletteItem.command)
+        headers = [:]
+        highlighted = 0
     }
 
     /// Every folder ("" is the vault's top level) but the note's own, filtered by what's typed.
