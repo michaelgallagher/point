@@ -110,7 +110,13 @@ extension MarkdownTextView {
         let start = min(max(selection.location - view.range.location, 0), view.string.utf16.count)
         let end = min(max(NSMaxRange(selection) - view.range.location, start), view.string.utf16.count)
         view.setSelectedRange(NSRange(location: start, length: end - start))
-        if window?.firstResponder !== view { window?.makeFirstResponder(view) }
+        // The keyboard goes to the cell only from the note or another cell: not from the Find
+        // bar, say, whose match is then shown selected in the cell.
+        if window?.firstResponder === self || focusedTableCell != nil {
+            if window?.firstResponder !== view { window?.makeFirstResponder(view) }
+        } else {
+            view.needsDisplay = true
+        }
         view.scrollRangeToVisible(view.selectedRange())
     }
 
@@ -163,9 +169,12 @@ extension MarkdownTextView {
     func cellSelectionChanged(_ cell: TableCellView) {
         guard !isSyncingTables else { return }
         let local = cell.selectedRange()
+        let selection = NSRange(location: cell.range.location + local.location, length: local.length)
+        // Setting it again as it is would end the undo step that typing builds up.
+        guard selection != selectedRange() else { return }
         isMirroringCellSelection = true
         defer { isMirroringCellSelection = false }
-        setSelectionDirectly(NSRange(location: cell.range.location + local.location, length: local.length))
+        setSelectionDirectly(selection)
     }
 
     // MARK: Typing in a cell
@@ -201,6 +210,41 @@ extension MarkdownTextView {
 
     enum CellExit { case up, down, left, right }
 
+    /// Puts the cursor at the start of the line after a table, adding the line if the table
+    /// ends the note, so there's always somewhere to type below it.
+    func moveBelowTable(_ table: NSRange) {
+        let text = string as NSString
+        let line = text.lineRange(for: NSRange(location: NSMaxRange(table), length: 0))
+        if NSMaxRange(line) > NSMaxRange(table) {
+            setSelectedRange(NSRange(location: NSMaxRange(line), length: 0))
+        } else {
+            let ending = text.substring(with: table).contains("\r\n") ? "\r\n" : "\n"
+            replace(NSRange(location: NSMaxRange(table), length: 0), with: ending)
+        }
+        window?.makeFirstResponder(self)
+    }
+
+    /// Puts the cursor at the end of the line before a table, adding the line if the table
+    /// starts the note (after any properties).
+    func moveAboveTable(_ table: NSRange) {
+        if table.location > bodyStart {
+            setSelectedRange(NSRange(location: table.location - 1, length: 0))
+        } else {
+            let ending = (string as NSString).substring(with: table).contains("\r\n") ? "\r\n" : "\n"
+            replace(NSRange(location: table.location, length: 0), with: ending, select: NSRange(location: table.location, length: 0))
+        }
+        window?.makeFirstResponder(self)
+    }
+
+    /// A click below a table that ends the note goes on the line after it (added if need be),
+    /// not into the table's last cell, where its hidden text ends.
+    func clickBelowTable(at point: NSPoint) -> Bool {
+        let length = (string as NSString).length
+        guard let grid = tableGrids.first(where: { NSMaxRange($0.range) == length }), point.y > grid.frame.maxY else { return false }
+        moveBelowTable(grid.range)
+        return true
+    }
+
     /// An arrow key at a cell's edge: on to the cell beside it, or out of the table.
     func moveOutOfCell(_ cell: TableCellView, _ direction: CellExit) {
         guard let grid = cell.grid else { return }
@@ -209,10 +253,7 @@ extension MarkdownTextView {
         /// Just before the table (the end of the line above), or just after (the start of the
         /// line below).
         func leave(below: Bool) {
-            let location = below ? NSMaxRange(text.lineRange(for: NSRange(location: NSMaxRange(grid.range), length: 0)))
-                : grid.range.location - 1
-            guard location >= 0, location <= text.length, below ? location > NSMaxRange(grid.range) : true else { return NSSound.beep() }
-            setSelectedRange(NSRange(location: location, length: 0))
+            below ? moveBelowTable(grid.range) : moveAboveTable(grid.range)
         }
         func go(_ row: Int, _ column: Int, atEnd: Bool) {
             guard row >= 0, row < rows.count, !rows[row].isEmpty else { return leave(below: row >= rows.count) }

@@ -19,6 +19,7 @@ private func editor(_ marked: String, width: CGFloat = 760) -> MarkdownTextView 
         selection = NSRange(location: start, length: end - start)
     }
     let view = EditorTestSupport.makeEditor(text.replacingOccurrences(of: "¦", with: "|"), width: width, height: 500)
+    view.window?.makeFirstResponder(view) // As in the app, where the note has the keyboard.
     view.setSelectionDirectly(selection)
     return view
 }
@@ -188,6 +189,58 @@ struct TableCursorTests {
         keys(view).moveDown(nil)
         #expect(view.focusedTableCell == nil)
         #expect(marked(view).hasSuffix("|After"))
+    }
+
+    @Test func belowATableThatEndsTheNoteIsANewLine() {
+        let view = editor("¦ a ¦ b ¦\n¦ - ¦ - ¦\n¦ 1 ¦ 2| ¦")
+        keys(view).moveDown(nil)
+        #expect(view.focusedTableCell == nil)
+        #expect(marked(view) == "¦ a ¦ b ¦\n¦ - ¦ - ¦\n¦ 1 ¦ 2 ¦\n|")
+    }
+
+    @Test func typingAfterATablesLastPipeGoesBelowIt() {
+        let view = editor("¦ a ¦ b ¦\n¦ - ¦ - ¦|")
+        view.insertText("x", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(marked(view) == "¦ a ¦ b ¦\n¦ - ¦ - ¦\nx|")
+        let middle = editor("¦ a ¦ b ¦\n¦ - ¦ - ¦|\nafter")
+        middle.insertText("x", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(marked(middle) == "¦ a ¦ b ¦\n¦ - ¦ - ¦\nx|after")
+    }
+
+    @Test func aboveATableThatStartsTheNoteIsANewLine() {
+        let view = editor("¦ a| ¦ b ¦\n¦ - ¦ - ¦")
+        keys(view).moveUp(nil)
+        #expect(view.focusedTableCell == nil)
+        #expect(marked(view) == "|\n¦ a ¦ b ¦\n¦ - ¦ - ¦")
+    }
+
+    @Test func clickingBelowATableThatEndsTheNoteGoesBelowIt() {
+        let view = editor("Before|\n\n¦ a ¦ b ¦\n¦ - ¦ - ¦")
+        let grid = grid(view)
+        #expect(view.clickBelowTable(at: NSPoint(x: grid.frame.midX, y: grid.frame.maxY + 30)))
+        #expect(marked(view) == "Before\n\n¦ a ¦ b ¦\n¦ - ¦ - ¦\n|")
+        #expect(!view.clickBelowTable(at: NSPoint(x: grid.frame.midX, y: grid.frame.maxY + 30)))
+    }
+
+    @Test func theCursorStepsOverHiddenMarkersInACell() throws {
+        let view = editor("¦ |**bold** ¦ b ¦\n¦ - ¦ - ¦")
+        let cell = try #require(view.focusedTableCell)
+        #expect(cell.selectedRange().location == 2) // After the hidden `**`.
+        cell.moveRight(nil)
+        #expect(cell.selectedRange().location == 3)
+        cell.moveLeft(nil)
+        #expect(cell.selectedRange().location == 0)
+        // With only hidden markers before it, it's at the start: left leaves the table.
+        cell.moveLeft(nil)
+        #expect(view.focusedTableCell == nil)
+    }
+
+    @Test func aMatchFoundInACellDoesntTakeTheKeyboard() {
+        let view = editor("Before|\n\n¦ a ¦ needle ¦\n¦ - ¦ - ¦")
+        view.window?.makeFirstResponder(nil)
+        view.setSelectedRange((view.string as NSString).range(of: "needle"))
+        #expect(view.focusedTableCell == nil)
+        #expect(grid(view).cells[0][1].selectedRange() == NSRange(location: 0, length: 6))
     }
 
     @Test func undoPutsTheCellBack() {

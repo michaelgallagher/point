@@ -485,6 +485,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
             guard headerHeight != oldValue else { return }
             layoutHeader()
             sizeToFit()
+            scheduleTableSync() // The text moved, and its tables with it.
             needsDisplay = true
             updateInsertionPointStateAndRestartTimer(true)
         }
@@ -546,6 +547,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         let side = max(28, ((frame.width - styler.theme.maxTextWidth) / 2).rounded())
         if textContainerInset.width != side {
             textContainerInset = NSSize(width: side, height: 28)
+            scheduleTableSync()
         }
         // Tables are narrowed to fit the text, so they're laid out again when it changes width.
         // Not when a scroll bar comes or goes, though: a table that then grew or shrank could
@@ -858,6 +860,12 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         // In a table: over a selection across cells, only their text goes; and a pipe or line
         // break typed or pasted is escaped, or made a space, so it can't split a cell or the row.
         var string = string
+        // Typed just after a table's last pipe (at the end of the note, say): on the line below
+        // the table, not as a new cell.
+        if replacementRange.location == NSNotFound, !hasMarkedText(), selectedRange().length == 0,
+           let (token, _) = renderedTable(at: selectedRange().location), selectedRange().location == NSMaxRange(token.range) {
+            moveBelowTable(token.range)
+        }
         let target = replacementRange.location == NSNotFound ? selectedRange() : replacementRange
         if !hasMarkedText(), let text = (string as? String) ?? (string as? NSAttributedString)?.string,
            renderedTable(at: target.location) != nil {

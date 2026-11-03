@@ -165,7 +165,9 @@ final class TableCellView: NSTextView {
     /// unless the note's text for it is different (beyond spaces typed at its end); then it
     /// takes the note's text, and the cursor goes where the note's is.
     func show(_ text: NSAttributedString, typing: [NSAttributedString.Key: Any], isFocused: Bool, noteSelection: NSRange) {
-        guard let storage = textStorage else { return }
+        // Not while a character is being composed (with an input method), which the note has as
+        // it goes but which would be lost by restyling it here.
+        guard let storage = textStorage, !(isFocused && hasMarkedText()) else { return }
         func trimmed(_ string: String) -> Substring {
             var string = Substring(string)
             while string.last == " " { string.removeLast() }
@@ -204,8 +206,29 @@ final class TableCellView: NSTextView {
     }
 
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        var ranges = ranges
+        if !stillSelecting, ranges.count == 1, ranges[0].rangeValue.length == 0 {
+            let location = ranges[0].rangeValue.location
+            ranges = [NSValue(range: NSRange(location: snapped(location, forward: location >= selectedRange().location), length: 0))]
+        }
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
         if !stillSelecting, grid?.isUpdating == false, window?.firstResponder === self { editor?.cellSelectionChanged(self) }
+    }
+
+    /// Never inside hidden markers (`**`, `[[`), as in the note, so every arrow press visibly
+    /// moves the cursor: past them going forward, before them going back.
+    private func snapped(_ location: Int, forward: Bool) -> Int {
+        guard let storage = textStorage else { return location }
+        func isHidden(_ index: Int) -> Bool {
+            index >= 0 && index < storage.length && storage.attribute(.pointHidden, at: index, effectiveRange: nil) != nil
+        }
+        var location = location
+        if forward {
+            while isHidden(location) { location += 1 }
+        } else {
+            while isHidden(location - 1) { location -= 1 }
+        }
+        return location
     }
 
     override func becomeFirstResponder() -> Bool {
@@ -233,13 +256,28 @@ final class TableCellView: NSTextView {
     }
 
     override func moveLeft(_ sender: Any?) {
-        let selection = selectedRange()
-        selection == NSRange(location: 0, length: 0) ? editor?.moveOutOfCell(self, .left) : super.moveLeft(sender)
+        isAtEdge(start: true) ? editor?.moveOutOfCell(self, .left) : super.moveLeft(sender)
     }
 
     override func moveRight(_ sender: Any?) {
+        isAtEdge(start: false) ? editor?.moveOutOfCell(self, .right) : super.moveRight(sender)
+    }
+
+    /// Whether the cursor is at the start of the cell's text, or its end, with only hidden
+    /// markers (if anything) between.
+    private func isAtEdge(start: Bool) -> Bool {
         let selection = selectedRange()
-        selection == NSRange(location: string.utf16.count, length: 0) ? editor?.moveOutOfCell(self, .right) : super.moveRight(sender)
+        guard selection.length == 0, let storage = textStorage else { return false }
+        let rest = start ? NSRange(location: 0, length: selection.location)
+            : NSRange(location: selection.location, length: storage.length - selection.location)
+        var visible = false
+        storage.enumerateAttribute(.pointHidden, in: rest) { value, _, stop in
+            if value == nil {
+                visible = true
+                stop.pointee = true
+            }
+        }
+        return !visible
     }
 
     /// Whether the cursor is on the cell's first line, or its last.

@@ -493,6 +493,7 @@ extension MarkdownTextView {
             return
         }
         if tableControlsMouseDown(event) { return }
+        if clickBelowTable(at: point) { return }
         if showHighlightMenu(at: point, for: event) { return }
         if toggleCheckbox(at: point) { return }
         if addCursor(for: event) { return } // ⌥-click adds a cursor (but not on a link).

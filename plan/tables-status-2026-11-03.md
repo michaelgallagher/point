@@ -16,7 +16,7 @@ Mike chose option 2. It's built, uncommitted, on top of the Markdown work:
 - **Removed:** `TableTypesetter`, `TableTextContainer`, and the layout manager's table line placement, hit testing and drawing. The text container is a plain one again, so the list jump can't come back from it.
 
 **Checked:**
-- EditorKit's 158 tests and MarkdownKit's 54 tests pass.
+- EditorKit's 163 tests and MarkdownKit's 54 tests pass.
 - The Mac and iOS apps build.
 - In a test copy of the app, on the scratch vault:
   - the grid draws and wraps
@@ -25,11 +25,20 @@ Mike chose option 2. It's built, uncommitted, on top of the Markdown work:
   - dragging a row's grip moves the row
   - all of these were saved to the file
 
-**Not done or not checked yet:**
-- The cursor in a cell can stop inside hidden markers such as `**`.
-- Spaces typed at the start of a cell are dropped.
+**Rough edges, worked on after `30a287d`:**
+- **There's always somewhere to type below a table.** Down from the last row, a click below a table that ends the note, and typing just after a table's last pipe all go to the line after the table, adding it if the table ends the note. Up from the first row does the same above a table that starts the note.
+- **The cursor in a cell steps over hidden markers** such as `**`, rather than stopping inside them, and arrows at a cell's edge look past them.
+- **Find doesn't take the keyboard.** A match found in a cell is shown in the cell, but the keyboard stays with the Find bar.
+- **Text being composed with an input method** (marked text) isn't replaced while the cell is refreshed.
+- **The grid is placed again when the header or insets change,** which had left it drawn too high.
+- Checked in the test copy: Down out of a table at the end of a note, then typing; typing in a cell and one Undo taking the whole run back; the grid's placement.
+
+**Limits that remain:**
+- Spaces typed at the start of a cell are dropped. GFM trims them, so they couldn't be kept in the Markdown.
 - Several cursors don't reach into cells.
-- Find, IME input, and whether undo takes typing back a word or a character at a time are untested.
+- Find's yellow indicator isn't drawn over a match in a cell, since the note's text there is hidden.
+- IME input is protected but hasn't been tried with a real input method.
+- A real mouse click below a table is covered by a test, not tried in the app (the test tool sets the selection rather than clicking).
 
 # In short (written before the rebuild)
 
