@@ -124,6 +124,26 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         return true
     }
 
+    /// The empty line after the note's last line break takes that line's paragraph style. After
+    /// a table or another collapsed line, that's a sliver, which would leave the cursor there
+    /// invisible, so the line is given the height of a line of body text.
+    override func setExtraLineFragmentRect(_ fragmentRect: CGRect, usedRect: CGRect, textContainer container: NSTextContainer) {
+        guard let storage = textStorage, storage.length > 0, fragmentRect.width > 0,
+              let style = storage.attribute(.paragraphStyle, at: storage.length - 1, effectiveRange: nil) as? NSParagraphStyle,
+              style.maximumLineHeight > 0 else {
+            return super.setExtraLineFragmentRect(fragmentRect, usedRect: usedRect, textContainer: container)
+        }
+        let font = theme.body
+        let height = (font.ascender - font.descender + font.leading).rounded(.up) + ((font.ascender - font.descender) * (theme.lineHeightMultiple - 1)).rounded()
+        guard fragmentRect.height < height else {
+            return super.setExtraLineFragmentRect(fragmentRect, usedRect: usedRect, textContainer: container)
+        }
+        var fragment = fragmentRect, used = usedRect
+        fragment.size.height = height
+        used.size.height = height
+        super.setExtraLineFragmentRect(fragment, usedRect: used, textContainer: container)
+    }
+
     // MARK: Drawing
 
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {

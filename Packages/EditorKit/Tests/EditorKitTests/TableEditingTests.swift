@@ -222,6 +222,16 @@ struct TableCursorTests {
         #expect(!view.clickBelowTable(at: NSPoint(x: grid.frame.midX, y: grid.frame.maxY + 30)))
     }
 
+    @Test func theLineAfterATableAtTheEndOfTheNoteIsFullHeight() {
+        let view = editor("Before|\n\n¦ a ¦ b ¦\n¦ - ¦ - ¦\n")
+        let grid = grid(view)
+        let below = NSPoint(x: grid.frame.midX, y: grid.frame.maxY + 10)
+        #expect(!view.clickBelowTable(at: below))
+        #expect(view.characterIndexForInsertion(at: below) == (view.string as NSString).length)
+        // The empty last line is as tall as a line of text, so the cursor can be seen there.
+        #expect(view.layoutManager!.extraLineFragmentRect.height > 10)
+    }
+
     @Test func theCursorStepsOverHiddenMarkersInACell() throws {
         let view = editor("¦ |**bold** ¦ b ¦\n¦ - ¦ - ¦")
         let cell = try #require(view.focusedTableCell)
