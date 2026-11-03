@@ -87,8 +87,11 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     var isCursorUpdateQueued = false
     var cursorAnimates = false
     var cursorClicked = false
-    /// The lines below an edit, sliding to their new place (see +SlidingLines).
+    /// The lines an edit moved, sliding to their new places (see +SlidingLines).
     var slidingLines: NSView?
+    /// Set while an edit is watched for the lines it moves, and the edits it made.
+    var isRecordingLineMoves = false
+    var lineMoveEdits: LineMoveEdits?
     var cursorWindowObservers: [NSObjectProtocol] = []
 
     /// The cursors (and selections) besides the main one (see +Cursors).
@@ -616,6 +619,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         scheduleTableSync()
         guard editedMask.contains(.editedCharacters) else { return }
         lastEditLocation = editedRange.location
+        recordLineMoveEdit(editedRange, delta: delta)
         if let start = editedTableStart, editedRange.location < start {
             editedTableStart = start + delta
         }

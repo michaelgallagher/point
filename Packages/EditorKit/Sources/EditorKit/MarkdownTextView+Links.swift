@@ -137,13 +137,11 @@ extension MarkdownTextView {
     }
 
     /// Whether a key is being typed (rather than a suggestion clicked), for `insertCompletion`.
-    /// And if it adds or removes a line, the lines below slide (see +SlidingLines).
+    /// And the lines it moves slide into place (see +SlidingLines).
     public override func keyDown(with event: NSEvent) {
         isTypingKey = true
         defer { isTypingKey = false }
-        let slide = lineSlideStart()
-        super.keyDown(with: event)
-        if let slide { slideLines(since: slide) }
+        movingLines { super.keyDown(with: event) }
     }
 
     /// Shows note-title suggestions while a wikilink target is being typed.

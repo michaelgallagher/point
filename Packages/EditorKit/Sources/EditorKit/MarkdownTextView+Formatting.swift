@@ -201,8 +201,8 @@ extension MarkdownTextView {
 
     // MARK: Indenting
 
-    @objc public func moveLinesUp(_ sender: Any?) { moveLines(down: false) }
-    @objc public func moveLinesDown(_ sender: Any?) { moveLines(down: true) }
+    @objc public func moveLinesUp(_ sender: Any?) { movingLines { moveLines(down: false) } }
+    @objc public func moveLinesDown(_ sender: Any?) { movingLines { moveLines(down: true) } }
 
     /// Moves the line with the cursor (or every line the selection touches) up or down past
     /// its neighbour, keeping the selection on it, as one undoable edit. A folded line and the
@@ -279,8 +279,8 @@ extension MarkdownTextView {
         return unit
     }
 
-    @objc public func indentLines(_ sender: Any?) { changeIndent(by: 1) }
-    @objc public func outdentLines(_ sender: Any?) { changeIndent(by: -1) }
+    @objc public func indentLines(_ sender: Any?) { movingLines { changeIndent(by: 1) } }
+    @objc public func outdentLines(_ sender: Any?) { movingLines { changeIndent(by: -1) } }
 
     /// Indents or outdents list items by a tab, Obsidian's default. Other lines are left alone:
     /// an indented paragraph would turn into a code block.

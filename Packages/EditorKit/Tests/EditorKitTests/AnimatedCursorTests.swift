@@ -78,7 +78,7 @@ struct AnimatedCursorTests {
     }
 }
 
-/// The lines below a typed line break sliding into place (see +SlidingLines).
+/// Lines an edit moves sliding into place (see +SlidingLines).
 @MainActor
 struct SlidingLinesTests {
     func editor(_ markdown: String, at location: Int) -> MarkdownTextView {
@@ -88,39 +88,79 @@ struct SlidingLinesTests {
         return view
     }
 
-    @Test func returnSlidesTheLinesBelowDownALine() throws {
-        let view = editor("One\nTwo\nThree", at: 3)
-        let start = try #require(view.lineSlideStart())
-        view.insertNewline(nil)
-        let slide = try #require(view.lineSlide(since: start))
-        #expect(slide.distance > 10)
-        let two = view.layoutManager!.lineFragmentRect(forGlyphAt: view.layoutManager!.glyphIndexForCharacter(at: 5), effectiveRange: nil)
-        #expect(abs(slide.top - (two.minY + view.textContainerOrigin.y)) < 0.5)
+    /// What moved in `edit`, top first.
+    func moves(_ view: MarkdownTextView, _ edit: () -> Void) throws -> [MarkdownTextView.LineMove] {
+        let start = try #require(view.lineMoveStart())
+        view.isRecordingLineMoves = true
+        edit()
+        view.isRecordingLineMoves = false
+        defer { view.lineMoveEdits = nil }
+        return view.lineMoves(since: start).sorted { $0.rect.minY < $1.rect.minY }
+    }
 
-        // The picture of them ends where they are, over the text.
-        view.slideLines(since: start)
+    func lineHeight(_ view: MarkdownTextView) -> CGFloat {
+        view.layoutManager!.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil).height
+    }
+
+    @Test func returnAtTheEndOfALineMovesTheLinesBelowDown() throws {
+        let view = editor("One\nTwo\nThree", at: 3)
+        let moved = try moves(view) { view.insertNewline(nil) }
+        // "Two" and "Three" each come down a line; "One" stays.
+        let down = moved.filter { $0.rect.minX == 0 }
+        #expect(down.count >= 2)
+        for move in down { #expect(abs(move.offset.dy + lineHeight(view)) < 1 || move.offset.dy < 0) }
+        #expect(!moved.contains { $0.rect.minY < view.textContainerOrigin.y + 1 })
+    }
+
+    @Test func returnInALineMovesTheRestOfItDownFromWhereItWas() throws {
+        let view = editor("Hello world\nNext", at: 6)
+        let moved = try moves(view) { view.insertNewline(nil) }
+        // "world" comes from after "Hello " on the line above, to the start of its own.
+        let world = try #require(moved.first)
+        #expect(world.offset.dy < -10)
+        #expect(world.offset.dx > 20)
+        // "Next" comes down a line, straight.
+        let next = try #require(moved.last)
+        #expect(next.offset.dy < -10 && abs(next.offset.dx) < 1)
+    }
+
+    @Test func deletingALineBreakMovesTheJoinedTextUp() throws {
+        let view = editor("One\nTwo\nThree", at: 4)
+        let moved = try moves(view) { view.deleteBackward(nil) }
+        #expect(view.string == "OneTwo\nThree")
+        // "Two" goes up from the start of its line to after "One"; "Three" goes up a line.
+        let two = try #require(moved.first)
+        #expect(two.offset.dy > 10 && two.offset.dx < -10)
+        let three = try #require(moved.last)
+        #expect(three.offset.dy > 10 && abs(three.offset.dx) < 1)
+    }
+
+    @Test func typingWithinALineMovesNothing() throws {
+        let view = editor("One\nTwo", at: 1)
+        #expect(try moves(view) { view.insertText("x", replacementRange: view.selectedRange()) }.isEmpty)
+    }
+
+    @Test func indentingAListItemMovesItAcross() throws {
+        let view = editor("- One\n- Two\n- Three", at: 9)
+        let moved = try moves(view) { view.changeIndent(by: 1) }
+        let two = try #require(moved.first)
+        #expect(two.offset.dx < -5 && abs(two.offset.dy) < 1)
+    }
+
+    @Test func movingALineDownSwapsThem() throws {
+        let view = editor("One\nTwo\nThree", at: 1)
+        let moved = try moves(view) { view.moveLinesDown(nil) }
+        #expect(view.string.hasPrefix("Two\nOne"))
+        #expect(moved.contains { $0.offset.dy > 10 }) // "Two", up.
+        #expect(moved.contains { $0.offset.dy < -10 }) // "One", down.
+    }
+
+    @Test func thePiecesSlideOverPatchesAndGo() throws {
+        let view = editor("One\nTwo\nThree", at: 3)
+        view.movingLines { view.insertNewline(nil) }
         let container = try #require(view.slidingLines)
-        let lines = try #require(container.subviews.first)
-        #expect(abs(container.frame.minY + lines.frame.minY - slide.top) < 0.5)
-        #expect(container.superview === view)
+        #expect(container.superview === view && !container.subviews.isEmpty)
         view.endLineSlide()
         #expect(view.slidingLines == nil && container.superview == nil)
     }
-
-    @Test func deletingALineBreakSlidesThemUp() throws {
-        let view = editor("One\nTwo\nThree", at: 4)
-        let start = try #require(view.lineSlideStart())
-        view.deleteBackward(nil)
-        #expect(view.string == "OneTwo\nThree")
-        #expect(try #require(view.lineSlide(since: start)).distance < -10)
-    }
-
-    @Test func nothingSlidesWithinALineOrWithNothingBelow() throws {
-        let view = editor("One\nTwo", at: 2)
-        let start = try #require(view.lineSlideStart())
-        view.insertText("x", replacementRange: view.selectedRange())
-        #expect(view.lineSlide(since: start) == nil)
-        #expect(editor("One\nTwo", at: 6).lineSlideStart() == nil)
-    }
 }
-
