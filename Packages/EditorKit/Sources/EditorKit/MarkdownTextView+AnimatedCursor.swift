@@ -2,9 +2,10 @@
 import AppKit
 
 /// The insertion point, drawn by the editor rather than the system, so that it glides from
-/// place to place instead of jumping: briefly as the arrows or a click move it, more briefly
-/// still as you type. It blinks as the system's does, staying solid for a moment after each
-/// move. With Reduce Motion it moves at once. Only while the editor has the keyboard, in the
+/// place to place instead of jumping, as in Bike: along a line as you type or press the arrows,
+/// a little more slowly to another line. A click doesn't glide: the cursor lands there, a
+/// little taller for a moment. It blinks as the system's does, staying solid for a moment
+/// after each move. With Reduce Motion it moves at once. Only while the editor has the keyboard, in the
 /// key window, with nothing selected; a table cell has its own, the system's.
 final class InsertionCursorView: NSView {
     var color: NSColor = .textColor {
@@ -32,23 +33,33 @@ final class InsertionCursorView: NSView {
 }
 
 extension MarkdownTextView {
-    /// How long the cursor takes to glide to a new place, moved or typed.
-    static let cursorMoveDuration: CFTimeInterval = 0.1
-    static let cursorTypingDuration: CFTimeInterval = 0.05
+    /// How long the cursor takes to glide along a line, typed or moved, and to another line.
+    /// Measured from Bike, as are the curve and the click's landing.
+    static let cursorAlongDuration: CFTimeInterval = 0.1
+    static let cursorAcrossDuration: CFTimeInterval = 0.2
+    /// Fast at first, then a long, soft finish (an ease-out cubic).
+    static let cursorTiming = CAMediaTimingFunction(controlPoints: 0.33, 1, 0.68, 1)
+    /// How much taller the cursor is as it lands from a click, and for how long.
+    static let cursorLandingScale: CGFloat = 1.2
+    static let cursorLandingDuration: CFTimeInterval = 0.2
     static let cursorWidth: CGFloat = 2
 
     /// Puts the cursor in place soon, once the text and its layout have settled.
     /// `animated` asks for the glide; any request without it in the meantime doesn't cancel it.
     func setNeedsCursorUpdate(animated: Bool = false) {
         cursorAnimates = cursorAnimates || animated
+        if animated, let event = NSApp.currentEvent, [.leftMouseDown, .leftMouseUp, .leftMouseDragged].contains(event.type) {
+            cursorClicked = true
+        }
         guard !isCursorUpdateQueued else { return }
         isCursorUpdateQueued = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.isCursorUpdateQueued = false
-            let animated = self.cursorAnimates
+            let animated = self.cursorAnimates, clicked = self.cursorClicked
             self.cursorAnimates = false
-            self.updateCursor(animated: animated)
+            self.cursorClicked = false
+            self.updateCursor(animated: animated, clicked: clicked)
         }
     }
 
@@ -110,15 +121,13 @@ extension MarkdownTextView {
         return shown(after) ?? fallback
     }
 
-    /// Moves the cursor to the selection, gliding there if `animated`, and shows or hides it.
-    func updateCursor(animated: Bool) {
+    /// Moves the cursor to the selection, gliding there if `animated` (or landing there, if
+    /// `clicked`), and shows or hides it.
+    func updateCursor(animated: Bool, clicked: Bool = false) {
         hideSystemInsertionIndicator()
         if cursorView.superview !== self || subviews.last !== cursorView {
             addSubview(cursorView, positioned: .above, relativeTo: nil)
         }
-        let length = (string as NSString).length
-        let typed = length != cursorTextLength
-        cursorTextLength = length
         guard showsCursor, let target = cursorRect() else {
             cursorView.isHidden = true
             return
@@ -132,7 +141,9 @@ extension MarkdownTextView {
         let from = layer?.presentation()
         let visible = enclosingScrollView?.contentView.bounds.height ?? bounds.height
         let near = abs(target.midY - cursorView.frame.midY) < visible
-        let glides = animated && !wasHidden && near && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let moves = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let glides = moves && !clicked && !wasHidden && near
+        let across = abs(target.minY - cursorView.frame.minY) > 1
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -141,18 +152,30 @@ extension MarkdownTextView {
         CATransaction.commit()
 
         if glides, let layer, let from {
-            let timing = CAMediaTimingFunction(name: .easeOut)
-            let duration = typed ? Self.cursorTypingDuration : Self.cursorMoveDuration
-            for key in ["position", "bounds"] {
-                let move = CABasicAnimation(keyPath: key)
-                move.fromValue = key == "position" ? NSValue(point: from.position) : NSValue(rect: from.bounds)
-                move.toValue = key == "position" ? NSValue(point: layer.position) : NSValue(rect: layer.bounds)
-                move.duration = duration
-                move.timingFunction = timing
-                layer.add(move, forKey: key)
-            }
+            animateCursor(layer, from: from.position, bounds: from.bounds,
+                          duration: across ? Self.cursorAcrossDuration : Self.cursorAlongDuration)
+        } else if moves, clicked, let layer {
+            // Lands a little taller, settling to its height about its middle.
+            var bounds = layer.bounds
+            let grown = bounds.height * (Self.cursorLandingScale - 1)
+            bounds.size.height += grown
+            // The layer's position is its corner, so it starts half the growth further back.
+            let corner = layer.position
+            let start = CGPoint(x: corner.x, y: corner.y - grown / 2)
+            animateCursor(layer, from: start, bounds: bounds, duration: Self.cursorLandingDuration)
         }
         restartCursorBlink()
+    }
+
+    private func animateCursor(_ layer: CALayer, from position: CGPoint, bounds: CGRect, duration: CFTimeInterval) {
+        for key in ["position", "bounds"] {
+            let move = CABasicAnimation(keyPath: key)
+            move.fromValue = key == "position" ? NSValue(point: position) : NSValue(rect: bounds)
+            move.toValue = key == "position" ? NSValue(point: layer.position) : NSValue(rect: layer.bounds)
+            move.duration = duration
+            move.timingFunction = Self.cursorTiming
+            layer.add(move, forKey: key)
+        }
     }
 
     /// How long the cursor takes to fade out or in as it blinks.

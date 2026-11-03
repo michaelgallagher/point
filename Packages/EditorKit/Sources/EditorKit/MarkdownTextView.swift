@@ -86,8 +86,9 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     let cursorView = InsertionCursorView()
     var isCursorUpdateQueued = false
     var cursorAnimates = false
-    /// The text's length when the cursor last moved, to tell typing from moving.
-    var cursorTextLength = 0
+    var cursorClicked = false
+    /// The lines below an edit, sliding to their new place (see +SlidingLines).
+    var slidingLines: NSView?
     var cursorWindowObservers: [NSObjectProtocol] = []
 
     /// The cursors (and selections) besides the main one (see +Cursors).
@@ -102,7 +103,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     /// Set while a table is written out, which isn't typing in it.
     var isRewritingTable = false
     /// Where the last edit to the text was.
-    private var lastEditLocation = 0
+    private(set) var lastEditLocation = 0
 
     /// How big the text is, relative to the chosen size (⌘+ / ⌘−).
     public var textScale: CGFloat {

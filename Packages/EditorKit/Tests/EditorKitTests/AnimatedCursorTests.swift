@@ -77,3 +77,50 @@ struct AnimatedCursorTests {
         #expect(blink.repeatCount == .infinity)
     }
 }
+
+/// The lines below a typed line break sliding into place (see +SlidingLines).
+@MainActor
+struct SlidingLinesTests {
+    func editor(_ markdown: String, at location: Int) -> MarkdownTextView {
+        let view = EditorTestSupport.makeEditor(markdown, height: 500)
+        view.window?.makeFirstResponder(view)
+        view.setSelectionDirectly(NSRange(location: location, length: 0))
+        return view
+    }
+
+    @Test func returnSlidesTheLinesBelowDownALine() throws {
+        let view = editor("One\nTwo\nThree", at: 3)
+        let start = try #require(view.lineSlideStart())
+        view.insertNewline(nil)
+        let slide = try #require(view.lineSlide(since: start))
+        #expect(slide.distance > 10)
+        let two = view.layoutManager!.lineFragmentRect(forGlyphAt: view.layoutManager!.glyphIndexForCharacter(at: 5), effectiveRange: nil)
+        #expect(abs(slide.top - (two.minY + view.textContainerOrigin.y)) < 0.5)
+
+        // The picture of them ends where they are, over the text.
+        view.slideLines(since: start)
+        let container = try #require(view.slidingLines)
+        let lines = try #require(container.subviews.first)
+        #expect(abs(container.frame.minY + lines.frame.minY - slide.top) < 0.5)
+        #expect(container.superview === view)
+        view.endLineSlide()
+        #expect(view.slidingLines == nil && container.superview == nil)
+    }
+
+    @Test func deletingALineBreakSlidesThemUp() throws {
+        let view = editor("One\nTwo\nThree", at: 4)
+        let start = try #require(view.lineSlideStart())
+        view.deleteBackward(nil)
+        #expect(view.string == "OneTwo\nThree")
+        #expect(try #require(view.lineSlide(since: start)).distance < -10)
+    }
+
+    @Test func nothingSlidesWithinALineOrWithNothingBelow() throws {
+        let view = editor("One\nTwo", at: 2)
+        let start = try #require(view.lineSlideStart())
+        view.insertText("x", replacementRange: view.selectedRange())
+        #expect(view.lineSlide(since: start) == nil)
+        #expect(editor("One\nTwo", at: 6).lineSlideStart() == nil)
+    }
+}
+
