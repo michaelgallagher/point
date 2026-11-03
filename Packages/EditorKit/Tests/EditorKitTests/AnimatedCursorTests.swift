@@ -74,7 +74,7 @@ struct AnimatedCursorTests {
 
     @Test func itBlinksSolidThenOffThenOn() throws {
         let view = editor("Some text", at: 2)
-        view.restartCursorBlink()
+        view.cursorView.restartBlink()
         let blink = try #require(view.cursorView.layer?.animation(forKey: "blink") as? CAKeyframeAnimation)
         let values = try #require(blink.values as? [NSNumber]).map(\.doubleValue)
         let times = try #require(blink.keyTimes?.map(\.doubleValue))
@@ -82,6 +82,34 @@ struct AnimatedCursorTests {
         #expect(values.first == 1 && values.last == 1 && values.contains(0))
         #expect(times.first == 0 && times.last == 1 && times == times.sorted())
         #expect(blink.repeatCount == .infinity)
+    }
+}
+
+/// The same cursor in other text fields (see FieldCursors).
+@MainActor
+struct FieldCursorsTests {
+    @Test func itGoesWhereTheSystemsWouldInAField() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        let field = NSTextField(string: "Some words")
+        field.frame = NSRect(x: 20, y: 20, width: 200, height: 22)
+        window.contentView?.addSubview(field)
+        window.makeFirstResponder(field)
+        let editor = try #require(field.currentEditor() as? NSTextView)
+        #expect(editor.isFieldEditor && !(editor is MarkdownTextView))
+        for location in [0, 4, 10] {
+            editor.setSelectedRange(NSRange(location: location, length: 0))
+            let rect = try #require(FieldCursors.cursorRect(in: editor))
+            let screen = editor.firstRect(forCharacterRange: editor.selectedRange(), actualRange: nil)
+            let system = editor.convert(window.convertFromScreen(screen), from: nil)
+            #expect(abs(rect.minX - system.minX) <= 1, "at \(location)")
+            #expect(rect.minY >= system.minY - 0.5 && rect.maxY <= system.maxY + 0.5)
+            #expect(rect.height > 10)
+        }
+        // Further along, further across.
+        editor.setSelectedRange(NSRange(location: 0, length: 0))
+        let start = try #require(FieldCursors.cursorRect(in: editor))
+        editor.setSelectedRange(NSRange(location: 10, length: 0))
+        #expect(try #require(FieldCursors.cursorRect(in: editor)).minX > start.minX + 30)
     }
 }
 

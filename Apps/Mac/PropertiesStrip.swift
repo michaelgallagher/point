@@ -553,7 +553,9 @@ private struct TextValue: View {
     @State private var isEditing = false
     @FocusState private var isFocused: Bool
 
-    private var displayed: String { property.values.joined(separator: ", ") }
+    private var displayed: String { Self.displayed(property) }
+
+    static func displayed(_ property: Frontmatter.Property) -> String { property.values.joined(separator: ", ") }
 
     var body: some View {
         // A web address stays an ordinary field, to select and edit (in the link colour while
@@ -589,7 +591,7 @@ private struct TextValue: View {
                     .onTapGesture { edit() }
             }
             .onAppear { text = displayed }
-            .onChange(of: property) { _ in text = displayed }
+            .onChange(of: property) { new in text = Self.displayed(new) }
         } else {
             field
         }
@@ -641,8 +643,10 @@ private struct TextValue: View {
                 }
             }
             .onAppear { text = displayed }
-            .onChange(of: property) { _ in
-                if !isFocused { text = displayed }
+            // From the new value: the view's own `property` can still be the old one here, which
+            // put back what was there before when editing ended by Tab or a click away.
+            .onChange(of: property) { new in
+                if !isFocused { text = Self.displayed(new) }
             }
     }
 

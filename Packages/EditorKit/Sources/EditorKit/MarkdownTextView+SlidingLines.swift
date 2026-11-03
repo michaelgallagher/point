@@ -77,7 +77,7 @@ extension MarkdownTextView {
     /// Runs an edit, sliding the lines it moves into place. Not for a key held down, whose
     /// lines move faster than they could slide.
     func movingLines(_ edit: () -> Void) {
-        guard !isRecordingLineMoves, !Self.isKeyRepeating, let start = lineMoveStart() else {
+        guard !isRecordingLineMoves, !InsertionCursorView.isKeyRepeating, let start = lineMoveStart() else {
             endLineSlide()
             return edit()
         }
@@ -282,8 +282,8 @@ extension MarkdownTextView {
         slidingLines = container
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = Self.cursorAcrossDuration
-            context.timingFunction = Self.cursorTiming
+            context.duration = InsertionCursorView.acrossDuration
+            context.timingFunction = InsertionCursorView.timing
             context.allowsImplicitAnimation = true
             for piece in pieces { piece.view.animator().setFrameOrigin(piece.end) }
         } completionHandler: { [weak self, weak container] in

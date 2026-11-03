@@ -1,4 +1,5 @@
 import AppKit
+import EditorKit
 import SwiftUI
 import VaultKit
 
@@ -10,7 +11,11 @@ struct PointApp: App {
     init() {
         // Point has its own tabs, inside each side of a window; no window tabs.
         NSWindow.allowsAutomaticWindowTabbing = false
-        DispatchQueue.main.async { AppIcon.applyChosen() }
+        DispatchQueue.main.async {
+            AppIcon.applyChosen()
+            // The editor's gliding cursor in every other text field too.
+            FieldCursors.shared.start()
+        }
     }
 
     var body: some Scene {
