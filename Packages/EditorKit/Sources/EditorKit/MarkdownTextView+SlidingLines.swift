@@ -14,6 +14,8 @@ extension MarkdownTextView {
     /// The lines on screen before an edit: where each was, and what it held.
     struct LineMoveStart {
         let text: String
+        /// Where the cursor or selection was.
+        let selection: NSRange
         let lines: [Line]
         /// Where the grids over tables were, in order.
         let grids: [NSRect]
@@ -95,7 +97,7 @@ extension MarkdownTextView {
         var near = text.paragraphRange(for: selectedRange())
         if near.location > 0 { near = NSUnionRange(near, text.paragraphRange(for: NSRange(location: near.location - 1, length: 0))) }
         if NSMaxRange(near) < text.length { near = NSUnionRange(near, text.paragraphRange(for: NSRange(location: NSMaxRange(near), length: 0))) }
-        return LineMoveStart(text: string, lines: visibleLines(below: visibleRect.height, near: near), grids: tableGrids.map(\.frame))
+        return LineMoveStart(text: string, selection: selectedRange(), lines: visibleLines(below: visibleRect.height, near: near), grids: tableGrids.map(\.frame))
     }
 
     /// The lines on screen (and `extra` further below), in the view.
@@ -144,6 +146,13 @@ extension MarkdownTextView {
         // side of it moves apart; otherwise what was typed moves with its line, as when it wraps.
         let splits = text.substring(with: replaced).contains("\n")
             || NSMaxRange(replacedBefore) <= old.length && old.substring(with: replacedBefore).contains("\n")
+        // Return in the middle of a line's text: nothing slides. The rest of the line goes
+        // straight to its own, and the lines below straight down.
+        let cursor = NSMaxRange(start.selection)
+        if cursor < old.length, old.character(at: cursor) != 10,
+           Self.lineBreaks(in: text) > Self.lineBreaks(in: old) {
+            return []
+        }
         var moves: [LineMove] = []
         var matched = Set<Int>()
         // How whole lines below the edit moved, for those that were off screen before.
@@ -226,6 +235,10 @@ extension MarkdownTextView {
     }
 
     /// A line's text, without its indent or line break, to know it again after an edit.
+    private static func lineBreaks(in text: NSString) -> Int {
+        text.components(separatedBy: "\n").count - 1
+    }
+
     private static func lineText(_ text: NSString, _ range: NSRange) -> String {
         text.substring(with: range).trimmingCharacters(in: .whitespacesAndNewlines)
     }

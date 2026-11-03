@@ -119,16 +119,13 @@ struct SlidingLinesTests {
         #expect(!moved.contains { $0.rect.minY < view.textContainerOrigin.y + 1 })
     }
 
-    @Test func returnInALineMovesTheRestOfItDownFromWhereItWas() throws {
+    @Test func returnInALinesTextMovesNothing() throws {
+        // The rest of the line goes straight to the new one, as typed text does.
         let view = editor("Hello world\nNext", at: 6)
-        let moved = try moves(view) { view.insertNewline(nil) }
-        // "world" comes from after "Hello " on the line above, to the start of its own.
-        let world = try #require(moved.first)
-        #expect(world.offset.dy < -10)
-        #expect(world.offset.dx > 20)
-        // "Next" comes down a line, straight.
-        let next = try #require(moved.last)
-        #expect(next.offset.dy < -10 && abs(next.offset.dx) < 1)
+        #expect(try moves(view) { view.insertNewline(nil) }.isEmpty)
+        // At the end of a list item, the new item comes in and the lines below slide down.
+        let list = editor("- One\n- Two", at: 5)
+        #expect(try !moves(list) { list.insertNewline(nil) }.isEmpty)
     }
 
     @Test func deletingALineBreakMovesTheJoinedTextUp() throws {
