@@ -5,7 +5,7 @@ import Foundation
 /// Cells hold their Markdown exactly as written (an escaped pipe stays `\|`), only trimmed of
 /// the spaces around it, so writing a table back loses nothing but its old padding.
 public struct MarkdownTable: Equatable, Sendable {
-    public enum Alignment: Equatable, Sendable {
+    public enum Alignment: Hashable, Sendable {
         case none, left, center, right
     }
 
@@ -46,20 +46,28 @@ public struct MarkdownTable: Equatable, Sendable {
 
     // MARK: Writing
 
-    /// The table written out neatly: each column padded to its widest cell, as the column is
-    /// aligned, with a pipe at each end of every row.
+    /// How wide a table may be written padded. Wider, the padding would wrap and only make
+    /// it harder to read.
+    public static let paddedWidth = 80
+
+    /// Each column's width when padded: its widest cell, and at least three.
+    private var neatWidths: [Int] {
+        (0..<columnCount).map { column in max(3, rows.map { Self.width(of: $0[column]) }.max() ?? 0) }
+    }
+
+    /// The table written out neatly, with a pipe at each end of every row: each column padded
+    /// to its widest cell, as the column is aligned, unless that would make it too wide.
     public func markdown(lineEnding: String = "\n") -> String {
-        let widths = (0..<columnCount).map { column in
-            max(3, rows.map { Self.width(of: $0[column]) }.max() ?? 0)
-        }
+        let neat = neatWidths
+        let padded = neat.reduce(0, +) + 3 * columnCount + 1 <= Self.paddedWidth
         func line(_ cells: [String]) -> String {
             "| " + cells.joined(separator: " | ") + " |"
         }
         var lines = rows.map { row in
-            line(row.enumerated().map { column, cell in Self.pad(cell, to: widths[column], alignment: alignments[column]) })
+            line(row.enumerated().map { column, cell in padded ? Self.pad(cell, to: neat[column], alignment: alignments[column]) : cell })
         }
         let delimiter = alignments.enumerated().map { column, alignment -> String in
-            let width = widths[column]
+            let width = padded ? neat[column] : 3
             switch alignment {
             case .none: return String(repeating: "-", count: width)
             case .left: return ":" + String(repeating: "-", count: width - 1)
@@ -137,6 +145,19 @@ public struct MarkdownTable: Equatable, Sendable {
         guard columnCount > 1, index >= 0, index < columnCount else { return }
         alignments.remove(at: index)
         for row in rows.indices { rows[row].remove(at: index) }
+    }
+
+    /// Moves a body row so that it becomes row `destination`. The header row stays first.
+    public mutating func moveRow(from source: Int, to destination: Int) {
+        guard source >= 1, source < rows.count, destination >= 1, destination < rows.count else { return }
+        rows.insert(rows.remove(at: source), at: destination)
+    }
+
+    /// Moves a column, with its alignment, so that it becomes column `destination`.
+    public mutating func moveColumn(from source: Int, to destination: Int) {
+        guard source >= 0, source < columnCount, destination >= 0, destination < columnCount else { return }
+        alignments.insert(alignments.remove(at: source), at: destination)
+        for row in rows.indices { rows[row].insert(rows[row].remove(at: source), at: destination) }
     }
 
     public subscript(row: Int, column: Int) -> String {

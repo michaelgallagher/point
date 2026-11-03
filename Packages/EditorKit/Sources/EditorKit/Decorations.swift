@@ -28,12 +28,6 @@ extension NSAttributedString.Key {
     static let pointListHighlight = NSAttributedString.Key("point.listHighlight")
     /// A line-height multiple (CGFloat) overriding the theme's, for example in code blocks.
     static let pointLineHeight = NSAttributedString.Key("point.lineHeight")
-    /// A table's pipe that divides two cells, laid out as a space reaching to where the next
-    /// cell's text starts (a `TableGap`).
-    static let pointTableGap = NSAttributedString.Key("point.tableGap")
-    /// A cell's text too wide for its column: where (a CGFloat, from the text's left edge) it
-    /// is cut off.
-    static let pointTableClip = NSAttributedString.Key("point.tableClip")
 }
 
 enum BlockDecoration: Hashable {
@@ -43,21 +37,21 @@ enum BlockDecoration: Hashable {
     case table(TableDecoration)
 }
 
-/// Where a table's columns are, for drawing its lines: the edges of each column, from the
-/// text's left edge, starting at 0.
+/// Where a table's grid is laid out, from the left edge of the text and the top of the table.
+/// Its Markdown is hidden; a `TableGridView` draws it from this.
 struct TableDecoration: Hashable {
+    /// Each column's edges, starting at 0, with the cell padding between them and the text.
     let columnEdges: [CGFloat]
-}
+    /// How wide each column's text is.
+    let columnWidths: [CGFloat]
+    /// Each row's height, the header first (the delimiter row isn't counted), with its padding.
+    let rowHeights: [CGFloat]
+    let alignments: [MarkdownTable.Alignment]
 
-/// Where the text of the cell after a table's pipe starts, from the text's left edge.
-struct TableGap: Hashable {
-    let x: CGFloat
-}
-
-/// The hidden padding and pipes between two of a table's cells. Each run has its own value, so
-/// that runs on either side of an empty cell stay apart, with a place for the cursor between.
-struct TableBoundary: Hashable {
-    let location: Int
+    var width: CGFloat { columnEdges.last ?? 0 }
+    var height: CGFloat { rowHeights.reduce(0, +) }
+    /// Where each row's top is.
+    var rowTops: [CGFloat] { rowHeights.indices.map { rowHeights[..<$0].reduce(0, +) } }
 }
 
 struct ListMarkerDecoration: Hashable {

@@ -99,6 +99,19 @@ struct TableWritingTests {
         #expect(MarkdownTable(written)?.markdown() == written)
     }
 
+    @Test func aWideTableIsntPadded() throws {
+        let long = String(repeating: "word ", count: 16).trimmingCharacters(in: .whitespaces)
+        let table = try #require(MarkdownTable("| a | b |\n| - | :-: |\n| \(long) | c |"))
+        #expect(table.markdown() == "| a | b |\n| --- | :-: |\n| \(long) | c |")
+        #expect(MarkdownTable(table.markdown()) == table)
+    }
+
+    @Test func longDashesAreWrittenNeatly() throws {
+        // Dashes don't set widths: the table is written out padded to its cells, as any other.
+        let table = try #require(MarkdownTable("| a | b |\n| ---------- | ------------------------------ |\n| 1 | 2 |"))
+        #expect(table.markdown() == "| a   | b   |\n| --- | --- |\n| 1   | 2   |")
+    }
+
     @Test func cellTextIsEscaped() {
         #expect(MarkdownTable.cellText("a|b\nc \\| d") == "a\\|b c \\| d")
     }
@@ -116,6 +129,17 @@ struct TableShapeTests {
         #expect(table.rows == [["", "b"], ["", ""], ["", "2"]])
         table.removeRow(at: 1)
         #expect(table.rows == [["", "b"], ["", "2"]])
+    }
+
+    @Test func movesRowsAndColumns() throws {
+        var table = try #require(MarkdownTable("| a | b | c |\n| :- | - | -: |\n| 1 | 2 | 3 |\n| 4 | 5 | 6 |"))
+        table.moveRow(from: 2, to: 1)
+        #expect(table.rows == [["a", "b", "c"], ["4", "5", "6"], ["1", "2", "3"]])
+        table.moveRow(from: 1, to: 0)
+        #expect(table.rows[0] == ["a", "b", "c"])
+        table.moveColumn(from: 0, to: 2)
+        #expect(table.rows == [["b", "c", "a"], ["5", "6", "4"], ["2", "3", "1"]])
+        #expect(table.alignments == [.none, .right, .left])
     }
 
     @Test func theHeaderRowAndLastColumnStay() throws {

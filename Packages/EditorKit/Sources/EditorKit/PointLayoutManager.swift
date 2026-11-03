@@ -53,10 +53,11 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         for i in 0..<glyphRange.length {
             let index = characterIndexes[i]
             if !NSLocationInRange(index, hiddenRun) {
-                var effective = NSRange()
-                let hidden = storage.attribute(.pointHidden, at: index, effectiveRange: &effective) != nil
-                hiddenRun = hidden ? effective : NSRange(location: NSNotFound, length: 0)
-                if !hidden { continue }
+                guard let run = Self.hiddenRun(at: index, in: storage) else {
+                    hiddenRun = NSRange(location: NSNotFound, length: 0)
+                    continue
+                }
+                hiddenRun = run
             }
             if modified == nil {
                 modified = Array(UnsafeBufferPointer(start: properties, count: glyphRange.length))
@@ -75,59 +76,21 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         shouldUse action: NSLayoutManager.ControlCharacterAction,
         forControlCharacterAt charIndex: Int
     ) -> NSLayoutManager.ControlCharacterAction {
-        guard let storage = layoutManager.textStorage, storage.attribute(.pointHidden, at: charIndex, effectiveRange: nil) != nil else {
+        guard let storage = layoutManager.textStorage, Self.hiddenRun(at: charIndex, in: storage) != nil,
+              // A table's line breaks still end its lines, which hold its height.
+              action != .paragraphBreak, action != .lineBreak else {
             return action
         }
-        // A table's pipe between cells is a space, as wide as `boundingBoxForControlGlyphAt` says.
-        return storage.attribute(.pointTableGap, at: charIndex, effectiveRange: nil) != nil ? .whitespace : .zeroAdvancement
+        return .zeroAdvancement
     }
 
-    /// A table's pipe reaches from where it is to where the next cell's text starts.
-    func layoutManager(
-        _ layoutManager: NSLayoutManager,
-        boundingBoxForControlGlyphAt glyphIndex: Int,
-        for textContainer: NSTextContainer,
-        proposedLineFragment proposedRect: CGRect,
-        glyphPosition: CGPoint,
-        characterIndex charIndex: Int
-    ) -> CGRect {
-        guard let gap = layoutManager.textStorage?.attribute(.pointTableGap, at: charIndex, effectiveRange: nil) as? TableGap else {
-            return CGRect(origin: glyphPosition, size: .zero)
-        }
-        // The glyph's position is measured from inside the line fragment's padding.
-        let width = max(0, gap.x - glyphPosition.x)
-        return CGRect(x: glyphPosition.x, y: glyphPosition.y, width: width, height: 0)
-    }
-
-    /// A table cell's text too wide for its column is cut off at the column's edge.
-    override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {
-        guard let storage = textStorage, let container = textContainers.first else {
-            return super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
-        }
-        let characters = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
-        var clipped: [(NSRange, CGFloat)] = []
-        storage.enumerateAttribute(.pointTableClip, in: characters) { value, range, _ in
-            if let x = value as? CGFloat { clipped.append((range, x)) }
-        }
-        guard !clipped.isEmpty else { return super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin) }
-        var location = glyphsToShow.location
-        for (range, x) in clipped {
-            let glyphs = NSIntersectionRange(glyphRange(forCharacterRange: range, actualCharacterRange: nil), glyphsToShow)
-            if glyphs.location > location {
-                super.drawGlyphs(forGlyphRange: NSRange(location: location, length: glyphs.location - location), at: origin)
-            }
-            guard glyphs.length > 0 else { continue }
-            let line = lineFragmentRect(forGlyphAt: glyphs.location, effectiveRange: nil)
-            let edge = origin.x + line.minX + container.lineFragmentPadding + x
-            withSavedGraphicsState {
-                PlatformBezierPath(rect: CGRect(x: origin.x + line.minX, y: origin.y + line.minY, width: max(0, edge - origin.x - line.minX), height: line.height)).addClip()
-                super.drawGlyphs(forGlyphRange: glyphs, at: origin)
-            }
-            location = NSMaxRange(glyphs)
-        }
-        if location < NSMaxRange(glyphsToShow) {
-            super.drawGlyphs(forGlyphRange: NSRange(location: location, length: NSMaxRange(glyphsToShow) - location), at: origin)
-        }
+    /// The hidden stretch a character is in: a marker, or a table, whose grid is drawn by a
+    /// view over it (see `TableGridView`).
+    static func hiddenRun(at index: Int, in storage: NSTextStorage) -> NSRange? {
+        var run = NSRange()
+        if storage.attribute(.pointHidden, at: index, effectiveRange: &run) != nil { return run }
+        if case .table? = storage.attribute(.pointBlock, at: index, effectiveRange: &run) as? BlockDecoration { return run }
+        return nil
     }
 
     /// Adds the theme's extra line height half above and half below the text, so
@@ -175,10 +138,7 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
             var full = NSRange()
             _ = storage.attribute(.pointBlock, at: range.location, longestEffectiveRange: &full, in: everything)
             guard drawnBlocks.insert(full.location).inserted else { return }
-            if case .table(let table) = block {
-                drawTable(table, range: full, storage: storage, container: container, origin: origin)
-                return
-            }
+            if case .table = block { return } // Drawn by its grid view.
             draw(block, rect: rect(forCharacters: full, in: container, origin: origin), range: full, storage: storage)
         }
 
@@ -383,51 +343,8 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
             PlatformColor.textColor.withAlphaComponent(0.05).setFill()
             PlatformBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
         case .table:
-            break // Drawn by `drawTable`, which needs its rows.
+            break // Drawn by its grid view.
         }
-    }
-
-    /// A table's lines: a rounded border, a line under each row and between the columns, and
-    /// the header row shaded. Each row is one line of text, padded above and below.
-    private func drawTable(_ table: TableDecoration, range: NSRange, storage: NSTextStorage, container: NSTextContainer, origin: CGPoint) {
-        let text = storage.string as NSString
-        var rows: [CGRect] = []
-        var location = range.location
-        while location < NSMaxRange(range) {
-            let line = text.lineRange(for: NSRange(location: location, length: 0))
-            if storage.attribute(.pointCollapsed, at: line.location, effectiveRange: nil) == nil {
-                rows.append(lineRect(containing: line.location, storage: storage))
-            }
-            guard NSMaxRange(line) > location else { break }
-            location = NSMaxRange(line)
-        }
-        guard let first = rows.first, let last = rows.last, let width = table.columnEdges.last, width > 0 else { return }
-        let left = (origin.x + first.minX + container.lineFragmentPadding).rounded()
-        let top = (origin.y + first.minY).rounded(), bottom = (origin.y + last.maxY).rounded()
-        let border = CGRect(x: left + 0.5, y: top + 0.5, width: width - 1, height: bottom - top - 1)
-        let shape = PlatformBezierPath(roundedRect: border, xRadius: 6, yRadius: 6)
-
-        withSavedGraphicsState {
-            shape.addClip()
-            PlatformColor.textColor.withAlphaComponent(0.05).setFill()
-            PlatformBezierPath(rect: CGRect(x: left, y: top, width: width, height: (origin.y + first.maxY).rounded() - top)).fill()
-        }
-        PlatformColor.separatorColor.setStroke()
-        let lines = PlatformBezierPath()
-        for row in rows.dropFirst() {
-            let y = (origin.y + row.minY).rounded() - 0.5
-            lines.move(to: CGPoint(x: left, y: y))
-            lines.line(to: CGPoint(x: left + width, y: y))
-        }
-        for edge in table.columnEdges.dropFirst().dropLast() {
-            let x = (left + edge).rounded() + 0.5
-            lines.move(to: CGPoint(x: x, y: top))
-            lines.line(to: CGPoint(x: x, y: bottom))
-        }
-        lines.lineWidth = 1
-        lines.stroke()
-        shape.lineWidth = 1
-        shape.stroke()
     }
 
     private func draw(_ decoration: ListMarkerDecoration, at index: Int, storage: NSTextStorage, container: NSTextContainer, origin: CGPoint) {

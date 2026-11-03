@@ -39,34 +39,85 @@ private func marked(_ view: MarkdownTextView) -> String {
 
 private let table = "¦ a ¦ b ¦\n¦ - ¦ - ¦\n¦ 1 ¦ 2 ¦"
 
+/// What the keys go to: the table cell being typed in, or the note.
+@MainActor
+private func keys(_ view: MarkdownTextView) -> NSTextView {
+    view.focusedTableCell ?? view
+}
+
+/// The first table's grid, brought up to date.
+@MainActor
+private func grid(_ view: MarkdownTextView) -> TableGridView {
+    view.syncTableViews()
+    return view.tableGrids[0]
+}
+
+/// Where a word in a cell is drawn, in its table's grid.
+@MainActor
+private func rect(of word: String, in cell: TableCellView) -> CGRect {
+    let range = (cell.string as NSString).range(of: word)
+    let layoutManager = cell.layoutManager!
+    let box = layoutManager.boundingRect(forGlyphRange: layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil), in: cell.textContainer!)
+    return box.offsetBy(dx: cell.frame.minX, dy: cell.frame.minY)
+}
+
 @MainActor
 struct TableDisplayTests {
-    @Test func pipesAndTheDelimiterRowAreHidden() {
+    @Test func aTableIsDrawnByAGridOverItsHiddenText() {
         let view = editor("Before\n\n¦ Name ¦ Qty ¦\n¦ :--- ¦ --: ¦\n¦ Tea ¦ 2 ¦\n\nAfter")
-        let text = view.string as NSString
-        for k in 0..<text.length where text.character(at: k) == 124 || text.character(at: k) == 45 {
-            #expect(view.isHidden(k), "character \(k) shows")
+        let text = view.string as NSString, storage = view.textStorage!
+        let table = NSRange(location: text.range(of: "| Name").location, length: text.range(of: "2 |").location + 3 - text.range(of: "| Name").location)
+        for k in table.location..<NSMaxRange(table) {
+            #expect(PointLayoutManager.hiddenRun(at: k, in: storage) != nil, "character \(k) shows")
         }
-        #expect(view.collapsedLine(containing: text.range(of: ":---").location) != nil)
+        let grid = grid(view)
+        #expect(grid.cells.map(\.count) == [2, 2])
+        #expect(grid.cells[1][0].string == "Tea")
+        // The text after the table starts below the grid.
+        let layoutManager = view.layoutManager!
+        let after = layoutManager.lineFragmentRect(forGlyphAt: layoutManager.glyphIndexForCharacter(at: text.range(of: "After").location), effectiveRange: nil)
+        #expect(after.minY + view.textContainerOrigin.y >= grid.frame.maxY)
+        view.load("Just text")
+        view.syncTableViews()
+        #expect(view.tableGrids.isEmpty)
+    }
+
+    @Test func theHeaderIsBold() {
+        let view = editor(table)
+        let font = grid(view).cells[0][0].textStorage!.attribute(.font, at: 0, effectiveRange: nil) as! NSFont
+        #expect(font.fontDescriptor.symbolicTraits.contains(.bold))
     }
 
     @Test func cellsLineUpInColumns() {
         let view = editor("¦ Name ¦ Qty ¦ Note ¦\n¦ --- ¦ --: ¦ :-: ¦\n¦ Green tea ¦ 12 ¦ hot ¦\n¦ Milk ¦ 1234 ¦ a much longer note ¦")
-        let layoutManager = view.layoutManager!, text = view.string as NSString
-        func x(_ word: String) -> CGFloat { layoutManager.location(forGlyphAt: layoutManager.glyphIndexForCharacter(at: text.range(of: word).location)).x }
-        func right(_ word: String) -> CGFloat {
-            let range = text.range(of: word)
-            return layoutManager.boundingRect(forGlyphRange: layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil), in: view.textContainer!).maxX
-        }
-        func centre(_ word: String) -> CGFloat {
-            let range = text.range(of: word)
-            return layoutManager.boundingRect(forGlyphRange: layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil), in: view.textContainer!).midX
-        }
+        let cells = grid(view).cells
         // Left-aligned (no alignment), right-aligned and centred.
-        #expect(x("Name") == x("Green tea") && x("Green tea") == x("Milk"))
-        #expect(abs(right("12") - right("1234")) < 1)
-        #expect(abs(centre("hot") - centre("a much longer note")) < 1)
-        #expect(x("Qty") > x("Green tea") + 60)
+        #expect(rect(of: "Name", in: cells[0][0]).minX == rect(of: "Green tea", in: cells[1][0]).minX)
+        #expect(rect(of: "Green tea", in: cells[1][0]).minX == rect(of: "Milk", in: cells[2][0]).minX)
+        #expect(abs(rect(of: "12", in: cells[1][1]).maxX - rect(of: "1234", in: cells[2][1]).maxX) < 1)
+        #expect(abs(rect(of: "hot", in: cells[1][2]).midX - rect(of: "a much longer note", in: cells[2][2]).midX) < 1)
+        #expect(rect(of: "Qty", in: cells[0][1]).minX > rect(of: "Green tea", in: cells[1][0]).maxX)
+    }
+
+    @Test func aLongCellWrapsInItsColumn() {
+        let view = editor("¦ Item ¦ Note ¦\n¦ --- ¦ --- ¦\n¦ Tea ¦ one two three four five six seven eight nine ten eleven twelve ¦\n¦ Milk ¦ 2 ¦", width: 320)
+        let grid = grid(view), cells = grid.cells
+        // The note goes on down its column, beside the item, and the next row starts below it.
+        #expect(rect(of: "twelve", in: cells[1][1]).minY > rect(of: "one", in: cells[1][1]).maxY)
+        #expect(grid.frame.maxX < view.bounds.width)
+        #expect(abs(rect(of: "Tea", in: cells[1][0]).minY - rect(of: "one", in: cells[1][1]).minY) < 1)
+        #expect(rect(of: "Milk", in: cells[2][0]).minY > rect(of: "twelve", in: cells[1][1]).maxY)
+    }
+
+    @Test func typingDoesntMoveTheColumns() {
+        let view = editor("¦ a ¦ b ¦\n¦ - ¦ - ¦\n¦ 1| ¦ 2 ¦")
+        let edges = grid(view).decoration.columnEdges
+        keys(view).insertText(" and a good deal more", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(view.string.contains("| 1 and a good deal more |"))
+        #expect(grid(view).decoration.columnEdges == edges)
+        // Back in the note, the columns fit the text again.
+        view.window?.makeFirstResponder(view)
+        #expect(grid(view).decoration.columnEdges != edges)
     }
 
     @Test func showingMarkdownShowsItAll() {
@@ -75,45 +126,77 @@ struct TableDisplayTests {
         let text = view.string as NSString
         #expect((0..<text.length).allSatisfy { !view.isHidden($0) })
         #expect(view.renderedTable(at: 3) == nil)
+        view.syncTableViews()
+        #expect(view.tableGrids.isEmpty)
     }
 
     @Test func aMalformedTableStaysMarkdown() {
         let view = editor("¦ a ¦ b ¦\n¦ - ¦\n¦ 1 ¦ 2 ¦")
         #expect(!view.isHidden(0))
+        view.syncTableViews()
+        #expect(view.tableGrids.isEmpty)
     }
 }
 
 @MainActor
 struct TableCursorTests {
+    @Test func theKeysGoToTheCellTheCursorIsIn() {
+        let view = editor("¦ ab| ¦ cd ¦\n¦ - ¦ - ¦")
+        let cell = try! #require(view.focusedTableCell)
+        #expect(cell.string == "ab" && cell.selectedRange() == NSRange(location: 2, length: 0))
+    }
+
     @Test func arrowsStepOverThePipes() {
         let view = editor("¦ ab| ¦ cd ¦\n¦ - ¦ - ¦")
-        view.moveRight(nil)
+        keys(view).moveRight(nil)
         #expect(marked(view) == "¦ ab ¦ |cd ¦\n¦ - ¦ - ¦")
-        view.moveLeft(nil)
+        keys(view).moveLeft(nil)
         #expect(marked(view) == "¦ ab| ¦ cd ¦\n¦ - ¦ - ¦")
     }
 
     @Test func anEmptyCellHasAPlaceForTheCursor() {
         let view = editor("¦ a| ¦   ¦ b ¦\n¦ - ¦ - ¦ - ¦")
-        view.moveRight(nil)
+        keys(view).moveRight(nil)
         #expect(marked(view) == "¦ a ¦ |  ¦ b ¦\n¦ - ¦ - ¦ - ¦")
-        view.moveRight(nil)
+        keys(view).moveRight(nil)
         #expect(marked(view) == "¦ a ¦   ¦ |b ¦\n¦ - ¦ - ¦ - ¦")
     }
 
     @Test func pastTheLastCellIsTheNextLine() {
         let view = editor("¦ a ¦ b| ¦\n¦ - ¦ - ¦\n¦ 1 ¦ 2 ¦")
-        view.moveRight(nil)
+        keys(view).moveRight(nil)
         #expect(marked(view) == "¦ a ¦ b ¦\n¦ - ¦ - ¦\n¦ |1 ¦ 2 ¦")
-        view.moveLeft(nil)
+        keys(view).moveLeft(nil)
         #expect(marked(view) == "¦ a ¦ b| ¦\n¦ - ¦ - ¦\n¦ 1 ¦ 2 ¦")
     }
 
     @Test func downStaysInTheColumn() {
         let view = editor("¦ alpha ¦ be|ta ¦\n¦ - ¦ - ¦\n¦ one ¦ two ¦")
+        keys(view).moveDown(nil)
+        #expect(marked(view) == "¦ alpha ¦ beta ¦\n¦ - ¦ - ¦\n¦ one ¦ |two ¦")
+    }
+
+    @Test func upAndDownGoInAndOutOfTheTable() {
+        let view = editor("Before|\n¦ a ¦ b ¦\n¦ - ¦ - ¦\n¦ 1 ¦ 2 ¦\nAfter")
         view.moveDown(nil)
-        let location = view.selectedRange().location
-        #expect(location > (view.string as NSString).range(of: "two").location - 1)
+        #expect(view.focusedTableCell != nil)
+        keys(view).moveUp(nil)
+        #expect(view.focusedTableCell == nil)
+        #expect(marked(view).hasPrefix("Before|"))
+        view.setSelectionDirectly((view.string as NSString).range(of: "2"))
+        keys(view).moveDown(nil)
+        keys(view).moveDown(nil)
+        #expect(view.focusedTableCell == nil)
+        #expect(marked(view).hasSuffix("|After"))
+    }
+
+    @Test func undoPutsTheCellBack() {
+        let view = editor("¦ a ¦ b ¦\n¦ - ¦ - ¦\n¦ 1| ¦ 2 ¦")
+        keys(view).insertText("x", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(grid(view).cells[1][0].string == "1x")
+        view.undoManager?.undo()
+        #expect(view.string == "| a | b |\n| - | - |\n| 1 | 2 |")
+        #expect(grid(view).cells[1][0].string == "1")
     }
 }
 
@@ -158,10 +241,27 @@ struct TableEditingTests {
         #expect(marked(view) == "¦ ax| ¦ d ¦\n¦ - ¦ - ¦")
     }
 
+    @Test func aSpaceStaysInTheCell() {
+        let view = editor("¦ ab| ¦ cd ¦\n¦ - ¦ - ¦")
+        keys(view).insertText(" ", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(marked(view) == "¦ ab | ¦ cd ¦\n¦ - ¦ - ¦")
+        keys(view).insertText("x", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(marked(view) == "¦ ab x| ¦ cd ¦\n¦ - ¦ - ¦")
+        #expect(view.focusedTableCell?.string == "ab x")
+    }
+
+    @Test func aSpaceInAnEmptyCellStaysThere() {
+        let view = editor("¦ a ¦ | ¦\n¦ - ¦ - ¦")
+        keys(view).insertText(" ", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(marked(view) == "¦ a ¦  | ¦\n¦ - ¦ - ¦")
+    }
+
     @Test func aTypedPipeIsEscaped() {
         let view = editor("¦ a| ¦ b ¦\n¦ - ¦ - ¦")
-        view.insertText("|", replacementRange: NSRange(location: NSNotFound, length: 0))
+        keys(view).insertText("|", replacementRange: NSRange(location: NSNotFound, length: 0))
         #expect(view.string == "| a\\| | b |\n| - | - |")
+        #expect(view.focusedTableCell?.string == "a\\|")
+        #expect(view.focusedTableCell?.selectedRange() == NSRange(location: 3, length: 0))
         // Still two cells.
         #expect(view.renderedTable(at: 0)?.lines[0].cells.count == 2)
     }
@@ -274,6 +374,22 @@ struct TableNeateningTests {
         #expect(marked(view) == "¦ abc ¦ b   ¦\n¦ --- ¦ --- ¦\n\nAfter|")
     }
 
+    @Test func undoTakesBackTheTypingAndTheTidyingTogether() async {
+        let view = editor("¦ a| ¦ b ¦\n¦ - ¦ - ¦\n\nAfter")
+        let window = view.window // Kept through the wait: the undo manager is the window's.
+        view.insertText("bc", replacementRange: NSRange(location: NSNotFound, length: 0))
+        view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0))
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(window != nil)
+        #expect(view.string == "| abc | b   |\n| --- | --- |\n\nAfter")
+        #expect(view.undoManager?.undoActionName == MarkdownTextView.tidyTableActionName)
+        view.undo(nil)
+        #expect(view.string == "| a | b |\n| - | - |\n\nAfter")
+        view.redo(nil)
+        #expect(view.string == "| abc | b   |\n| --- | --- |\n\nAfter")
+        #expect(view.undoManager?.canRedo == false)
+    }
+
     @Test func aTableOnlyMovedThroughIsLeftAlone() async {
         let view = editor("¦ a| ¦ b ¦\n¦ - ¦ - ¦\n\nAfter")
         view.moveRight(nil)
@@ -282,3 +398,44 @@ struct TableNeateningTests {
         #expect(view.string == "| a | b |\n| - | - |\n\nAfter")
     }
 }
+
+
+@MainActor
+struct TableControlsTests {
+    /// Clicks a point in the view, after moving the pointer there.
+    private func click(_ view: MarkdownTextView, at point: NSPoint, count: Int = 1) -> Bool {
+        view.updateTableHover(at: point)
+        let event = NSEvent.mouseEvent(with: .leftMouseDown, location: view.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+                                       windowNumber: view.window!.windowNumber, context: nil, eventNumber: 0, clickCount: count, pressure: 1)!
+        return view.tableControlsMouseDown(event)
+    }
+
+    @Test func thePlusBelowAddsARow() throws {
+        let view = editor("Before\n\n¦ a ¦ b ¦\n¦ - ¦ - ¦\n¦ 1 ¦ 2 ¦\n\nAfter")
+        let controls = try #require(view.tableControls(at: 10))
+        #expect(click(view, at: NSPoint(x: controls.addRow.midX, y: controls.addRow.midY)))
+        #expect(marked(view) == "Before\n\n¦ a   ¦ b   ¦\n¦ --- ¦ --- ¦\n¦ 1   ¦ 2   ¦\n¦ |    ¦     ¦\n\nAfter")
+    }
+
+    @Test func thePlusBesideAddsAColumn() throws {
+        let view = editor("¦ a ¦ b ¦\n¦ - ¦ - ¦\n¦ 1 ¦ 2 ¦")
+        let controls = try #require(view.tableControls(at: 0))
+        #expect(click(view, at: NSPoint(x: controls.addColumn.midX, y: controls.addColumn.midY)))
+        #expect(view.string == "| a   | b   |     |\n| --- | --- | --- |\n| 1   | 2   |     |")
+    }
+
+    @Test func longDashesDontWidenTheColumns() throws {
+        let long = editor("¦ a ¦ b ¦\n¦ ---------- ¦ -------------------- ¦\n¦ 1 ¦ 2 ¦")
+        let short = editor("¦ a ¦ b ¦\n¦ --- ¦ --- ¦\n¦ 1 ¦ 2 ¦")
+        #expect(try #require(long.tableControls(at: 0)).edges == (try #require(short.tableControls(at: 0))).edges)
+    }
+
+    @Test func clicksElsewhereAreLeftToTheText() throws {
+        let view = editor("¦ a ¦ b ¦\n¦ - ¦ - ¦\n¦ 1 ¦ 2 ¦")
+        let controls = try #require(view.tableControls(at: 0))
+        #expect(!click(view, at: NSPoint(x: (controls.edges[0] + controls.edges[1]) / 2, y: controls.rows[1].midY)))
+    }
+}
+
+
+

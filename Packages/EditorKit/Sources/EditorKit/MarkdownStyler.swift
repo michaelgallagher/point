@@ -13,6 +13,11 @@ struct MarkdownStyler {
     var theme = EditorTheme()
     /// Shows the raw Markdown, every marker visible, in a monospaced font.
     var showsMarkdown = false
+    /// Column widths kept while a table's cells are typed in, so its columns don't move with
+    /// each keystroke: the table's start, and each column's width.
+    var heldTableWidths: (table: Int, widths: [CGFloat])?
+    /// Measures table cells as their grid lays them out.
+    let tableMeasurer = TableCellMeasurer()
     /// Whether a wikilink's target is a note that exists. Links to notes that don't exist
     /// yet are fainter. Without it, every link looks as if its note exists.
     var wikiLinkExists: ((String) -> Bool)?
@@ -247,32 +252,19 @@ struct MarkdownStyler {
 
     // MARK: Tables
 
-    /// Lays a table out in columns. The pipes and the padding around each cell's text are
-    /// hidden, and each pipe between cells becomes a space reaching to where the next cell's
-    /// text starts, so the text lines up in columns (aligned as the delimiter row says) without
-    /// a character changing. The delimiter row is squeezed to a sliver, like a code fence, and
-    /// the layout manager draws the lines between the cells. A cell too wide for its column is
-    /// cut off at the column's edge: rows never wrap.
+    /// Lays a table out as a grid, drawn by a view over it (see `TableGridView`), without a
+    /// character changing. Its Markdown is hidden, and its first line is made as tall as the
+    /// grid, its others a sliver, so the text after it starts below the grid. Each cell's text
+    /// keeps its formatting here, for the grid to show; the grid's geometry (`TableDecoration`)
+    /// is worked out here too, measuring each cell as the grid lays it out.
     func layOutTable(_ range: NSRange, storage: NSTextStorage, text: NSString) {
         guard theme.rendersTables, let lines = MarkdownTable.lines(in: text, range: range) else { return }
         let rows = lines.filter { !$0.isDelimiter }
-        let alignments = MarkdownTable(lines: lines, text: text).alignments
+        let table = MarkdownTable(lines: lines, text: text)
+        let alignments = table.alignments
         let columns = alignments.count
         let padding = theme.tableCellPadding
 
-        let style = paragraphStyle {
-            $0.firstLineHeadIndent = padding
-            $0.headIndent = padding
-            $0.paragraphSpacingBefore = theme.tableRowPadding
-            $0.paragraphSpacing = theme.tableRowPadding
-            $0.lineBreakMode = .byClipping
-        }
-        for row in rows {
-            storage.addAttribute(.paragraphStyle, value: style, range: text.lineRange(for: row.range))
-        }
-        if let delimiter = lines.first(where: \.isDelimiter) {
-            collapseLine(delimiter.range, storage: storage, text: text, height: 1)
-        }
         for cell in rows[0].cells {
             addTrait(PlatformTraits.bold, in: cell, storage: storage)
         }
@@ -287,67 +279,101 @@ struct MarkdownStyler {
         // Fonts with the emoji fallback put back, so cells measure as they're drawn.
         storage.fixAttributes(in: range)
 
-        // Each cell's width, and each column's: as wide as its widest cell, unless the table
-        // is wider than the text, when the widest columns give up room until it fits.
-        let widths = rows.map { row in row.cells.map { visibleWidth(of: $0, in: storage) } }
-        var natural = (0..<columns).map { column in
-            max(theme.bodySize * 2, widths.compactMap { column < $0.count ? $0[column] : nil }.max() ?? 0)
-        }
-        let room = theme.textWidth - padding * 2 * CGFloat(columns)
-        if natural.reduce(0, +) > room {
-            // Columns narrower than an equal share keep their width; the rest share what's left.
-            var left = max(room, theme.bodySize * 2 * CGFloat(columns))
-            var open = Set(natural.indices)
-            while !open.isEmpty {
-                let share = left / CGFloat(open.count)
-                let narrow = open.filter { natural[$0] <= share }
-                guard !narrow.isEmpty else {
-                    for column in open { natural[column] = share.rounded(.down) }
-                    break
-                }
-                for column in narrow {
-                    left -= natural[column]
-                    open.remove(column)
-                }
-            }
-        }
+        let widths = columnWidths(table, rows: rows, range: range, storage: storage)
         var edges: [CGFloat] = [0]
-        for width in natural { edges.append((edges.last! + width + padding * 2).rounded()) }
-        storage.addAttribute(.pointBlock, value: BlockDecoration.table(TableDecoration(columnEdges: edges)), range: range)
+        for width in widths { edges.append((edges.last! + width + padding * 2).rounded()) }
+        // Each row as tall as its tallest cell, wrapped in its column.
+        let heights = rows.enumerated().map { r, row in
+            let tallest = (0..<columns).map { column -> CGFloat in
+                let cell = column < row.cells.count ? tableCellText(row.cells[column], in: storage, alignment: alignments[column])
+                    : NSAttributedString()
+                return tableMeasurer.height(of: cell, width: widths[column], theme: theme,
+                                            emptyAttributes: emptyCellAttributes(header: r == 0))
+            }.max() ?? 0
+            return tallest + theme.tableRowPadding * 2
+        }
+        let decoration = TableDecoration(columnEdges: edges, columnWidths: widths, rowHeights: heights, alignments: alignments)
+        storage.addAttribute(.pointBlock, value: BlockDecoration.table(decoration), range: range)
 
-        for (r, row) in rows.enumerated() {
-            let lineEnd = NSMaxRange(row.range)
-            // The hidden stretches: before the first cell, between cells, and after the last.
-            var starts = [row.range.location] + row.cells.map(\.upperBound)
-            var ends = row.cells.map(\.location) + [lineEnd]
-            if row.cells.isEmpty { starts = [row.range.location]; ends = [lineEnd] }
-            for (start, end) in zip(starts, ends) where end > start {
-                storage.addAttribute(.pointHidden, value: TableBoundary(location: start), range: NSRange(location: start, length: end - start))
+        // The first line holds the grid's height; the rest, the delimiter row's too, are slivers.
+        var location = range.location
+        var first = true
+        while location < NSMaxRange(range) {
+            let line = text.lineRange(for: NSRange(location: location, length: 0))
+            let last = NSMaxRange(line) >= NSMaxRange(range)
+            let height = first ? heights.reduce(0, +) : 0.1
+            let style = paragraphStyle {
+                $0.minimumLineHeight = height
+                $0.maximumLineHeight = height
+                $0.lineHeightMultiple = 1
+                $0.paragraphSpacingBefore = 0
+                if !last { $0.paragraphSpacing = 0 }
             }
-            for (column, cell) in row.cells.enumerated() where column < columns {
-                let width = natural[column]
-                let measured = widths[r][column]
-                let spare = max(0, width - measured)
-                let offset: CGFloat = switch alignments[column] {
-                case .center: (spare / 2).rounded()
-                case .right: spare
-                case .none, .left: 0
-                }
-                // The pipe before this cell reaches to its text. (The first cell's has no pipe
-                // before it when the row doesn't start with one, and so is left-aligned.)
-                let before = column == 0 ? row.range.location : row.cells[column - 1].upperBound
-                if let pipe = row.pipes.first(where: { $0 >= before && $0 < cell.location }) {
-                    storage.addAttribute(.pointTableGap, value: TableGap(x: edges[column] + padding + offset), range: NSRange(location: pipe, length: 1))
-                }
-                // Too wide: pulled back, after its last letter, to the column's edge, and cut off there.
-                if measured > width, let last = lastVisibleCharacter(in: cell, storage: storage) {
-                    let kern = storage.attribute(.kern, at: last, effectiveRange: nil) as? CGFloat ?? 0
-                    storage.addAttribute(.kern, value: kern - (measured - width), range: NSRange(location: last, length: 1))
-                    storage.addAttribute(.pointTableClip, value: edges[column + 1] - padding / 2, range: cell)
-                    storage.removeAttribute(.pointWebLink, range: cell) // Its arrow would be over the text.
-                }
+            storage.addAttribute(.paragraphStyle, value: style, range: line)
+            first = false
+            guard NSMaxRange(line) > location else { break }
+            location = NSMaxRange(line)
+        }
+    }
+
+    /// How wide each column's text is: as wide as its widest cell, unless the table is wider
+    /// than the text, when the widest columns give up room until it fits. While the table is
+    /// typed in, they stay as they were.
+    private func columnWidths(_ table: MarkdownTable, rows: [MarkdownTable.Line], range: NSRange, storage: NSTextStorage) -> [CGFloat] {
+        let columns = table.columnCount
+        let narrowest = theme.bodySize * 2
+        let room = theme.textWidth - theme.tableCellPadding * 2 * CGFloat(columns)
+        if let held = heldTableWidths, held.table == range.location, held.widths.count == columns {
+            return held.widths
+        }
+        let measured = rows.map { row in row.cells.map { visibleWidth(of: $0, in: storage) } }
+        var widths = (0..<columns).map { column in
+            max(narrowest, measured.compactMap { column < $0.count ? $0[column] : nil }.max() ?? 0)
+        }
+        guard widths.reduce(0, +) > room else { return widths }
+        // Columns narrower than an equal share keep their width; the rest share what's left.
+        var left = max(room, narrowest * CGFloat(columns))
+        var open = Set(widths.indices)
+        while !open.isEmpty {
+            let share = left / CGFloat(open.count)
+            let narrow = open.filter { widths[$0] <= share }
+            guard !narrow.isEmpty else {
+                for column in open { widths[column] = share.rounded(.down) }
+                break
+            }
+            for column in narrow {
+                left -= widths[column]
+                open.remove(column)
             }
         }
+        return widths
+    }
+
+    /// A table cell's text as its grid shows it: as styled in the note, aligned as its column is.
+    func tableCellText(_ range: NSRange, in storage: NSAttributedString, alignment: MarkdownTable.Alignment) -> NSAttributedString {
+        let text = NSMutableAttributedString(attributedString: storage.attributedSubstring(from: range))
+        let all = NSRange(location: 0, length: text.length)
+        text.removeAttribute(.pointBlock, range: all)
+        text.addAttribute(.paragraphStyle, value: tableCellParagraphStyle(alignment), range: all)
+        return text
+    }
+
+    func tableCellParagraphStyle(_ alignment: MarkdownTable.Alignment) -> NSParagraphStyle {
+        paragraphStyle {
+            $0.paragraphSpacing = 0
+            $0.alignment = switch alignment {
+            case .center: .center
+            case .right: .right
+            case .none, .left: .natural
+            }
+        }
+    }
+
+    /// What an empty cell is measured with, and what's typed into one starts with.
+    func emptyCellAttributes(header: Bool) -> [NSAttributedString.Key: Any] {
+        var attributes = baseAttributes
+        if header { attributes[.font] = theme.body.adding(PlatformTraits.bold) }
+        return attributes
     }
 
     /// How wide a stretch of text is, leaving out what's hidden.
@@ -360,18 +386,12 @@ struct MarkdownStyler {
         return visible.size().width.rounded(.up)
     }
 
-    private func lastVisibleCharacter(in range: NSRange, storage: NSTextStorage) -> Int? {
-        var k = NSMaxRange(range) - 1
-        while k >= range.location, storage.attribute(.pointHidden, at: k, effectiveRange: nil) != nil { k -= 1 }
-        return k >= range.location ? k : nil
-    }
-
     /// Hides a whole line under a fold, as frontmatter is hidden.
     func hideLine(_ line: NSRange, storage: NSTextStorage, text: NSString) {
         collapseLine(line, storage: storage, text: text, height: 0.1)
         // Nothing drawn for it either: no bullet, checkbox, tag pill or block background.
         let full = text.lineRange(for: line)
-        for key: NSAttributedString.Key in [.pointListMarker, .pointTag, .pointWebLink, .pointRule, .pointBlock, .pointTableGap, .pointTableClip] {
+        for key: NSAttributedString.Key in [.pointListMarker, .pointTag, .pointWebLink, .pointRule, .pointBlock] {
             storage.removeAttribute(key, range: full)
         }
     }

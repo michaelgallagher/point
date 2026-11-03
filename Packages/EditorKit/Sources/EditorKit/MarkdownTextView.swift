@@ -27,7 +27,10 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
 
     public override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
-        if accepted { onFocus?() }
+        if accepted {
+            leftTableCell()
+            onFocus?()
+        }
         return accepted
     }
     /// Note titles to suggest while a `[[wikilink]]` is typed, best first.
@@ -45,6 +48,21 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     var appliedFoldRanges: [Int: NSRange] = [:]
     /// The foldable line under the pointer, whose arrow shows.
     var hoveredFoldLine: Int?
+    /// The table under the pointer, whose controls show (see +TableControls).
+    var tableHover: TableHover?
+    /// A table's row, column or column edge being dragged.
+    var tableDrag: TableDrag?
+    /// The row or column being dragged, lifted off the table under the pointer.
+    var tableDragGhost: TableDragGhostView?
+    /// The grids drawn over tables, in the order of the tables (see +TableGrid).
+    var tableGrids: [TableGridView] = []
+    var isTableSyncQueued = false
+    var isSyncingTables = false
+    /// Set while the note's selection is moved to follow a table cell's.
+    var isMirroringCellSelection = false
+    /// Set while the cursor moves up or down, should it arrive in a table: which way it came,
+    /// and where it was across.
+    var tableEntry: (fromAbove: Bool, x: CGFloat)?
 
     /// The cursors (and selections) besides the main one (see +Cursors).
     var extraSelections: [NSRange] = []
@@ -169,7 +187,10 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         self.init(frame: NSRect(x: 0, y: 0, width: 600, height: 400), textContainer: container)
         ownedStorage = storage
         storage.delegate = self
-        layoutManager.onInvalidateLayout = { [weak self] in self?.completeLayoutGradually() }
+        layoutManager.onInvalidateLayout = { [weak self] in
+            self?.completeLayoutGradually()
+            self?.scheduleTableSync()
+        }
         configure()
     }
 
@@ -211,6 +232,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         setSelectionDirectly(NSRange(location: snappedLocation(0, forward: true), length: 0))
         scrollToBeginningOfDocument(nil)
         completeLayoutGradually()
+        syncTableViews()
     }
 
     /// Which load the gradual layout belongs to, so a newer note's text stops an older run.
@@ -315,6 +337,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         let anchor = newSize.width != frame.width && !isRestoringAnchor ? scrollAnchor : nil
         super.setFrameSize(newSize)
         updateInsets()
+        scheduleTableSync()
         layoutHeader()
         if let anchor { scroll(to: anchor) }
     }
@@ -396,6 +419,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         super.drawBackground(in: rect)
         drawExtraSelections(in: rect)
         drawFoldArrows(in: rect)
+        drawTableControls(in: rect)
     }
 
     public override func draw(_ dirtyRect: NSRect) {
@@ -417,15 +441,18 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         // pointer over a divider beside it, which then could hardly be found.
         if let hit = window?.contentView?.superview?.hitTest(event.locationInWindow), hit !== self, !hit.isDescendant(of: self) {
             updateHoveredFoldLine(at: nil)
+            updateTableHover(at: nil)
             return
         }
         super.mouseMoved(with: event)
         updateHoveredFoldLine(at: convert(event.locationInWindow, from: nil))
+        updateTableHover(at: convert(event.locationInWindow, from: nil))
     }
 
     public override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         updateHoveredFoldLine(at: nil)
+        updateTableHover(at: nil)
     }
 
     // MARK: Header
@@ -521,14 +548,21 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
             textContainerInset = NSSize(width: side, height: 28)
         }
         // Tables are narrowed to fit the text, so they're laid out again when it changes width.
-        let width = frame.width - side * 2 - (textContainer?.lineFragmentPadding ?? 0) * 2
+        // Not when a scroll bar comes or goes, though: a table that then grew or shrank could
+        // bring it back or take it away again, and so on.
+        var available = frame.width
+        if let scrollView = enclosingScrollView, scrollView.scrollerStyle == .legacy {
+            available = scrollView.frame.width - NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
+        }
+        let tableSide = max(28, ((available - styler.theme.maxTextWidth) / 2).rounded())
+        let width = available - tableSide * 2 - (textContainer?.lineFragmentPadding ?? 0) * 2
         if width != styler.theme.textWidth {
             styler.theme.textWidth = width
             restyleTables()
         }
     }
 
-    private func restyleTables() {
+    func restyleTables() {
         guard let storage = textStorage, tokens.contains(where: { $0.kind == .table }) else { return }
         storage.beginEditing()
         for token in tokens where token.kind == .table {
@@ -546,6 +580,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         range editedRange: NSRange,
         changeInLength delta: Int
     ) {
+        scheduleTableSync()
         guard editedMask.contains(.editedCharacters) else { return }
         lastEditLocation = editedRange.location
         if let start = editedTableStart, editedRange.location < start {
@@ -594,7 +629,12 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
 
     /// Keeps the insertion point out of hidden markers, so every arrow press visibly moves it.
     public override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
-        defer { if !stillSelecting { neatenTableIfLeft() } }
+        defer {
+            if !stillSelecting {
+                neatenTableIfLeft()
+                followSelectionIntoTable()
+            }
+        }
         // Never into hidden frontmatter: what's selected can be deleted.
         let start = bodyStart
         let ranges = start == 0 ? ranges : ranges.map { value -> NSValue in
@@ -736,8 +776,6 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
 
     /// Keeps the cursor out of hidden markers on an ordinary line.
     private func snappedToMarkers(_ location: Int, forward: Bool) -> Int {
-        // In a table, over the hidden pipes between cells (see +Tables).
-        if let snapped = snappedInTable(location, forward: forward) { return snapped }
         // The hidden run the location is at the start of, inside, or at the end of.
         guard let run = hiddenRun(at: location) ?? hiddenRun(at: location - 1) else { return location }
 

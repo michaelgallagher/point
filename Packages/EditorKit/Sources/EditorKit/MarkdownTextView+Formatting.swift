@@ -492,6 +492,7 @@ extension MarkdownTextView {
             setFolded(!folds.contains(line), line: line)
             return
         }
+        if tableControlsMouseDown(event) { return }
         if showHighlightMenu(at: point, for: event) { return }
         if toggleCheckbox(at: point) { return }
         if addCursor(for: event) { return } // ⌥-click adds a cursor (but not on a link).

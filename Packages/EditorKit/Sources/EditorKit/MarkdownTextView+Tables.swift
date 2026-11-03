@@ -8,7 +8,7 @@ import MarkdownKit
 /// between cells are hidden, so the cursor steps over them, and Delete never takes them:
 /// a table's shape only changes through Tab, Return and the commands here, each of which
 /// writes the whole table out again, neatly, as one undoable change. A table typed in is
-/// written out neatly too, once the cursor leaves it.
+/// written out neatly too, once the cursor leaves it; that is undone along with the typing.
 extension MarkdownTextView {
     /// Where a cell is: its row (0 is the header; the delimiter row isn't counted) and column.
     struct TableCell: Equatable {
@@ -25,9 +25,11 @@ extension MarkdownTextView {
     }
 
     /// The rows of a table's lines, without the delimiter row.
-    private func rows(_ lines: [MarkdownTable.Line]) -> [MarkdownTable.Line] {
+    func tableRows(_ lines: [MarkdownTable.Line]) -> [MarkdownTable.Line] {
         lines.filter { !$0.isDelimiter }
     }
+
+    private func rows(_ lines: [MarkdownTable.Line]) -> [MarkdownTable.Line] { tableRows(lines) }
 
     /// The cell holding `location`, or the nearest one on its row when it's between cells.
     func tableCell(at location: Int, in lines: [MarkdownTable.Line]) -> TableCell? {
@@ -37,32 +39,6 @@ extension MarkdownTextView {
         let column = cells.firstIndex { location >= $0.location && location <= NSMaxRange($0) }
             ?? cells.lastIndex { $0.location <= location } ?? 0
         return TableCell(row: row, column: column)
-    }
-
-    // MARK: The cursor
-
-    /// Where the cursor belongs at `location` in a table row: at the edge of the cell it is
-    /// at, or, from the hidden pipes and padding between cells, the next cell in the direction
-    /// it's going. Moving along the row past its first or last cell goes on to the line before
-    /// or after; arriving from another line (up, down, a click) stays on the row. Nil inside a
-    /// cell's text, where the usual rules for hidden markers apply.
-    func snappedInTable(_ location: Int, forward: Bool) -> Int? {
-        guard let (_, lines) = renderedTable(at: location),
-              let line = rows(lines).first(where: { location >= $0.range.location && location <= NSMaxRange($0.range) }) else { return nil }
-        if line.cells.contains(where: { $0.location < location && location < NSMaxRange($0) }) { return nil }
-        if line.cells.contains(where: { $0.location == location || NSMaxRange($0) == location }) { return location }
-        let text = string as NSString
-        let previous = selectedRange().location
-        let alongRow = previous >= line.range.location && previous <= NSMaxRange(line.range)
-        if forward {
-            if let next = line.cells.first(where: { $0.location > location }) { return next.location }
-            let after = NSMaxRange(text.lineRange(for: line.range))
-            if alongRow, after > NSMaxRange(line.range) { return snappedLocation(after, forward: true) }
-            return line.cells.last.map(NSMaxRange) ?? location
-        }
-        if let before = line.cells.last(where: { NSMaxRange($0) < location }) { return NSMaxRange(before) }
-        if alongRow, line.range.location > 0 { return snappedLocation(line.range.location - 1, forward: false) }
-        return line.cells.first?.location ?? location
     }
 
     // MARK: Keeping the shape
@@ -256,6 +232,29 @@ extension MarkdownTextView {
         isRewritingTable = true
         defer { isRewritingTable = false }
         applyEdit(replacing: token.range, with: new)
+        undoManager?.setActionName(Self.tidyTableActionName)
+    }
+
+    // MARK: Undo
+
+    /// The name of the undo step that writes a table out neatly once it's left. It changes
+    /// nothing that shows, so it is undone and redone with the step before it.
+    static let tidyTableActionName = "Tidy Table"
+
+    /// Undo, taking back the edit before a table's tidying with it, so a step that changes
+    /// nothing visible is never undone on its own.
+    @objc func undo(_ sender: Any?) {
+        guard let undoManager, undoManager.canUndo else { return NSSound.beep() }
+        let tidied = undoManager.undoActionName == Self.tidyTableActionName
+        undoManager.undo()
+        if tidied, undoManager.canUndo { undoManager.undo() }
+    }
+
+    /// Redo, putting a table's tidying back with the edit before it.
+    @objc func redo(_ sender: Any?) {
+        guard let undoManager, undoManager.canRedo else { return NSSound.beep() }
+        undoManager.redo()
+        if undoManager.redoActionName == Self.tidyTableActionName { undoManager.redo() }
     }
 
     // MARK: Commands
@@ -379,6 +378,12 @@ extension MarkdownTextView {
         let point = convert(event.locationInWindow, from: nil)
         let origin = textContainerOrigin
         let location = layoutManager.characterIndexForPoint(NSPoint(x: point.x - origin.x, y: point.y - origin.y), in: textContainer)
+        return tableMenu(at: location, adding: menu)
+    }
+
+    /// The commands for the table cell at `location`, put before `menu`'s items (from a cell's
+    /// own menu, or the note's).
+    func tableMenu(at location: Int, adding menu: NSMenu) -> NSMenu {
         guard let (_, lines) = renderedTable(at: location), let cell = tableCell(at: location, in: lines) else { return menu }
         let table = MarkdownTable(lines: lines, text: string as NSString)
         let alignment = table.alignments[min(cell.column, table.columnCount - 1)]
