@@ -30,9 +30,25 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         if accepted {
             leftTableCell()
             onFocus?()
+            setNeedsCursorUpdate()
         }
         return accepted
     }
+
+    public override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { setNeedsCursorUpdate() }
+        return resigned
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        observeWindowForCursor()
+        setNeedsCursorUpdate()
+    }
+
+    /// Our own cursor is drawn instead (see +AnimatedCursor).
+    public override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {}
     /// Note titles to suggest while a `[[wikilink]]` is typed, best first.
     public var completeNoteTitle: ((String) -> [String])?
     /// What was typed when titles were last suggested, and the titles (see +Links).
@@ -65,6 +81,14 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     var tableEntry: (fromAbove: Bool, x: CGFloat)?
     /// Styles toggled at the cursor with nothing to wrap, for what's typed there next.
     var heldMarkers: HeldMarkers?
+
+    /// The cursor, drawn by the editor so it can glide (see +AnimatedCursor).
+    let cursorView = InsertionCursorView()
+    var isCursorUpdateQueued = false
+    var cursorAnimates = false
+    /// The text's length when the cursor last moved, to tell typing from moving.
+    var cursorTextLength = 0
+    var cursorWindowObservers: [NSObjectProtocol] = []
 
     /// The cursors (and selections) besides the main one (see +Cursors).
     var extraSelections: [NSRange] = []
@@ -192,6 +216,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         layoutManager.onInvalidateLayout = { [weak self] in
             self?.completeLayoutGradually()
             self?.scheduleTableSync()
+            self?.setNeedsCursorUpdate()
         }
         configure()
     }
@@ -327,6 +352,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         super.didChangeText()
         noteTableEdit(at: lastEditLocation)
         onTextChange?(self)
+        setNeedsCursorUpdate(animated: true)
     }
 
     // MARK: Layout
@@ -342,6 +368,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         scheduleTableSync()
         layoutHeader()
         if let anchor { scroll(to: anchor) }
+        setNeedsCursorUpdate()
     }
 
     /// At the end of a live resize (the window dragged, or the sidebar sliding, which resizes
@@ -490,6 +517,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
             scheduleTableSync() // The text moved, and its tables with it.
             needsDisplay = true
             updateInsertionPointStateAndRestartTimer(true)
+            setNeedsCursorUpdate()
         }
     }
 
@@ -638,6 +666,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
                 neatenTableIfLeft()
                 followSelectionIntoTable()
             }
+            setNeedsCursorUpdate(animated: !stillSelecting)
         }
         // Never into hidden frontmatter: what's selected can be deleted.
         let start = bodyStart
