@@ -205,9 +205,26 @@ final class TableCellView: NSTextView {
         editor?.cellDidChange(self)
     }
 
+    /// While typing: the cursor stays just after what's typed, even before a hidden marker,
+    /// rather than stepping over it as an arrow key does.
+    private var keepsCursor = false
+
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        keepsCursor = true
+        defer { keepsCursor = false }
+        super.insertText(string, replacementRange: replacementRange)
+    }
+
+    /// Puts the cursor exactly at `location`, even just before a hidden marker.
+    func placeCursor(at location: Int) {
+        keepsCursor = true
+        defer { keepsCursor = false }
+        setSelectedRange(NSRange(location: min(max(location, 0), string.utf16.count), length: 0))
+    }
+
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
         var ranges = ranges
-        if !stillSelecting, ranges.count == 1, ranges[0].rangeValue.length == 0 {
+        if !keepsCursor, !stillSelecting, ranges.count == 1, ranges[0].rangeValue.length == 0 {
             let location = ranges[0].rangeValue.location
             ranges = [NSValue(range: NSRange(location: snapped(location, forward: location >= selectedRange().location), length: 0))]
         }

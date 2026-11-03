@@ -185,6 +185,14 @@ extension MarkdownTextView {
     func cellWillChange(_ cell: TableCellView, replacing range: NSRange, with string: String?) -> Bool {
         guard let string else { return true } // Only how it looks.
         let target = NSRange(location: cell.range.location + range.location, length: range.length)
+        // Into a style held at the cursor: the cell shows the note's text once it has the markers.
+        if typeForStyles(string, at: target) {
+            syncTableViews()
+            followSelectionIntoTable()
+            // Just after what's typed, inside the markers, which the cell's cursor would otherwise step over.
+            if let cell = focusedTableCell { cell.placeCursor(at: selectedRange().location - cell.range.location) }
+            return false
+        }
         do {
             isMirroringCellSelection = true
             defer { isMirroringCellSelection = false }

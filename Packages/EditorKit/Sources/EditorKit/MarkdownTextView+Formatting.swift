@@ -13,41 +13,29 @@ extension MarkdownTextView {
     @objc public func toggleHighlight(_ sender: Any?) { toggleInline("==", kind: .highlight) }
     @objc public func toggleStrikethrough(_ sender: Any?) { toggleInline("~~", kind: .strikethrough) }
 
-    /// Removes the style if the selection is already inside it; otherwise wraps the
-    /// selection (or the word at the cursor) in `marker`.
+    /// Turns a style on or off, by `MarkdownEditing`'s rules, which the iPhone shares.
     func toggleInline(_ marker: String, kind: MarkdownToken.Kind) {
-        let text = string as NSString
-        var selection = selectedRange()
+        let editing = MarkdownEditing(text: string, tokens: tokens, selection: selectedRange(), held: heldMarkers)
+        if let edit = editing.toggleInline(marker, kind: kind) { apply(edit) }
+    }
 
-        // Already styled: remove the innermost matching span around the selection.
-        if let token = tokens.filter({ $0.kind == kind && NSLocationInRange(selection.location, NSRange(location: $0.range.location, length: $0.range.length + 1)) && NSMaxRange(selection) <= NSMaxRange($0.range) })
-            .min(by: { $0.range.length < $1.range.length }),
-           let open = token.syntax.first, let close = token.syntax.last {
-            let inner = NSRange(location: NSMaxRange(open), length: close.location - NSMaxRange(open))
-            let location = min(max(selection.location - open.length, token.range.location), token.range.location + inner.length)
-            let length = min(selection.length, token.range.location + inner.length - location)
-            replace(token.range, with: text.substring(with: inner), select: NSRange(location: location, length: length))
-            return
+    /// Makes an edit, as one undoable change, and holds the styles it leaves held.
+    func apply(_ edit: MarkdownEdit) {
+        if edit.changesText {
+            replace(edit.range, with: edit.replacement, select: edit.selection)
+        } else {
+            setSelectionDirectly(edit.selection)
         }
+        heldMarkers = edit.held
+    }
 
-        if selection.length == 0 {
-            // A cursor in a link takes in the whole link, as if it were a word.
-            let word = tokens.wideningToLinks(selection).length > 0 ? tokens.wideningToLinks(selection) : wordRange(at: selection.location)
-            if word.length > 0 {
-                selection = word
-            } else {
-                // Nothing to wrap: insert an empty pair and type inside it.
-                replace(selection, with: marker + marker, select: NSRange(location: selection.location + (marker as NSString).length, length: 0))
-                return
-            }
-        }
-
-        // Spaces just inside the markers would stop the style from applying, so leave them out.
-        selection = tokens.wideningToLinks(trimmingWhitespace(selection))
-        guard selection.length > 0 else { return }
-        let length = (marker as NSString).length
-        replace(selection, with: marker + text.substring(with: selection) + marker,
-                select: NSRange(location: selection.location + length, length: selection.length))
+    /// Text typed at `target`, where the styles need it to go elsewhere (`MarkdownEditing.typing`).
+    /// Whether it did.
+    func typeForStyles(_ text: String, at target: NSRange) -> Bool {
+        guard !hasMarkedText(), target == selectedRange(), heldMarkers != nil || text.allSatisfy(\.isWhitespace),
+              let edit = MarkdownEditing(text: string, tokens: tokens, selection: target, held: heldMarkers).typing(text) else { return false }
+        apply(edit)
+        return true
     }
 
     func wordRange(at location: Int) -> NSRange {

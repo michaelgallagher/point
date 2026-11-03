@@ -44,8 +44,13 @@ public final class PhoneTextView: UITextView {
     var isRestyling = false
     /// Where the cursor last settled, to tell which way it's moving.
     private var cursor = 0
+    /// Where typing or an edit just put the cursor, which settling leaves alone, even just
+    /// before a hidden marker: typing at the end of bold text goes on inside it.
+    private var placedCursor: Int?
     /// Set while the selection is put somewhere the cursor can't rest, on the way to an edit.
     private var isAdjustingSelection = false
+    /// Styles toggled at the cursor with nothing to wrap, for what's typed there next.
+    private var heldMarkers: HeldMarkers?
     /// Which load the gradual layout belongs to, so a newer load stops an older run.
     private var layoutRun = 0
 
@@ -201,6 +206,13 @@ public final class PhoneTextView: UITextView {
     func settleCursor() {
         guard pendingRestyle == nil, markedTextRange == nil, !isAdjustingSelection else { return }
         // Undo selects the markers it brings back, which the next key would then replace.
+        if let placed = placedCursor {
+            placedCursor = nil
+            if selectedRange == NSRange(location: placed, length: 0) {
+                cursor = placed
+                return
+            }
+        }
         guard selectedRange.length == 0 || hiddenMarkers.isHidden(selectedRange) else { return }
         cursor = hiddenMarkers.snapped(NSMaxRange(selectedRange), from: cursor)
         if selectedRange != NSRange(location: cursor, length: 0) { selectedRange = NSRange(location: cursor, length: 0) }
@@ -232,8 +244,16 @@ public final class PhoneTextView: UITextView {
         }
     }
 
-    /// Typing over a selection takes its hidden markers too.
+    /// Typing over a selection takes its hidden markers too. Typing where the styles need it
+    /// elsewhere goes there (`MarkdownEditing.typing`).
     public override func insertText(_ text: String) {
+        if markedTextRange == nil, heldMarkers != nil || text.allSatisfy(\.isWhitespace) {
+            restylePending()
+            if let edit = MarkdownEditing(text: textStorage.string, tokens: tokens, selection: selectedRange, held: heldMarkers).typing(text) {
+                return apply(edit)
+            }
+        }
+        defer { if selectedRange.length == 0 { placedCursor = selectedRange.location } }
         if selectedRange.length > 0, markedTextRange == nil { setSelectionDirectly(hiddenMarkers.wholeTokens(in: selectedRange)) }
         super.insertText(text)
     }
@@ -255,16 +275,22 @@ public final class PhoneTextView: UITextView {
 
     /// Runs a formatting command on the selection.
     public func format(_ command: (MarkdownEditing) -> MarkdownEdit?) {
-        if let edit = command(MarkdownEditing(text: textStorage.string, selection: selectedRange)) { apply(edit) }
+        if let edit = command(MarkdownEditing(text: textStorage.string, selection: selectedRange, held: heldMarkers)) { apply(edit) }
     }
 
     /// Makes an edit through the text system, so it can be undone, and sets the selection.
     public func apply(_ edit: MarkdownEdit) {
+        defer { heldMarkers = edit.held }
+        guard edit.changesText else {
+            setSelectionDirectly(edit.selection)
+            return
+        }
         guard let start = position(from: beginningOfDocument, offset: edit.range.location),
               let end = position(from: start, offset: edit.range.length),
               let range = textRange(from: start, to: end) else { return }
         replace(range, withText: edit.replacement)
         selectedRange = edit.selection
+        if edit.selection.length == 0 { placedCursor = edit.selection.location }
     }
 
     /// Replaces text in the frontmatter, or adds a template's to the body, keeping the cursor on
@@ -309,6 +335,8 @@ extension PhoneTextView: UITextViewDelegate {
 
     /// Never into the hidden frontmatter, where what's selected can be deleted, nor hidden markers.
     public func textViewDidChangeSelection(_ textView: UITextView) {
+        // Held styles are for typing where they were chosen; moving lets them go.
+        if let held = heldMarkers, selectedRange != NSRange(location: held.location, length: 0) { heldMarkers = nil }
         let start = bodyStart
         let selection = selectedRange
         guard selection.location < start else {

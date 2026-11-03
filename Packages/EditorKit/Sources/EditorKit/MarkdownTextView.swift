@@ -63,6 +63,8 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     /// Set while the cursor moves up or down, should it arrive in a table: which way it came,
     /// and where it was across.
     var tableEntry: (fromAbove: Bool, x: CGFloat)?
+    /// Styles toggled at the cursor with nothing to wrap, for what's typed there next.
+    var heldMarkers: HeldMarkers?
 
     /// The cursors (and selections) besides the main one (see +Cursors).
     var extraSelections: [NSRange] = []
@@ -644,6 +646,8 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
             guard range.length > 0, range.location < start else { return value }
             return NSValue(range: NSRange(location: start, length: max(NSMaxRange(range) - start, 0)))
         }
+        // Held styles are for typing where they were chosen; moving lets them go.
+        if let held = heldMarkers, ranges.map(\.rangeValue) != [NSRange(location: held.location, length: 0)] { heldMarkers = nil }
         // Moved some other way (a click, undo, find): back to one cursor.
         if !isApplyingToCursors, hasMultipleCursors { collapseCursors() }
         guard !isAdjustingSelection, !stillSelecting, ranges.count == 1, ranges[0].rangeValue.length == 0 else {
@@ -860,6 +864,11 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         // In a table: over a selection across cells, only their text goes; and a pipe or line
         // break typed or pasted is escaped, or made a space, so it can't split a cell or the row.
         var string = string
+        if replacementRange.location == NSNotFound, let text = (string as? String) ?? (string as? NSAttributedString)?.string,
+           typeForStyles(text, at: selectedRange()) {
+            showLinkBeingTyped()
+            return
+        }
         // Typed just after a table's last pipe (at the end of the note, say): on the line below
         // the table, not as a new cell.
         if replacementRange.location == NSNotFound, !hasMarkedText(), selectedRange().length == 0,
@@ -875,7 +884,12 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         if replacementRange.location == NSNotFound, selectedRange().length > 0 {
             expandSelectionToWholeTokens()
         }
+        // The cursor stays just after what's typed, even before a hidden marker: the first
+        // letter typed in an empty `**` pair hides the pair, and the rest goes inside it too.
+        isAdjustingSelection = true
         super.insertText(string, replacementRange: replacementRange)
+        isAdjustingSelection = false
+        showLinkBeingTyped()
         suggestCompletionsIfInWikiLink()
     }
 

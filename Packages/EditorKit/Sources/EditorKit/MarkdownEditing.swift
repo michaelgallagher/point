@@ -6,20 +6,52 @@ public struct MarkdownEdit: Equatable, Sendable {
     public let range: NSRange
     public let replacement: String
     public let selection: NSRange
+    /// The styles held at the cursor afterwards, for what's typed next.
+    public var held: HeldMarkers? = nil
+
+    /// Whether the text changes, rather than only the cursor or the held styles.
+    public var changesText: Bool { range.length > 0 || !replacement.isEmpty }
 }
 
-/// The formatting commands as plain edits to a note's text, for the iPhone's editor: what the
-/// Mac's `MarkdownTextView` does in place, without a text view. `MarkdownEditingTests` holds
-/// each command to the Mac's result. Each returns nil when it has nothing to do.
+/// Inline style markers held at the cursor for what's typed next, so a style can be turned on
+/// before its text is typed without an empty pair of markers ever being seen.
+public struct HeldMarkers: Equatable, Sendable {
+    public let location: Int
+    /// The outermost first.
+    public let markers: [String]
+
+    public init(location: Int, markers: [String]) {
+        self.location = location
+        self.markers = markers
+    }
+
+    /// The markers held once `marker` is toggled at `location`: added, or let go if it was
+    /// held there already. Nil when none are left.
+    static func toggling(_ held: HeldMarkers?, _ marker: String, at location: Int) -> HeldMarkers? {
+        var markers = held?.location == location ? held!.markers : []
+        if let index = markers.firstIndex(of: marker) { markers.remove(at: index) } else { markers.append(marker) }
+        return markers.isEmpty ? nil : HeldMarkers(location: location, markers: markers)
+    }
+}
+
+/// The formatting commands as plain edits to a note's text: the Mac's `MarkdownTextView` and
+/// the iPhone's editor both make them. Each returns nil when it has nothing to do.
 public struct MarkdownEditing {
     let text: NSString
     let tokens: [MarkdownToken]
     let selection: NSRange
+    let held: HeldMarkers?
 
-    public init(text: String, selection: NSRange) {
+    public init(text: String, selection: NSRange, held: HeldMarkers? = nil) {
+        self.init(text: text, tokens: MarkdownParser.parse(text), selection: selection, held: held)
+    }
+
+    /// With the text's tokens already parsed.
+    public init(text: String, tokens: [MarkdownToken], selection: NSRange, held: HeldMarkers? = nil) {
         self.text = text as NSString
+        self.tokens = tokens
         self.selection = selection
-        tokens = MarkdownParser.parse(text)
+        self.held = held
     }
 
     // MARK: Inline styles
@@ -30,13 +62,65 @@ public struct MarkdownEditing {
     public func toggleStrikethrough() -> MarkdownEdit? { toggleInline("~~", kind: .strikethrough) }
     public func toggleCode() -> MarkdownEdit? { toggleInline("`", kind: .code) }
 
-    /// Removes the style if the selection is already inside it; otherwise wraps the
-    /// selection (or the word at the cursor) in `marker`.
+    private static let styleKinds: [MarkdownToken.Kind] = [.strong, .emphasis, .highlight, .strikethrough, .code]
+
+    /// The styled spans whose text ends at `location`, the innermost first: the cursor is
+    /// there while their text is being typed, before their closing markers.
+    private func spans(endingAt location: Int) -> [MarkdownToken] {
+        var spans: [MarkdownToken] = []
+        var at = location
+        while let span = tokens.first(where: { Self.styleKinds.contains($0.kind) && $0.syntax.count == 2 && $0.syntax[1].location == at }) {
+            spans.append(span)
+            at = NSMaxRange(span.syntax[1])
+        }
+        return spans
+    }
+
+    /// The styled spans that end just before `location`, closing markers and all, the
+    /// outermost first.
+    private func spans(endedAt location: Int) -> [MarkdownToken] {
+        var spans: [MarkdownToken] = []
+        var at = location
+        while let span = tokens.first(where: { Self.styleKinds.contains($0.kind) && $0.syntax.count == 2 && NSMaxRange($0.range) == at }) {
+            spans.append(span)
+            at = span.syntax[1].location
+        }
+        return spans
+    }
+
+    /// Turns a style on or off. With a selection, wraps it in `marker` or, if it's already
+    /// in that style, takes the style off. With a cursor, as typing in a word processor:
+    /// - while typing the style's text, at its end, the style stops there;
+    /// - just after text in the style, it carries on;
+    /// - inside a word, the whole word is styled, or unstyled;
+    /// - anywhere else, the style is held for what's typed next.
     func toggleInline(_ marker: String, kind: MarkdownToken.Kind) -> MarkdownEdit? {
         var selection = selection
+        let cursor = NSRange(location: selection.location, length: 0)
+
+        if selection.length == 0 {
+            // At the end of the style's text: out past its closing markers, holding any styles
+            // inside it for what's typed next.
+            let ending = spans(endingAt: selection.location)
+            if let index = ending.firstIndex(where: { $0.kind == kind }) {
+                // Only inside styles that go on: out past its own closing marker, into theirs.
+                if index == 0, ending.count > 1 {
+                    return MarkdownEdit(range: cursor, replacement: "", selection: NSRange(location: NSMaxRange(ending[0].range), length: 0))
+                }
+                let after = NSMaxRange(ending.last!.range)
+                let kept = ending.enumerated().filter { $0.offset != index }.reversed().map { text.substring(with: $0.element.syntax[0]) }
+                return MarkdownEdit(range: cursor, replacement: "", selection: NSRange(location: after, length: 0),
+                                    held: kept.isEmpty ? nil : HeldMarkers(location: after, markers: kept))
+            }
+            // Just after text in the style: back inside it, to carry on with it.
+            if let span = spans(endedAt: selection.location).first(where: { $0.kind == kind }) {
+                return MarkdownEdit(range: cursor, replacement: "", selection: NSRange(location: span.syntax[1].location, length: 0))
+            }
+        }
 
         // Already styled: remove the innermost matching span around the selection.
-        if let token = tokens.filter({ $0.kind == kind && NSLocationInRange(selection.location, NSRange(location: $0.range.location, length: $0.range.length + 1)) && NSMaxRange(selection) <= NSMaxRange($0.range) })
+        if let token = tokens.filter({ $0.kind == kind && NSLocationInRange(selection.location, $0.range) && NSMaxRange(selection) <= NSMaxRange($0.range)
+                                        && (selection.length > 0 || selection.location > $0.range.location) })
             .min(by: { $0.range.length < $1.range.length }),
            let open = token.syntax.first, let close = token.syntax.last {
             let inner = NSRange(location: NSMaxRange(open), length: close.location - NSMaxRange(open))
@@ -46,13 +130,16 @@ public struct MarkdownEditing {
         }
 
         if selection.length == 0 {
-            // A cursor in a link takes in the whole link, as if it were a word.
-            let word = tokens.wideningToLinks(selection).length > 0 ? tokens.wideningToLinks(selection) : wordRange(at: selection.location)
-            if word.length > 0 {
+            // A cursor in a link takes in the whole link, and one inside a word, the word.
+            let link = tokens.wideningToLinks(selection)
+            let word = wordRange(at: selection.location)
+            if link.length > 0 {
+                selection = link
+            } else if word.location < selection.location, selection.location < NSMaxRange(word) {
                 selection = word
             } else {
-                // Nothing to wrap: insert an empty pair and type inside it.
-                return MarkdownEdit(range: selection, replacement: marker + marker, selection: NSRange(location: selection.location + (marker as NSString).length, length: 0))
+                return MarkdownEdit(range: cursor, replacement: "", selection: cursor,
+                                    held: HeldMarkers.toggling(held, marker, at: selection.location))
             }
         }
 
@@ -62,6 +149,51 @@ public struct MarkdownEditing {
         let length = (marker as NSString).length
         return MarkdownEdit(range: selection, replacement: marker + text.substring(with: selection) + marker,
                             selection: NSRange(location: selection.location + length, length: selection.length))
+    }
+
+    /// Text typed at the cursor, where the styles need it to go somewhere other than the
+    /// cursor, or nil to type it there as usual:
+    /// - where styles are held, inside their markers, so they're never seen empty;
+    /// - a space at the end of a style's text, just after its closing markers, with the style
+    ///   held for the next word (a style's text can't end with a space). That word then joins
+    ///   the run, the markers moving to after it, so it's still one run in the Markdown.
+    public func typing(_ typed: String) -> MarkdownEdit? {
+        guard selection.length == 0, !typed.isEmpty, !typed.contains(where: \.isNewline) else { return nil }
+        let location = selection.location
+        let isSpace = typed.allSatisfy(\.isWhitespace)
+        let length = (typed as NSString).length
+
+        if let held, held.location == location {
+            // Spaces before the text: the styles wait after them.
+            if isSpace {
+                return MarkdownEdit(range: selection, replacement: typed, selection: NSRange(location: location + length, length: 0),
+                                    held: HeldMarkers(location: location + length, markers: held.markers))
+            }
+            // The next word after styled text and a space: into the same run, its closing
+            // markers moved to after the word, so the Markdown stays one run.
+            var start = location
+            while start > 0, let scalar = Unicode.Scalar(text.character(at: start - 1)), scalar == " " || scalar == "\t" { start -= 1 }
+            let ended = spans(endedAt: start)
+            if start < location, ended.count == held.markers.count,
+               ended.map({ text.substring(with: $0.syntax[0]) }) == held.markers, let inner = ended.last {
+                let closing = NSRange(location: inner.syntax[1].location, length: start - inner.syntax[1].location)
+                let spaces = text.substring(with: NSRange(location: start, length: location - start))
+                let moved = spaces + typed
+                return MarkdownEdit(range: NSRange(location: closing.location, length: location - closing.location),
+                                    replacement: moved + text.substring(with: closing),
+                                    selection: NSRange(location: closing.location + (moved as NSString).length, length: 0))
+            }
+            let open = held.markers.joined(), close = held.markers.reversed().joined()
+            return MarkdownEdit(range: selection, replacement: open + typed + close,
+                                selection: NSRange(location: location + (open as NSString).length + length, length: 0))
+        }
+
+        let ending = spans(endingAt: location).filter { $0.kind != .code }
+        guard isSpace, !ending.isEmpty, ending.count == spans(endingAt: location).count else { return nil }
+        let after = NSMaxRange(ending.last!.range)
+        return MarkdownEdit(range: NSRange(location: after, length: 0), replacement: typed,
+                            selection: NSRange(location: after + length, length: 0),
+                            held: HeldMarkers(location: after + length, markers: ending.reversed().map { text.substring(with: $0.syntax[0]) }))
     }
 
     func wordRange(at location: Int) -> NSRange {

@@ -335,6 +335,17 @@ struct TableEditingTests {
         #expect(view.string == "| ax y\\|z | b |\n| - | - |")
     }
 
+    @Test func aHeldStyleInAnEmptyCell() {
+        let view = editor("¦ a ¦ b ¦\n¦ - ¦ - ¦\n¦ | ¦ y ¦")
+        view.toggleBold(nil)
+        #expect(view.string == "| a | b |\n| - | - |\n|  | y |")
+        let cell = try! #require(view.focusedTableCell)
+        cell.insertText("t", replacementRange: cell.selectedRange())
+        let now = try! #require(view.focusedTableCell)
+        now.insertText("o", replacementRange: now.selectedRange())
+        #expect(view.string == "| a | b |\n| - | - |\n| **to** | y |")
+    }
+
     @Test func boldInACell() {
         let view = editor("¦ ‹word› ¦ b ¦\n¦ - ¦ - ¦")
         view.toggleBold(nil)

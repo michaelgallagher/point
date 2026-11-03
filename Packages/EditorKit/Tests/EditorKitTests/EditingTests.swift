@@ -37,6 +37,12 @@ private func marked(_ view: MarkdownTextView) -> String {
     return text as String
 }
 
+/// Types `text` a character at a time, as the keyboard does.
+@MainActor
+private func type(_ view: MarkdownTextView, _ text: String) {
+    for character in text { view.insertText(String(character), replacementRange: NSRange(location: NSNotFound, length: 0)) }
+}
+
 @MainActor
 struct InlineFormattingTests {
     @Test func boldWrapsTheSelection() {
@@ -53,13 +59,150 @@ struct InlineFormattingTests {
         #expect(view.string == "make **this** bold")
     }
 
-    @Test func boldWithNothingToWrapInsertsAPair() {
+    @Test func boldWithNothingToWrapWaitsForTyping() {
         let view = editor("a |")
         view.toggleBold(nil)
-        #expect(marked(view) == "a **|**")
+        #expect(marked(view) == "a |") // No markers to see.
         view.insertText("b", replacementRange: NSRange(location: NSNotFound, length: 0))
-        #expect(view.string == "a **b**")
+        #expect(marked(view) == "a **b|**")
         #expect(view.tokens.contains { $0.kind == .strong })
+    }
+
+    @Test func typingWhereAStyleIsHeldStaysInsideIt() {
+        for (toggle, marker) in [({ (view: MarkdownTextView) in view.toggleItalic(nil) }, "*"), ({ $0.toggleBold(nil) }, "**")] {
+            let view = editor("a |")
+            toggle(view)
+            for letter in ["t", "e", "s", "t"] {
+                view.insertText(letter, replacementRange: NSRange(location: NSNotFound, length: 0))
+            }
+            #expect(marked(view) == "a \(marker)test|\(marker)")
+        }
+    }
+
+    @Test func aHeldStyleCanBeToggledOffOrCombined() {
+        let off = editor("a |")
+        off.toggleItalic(nil)
+        off.toggleItalic(nil)
+        off.insertText("b", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(off.string == "a b")
+
+        let both = editor("a |")
+        both.toggleBold(nil)
+        both.toggleItalic(nil)
+        both.insertText("b", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(marked(both) == "a ***b|***")
+    }
+
+    @Test func movingLetsAHeldStyleGo() {
+        let view = editor("ab |")
+        view.toggleBold(nil)
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        view.setSelectedRange(NSRange(location: 3, length: 0))
+        view.insertText("c", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(view.string == "ab c")
+    }
+
+    @Test func spacesBeforeAHeldStyleDontStartIt() {
+        let view = editor("a |")
+        view.toggleItalic(nil)
+        type(view, " b")
+        #expect(marked(view) == "a  *b|*")
+    }
+
+    @Test func boldCanBeTurnedOffAfterTyping() {
+        let view = editor("|")
+        view.toggleBold(nil)
+        type(view, "hello")
+        view.toggleBold(nil)
+        type(view, " world")
+        #expect(marked(view) == "**hello** world|")
+    }
+
+    @Test func boldCanBeTurnedOnOffAndOnAgain() {
+        let view = editor("|")
+        view.toggleBold(nil)
+        type(view, "one")
+        view.toggleBold(nil)
+        type(view, " two ")
+        view.toggleBold(nil)
+        type(view, "three four")
+        #expect(marked(view) == "**one** two **three four|**")
+    }
+
+    @Test func turningBoldOffRightAfterTurningItOffAgainCarriesOn() {
+        let view = editor("|")
+        view.toggleBold(nil)
+        type(view, "one")
+        view.toggleBold(nil)
+        view.toggleBold(nil) // Changed my mind: still bold.
+        type(view, "two")
+        #expect(marked(view) == "**onetwo|**")
+    }
+
+    @Test func boldAfterAWordAndASpaceLeavesTheWord() {
+        let view = editor("|")
+        type(view, "hello ")
+        view.toggleBold(nil)
+        type(view, "world")
+        #expect(marked(view) == "hello **world|**")
+    }
+
+    @Test func boldAtTheEndOfAWordLeavesTheWord() {
+        let view = editor("hello|")
+        view.toggleBold(nil)
+        #expect(view.string == "hello")
+        type(view, "x")
+        #expect(marked(view) == "hello**x|**")
+    }
+
+    @Test func spacesKeepABoldRunGoing() {
+        let view = editor("|")
+        view.toggleBold(nil)
+        type(view, "two words")
+        #expect(marked(view) == "**two words|**")
+        #expect(view.tokens.filter { $0.kind == .strong }.count == 1)
+    }
+
+    @Test func aBoldRunStaysOneRunInTheMarkdown() {
+        let view = editor("testing |")
+        view.toggleBold(nil)
+        type(view, "more words and then")
+        view.toggleBold(nil)
+        type(view, " not bold anymore")
+        #expect(marked(view) == "testing **more words and then** not bold anymore|")
+    }
+
+    @Test func boldItalicStaysOneRun() {
+        let view = editor("|")
+        view.toggleBold(nil)
+        view.toggleItalic(nil)
+        type(view, "two words")
+        #expect(marked(view) == "***two words|***")
+    }
+
+    @Test func aSpaceAtTheEndOfARunIsLeftOutsideIt() {
+        let view = editor("|")
+        view.toggleBold(nil)
+        type(view, "word ")
+        #expect(marked(view) == "**word** |") // Valid at every step.
+        view.toggleBold(nil)
+        type(view, "plain")
+        #expect(marked(view) == "**word** plain|")
+    }
+
+    @Test func italicCanStopInsideBold() {
+        let view = editor("|")
+        view.toggleBold(nil)
+        view.toggleItalic(nil)
+        type(view, "both")
+        #expect(marked(view) == "***both|***")
+        view.toggleItalic(nil)
+        type(view, "x")
+        // The x is bold, and not italic.
+        let x = (view.string as NSString).range(of: "x")
+        #expect(view.tokens.contains { $0.kind == .strong && NSLocationInRange(x.location, $0.range) })
+        #expect(!view.tokens.contains { $0.kind == .emphasis && NSLocationInRange(x.location, $0.range) })
+        #expect(marked(view).hasSuffix("x|**"))
     }
 
     @Test func boldGoesAroundAWholeLink() {
