@@ -88,7 +88,7 @@ struct SearchScreen: View {
         }
         if let results = store.searchResults {
             Section {
-                ForEach(results) { result in row(result.id) { SearchRow(result: result) } }
+                ForEach(results) { result in row(result.id, searchedFor: query) { SearchRow(result: result) } }
             }
             if results.isEmpty, matches == 0 {
                 ContentUnavailableView.search(text: query)
@@ -109,8 +109,10 @@ struct SearchScreen: View {
         return count
     }
 
-    private func row<Label: View>(_ id: Note.ID, @ViewBuilder label: () -> Label) -> some View {
+    /// A note to open, found by searching for `query` if given (search learns from it).
+    private func row<Label: View>(_ id: Note.ID, searchedFor query: String? = nil, @ViewBuilder label: () -> Label) -> some View {
         Button {
+            if let query, !query.trimmingCharacters(in: .whitespaces).isEmpty { store.resultPicked(id, for: query) }
             dismissSearch()
             store.linkedRoute = .note(id)
         } label: { label() }

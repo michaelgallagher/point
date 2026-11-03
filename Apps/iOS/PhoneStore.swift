@@ -38,6 +38,7 @@ final class PhoneStore: ObservableObject {
         .appendingPathComponent("Drafts", isDirectory: true), vaultKey: "phone")
 
     init() {
+        history = Self.loadHistory(from: historyFile)
         PhoneVault.makeSampleNotes()
         index = try? SearchIndex(url: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Index/vault.sqlite"))
@@ -65,6 +66,13 @@ final class PhoneStore: ObservableObject {
         let result = try? await Task.detached(priority: .userInitiated) { try VaultScanner.scanWithFolders(root) }.value
         let scanned = result?.notes ?? []
         notes = scanned
+        // Notes that are gone take what was learned about them (not while the folder reads
+        // as empty, which is more likely unavailable for a moment).
+        if !scanned.isEmpty {
+            let before = history
+            history.keepOnly(Set(scanned.map(\.id)))
+            if history != before { historyFile.save(history) }
+        }
         folders = (result?.folders ?? []).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         bookmarks = ObsidianBookmarks.load(vault: root)
         propertyTypes = PropertyTypes.load(vault: root)
@@ -344,8 +352,8 @@ final class PhoneStore: ObservableObject {
         }
         untitled.remove(id)
         notes.removeAll { $0.id == id }
-        var dates = opened
-        if dates.removeValue(forKey: id) != nil { opened = dates }
+        history.keepOnly(Set(notes.map(\.id)))
+        historyFile.save(history)
         if UserDefaults.standard.string(forKey: "workingOn") == id { stopWorking() }
         if isBookmarked(id) {
             try? ObsidianBookmarks.remove(id, vault: root)
@@ -372,8 +380,8 @@ final class PhoneStore: ObservableObject {
             untitled.insert(newID)
             startingTexts[newID] = start
         }
-        var dates = opened
-        if let date = dates.removeValue(forKey: note.id) { dates[newID] = date; opened = dates }
+        history.renamed(from: note.id, to: newID)
+        historyFile.save(history)
         if UserDefaults.standard.string(forKey: "workingOn") == note.id { UserDefaults.standard.set(newID, forKey: "workingOn") }
         if isBookmarked(note.id) {
             try? ObsidianBookmarks.rename(note.id, to: newID, vault: root)
@@ -513,30 +521,64 @@ final class PhoneStore: ObservableObject {
 
     // MARK: Recent
 
-    /// When each note was last opened on this phone, by ID.
-    private var opened: [Note.ID: Date] = UserDefaults.standard.data(forKey: "opened")
-        .flatMap { try? JSONDecoder().decode([Note.ID: Date].self, from: $0) } ?? [:] {
-        didSet { UserDefaults.standard.set(try? JSONEncoder().encode(opened), forKey: "opened") }
+    /// What search learns on this phone: which notes are opened, and which are picked for
+    /// what's typed (`SearchHistory`). Kept in the app's own storage, never in the vault.
+    private(set) var history = SearchHistory()
+    private let historyFile = SearchHistory.File(url: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("History/vault.json"))
+    /// A note just picked from search, whose screen appearing isn't another open.
+    private var pickedID: Note.ID?
+
+    /// What search had learned before: when each note was last opened, kept in the defaults.
+    private static func loadHistory(from file: SearchHistory.File) -> SearchHistory {
+        guard !FileManager.default.fileExists(atPath: file.url.path),
+              let data = UserDefaults.standard.data(forKey: "opened"),
+              let opened = try? JSONDecoder().decode([Note.ID: Date].self, from: data) else { return file.load() }
+        var history = SearchHistory()
+        for (id, date) in opened.sorted(by: { $0.value < $1.value }) { history.opened(id, at: date) }
+        file.save(history)
+        UserDefaults.standard.removeObject(forKey: "opened")
+        return history
     }
 
     func noteOpened(_ id: Note.ID) {
-        var dates = opened
-        dates[id] = Date()
-        // Only the last few hundred are worth keeping.
-        if dates.count > 300 { dates = Dictionary(uniqueKeysWithValues: dates.sorted { $0.value > $1.value }.prefix(300).map { ($0.key, $0.value) }) }
-        opened = dates
+        if pickedID == id {
+            pickedID = nil
+            return
+        }
+        history.opened(id)
+        historyChanged()
+    }
+
+    /// A search result chosen after typing `query`.
+    func resultPicked(_ id: Note.ID, for query: String) {
+        history.picked(id, for: query)
+        pickedID = id
+        // Only for the screen that opens now: the note may have been showing already.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            if self?.pickedID == id { self?.pickedID = nil }
+        }
+        historyChanged()
+    }
+
+    func forgetSearchHistory() {
+        history.forget()
+        historyChanged()
+    }
+
+    private func historyChanged() {
+        historyFile.save(history)
         objectWillChange.send()
     }
 
     /// Every note, the most recently edited (anywhere) or opened (here) first.
     var recent: [Note] {
-        let opened = opened
-        return notes.sorted { max($0.modified, opened[$0.id] ?? .distantPast) > max($1.modified, opened[$1.id] ?? .distantPast) }
+        notes.sorted { lastTouched($0) > lastTouched($1) }
     }
 
     /// The notes last opened on this phone, for switching between them, newest first.
     func recentlyOpened(limit: Int, excluding excluded: Note.ID?) -> [Note] {
-        let ids = opened.sorted { $0.value > $1.value }.map(\.key).filter { $0 != excluded }
+        let ids = history.recentlyOpened.filter { $0 != excluded }
         return Array(ids.lazy.compactMap { self.note($0) }.prefix(limit))
     }
 
@@ -555,7 +597,7 @@ final class PhoneStore: ObservableObject {
     }
 
     /// When a note was last edited or opened, whichever is later.
-    private func lastTouched(_ note: Note) -> Date { max(note.modified, opened[note.id] ?? .distantPast) }
+    private func lastTouched(_ note: Note) -> Date { max(note.modified, history.lastOpened(note.id) ?? .distantPast) }
 
     // MARK: The note being worked on
 
@@ -631,8 +673,9 @@ final class PhoneStore: ObservableObject {
             try? await Task.sleep(nanoseconds: 80_000_000) // Waits for a pause in typing.
             guard !Task.isCancelled else { return }
             let results = (try? await index.search(query)) ?? []
-            guard !Task.isCancelled else { return }
-            self?.searchResults = results
+            guard !Task.isCancelled, let self else { return }
+            // The notes opened and picked most move up among matches of similar quality.
+            self.searchResults = self.history.rank(results, for: query)
         }
     }
 }

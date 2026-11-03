@@ -2,6 +2,26 @@
 
 Part of [the plan](../PLAN.md). Follows the principle "Know what you need to know".
 
+# Status: built (3 November 2026, branch `search-learning`)
+
+All six steps are done, with each question answered as recommended: each device keeps its own history, no recent searches, and a gentle strength.
+
+**Differences from the plan below:**
+- **An open counts once the note has stayed open for two seconds.** Stepping through a list with the arrow keys opens every note on the way. Without the wait, the notes you only passed would have counted as chosen. A pick from the palette counts at once.
+- **The palette searches for 30 notes and shows the best 8 after reranking,** so a note picked for this search before can come up from lower down.
+- **The iPhone's "Recent" list stays in order of when you last opened each note,** not by score. It's for switching back to a note, which needs a predictable order. Its opened list has moved into `SearchHistory`, and what was in the old list is carried over.
+- **Forgetting** is a palette command on the Mac, "Forget What Search Has Learned", and a button in Settings on the iPhone. Both ask first.
+
+**Checked:**
+- IndexKit's tests pass, 12 of them new for `SearchHistory`, including that with nothing learned the order is unchanged.
+- The Mac and iOS apps build.
+- In the test copy, opening a note from the sidebar was saved to the history file after the two seconds.
+
+**Not checked:**
+- Picks in the running app, and the reranked order on screen. The palette and sidebar search can't be driven in the background, so these are covered only by the tests.
+- The iPhone in use.
+- A note renamed or moved in Obsidian, rather than in Point, looks like a new note, so it loses its history.
+
 # The goal
 
 Point should learn which notes you go to, and put them first, without search ever feeling unpredictable. Today every search is ranked the same way for everyone: how well a title matches, then full-text relevance. Opening a note every day doesn't make it any easier to find.
@@ -11,7 +31,7 @@ Point should learn which notes you go to, and put them first, without search eve
 1. **What you open, and how recently.** Each time you open a note on purpose, Point notes the time. A note's score adds up its recent opens, each counting for less as it gets older (half as much after two weeks). This is "frecency", as in Spotlight, Raycast and Firefox's address bar. A note opened ten times last month beats one opened once yesterday, and both beat one not opened for a year.
    - **Counts:** opening from the palette, search, the sidebar, the note list, a link, or a new note.
    - **Doesn't count:** windows and tabs restored at launch, or Back and Forward, which revisit rather than choose.
-2. **What you pick for what you type.** When you choose a result, Point remembers what you'd typed and which note you chose. Next time you type the same thing, or the start of it, that note goes first. So once you've typed "mtg" and picked "Meetings", "mtg" and "mt" both bring it to the top. A newer pick for the same text replaces an older one.
+2. **What you pick for what you type.** When you choose a result, Point remembers what you'd typed and which note you chose. Next time you type the same thing, or the start of it, that note goes first. So once you've typed "mtg" and picked "Meetings", "mtg" and "mt" both bring it to the top. A pick is saved under what was typed when it was made, often part of a word, so typing more finds it too: after picking a note for "movi", "movies" brings it up as well. If several picks fit, an exact match wins, then the pick for the longest text typed so far. A newer pick for the same text replaces an older one.
 
 # How it changes ranking
 

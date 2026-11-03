@@ -152,6 +152,7 @@ final class VaultStore: ObservableObject {
             #endif
             folders = scanned.folders
             notes = scanned.notes.sorted(by: sort)
+            forgetDeletedNotes()
             propertyTypes = PropertyTypes.load(vault: root) // Obsidian may have changed them.
             errorMessage = nil
             refreshTags()
@@ -200,6 +201,7 @@ final class VaultStore: ObservableObject {
         pins = (UserDefaults.standard.stringArray(forKey: "pins." + Self.vaultKey(url)) ?? []).compactMap(SidebarPlace.init(key:))
         bookmarks = UserDefaults.standard.stringArray(forKey: "bookmarks." + Self.vaultKey(url)) ?? []
         openIndex(for: url)
+        openSearchHistory(for: url)
         watcher = VaultWatcher(root: url, onChange: { [weak self] urls in
             Task { @MainActor in self?.filesChanged(urls) }
         }, onMissedChanges: { [weak self] in
@@ -356,6 +358,10 @@ final class VaultStore: ObservableObject {
                                 modified: note.modified, created: note.created, isDownloaded: true)
         }
         if untitled.remove(note.id) != nil { untitled.insert(newID) }
+        // What search has learned about it follows it too.
+        searchHistory.renamed(from: note.id, to: newID)
+        if pendingOpen?.id == note.id { pendingOpen?.id = newID }
+        saveSearchHistory()
         // A bookmark follows its note.
         if let index = bookmarks.firstIndex(of: note.id) {
             bookmarks[index] = newID
@@ -844,6 +850,87 @@ final class VaultStore: ObservableObject {
         let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Point/Index", isDirectory: true)
         index = try? SearchIndex(url: folder.appendingPathComponent("\(Self.vaultKey(url)).sqlite"))
+    }
+
+    // MARK: What search learns
+
+    /// Which notes are opened, and which are picked for what's typed, on this Mac: search
+    /// puts them first among results of similar quality (`SearchHistory.rank`).
+    private(set) var searchHistory = SearchHistory()
+    private var searchHistoryFile: SearchHistory.File?
+    /// The note opened last, which counts once it has stayed open a moment: stepping through
+    /// a list opens each note on the way, but chooses none of them.
+    private var pendingOpen: (id: Note.ID, date: Date, query: String?)?
+    private var pendingOpenTask: Task<Void, Never>?
+    private var saveHistoryTask: Task<Void, Never>?
+    /// How long a note must stay open to count as chosen.
+    private static let openDwell: UInt64 = 2_000_000_000
+
+    /// Kept next to the index, in the app's own storage, never in the vault.
+    private func openSearchHistory(for url: URL) {
+        pendingOpenTask?.cancel()
+        pendingOpen = nil
+        let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Point/History", isDirectory: true)
+        let file = SearchHistory.File(url: folder.appendingPathComponent("\(Self.vaultKey(url)).json"))
+        searchHistoryFile = file
+        searchHistory = file.load()
+    }
+
+    /// A note opened on purpose (not restored at launch, nor gone back or forward to), and
+    /// what had been typed to find it, if it was a search result.
+    func noteOpened(_ id: Note.ID, searchedFor query: String? = nil) {
+        pendingOpenTask?.cancel()
+        pendingOpen = (id, Date(), query.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 })
+        pendingOpenTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.openDwell)
+            guard !Task.isCancelled, let self, let open = self.pendingOpen else { return }
+            self.pendingOpen = nil
+            self.pendingOpenTask = nil
+            if let query = open.query {
+                self.searchHistory.picked(open.id, for: query, at: open.date)
+            } else {
+                self.searchHistory.opened(open.id, at: open.date)
+            }
+            self.saveSearchHistory()
+        }
+    }
+
+    /// A search result chosen after typing `query`, from a list it isn't stepped through
+    /// (the palette): counts at once, in place of the open it made.
+    func resultPicked(_ id: Note.ID, for query: String) {
+        if pendingOpen?.id == id {
+            pendingOpenTask?.cancel()
+            pendingOpenTask = nil
+            pendingOpen = nil
+        }
+        searchHistory.picked(id, for: query)
+        saveSearchHistory()
+    }
+
+    func forgetSearchHistory() {
+        pendingOpenTask?.cancel()
+        pendingOpen = nil
+        searchHistory.forget()
+        saveSearchHistory()
+    }
+
+    /// Notes that are gone take what was learned about them with them. Not while the vault
+    /// reads as empty, which is more likely a folder that's unavailable for a moment.
+    private func forgetDeletedNotes() {
+        guard !notes.isEmpty else { return }
+        let before = searchHistory
+        searchHistory.keepOnly(Set(notes.map(\.id)))
+        if searchHistory != before { saveSearchHistory() }
+    }
+
+    private func saveSearchHistory() {
+        saveHistoryTask?.cancel()
+        saveHistoryTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled, let self, let file = self.searchHistoryFile else { return }
+            file.save(self.searchHistory)
+        }
     }
 
     /// A short, stable name for a vault, from a hash of its path.

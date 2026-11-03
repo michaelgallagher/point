@@ -24,7 +24,7 @@ Branch `no-visible-tabs`. Recently built: tabless headers, the redesigned proper
 - [Milestones](plan/milestones.md): M0 to M6.
 
 **Work, newest first**
-- [Search that learns](plan/search-learning.md) (3 November, a plan): ranking the notes you open and pick higher, kept on each device, outside the vault.
+- [Search that learns](plan/search-learning.md) (3 November, built on `search-learning`): ranking the notes you open and pick higher, kept on each device, outside the vault.
 - [Live vault safety](plan/live-vault-safety.md) (26–27 October): testing, then fixing, what Point writes to a real vault; the results, and the trial still to come.
 - [M4, the iPhone app](plan/m4-iphone.md) (27 October): what it's for, two screens and a button, what it leaves out, how it's built, and the steps.
 - [Code review](plan/app-review-2026-10-27.md) (27 October): an external review of note safety, stability and performance; what's fixed, and what's still open.

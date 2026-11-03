@@ -116,6 +116,17 @@ final class VaultModel: ObservableObject {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
+    /// Clears which notes search puts first from having been opened and picked, once asked.
+    func forgetSearchHistory() {
+        let alert = NSAlert()
+        alert.messageText = "Forget what search has learned?"
+        alert.informativeText = "Search will stop putting the notes you open and pick most first, until it learns them again. Your notes aren’t changed."
+        alert.addButton(withTitle: "Forget")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        store.forgetSearchHistory()
+    }
+
     func showInFinder(_ note: Note) {
         NSWorkspace.shared.activateFileViewerSelecting([note.url])
     }
@@ -417,6 +428,8 @@ final class VaultModel: ObservableObject {
     private func show(_ id: Note.ID?) {
         let old = selection
         guard id != old else { return }
+        // Opened from the sidebar's search results: a pick for what was typed.
+        if let id { store.noteOpened(id, searchedFor: searchResults?.contains { $0.id == id } == true ? searchText : nil) }
         if let id, let (p, t) = location(of: id) {
             if p == activePane || panes[p].current == t {
                 activePane = p
@@ -457,6 +470,7 @@ final class VaultModel: ObservableObject {
 
     /// Opens a note (or a blank tab) in a new tab of a pane, the active one unless given.
     func newTab(noteID: Note.ID? = nil, inPane pane: Int? = nil) {
+        if let noteID { store.noteOpened(noteID) }
         if let noteID, let (p, t) = location(of: noteID) {
             activePane = p
             panes[p].current = t
@@ -1191,8 +1205,9 @@ final class VaultModel: ObservableObject {
             try? await Task.sleep(nanoseconds: 80_000_000) // Let a burst of typing settle.
             guard !Task.isCancelled, let index = self?.index else { return }
             let results = (try? await index.search(query)) ?? []
-            guard !Task.isCancelled else { return }
-            self?.searchResults = results
+            guard !Task.isCancelled, let self else { return }
+            // The notes opened and picked most move up among matches of similar quality.
+            self.searchResults = self.store.searchHistory.rank(results, for: query)
         }
     }
 

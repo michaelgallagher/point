@@ -181,9 +181,12 @@ struct CommandPalette: View {
     }
 
     private func open(_ id: Note.ID, inNewTab: Bool) {
+        let typed = query.trimmingCharacters(in: .whitespaces)
         if !isPage { close() }
         // A start page opens the note in its own tab, which is the active one.
         if inNewTab { model.newTab(noteID: id) } else { model.selection = id }
+        // Search learns which note was wanted for what was typed.
+        if !typed.isEmpty { model.store.resultPicked(id, for: typed) }
     }
 
     // MARK: Results
@@ -229,11 +232,18 @@ struct CommandPalette: View {
                 marked = markedNotes.map { PaletteItem.note($0.id, $0.title, nil) }
                 let shown = openSet.union(markedNotes.map(\.id))
                 notesTitle = "Suggested"
-                notes = model.notes.sorted(by: .modified).lazy.filter { !shown.contains($0.id) }.prefix(6).map { PaletteItem.note($0.id, $0.title, nil) }
+                // The notes opened and edited most lately (an edit counts as an open).
+                let history = model.store.searchHistory, now = Date()
+                let scores = Dictionary(model.notes.map { ($0.id, history.score(of: $0.id, modified: $0.modified, now: now)) }, uniquingKeysWith: { a, _ in a })
+                notes = model.notes.filter { !shown.contains($0.id) }
+                    .sorted { scores[$0.id]! != scores[$1.id]! ? scores[$0.id]! > scores[$1.id]! : $0.modified > $1.modified }
+                    .prefix(6).map { PaletteItem.note($0.id, $0.title, nil) }
                 commandItems = commands.filter(\.isSuggested).map(PaletteItem.command)
             } else {
                 let hasTags = !SearchTags.tags(in: trimmed).isEmpty
-                let results = (try? await model.index?.search(trimmed, limit: 8)) ?? []
+                // More than are shown, so a note picked for this before can come up from lower down.
+                let searched = (try? await model.index?.search(trimmed, limit: 30)) ?? []
+                let results = Array(model.store.searchHistory.rank(searched, for: trimmed).prefix(8))
                 let found = results.map { PaletteItem.note($0.id, $0.title, $0.snippet) }
                 @MainActor func matching(_ candidates: [Note]) -> [PaletteItem] {
                     // By title, or found in the search (with its snippet). Filtered by a tag,
@@ -610,6 +620,7 @@ struct PaletteCommand {
         ]
         commands.append(PaletteCommand(name: "Search in List", shortcut: ShortcutStore.shared.label(for: .searchInList)) { model.focusSearch() })
         commands.append(PaletteCommand(name: "Keyboard Shortcuts", shortcut: ShortcutStore.shared.label(for: .keyboardShortcuts)) { model.isShowingShortcuts = true })
+        commands.append(PaletteCommand(name: "Forget What Search Has Learned", shortcut: nil) { model.forgetSearchHistory() })
         commands.append(model.sidebarDensity == .compact
             ? PaletteCommand(name: "Use Comfortable Sidebar", shortcut: nil) { model.sidebarDensity = .comfortable }
             : PaletteCommand(name: "Use Compact Sidebar", shortcut: nil) { model.sidebarDensity = .compact })
