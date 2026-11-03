@@ -64,4 +64,16 @@ struct AnimatedCursorTests {
         #expect(view.cursorView.isHidden)
         #expect(view.cursorView.superview === view)
     }
+
+    @Test func itBlinksSolidThenOffThenOn() throws {
+        let view = editor("Some text", at: 2)
+        view.restartCursorBlink()
+        let blink = try #require(view.cursorView.layer?.animation(forKey: "blink") as? CAKeyframeAnimation)
+        let values = try #require(blink.values as? [NSNumber]).map(\.doubleValue)
+        let times = try #require(blink.keyTimes?.map(\.doubleValue))
+        #expect(values.count == times.count)
+        #expect(values.first == 1 && values.last == 1 && values.contains(0))
+        #expect(times.first == 0 && times.last == 1 && times == times.sorted())
+        #expect(blink.repeatCount == .infinity)
+    }
 }

@@ -155,20 +155,26 @@ extension MarkdownTextView {
         restartCursorBlink()
     }
 
-    /// Solid for a moment, then on and off, as the system's cursor blinks.
-    private func restartCursorBlink() {
+    /// How long the cursor takes to fade out or in as it blinks.
+    static let cursorFadeDuration: Double = 0.15
+
+    /// Solid for a moment, then fading off and on, as the system's cursor blinks.
+    func restartCursorBlink() {
         guard let layer = cursorView.layer else { return }
         let defaults = UserDefaults.standard
-        let on = defaults.object(forKey: "NSTextInsertionPointBlinkPeriodOn") as? Double ?? 500
-        let off = defaults.object(forKey: "NSTextInsertionPointBlinkPeriodOff") as? Double ?? 500
+        let on = (defaults.object(forKey: "NSTextInsertionPointBlinkPeriodOn") as? Double ?? 500) / 1000
+        let off = (defaults.object(forKey: "NSTextInsertionPointBlinkPeriodOff") as? Double ?? 500) / 1000
+        let period = on + off
+        let fade = min(Self.cursorFadeDuration, on / 2, off / 2)
+        // Each period: solid, fading out, off, fading back in.
         let blink = CAKeyframeAnimation(keyPath: "opacity")
-        blink.values = [1, 0]
-        blink.keyTimes = [0, NSNumber(value: on / (on + off))]
-        blink.calculationMode = .discrete
-        blink.duration = (on + off) / 1000
+        blink.values = [1.0, 1.0, 0.0, 0.0, 1.0]
+        blink.keyTimes = [0, on - fade, on, period - fade, period].map { NSNumber(value: $0 / period) }
+        blink.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeInEaseOut), count: 4)
+        blink.duration = period
         blink.repeatCount = .infinity
-        blink.beginTime = CACurrentMediaTime() + on / 1000
-        blink.fillMode = .backwards
+        // The first period starts where it's solid, so it's on for a whole `on` before fading.
+        blink.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil)
         layer.add(blink, forKey: "blink")
     }
 
