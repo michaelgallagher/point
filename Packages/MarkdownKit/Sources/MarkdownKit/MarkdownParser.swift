@@ -296,7 +296,10 @@ private struct Parser {
         var j = i + 2
         while j < lines.count, !isBlank(lines[j]), s[lines[j]].contains(pipe) { j += 1 }
         add(.table, lines[i].lowerBound..<lines[j - 1].upperBound)
-        for row in i..<j where row != i + 1 { inline(lines[row]) }
+        // Cell by cell, as GFM reads them: `**` in one cell can't close in the next.
+        for row in i..<j where row != i + 1 {
+            for cell in MarkdownTable.split(lines[row], { s[$0] }).cells { inline(cell) }
+        }
         return j
     }
 
@@ -412,9 +415,10 @@ private struct Parser {
         }
         guard close + 1 < end, close > open + 2 else { return nil }
         let inner = (open + 2)..<close
-        let pipeIndex = inner.first { s[$0] == pipe && ($0 == inner.lowerBound || s[$0 - 1] != backslash) }
+        // The alias follows the first pipe, escaped (`\|`, as in a table) or not, as in Obsidian.
+        let pipeIndex = inner.first { s[$0] == pipe }
         var targetEnd = pipeIndex ?? close
-        if targetEnd > inner.lowerBound, s[targetEnd - 1] == backslash { targetEnd -= 1 } // `\|` in tables
+        if targetEnd > inner.lowerBound, s[targetEnd - 1] == backslash { targetEnd -= 1 }
         let target = string(inner.lowerBound..<targetEnd)
         let start = embed ? open - 1 : open
         var syntax = [start..<(open + 2)]

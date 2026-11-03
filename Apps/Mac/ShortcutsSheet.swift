@@ -59,6 +59,7 @@ struct ShortcutsSheet: View {
             (.commands([.checklist]), "Checklist"),
             (.commands([.highlightOrange, .highlightRed]), "Highlight a list item orange, red (the rest under Format › Highlight List Item)"),
             (.commands([.addLink]), "Add link"),
+            (.commands([.insertTable]), "Insert table"),
         ]),
         ("Editing", [
             (.commands([.indent, .outdent]), "Indent, outdent"),
@@ -69,6 +70,11 @@ struct ShortcutsSheet: View {
             (.commands([.addCursorAbove, .addCursorBelow]), "Add a cursor above, below"),
             (.commands([.addNextMatch]), "Select the word, then add the next match"),
             (.fixed("Esc"), "Back to one cursor"),
+        ]),
+        ("Tables", [
+            (.fixed("⇥, ⇧⇥"), "Next cell (adding a row after the last), previous cell"),
+            (.fixed("↩"), "Cell below (adding a row after the last; on an empty last row, leave the table)"),
+            (.fixed("Right-click"), "Insert or delete rows and columns, align a column"),
         ]),
     ]
 

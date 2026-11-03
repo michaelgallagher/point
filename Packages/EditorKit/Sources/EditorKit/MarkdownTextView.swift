@@ -52,6 +52,14 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     /// selection changing some other way (which goes back to one cursor).
     var isApplyingToCursors = false
 
+    /// Where the table last typed in starts, to write it out neatly once the cursor leaves it
+    /// (see +Tables).
+    var editedTableStart: Int?
+    /// Set while a table is written out, which isn't typing in it.
+    var isRewritingTable = false
+    /// Where the last edit to the text was.
+    private var lastEditLocation = 0
+
     /// How big the text is, relative to the chosen size (⌘+ / ⌘−).
     public var textScale: CGFloat {
         get { styler.theme.scale }
@@ -182,6 +190,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         drawsBackground = true
         backgroundColor = .textBackgroundColor
         typingAttributes = styler.baseAttributes
+        styler.theme.rendersTables = true
         isVerticallyResizable = true
         isHorizontallyResizable = false
         autoresizingMask = [.width]
@@ -195,6 +204,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         guard let storage = textStorage else { return }
         folds = []
         appliedFoldRanges = [:]
+        editedTableStart = nil
         storage.setAttributedString(NSAttributedString(string: markdown, attributes: styler.baseAttributes))
         undoManager?.removeAllActions()
         // Start at the first visible text, never inside hidden frontmatter or markers.
@@ -291,6 +301,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
 
     public override func didChangeText() {
         super.didChangeText()
+        noteTableEdit(at: lastEditLocation)
         onTextChange?(self)
     }
 
@@ -509,6 +520,22 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         if textContainerInset.width != side {
             textContainerInset = NSSize(width: side, height: 28)
         }
+        // Tables are narrowed to fit the text, so they're laid out again when it changes width.
+        let width = frame.width - side * 2 - (textContainer?.lineFragmentPadding ?? 0) * 2
+        if width != styler.theme.textWidth {
+            styler.theme.textWidth = width
+            restyleTables()
+        }
+    }
+
+    private func restyleTables() {
+        guard let storage = textStorage, tokens.contains(where: { $0.kind == .table }) else { return }
+        storage.beginEditing()
+        for token in tokens where token.kind == .table {
+            styler.style(storage, range: token.range, tokens: tokens)
+        }
+        applyFolds()
+        storage.endEditing()
     }
 
     // MARK: Restyling
@@ -520,6 +547,10 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         changeInLength delta: Int
     ) {
         guard editedMask.contains(.editedCharacters) else { return }
+        lastEditLocation = editedRange.location
+        if let start = editedTableStart, editedRange.location < start {
+            editedTableStart = start + delta
+        }
         let old = tokens
         tokens = MarkdownParser.parse(textStorage.string)
         // Folds move with the text; one the edit reached into opens, and everything restyles.
@@ -563,6 +594,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
 
     /// Keeps the insertion point out of hidden markers, so every arrow press visibly moves it.
     public override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        defer { if !stillSelecting { neatenTableIfLeft() } }
         // Never into hidden frontmatter: what's selected can be deleted.
         let start = bodyStart
         let ranges = start == 0 ? ranges : ranges.map { value -> NSValue in
@@ -704,6 +736,8 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
 
     /// Keeps the cursor out of hidden markers on an ordinary line.
     private func snappedToMarkers(_ location: Int, forward: Bool) -> Int {
+        // In a table, over the hidden pipes between cells (see +Tables).
+        if let snapped = snappedInTable(location, forward: forward) { return snapped }
         // The hidden run the location is at the start of, inside, or at the end of.
         guard let run = hiddenRun(at: location) ?? hiddenRun(at: location - 1) else { return location }
 
@@ -733,6 +767,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     public override func deleteBackward(_ sender: Any?) {
         let selection = selectedRange()
         guard selection.length == 0 else {
+            if deleteInTable(selection) { return }
             expandSelectionToWholeTokens()
             super.deleteBackward(sender)
             return
@@ -741,6 +776,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         guard location > 0 else { return super.deleteBackward(sender) }
         // Not into the frontmatter's last line, which would join the body to it.
         if location == bodyStart { return }
+        if keepsTableShape(deletingBackwardFrom: location) { return }
 
         if let run = hiddenRun(at: location - 1) {
             if run.location == lineStart(of: run.location), collapsedLine(containing: run.location) == nil {
@@ -762,10 +798,12 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     public override func deleteForward(_ sender: Any?) {
         let selection = selectedRange()
         guard selection.length == 0 else {
+            if deleteInTable(selection) { return }
             expandSelectionToWholeTokens()
             super.deleteForward(sender)
             return
         }
+        if keepsTableShape(deletingForwardFrom: selection.location) { return }
         if let run = hiddenRun(at: selection.location) {
             if collapsedLine(containing: run.location) != nil { return }
             setSelectionDirectly(NSRange(location: NSMaxRange(run), length: 0))
@@ -779,6 +817,15 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
             performAtEachCursor { self.insertText(string, replacementRange: replacementRange) }
             return
         }
+        // In a table: over a selection across cells, only their text goes; and a pipe or line
+        // break typed or pasted is escaped, or made a space, so it can't split a cell or the row.
+        var string = string
+        let target = replacementRange.location == NSNotFound ? selectedRange() : replacementRange
+        if !hasMarkedText(), let text = (string as? String) ?? (string as? NSAttributedString)?.string,
+           renderedTable(at: target.location) != nil {
+            if replacementRange.location == NSNotFound, deleteInTable(target, inserting: text) { return }
+            if text.contains("|") || text.contains(where: \.isNewline) { string = MarkdownTable.cellText(text) }
+        }
         if replacementRange.location == NSNotFound, selectedRange().length > 0 {
             expandSelectionToWholeTokens()
         }
@@ -787,6 +834,13 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     }
 
     public override func cut(_ sender: Any?) {
+        let selection = selectedRange()
+        if renderedTable(at: selection.location) != nil, selection.length > 0 {
+            copy(sender)
+            if deleteInTable(selection) { return }
+            expandSelectionToWholeTokens()
+            return super.deleteBackward(sender)
+        }
         if cutWholeLine() { return }
         expandSelectionToWholeTokens()
         super.cut(sender)

@@ -317,6 +317,7 @@ extension MarkdownTextView {
     }
 
     public override func insertTab(_ sender: Any?) {
+        if moveInTable(.next) { return }
         if selectedLineRanges().contains(where: { parts(ofLineAt: $0).listMarker != nil }) {
             changeIndent(by: 1)
         } else {
@@ -325,6 +326,7 @@ extension MarkdownTextView {
     }
 
     public override func insertBacktab(_ sender: Any?) {
+        if moveInTable(.previous) { return }
         if selectedLineRanges().contains(where: { parts(ofLineAt: $0).listMarker != nil }) {
             changeIndent(by: -1)
         } else {
@@ -335,6 +337,7 @@ extension MarkdownTextView {
     // MARK: Return continues lists and quotes
 
     public override func insertNewline(_ sender: Any?) {
+        if moveInTable(.down) { return }
         let selection = selectedRange()
         guard selection.length == 0, let line = selectedLineRanges().first else {
             return super.insertNewline(sender)
@@ -427,6 +430,11 @@ extension MarkdownTextView {
         }
         let text = string as NSString
         let before = text.substring(with: NSRange(location: lineStart(of: selection.location), length: selection.location - lineStart(of: selection.location)))
+        // Into a table's cell, as one line (see `insertText`).
+        if renderedTable(at: selection.location) != nil {
+            insertText(clip, replacementRange: NSRange(location: NSNotFound, length: 0))
+            return
+        }
         if let merged = Self.withoutListMarker(clip, pastedAfter: before) {
             insertText(merged, replacementRange: selection)
             return

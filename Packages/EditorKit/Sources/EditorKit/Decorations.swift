@@ -28,12 +28,36 @@ extension NSAttributedString.Key {
     static let pointListHighlight = NSAttributedString.Key("point.listHighlight")
     /// A line-height multiple (CGFloat) overriding the theme's, for example in code blocks.
     static let pointLineHeight = NSAttributedString.Key("point.lineHeight")
+    /// A table's pipe that divides two cells, laid out as a space reaching to where the next
+    /// cell's text starts (a `TableGap`).
+    static let pointTableGap = NSAttributedString.Key("point.tableGap")
+    /// A cell's text too wide for its column: where (a CGFloat, from the text's left edge) it
+    /// is cut off.
+    static let pointTableClip = NSAttributedString.Key("point.tableClip")
 }
 
 enum BlockDecoration: Hashable {
     case quote
     case callout(type: String)
     case code
+    case table(TableDecoration)
+}
+
+/// Where a table's columns are, for drawing its lines: the edges of each column, from the
+/// text's left edge, starting at 0.
+struct TableDecoration: Hashable {
+    let columnEdges: [CGFloat]
+}
+
+/// Where the text of the cell after a table's pipe starts, from the text's left edge.
+struct TableGap: Hashable {
+    let x: CGFloat
+}
+
+/// The hidden padding and pipes between two of a table's cells. Each run has its own value, so
+/// that runs on either side of an empty cell stay apart, with a place for the cursor between.
+struct TableBoundary: Hashable {
+    let location: Int
 }
 
 struct ListMarkerDecoration: Hashable {
@@ -71,6 +95,16 @@ struct EditorTheme {
         return markerWidth
     }
     var maxTextWidth: CGFloat = 720
+
+    /// Whether tables are drawn as tables, with their pipes hidden, rather than as monospaced
+    /// Markdown. Only the Mac's editor moves the cursor between cells as they need.
+    var rendersTables = false
+    /// How wide the text is, which a table's columns are narrowed to fit.
+    var textWidth: CGFloat = 720
+    /// The room between a cell's text and its column's edges.
+    var tableCellPadding: CGFloat = 8
+    /// The room above and below a cell's text.
+    var tableRowPadding: CGFloat = 5
 
     /// The size of the arrow symbol after web links, and the space made for it.
     func webLinkSymbolSize(for font: PlatformFont) -> CGFloat { (font.pointSize * 0.8).rounded() }

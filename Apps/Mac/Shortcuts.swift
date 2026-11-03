@@ -69,7 +69,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
     // Format
     case bold, italic, highlight, strikethrough, inlineCode, bodyText, heading1, heading2, heading3, heading4,
          heading5, heading6, bulletList, checklist, blockQuote, indent, outdent, moveLineUp, moveLineDown, fold,
-         unfold, addCursorAbove, addCursorBelow, addNextMatch, addLink, addProperty
+         unfold, addCursorAbove, addCursorBelow, addNextMatch, addLink, insertTable, addProperty
     // Format › Highlight List Item, by colour name (see `MarkdownTextView.colourName`).
     case highlightOrange, highlightRed, highlightYellow, highlightGreen, highlightTeal, highlightPurple,
          highlightGrey, highlightBrown, removeHighlight
@@ -163,6 +163,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .addCursorBelow: "Add Cursor Below"
         case .addNextMatch: "Add Next Match"
         case .addLink: "Add Link…"
+        case .insertTable: "Insert Table"
         case .addProperty: "Add Property…"
         case .highlightOrange: "Orange"
         case .highlightRed: "Red"

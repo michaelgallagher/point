@@ -670,6 +670,7 @@ struct PaletteCommand {
                 ("Fold", "⌥⌘[", #selector(MarkdownTextView.foldLine(_:))),
                 ("Unfold", "⌥⌘]", #selector(MarkdownTextView.unfoldLine(_:))),
                 ("Add Link…", "⌘K", #selector(MarkdownTextView.addLink(_:))),
+                ("Insert Table", ShortcutStore.shared.label(for: .insertTable), #selector(MarkdownTextView.insertTable(_:))),
             ]
             for (name, shortcut, action) in formats {
                 commands.append(PaletteCommand(name: name, shortcut: shortcut) {

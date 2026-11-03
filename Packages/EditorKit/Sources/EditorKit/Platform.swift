@@ -34,6 +34,13 @@ func pointing(_ attributes: [NSAttributedString.Key: Any]) -> [NSAttributedStrin
     attributes.merging([.cursor: NSCursor.pointingHand]) { kept, _ in kept }
 }
 
+/// Draws with the graphics state saved first and put back after, for clipping.
+func withSavedGraphicsState(_ draw: () -> Void) {
+    NSGraphicsContext.saveGraphicsState()
+    draw()
+    NSGraphicsContext.restoreGraphicsState()
+}
+
 extension NSImage {
     /// Drawn the right way up in a flipped view, such as a text view.
     func drawFlipped(in rect: CGRect) {
@@ -99,6 +106,12 @@ func pointing(_ attributes: [NSAttributedString.Key: Any]) -> [NSAttributedStrin
 
 extension UIImage {
     func drawFlipped(in rect: CGRect) { draw(in: rect) }
+}
+
+func withSavedGraphicsState(_ draw: () -> Void) {
+    UIGraphicsGetCurrentContext()?.saveGState()
+    draw()
+    UIGraphicsGetCurrentContext()?.restoreGState()
 }
 
 extension UIColor {

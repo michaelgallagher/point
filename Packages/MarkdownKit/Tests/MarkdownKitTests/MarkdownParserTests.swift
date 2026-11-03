@@ -97,6 +97,14 @@ struct BlockTests {
         ])
     }
 
+    @Test func tableCellsAreReadOneByOne() {
+        // `**` can't close in another cell, and an escaped pipe in a wikilink starts its alias.
+        #expect(parse("| **a | b** | [[Note\\|alias]] |\n| - | - | - |") == [
+            Found(.table, "| **a | b** | [[Note\\|alias]] |\n| - | - | - |"),
+            Found(.wikiLink(target: "Note"), "[[Note\\|alias]]", ["[[", "Note\\|", "]]"]),
+        ])
+    }
+
     @Test func footnotes() {
         #expect(parse("Text[^1]\n\n[^1]: Note") == [
             Found(.footnoteReference, "[^1]"),

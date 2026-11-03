@@ -53,6 +53,8 @@ struct FormatCommands: Commands {
             item(.addNextMatch, #selector(MarkdownTextView.addNextMatch(_:)))
             Divider()
             item(.addLink, #selector(MarkdownTextView.addLink(_:)))
+            // Its rows and columns are changed from its own menu (right-click a cell).
+            item(.insertTable, #selector(MarkdownTextView.insertTable(_:)))
             Button("Add Property…") { NotificationCenter.default.post(name: .pointAddProperty, object: model) }
                 .shortcut(.addProperty, in: shortcuts)
                 .disabled(model?.selectedNote == nil)
