@@ -6,13 +6,14 @@ Part of [the plan](../PLAN.md).
 
 1. **The file is the truth.** Notes are plain `.md` files in a folder that is also an Obsidian vault. Every unchanged byte stays unchanged, including frontmatter key order, whitespace, and syntax we don't render.
 2. **Never see Markdown.** Editing feels like rich text. Markdown decides what formatting is possible. A raw-source toggle exists for emergencies.
-3. **Little filing.** Search, links and tags do most of the finding. Folders exist for the few broad areas that need them (as in Obsidian), but filing is never required.
-4. **Capture is instant.** One press on the iPhone gets you to a blank note with the keyboard up.
-5. **Fast software is good software.** Open instantly, and stay responsive with 10,000 notes. Speed wins over features that would slow things down.
-6. **Native.** Use platform conventions and the system's own controls.
-7. **As minimal as possible, but no more.** Show as little interface as we can, without making common actions hard to do.
-8. **Know what you need to know.** Half of the app's job is managing knowledge: surfacing what matters, connecting related notes and making it easy to find things again, not just storing text.
-9. **The command palette is the main way to do things.** Every action is reachable from it. Menus, buttons and shortcuts are secondary ways to get there.
+3. **The Markdown Point writes is well formed.** Whatever the editing, the file reads as a person would have written it by hand: one `**bold run**`, not `**a** **b**`; no empty or stray markers; tables neat. It's valid at every keystroke, not only once typing stops. Feeling like rich text never excuses messy Markdown underneath.
+4. **Little filing.** Search, links and tags do most of the finding. Folders exist for the few broad areas that need them (as in Obsidian), but filing is never required.
+5. **Capture is instant.** One press on the iPhone gets you to a blank note with the keyboard up.
+6. **Fast software is good software.** Open instantly, and stay responsive with 10,000 notes. Speed wins over features that would slow things down.
+7. **Native.** Use platform conventions and the system's own controls.
+8. **As minimal as possible, but no more.** Show as little interface as we can, without making common actions hard to do.
+9. **Know what you need to know.** Half of the app's job is managing knowledge: surfacing what matters, connecting related notes and making it easy to find things again, not just storing text.
+10. **The command palette is the main way to do things.** Every action is reachable from it. Menus, buttons and shortcuts are secondary ways to get there.
 
 # Decisions so far
 
