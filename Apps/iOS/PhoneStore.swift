@@ -23,6 +23,8 @@ final class PhoneStore: ObservableObject {
     }
     /// Results for `searchText`, or nil when not searching.
     @Published private(set) var searchResults: [SearchResult]?
+    /// Search is showing, over the page.
+    @Published var isSearching = false
     /// Goes up each time the search index takes in changed notes, for what's read from it to
     /// be read again.
     @Published private(set) var indexUpdates = 0

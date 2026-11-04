@@ -11,7 +11,7 @@ enum Route: Hashable {
 }
 
 /// Home, as the Notes app's list of folders: All notes, Bookmarks and Recent, each a page of its
-/// own; the vault's folders; then its tags. Settings at the top left; along the bottom, on every
+/// own; the vault's folders; then its tags. Settings at the top right; along the bottom, on every
 /// list, Sort (where the list can be sorted), the system's search field and the actions for
 /// where you are.
 struct HomeScreen: View {
@@ -34,13 +34,16 @@ struct HomeScreen: View {
     var body: some View {
         NavigationStack(path: $path) {
             home
-                .navigationTitle("Point")
+                .pageTitle("Point")
                 .navigationBarTitleDisplayMode(.large)
                 .navigationDestination(for: Route.self, destination: destination)
                 .refreshable { await store.reload() }
                 .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button("Settings", systemImage: "gear") { showsSettings = true }
+                    // Not on Search, which is over the page.
+                    if !store.isSearching {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Settings", systemImage: "gear") { showsSettings = true }
+                        }
                     }
                 }
                 .pageBar(.sort) { topLevelActions }
@@ -252,7 +255,7 @@ struct NotesScreen: View {
     var body: some View {
         let notes = store.notes.sorted(by: store.sort)
         List { NoteSections(notes: notes) }
-            .navigationTitle("All notes")
+            .pageTitle("All notes")
             .overlay { if notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text") } }
     }
 }
@@ -270,7 +273,7 @@ struct BookmarksScreen: View {
             }
             .onMove(perform: store.moveBookmarks)
         }
-        .navigationTitle("Bookmarks")
+        .pageTitle("Bookmarks")
         .overlay { if store.bookmarks.isEmpty { ContentUnavailableView("No Bookmarks", systemImage: "bookmark",
             description: Text("Press and hold a note to bookmark it.")) } }
     }
@@ -289,7 +292,7 @@ struct RecentScreen: View {
                 }
             }
         }
-        .navigationTitle("Recent")
+        .pageTitle("Recent")
         .overlay { if groups.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text") } }
     }
 }
@@ -302,7 +305,7 @@ struct TagScreen: View {
     var body: some View {
         let notes = store.notes(taggedWith: tag)
         List { NoteSections(notes: notes) }
-            .navigationTitle("#" + tag)
+            .pageTitle("#" + tag)
             .overlay { if notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text") } }
     }
 }
@@ -325,7 +328,7 @@ struct FolderScreen: View {
             }
             NoteSections(notes: notes)
         }
-        .navigationTitle((folder as NSString).lastPathComponent)
+        .pageTitle((folder as NSString).lastPathComponent)
         .overlay { if folders.isEmpty && notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "folder") } }
     }
 }
@@ -363,11 +366,14 @@ private struct PageBar<Actions: View>: ViewModifier {
             }
         case .none, .sort:
             content
+                // The page stays its size under the keyboard: shrunk, the rows below were left
+                // undrawn, and showed blank as the keyboard went down.
+                .ignoresSafeArea(.keyboard)
                 .overlay { SearchScreen() }
                 .searchable(text: $store.searchText, prompt: "Search")
                 // The navigation bar isn't hidden by the system while searching: it went at once,
-                // without animating, and the page jumped up under Search as it faded in. Search
-                // hides it itself, animated.
+                // without animating, and the page jumped up under Search as it faded in. It stays,
+                // with the page's title and Settings left out meanwhile.
                 .searchPresentationToolbarBehavior(.avoidHidingContent)
                 .toolbar {
                     if case .sort = tool {
@@ -389,7 +395,32 @@ private struct PageBar<Actions: View>: ViewModifier {
     }
 }
 
+/// A page's title, which Search, over the page, goes without. The large title is the page's own,
+/// to fade with Search: emptying the system's wiped it back in, out of step. The system's is
+/// still set, for the back button and the small title on scrolling; that one is emptied while
+/// searching (a small title of the page's own showed under the large one all the time).
+private struct PageTitle: ViewModifier {
+    @EnvironmentObject private var store: PhoneStore
+    let title: String
+
+    func body(content: Content) -> some View {
+        content
+            .navigationTitle(store.isSearching ? "" : title)
+            .toolbar {
+                ToolbarItem(placement: .largeTitle) {
+                    Text(title)
+                        .font(.largeTitle.bold())
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .opacity(store.isSearching ? 0 : 1)
+                }
+            }
+    }
+}
+
 extension View {
+    func pageTitle(_ title: String) -> some View { modifier(PageTitle(title: title)) }
+
     /// `tool` is what goes at the bar's left.
     func pageBar<Actions: View>(_ tool: PageTool = .none, @ViewBuilder actions: () -> Actions) -> some View {
         modifier(PageBar(tool: tool, actions: actions))

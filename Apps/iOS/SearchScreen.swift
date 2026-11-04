@@ -10,10 +10,6 @@ struct SearchScreen: View {
     @Environment(\.isSearching) private var isSearching
     @Environment(\.dismissSearch) private var dismissSearch
 
-    /// The page's navigation bar (its title, Settings) is hidden while searching, with an
-    /// animation of its own: the system's own hiding went at once, and the page jumped.
-    @State private var hidesBar = false
-
     private var query: String { store.searchText.trimmingCharacters(in: .whitespaces) }
 
     var body: some View {
@@ -33,9 +29,10 @@ struct SearchScreen: View {
             }
         }
         .animation(.easeOut(duration: 0.25), value: isSearching)
-        .toolbarVisibility(hidesBar ? .hidden : .automatic, for: .navigationBar)
+        // For the page to leave out its title and Settings meanwhile.
+        // In step with the fade.
         .onChange(of: isSearching) { _, searching in
-            withAnimation(.easeOut(duration: 0.25)) { hidesBar = searching }
+            withAnimation(.easeOut(duration: 0.25)) { store.isSearching = searching }
         }
     }
 
