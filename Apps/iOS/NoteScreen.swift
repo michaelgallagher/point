@@ -80,10 +80,11 @@ struct NoteScreen: View {
                     dismiss()
                 }
             } message: {
-                Text("It moves to the vault’s trash, where the Mac or Obsidian can put it back.")
+                Text("It moves to Deleted Notes, where you can put it back.")
             }
             .onAppear { store.noteOpened(session.note.id) }
             .onChange(of: store.showsMarkdown) { _, shows in session.showMarkdown(shows) }
+            .onChange(of: store.typography) { _, typography in session.textView?.typography = typography }
             // The index has taken in changed notes: what links here may have changed.
             .onChange(of: store.indexUpdates) { _, _ in session.refreshBacklinks() }
             .onDisappear {
@@ -236,6 +237,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
             return
         }
         let read = (CACurrentMediaTime() - readStart) * 1000
+        textView.typography = store.typography
         textView.showsMarkdown = store.showsMarkdown
         header?.showsProperties = !store.showsMarkdown
         let load = textView.load(text)

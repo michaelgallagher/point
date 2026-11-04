@@ -68,8 +68,7 @@ public final class PhoneTextView: UITextView {
         storage.delegate = self
         delegate = self
         addTapRecognizer()
-        styler.theme.typography.bodySize = 17 // The iPhone's own body size.
-        styler.theme.typography.headings[0].size = 22.0 / 17 // Below the note's title, at 28.
+        styler.theme.typography = Self.standardTypography
         styler.theme.keepsTagsInsideMargin = true
         styler.theme.tagSpace = 8
         styler.theme.tagRise = 3
@@ -182,6 +181,29 @@ public final class PhoneTextView: UITextView {
 
     /// Shows the raw Markdown instead of formatted text, as on the Mac, for fixing anything odd:
     /// every marker visible, the frontmatter too, in a monospaced font.
+    /// The phone's own typography, before any changes in Settings: the body at 17 pt, the
+    /// iPhone's own size, and Heading 1 at 22, below the note's title at 28.
+    public static var standardTypography: Typography {
+        var typography = Typography()
+        typography.bodySize = 17
+        typography.headings[0].size = 22.0 / 17
+        return typography
+    }
+
+    /// The body's size and line height, and each heading's size and style (from Settings), at
+    /// the phone's standard text size: a larger text size scales it all.
+    public var typography: Typography {
+        get { styler.theme.typography }
+        set {
+            guard newValue != styler.theme.typography else { return }
+            styler.theme.typography = newValue
+            pointLayoutManager.theme = styler.theme
+            typingAttributes = styler.baseAttributes
+            restyle(NSRange(location: 0, length: textStorage.length))
+            setNeedsLayout()
+        }
+    }
+
     public var showsMarkdown: Bool {
         get { styler.showsMarkdown }
         set {

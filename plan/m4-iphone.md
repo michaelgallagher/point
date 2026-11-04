@@ -178,7 +178,7 @@ After Mike tried it, home became like the Notes app's list of folders:
 - **Folders:** the vault's top-level folders. Each leads to a page of the folders inside it, then its notes.
 - **Notes:** the notes at the vault's top level, the most recently edited or opened first.
 - **The bottom toolbar:** Add (`plus`) on every page, a menu with New Note and New Folder (a folder goes where you are: the top level from home, or inside the folder whose page you're on). Search is on home, where it searches the whole vault.
-- **Settings:** a sheet saying where the notes are and how many there are (nothing to set yet).
+- **Settings:** a sheet saying where the notes are and how many there are, and (since 4 November) the typography.
 - **The note screen:** the text runs under the top bar, so the bar blurs what scrolls beneath it, as the system's bars do.
 
 ## Mike's notes, worked through (30 October 2026)
@@ -203,7 +203,7 @@ After Mike tried it. These change "What it leaves out": the app now has sorting,
 - **Haptics:** a light tap on ticking a checkbox and on changing a bookmark.
 - **VoiceOver:** the title and the note have names. The bar's buttons and the toolbars had them already.
 
-**Share and Delete, in the note's ⋯ menu.** Share saves first, then offers the note's file in the system's share sheet. Delete asks, then moves the note, with its latest edits, to the vault's `.trash`, with its bookmark and the coming back into it. The phone has no trash list, so a note comes back through the Mac or Obsidian. The move waits until the note's screen has gone, so nothing can write it back. The phone keeps no trash record for the Mac, so the Mac's clear-out after 30 days leaves these alone.
+**Share and Delete, in the note's ⋯ menu.** Share saves first, then offers the note's file in the system's share sheet. Delete asks, then moves the note, with its latest edits, to the vault's `.trash`, with its bookmark and the coming back into it. The move waits until the note's screen has gone, so nothing can write it back. Deleted Notes, at the bottom of home, lists the trash (see "Mike's fourth notes").
 
 **Found and fixed: a long note went to the wrong place.** Only what's on screen is laid out when a note opens, so anywhere further down was an estimate. Coming back to a cursor 200,000 characters into a note showed Section 163 of what should have been 662, with the cursor off screen. The rest of the note is now laid out gradually after it opens, as on the Mac, and everything up to a place is laid out before going there (`placeCursor`, `scrollRangeToVisible`), which is how Find gets there too.
 
@@ -275,7 +275,11 @@ After trying the first draft, on `ios-second-draft`. One commit per step.
 - **Backlinks.** Beside the properties button under the title, "2 links" (none, and it's not there) opens a sheet of the notes linking here, each with its line, from the search index's `backlinks`, as the Mac's links panel. A note opens at its link to this one. Unlinked mentions are left for the Mac.
 - **The action menu,** top to bottom: New Note; Move Note, Apply Template, Show Markdown, Bookmark, Share; Delete Note. The system turns a bottom bar's menu over, to put the first item nearest the thumb, which Mike found reversed, so every action menu keeps its order now (`menuOrder(.fixed)`). Bookmark has come from the top right. Show Markdown is the Mac's: every marker and the frontmatter shown, in a monospaced font, for every note until it's turned off or the app quits. The frontmatter can be edited as text then, and the properties button steps aside. `PhoneTextView.showsMarkdown`.
 
-**Tried:** all of the above in the Simulator, on iOS 27 and 26.1, with a test vault. Both bottom bars stay whole on both systems. The package tests pass.
+- **Settings** is at home's top right again.
+- **Typography in Settings,** as on the Mac: the body's size and line height, with a sample, and each heading (shown in its own style, on a page of its own) with its size, weight and italic, and Restore Defaults. `Typography` from EditorKit, kept in `PhoneStore` and the phone's defaults; `PhoneTextView.typography` restyles an open note. The phone's defaults are its own (`PhoneTextView.standardTypography`: 17 pt, Heading 1 at 22), and the sizes are at the standard text size: a larger text size in iOS scales them all.
+- **Deleted Notes** at the bottom of home lists the vault's `.trash`, the latest first, with when each went and its folder. Tap one, or swipe, to put it back where it was or delete it for good (asked first); the menu has Delete All. As on the Mac, notes Point deleted go for good after 30 days, and those found there (Obsidian's) stay until deleted; the phone now keeps its own records of when and where from. "Deleted Notes" is Mike's name for it; the Mac calls it Trash.
+
+**Tried:** all of the above in the Simulator, on iOS 27 and 26.1, with a test vault (typography and Deleted Notes on iOS 27 only). Both bottom bars stay whole on both systems. The package tests pass.
 
 **Not tried:** the iPhone itself, so how the search animation feels there; opening a long note at a backlink further down; dark mode.
 

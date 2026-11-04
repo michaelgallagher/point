@@ -37,6 +37,12 @@ final class PhoneStore: ObservableObject {
         didSet { UserDefaults.standard.set(sort.rawValue, forKey: "noteSort") }
     }
 
+    /// How note text is set, from Settings.
+    @Published var typography: Typography = UserDefaults.standard.data(forKey: "typography")
+        .flatMap { try? JSONDecoder().decode(Typography.self, from: $0) } ?? PhoneTextView.standardTypography {
+        didSet { UserDefaults.standard.set(try? JSONEncoder().encode(typography), forKey: "typography") }
+    }
+
     let root = PhoneVault.root
     private var index: SearchIndex?
     private var searchTask: Task<Void, Never>?
@@ -86,6 +92,7 @@ final class PhoneStore: ObservableObject {
         propertyTypes = PropertyTypes.load(vault: root)
         settings = ObsidianSettings.load(vault: root)
         templates = Templates.available(in: root, settings: settings)
+        refreshTrash()
         // Notes left untitled when the app last stopped (none is open yet): named, or removed.
         if !isLaunched {
             isLaunched = true
@@ -350,13 +357,15 @@ final class PhoneStore: ObservableObject {
         return (moved, links)
     }
 
-    /// Moves a note to the vault's trash, as the Mac does, where the Mac and Obsidian can put it
-    /// back: the phone has no trash list. What it was known by (opened, worked on, its bookmark)
-    /// goes with it.
+    /// Moves a note to the vault's trash, as the Mac does: Deleted Notes, where it can be put
+    /// back, here or on the Mac (or in Obsidian). What it was known by (opened, worked on, its
+    /// bookmark) goes with it.
     func moveToTrash(_ id: Note.ID) {
         guard let note = note(id) else { return }
         do {
-            _ = try VaultTrash.move(note.url, vault: root)
+            let name = try VaultTrash.move(note.url, vault: root)
+            trashRecords[name] = VaultTrash.Record(deleted: Date(), folder: FolderTree.folder(of: note.id), deletedByPoint: true)
+            refreshTrash()
         } catch {
             trashProblem = "“\(note.title)” is still in your notes (\(error.localizedDescription))."
             return
@@ -375,6 +384,83 @@ final class PhoneStore: ObservableObject {
 
     /// Why a note couldn't be deleted, for home to say: its own screen has gone by then.
     @Published var trashProblem: String?
+
+    // MARK: Deleted notes
+
+    /// The notes in the vault's trash, newest first.
+    @Published private(set) var deletedNotes: [VaultTrash.Item] = []
+    /// Why a deleted note couldn't be put back or deleted for good.
+    @Published var deletedNotesProblem: String?
+    /// How long the notes Point deletes are kept, as on the Mac by default.
+    static let keepsDeletedNotesDays = 30
+
+    /// When each note in the trash was deleted, and where from, by its name there.
+    private var trashRecords: [String: VaultTrash.Record] {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: "trashRecords") else { return [:] }
+            return (try? JSONDecoder().decode([String: VaultTrash.Record].self, from: data)) ?? [:]
+        }
+        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: "trashRecords") }
+    }
+
+    /// Lists the trash, removing for good the notes Point deleted more than 30 days ago, as the
+    /// Mac does. Notes found there (put there by Obsidian, say) stay until it's emptied.
+    func refreshTrash() {
+        var records = trashRecords
+        let now = Date()
+        let cutoff = now.addingTimeInterval(-Double(Self.keepsDeletedNotesDays) * 86_400)
+        let all = VaultTrash.items(in: root, records: records, now: now)
+        var expired: Set<String> = []
+        for item in VaultTrash.expired(all, before: cutoff) {
+            do {
+                try VaultTrash.delete(item)
+                expired.insert(item.name)
+            } catch {
+                PhoneVault.log("couldn't remove \(item.name) from the trash: \(error.localizedDescription)")
+            }
+        }
+        let items = all.filter { !expired.contains($0.name) }
+        for item in items where records[item.name] == nil {
+            records[item.name] = VaultTrash.Record(deleted: now, folder: item.folder ?? "", deletedByPoint: false)
+        }
+        // Forget notes no longer there (emptied or put back elsewhere).
+        let names = Set(items.map(\.name))
+        records = records.filter { names.contains($0.key) }
+        if records != trashRecords { trashRecords = records }
+        if items != deletedNotes { deletedNotes = items }
+    }
+
+    /// Puts a note back where it was (or at the top level, if its folder is gone).
+    func restore(_ item: VaultTrash.Item) {
+        do {
+            _ = try VaultTrash.restore(item, vault: root)
+            trashRecords[item.name] = nil
+            refreshTrash()
+            Task { await reload() }
+        } catch {
+            deletedNotesProblem = "“\(item.title)” couldn’t be put back (\(error.localizedDescription))."
+        }
+    }
+
+    func deleteForever(_ item: VaultTrash.Item) {
+        do {
+            try VaultTrash.delete(item)
+        } catch {
+            deletedNotesProblem = "“\(item.title)” couldn’t be deleted (\(error.localizedDescription))."
+        }
+        refreshTrash()
+    }
+
+    func deleteAllForever() {
+        var failed: [String] = []
+        for item in deletedNotes {
+            do { try VaultTrash.delete(item) } catch { failed.append(item.title) }
+        }
+        refreshTrash()
+        if !failed.isEmpty {
+            deletedNotesProblem = failed.count == 1 ? "“\(failed[0])” couldn’t be deleted." : "\(failed.count) notes couldn’t be deleted."
+        }
+    }
 
     /// A note's file renamed: the list, and what it was known by (opened, worked on, its
     /// bookmarks), follow it.

@@ -1,7 +1,8 @@
+import EditorKit
 import SwiftUI
 
-/// Settings, from home's top right: where the notes are, and how many, and forgetting what
-/// search has learned.
+/// Settings, from home's top right: how note text is set, where the notes are, and how many,
+/// and forgetting what search has learned.
 struct SettingsScreen: View {
     @EnvironmentObject private var store: PhoneStore
     @Environment(\.dismiss) private var dismiss
@@ -10,6 +11,7 @@ struct SettingsScreen: View {
     var body: some View {
         NavigationStack {
             Form {
+                TypographySettings(typography: $store.typography)
                 Section {
                     LabeledContent("Notes", value: "\(store.notes.count)")
                     LabeledContent("Folders", value: "\(store.folders.count)")
@@ -40,6 +42,103 @@ struct SettingsScreen: View {
                     Button("Done") { dismiss() }
                 }
             }
+        }
+    }
+}
+
+/// How note text is set, as on the Mac: the body's size and line height, and each heading's
+/// size, weight and slant, each shown in its own style. Sizes are at the iPhone's standard text
+/// size; a larger one scales them all.
+private struct TypographySettings: View {
+    @Binding var typography: Typography
+
+    var body: some View {
+        Section("Text") {
+            Stepper(value: $typography.bodySize, in: 12...28, step: 1) {
+                LabeledContent("Size", value: "\(Int(typography.bodySize)) pt")
+            }
+            Stepper(value: $typography.lineHeight, in: 1...2.2, step: 0.05) {
+                LabeledContent("Line Height", value: typography.lineHeight.formatted(.number.precision(.fractionLength(2))))
+            }
+            Text("The quick brown fox jumps over the lazy dog, and the line after it shows the spacing between lines of a paragraph.")
+                .font(.system(size: typography.bodySize))
+                .lineSpacing(typography.bodySize * (typography.lineHeight - 1))
+                .foregroundStyle(.secondary)
+        }
+        Section("Headings") {
+            ForEach(0..<6, id: \.self) { index in
+                NavigationLink {
+                    HeadingSettings(typography: $typography, index: index)
+                } label: {
+                    LabeledContent {
+                        Text("\(Int(points(index).rounded())) pt")
+                    } label: {
+                        Text("Heading \(index + 1)")
+                            .font(font(for: index))
+                            .lineLimit(1)
+                    }
+                }
+            }
+        }
+        Section {
+            Button("Restore Defaults") { typography = PhoneTextView.standardTypography }
+                .disabled(typography == PhoneTextView.standardTypography)
+        }
+    }
+
+    private func points(_ index: Int) -> Double { typography.headings[index].size * typography.bodySize }
+
+    private func font(for index: Int) -> Font {
+        let style = typography.headings[index]
+        let font = Font.system(size: min(points(index), 30), weight: style.weight.font)
+        return style.italic ? font.italic() : font
+    }
+}
+
+/// One heading's size, weight and slant.
+private struct HeadingSettings: View {
+    @Binding var typography: Typography
+    let index: Int
+
+    var body: some View {
+        let style = typography.headings[index]
+        Form {
+            Section {
+                Text("Heading \(index + 1)")
+                    .font(.system(size: min(points, 34), weight: style.weight.font))
+                    .italic(style.italic)
+                    .lineLimit(1)
+                    .listRowBackground(Color.clear)
+            }
+            Section {
+                Stepper(value: Binding(get: { points }, set: { setPoints($0) }), in: 8...60, step: 1) {
+                    LabeledContent("Size", value: "\(Int(points.rounded())) pt")
+                }
+                Picker("Weight", selection: $typography.headings[index].weight) {
+                    ForEach(Typography.Weight.allCases, id: \.self) { Text($0.name).tag($0) }
+                }
+                Toggle("Italic", isOn: $typography.headings[index].italic)
+            }
+        }
+        .navigationTitle("Heading \(index + 1)")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// Its size in points, at the body size chosen.
+    private var points: Double { typography.headings[index].size * typography.bodySize }
+
+    private func setPoints(_ points: Double) {
+        typography.headings[index].size = min(max(points.rounded(), 8), 60) / typography.bodySize
+    }
+}
+
+private extension Typography.Weight {
+    var font: Font.Weight {
+        switch self {
+        case .regular: .regular
+        case .medium: .medium
+        case .semibold: .semibold
+        case .bold: .bold
         }
     }
 }

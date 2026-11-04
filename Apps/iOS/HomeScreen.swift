@@ -8,10 +8,11 @@ enum Route: Hashable {
     case notes, bookmarks, recent
     case tag(String)
     case folder(String)
+    case deleted
 }
 
 /// Home, as the Notes app's list of folders: All notes, Bookmarks and Recent, each a page of its
-/// own; the vault's folders; then its tags. Settings at the top right; along the bottom, on every
+/// own; the vault's folders; then its tags; then Deleted Notes. Settings at the top right; along the bottom, on every
 /// list, Sort (where the list can be sorted), the system's search field and the actions for
 /// where you are.
 struct HomeScreen: View {
@@ -159,6 +160,9 @@ struct HomeScreen: View {
                     }
                 }
             }
+            Section {
+                NavigationLink(value: Route.deleted) { PlaceRow(title: "Deleted Notes", symbol: "trash", count: store.deletedNotes.count) }
+            }
         }
         .overlay { if store.notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text",
             description: Text("Copy notes into Point’s folder in the Files app.")) } }
@@ -186,6 +190,7 @@ struct HomeScreen: View {
                 newFolderButton(in: folder)
                 Button("Move Folder", systemImage: "folder") { movingFolder = folder }
             }
+        case .deleted: DeletedNotesScreen()
         }
     }
 
@@ -330,6 +335,77 @@ struct FolderScreen: View {
         }
         .pageTitle((folder as NSString).lastPathComponent)
         .overlay { if folders.isEmpty && notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "folder") } }
+    }
+}
+
+/// The notes in the vault's trash, the latest deleted first: put back, or deleted for good. The
+/// Mac's Trash, and Obsidian's.
+struct DeletedNotesScreen: View {
+    @EnvironmentObject private var store: PhoneStore
+    /// The note tapped, to put back or delete.
+    @State private var chosen: VaultTrash.Item?
+    @State private var confirmsDeleteAll = false
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(store.deletedNotes) { item in
+                    Button { chosen = item } label: { row(item) }
+                        .foregroundStyle(.primary)
+                        .swipeActions(edge: .leading) {
+                            Button("Put Back", systemImage: "arrow.uturn.backward") { store.restore(item) }
+                                .tint(.accentColor)
+                        }
+                        .swipeActions(edge: .trailing) {
+                            // Asks first: it's for good.
+                            Button("Delete", systemImage: "trash") { chosen = item }
+                                .tint(.red)
+                        }
+                }
+            } footer: {
+                if !store.deletedNotes.isEmpty {
+                    Text("Notes stay here for \(PhoneStore.keepsDeletedNotesDays) days, then go for good. Notes deleted in Obsidian stay until they’re deleted here.")
+                }
+            }
+        }
+        .pageTitle("Deleted Notes")
+        .overlay { if store.deletedNotes.isEmpty { ContentUnavailableView("No Deleted Notes", systemImage: "trash") } }
+        .onAppear { store.refreshTrash() }
+        .confirmationDialog(chosen?.title ?? "", isPresented: Binding(get: { chosen != nil }, set: { if !$0 { chosen = nil } }),
+                            titleVisibility: .visible, presenting: chosen) { item in
+            Button("Put Back") { store.restore(item) }
+            Button("Delete Now", role: .destructive) { store.deleteForever(item) }
+        } message: { _ in
+            Text("Deleting it now can’t be undone.")
+        }
+        .confirmationDialog("Delete the \(store.deletedNotes.count) deleted notes for good?", isPresented: $confirmsDeleteAll, titleVisibility: .visible) {
+            Button("Delete All", role: .destructive) { store.deleteAllForever() }
+        }
+        .alert("Deleted Notes", isPresented: Binding(get: { store.deletedNotesProblem != nil }, set: { if !$0 { store.deletedNotesProblem = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(store.deletedNotesProblem ?? "")
+        }
+        .pageBar {
+            Button("Delete All", systemImage: "trash", role: .destructive) { confirmsDeleteAll = true }
+                .disabled(store.deletedNotes.isEmpty)
+        }
+    }
+
+    /// Its title, where it was and when it was deleted.
+    private func row(_ item: VaultTrash.Item) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(item.title)
+            Text(subtitle(item))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func subtitle(_ item: VaultTrash.Item) -> String {
+        let when = HomeScreen.label(for: item.deleted)
+        guard let folder = item.folder, !folder.isEmpty else { return when }
+        return "\(when) · \((folder as NSString).lastPathComponent)"
     }
 }
 
