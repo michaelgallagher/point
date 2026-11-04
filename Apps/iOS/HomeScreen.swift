@@ -31,20 +31,20 @@ struct HomeScreen: View {
     /// The folder being moved, while choosing where to.
     @State private var movingFolder: String?
     @State private var moveProblem: String?
+    /// Whether Folders and Tags are open on home. Folding one keeps it folded next time. Kept
+    /// as state, not app storage, which folded them without animating.
+    @State private var showsFolders = UserDefaults.standard.object(forKey: "showsFolders") as? Bool ?? true
+    @State private var showsTags = UserDefaults.standard.object(forKey: "showsTags") as? Bool ?? true
 
     var body: some View {
         NavigationStack(path: $path) {
             home
                 .pageTitle("Point")
-                .navigationBarTitleDisplayMode(.large)
                 .navigationDestination(for: Route.self, destination: destination)
                 .refreshable { await store.reload() }
                 .toolbar {
-                    // Not on Search, which is over the page.
-                    if !store.isSearching {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("Settings", systemImage: "gear") { showsSettings = true }
-                        }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Settings", systemImage: "gear") { showsSettings = true }
                     }
                 }
                 .pageBar(.sort) { topLevelActions }
@@ -140,16 +140,18 @@ struct HomeScreen: View {
             }
             let folders = store.sorted(folders: store.subfolders(of: ""))
             if !folders.isEmpty {
-                Section("Folders") {
+                Section(isExpanded: $showsFolders) {
                     ForEach(folders, id: \.self) { folder in
                         NavigationLink(value: Route.folder(folder)) { FolderRow(folder: folder) }
                     }
+                } header: {
+                    FoldingHeader(title: "Folders", isExpanded: $showsFolders)
                 }
             }
             let tags = store.sorted(tags: store.tags)
             if !tags.isEmpty {
                 // Nested tags under their parents.
-                Section("Tags") {
+                Section(isExpanded: $showsTags) {
                     ForEach(tags, id: \.tag) { entry in
                         NavigationLink(value: Route.tag(entry.tag)) {
                             let depth = entry.tag.split(separator: "/").count - 1
@@ -158,12 +160,16 @@ struct HomeScreen: View {
                                 .padding(.leading, CGFloat(depth) * 20)
                         }
                     }
+                } header: {
+                    FoldingHeader(title: "Tags", isExpanded: $showsTags)
                 }
             }
             Section {
                 NavigationLink(value: Route.deleted) { PlaceRow(title: "Deleted Notes", symbol: "trash", count: store.deletedNotes.count) }
             }
         }
+        .onChange(of: showsFolders) { UserDefaults.standard.set($1, forKey: "showsFolders") }
+        .onChange(of: showsTags) { UserDefaults.standard.set($1, forKey: "showsTags") }
         .overlay { if store.notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text",
             description: Text("Copy notes into Point’s folder in the Files app.")) } }
     }
@@ -424,6 +430,33 @@ enum PageTool {
 /// What every page has along the bottom, as Apple's own apps have it: at the left, Sort or Find
 /// (`PageTool`); on a list, the system's search field, with Search over the page while it's in
 /// use; and at the right, a menu of what can be done here.
+/// A section's header that folds the section up, and opens it again: the whole header is the
+/// button, with a chevron at the end that turns down when it's open.
+private struct FoldingHeader: View {
+    let title: String
+    @Binding var isExpanded: Bool
+
+    var body: some View {
+        Button {
+            withAnimation(.snappy(duration: 0.3)) { isExpanded.toggle() }
+        } label: {
+            HStack {
+                Text(title)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .accessibilityLabel(title)
+        .accessibilityValue(isExpanded ? "Open" : "Folded")
+        .accessibilityHint(isExpanded ? "Folds it up" : "Opens it")
+    }
+}
+
 private struct PageBar<Actions: View>: ViewModifier {
     @EnvironmentObject private var store: PhoneStore
     let tool: PageTool
@@ -441,15 +474,19 @@ private struct PageBar<Actions: View>: ViewModifier {
                 ToolbarItem(placement: .bottomBar) { menu }
             }
         case .none, .sort:
-            content
-                // The page stays its size under the keyboard: shrunk, the rows below were left
-                // undrawn, and showed blank as the keyboard went down.
-                .ignoresSafeArea(.keyboard)
-                .overlay { SearchScreen() }
+            ZStack {
+                SearchScreen()
+                PageOverSearch {
+                    content
+                        // The page stays its size under the keyboard: shrunk, the rows below
+                        // were left undrawn, and showed blank as the keyboard went down.
+                        .ignoresSafeArea(.keyboard)
+                }
+            }
                 .searchable(text: $store.searchText, prompt: "Search")
                 // The navigation bar isn't hidden by the system while searching: it went at once,
                 // without animating, and the page jumped up under Search as it faded in. It stays,
-                // with the page's title and Settings left out meanwhile.
+                // and Search fades it out, in place.
                 .searchPresentationToolbarBehavior(.avoidHidingContent)
                 .toolbar {
                     if case .sort = tool {
@@ -471,25 +508,49 @@ private struct PageBar<Actions: View>: ViewModifier {
     }
 }
 
-/// A page's title, which Search, over the page, goes without. The large title is the page's own,
-/// to fade with Search: emptying the system's wiped it back in, out of step. The system's is
-/// still set, for the back button and the small title on scrolling; that one is emptied while
-/// searching (a small title of the page's own showed under the large one all the time).
+/// A page's large title, the page's own, at the top of its list and scrolling with it, and the
+/// system's small title once it's scrolled away. The system's large title collapsed as Search
+/// started, and the page jumped up with it; one of the page's own in the bar didn't slide with
+/// the page on going in and back. This one is part of the page: it slides and fades with it.
 private struct PageTitle: ViewModifier {
-    @EnvironmentObject private var store: PhoneStore
     let title: String
+    /// How far the list has scrolled from the top.
+    @State private var scrolled: CGFloat = 0
+
+    /// The room the title takes above the list, as the system's did.
+    static let height: CGFloat = 52
 
     func body(content: Content) -> some View {
+        let showsSmallTitle = scrolled > Self.height - 12
         content
-            .navigationTitle(store.isSearching ? "" : title)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .largeTitle) {
+                ToolbarItem(placement: .principal) {
                     Text(title)
-                        .font(.largeTitle.bold())
+                        .font(.headline)
                         .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .opacity(store.isSearching ? 0 : 1)
+                        .opacity(showsSmallTitle ? 1 : 0)
+                        .animation(.easeOut(duration: 0.2), value: showsSmallTitle)
                 }
+            }
+            .contentMargins(.top, Self.height, for: .scrollContent)
+            .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, offset in
+                scrolled = offset
+            }
+            .overlay(alignment: .topLeading) {
+                Text(title)
+                    .font(.largeTitle.bold())
+                    .lineLimit(1)
+                    .padding(.horizontal, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 6)
+                    .frame(height: Self.height, alignment: .bottomLeading)
+                    .offset(y: -scrolled)
+                    // Goes as it scrolls under the bar.
+                    .opacity(1 - min(max(scrolled / (Self.height - 12), 0), 1))
+                    .allowsHitTesting(false)
+                    .accessibilityAddTraits(.isHeader)
             }
     }
 }
