@@ -10,6 +10,8 @@ import VaultKit
 @MainActor
 final class PhoneStore: ObservableObject {
     @Published private(set) var notes: [Note] = []
+    /// Whether the vault has been read since launch: until then, no notes doesn't mean none.
+    @Published private(set) var hasScanned = false
     /// Every folder in the vault, by path ("Projects/Point").
     @Published private(set) var folders: [String] = []
     /// Each note's tags, from the search index (nested tags as written: `work/point`).
@@ -17,12 +19,14 @@ final class PhoneStore: ObservableObject {
     /// The property names used in notes, with how many notes use each, most used first.
     @Published private(set) var propertyNames: [(name: String, count: Int)] = []
     @Published private(set) var bookmarks: [ObsidianBookmarks.Bookmark] = []
-    /// What's typed in the search field; results follow as it changes.
-    @Published var searchText = "" {
-        didSet { scheduleSearch() }
+    /// The folders and tags on home's Favourites, in their order: the phone's own, in its
+    /// defaults, not the vault's (Obsidian has nothing like it).
+    @Published private(set) var favourites: [Favourite] = UserDefaults.standard.data(forKey: "favourites")
+        .flatMap { try? JSONDecoder().decode([Favourite].self, from: $0) } ?? [] {
+        didSet { UserDefaults.standard.set(try? JSONEncoder().encode(favourites), forKey: "favourites") }
     }
-    /// Results for `searchText`, or nil when not searching.
-    @Published private(set) var searchResults: [SearchResult]?
+    /// What's typed in the search field, and what's found.
+    let search = PhoneSearch()
     /// Goes up each time the search index takes in changed notes, for what's read from it to
     /// be read again.
     @Published private(set) var indexUpdates = 0
@@ -43,7 +47,6 @@ final class PhoneStore: ObservableObject {
 
     let root = PhoneVault.root
     private var index: SearchIndex?
-    private var searchTask: Task<Void, Never>?
 
     /// Where edits that can't be saved are kept, outside the vault.
     let drafts = NoteDrafts(storage: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -54,6 +57,12 @@ final class PhoneStore: ObservableObject {
         PhoneVault.makeSampleNotes()
         index = try? SearchIndex(url: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Index/vault.sqlite"))
+        search.find = { [weak self] query in
+            guard let self, let index = self.index else { return nil }
+            let results = (try? await index.search(query)) ?? []
+            // The notes opened and picked most move up among matches of similar quality.
+            return self.history.rank(results, for: query)
+        }
         Task { await reload() }
     }
 
@@ -78,6 +87,7 @@ final class PhoneStore: ObservableObject {
         let result = try? await Task.detached(priority: .userInitiated) { try VaultScanner.scanWithFolders(root) }.value
         let scanned = result?.notes ?? []
         notes = scanned
+        hasScanned = true
         // Notes that are gone take what was learned about them (not while the folder reads
         // as empty, which is more likely unavailable for a moment).
         if !scanned.isEmpty {
@@ -105,7 +115,7 @@ final class PhoneStore: ObservableObject {
         if changed > 0 {
             indexUpdates += 1
             PhoneVault.log("indexed \(changed) notes in \(Int((CACurrentMediaTime() - indexStart) * 1000)) ms")
-            if !searchText.isEmpty { scheduleSearch() }
+            search.searchAgain()
         }
     }
 
@@ -526,6 +536,11 @@ final class PhoneStore: ObservableObject {
             let folder = ((newPath + "/" + inside) as NSString).deletingLastPathComponent
             moved(note, to: root.appendingPathComponent(newPath + "/" + inside), in: folder)
         }
+        // Favourites follow it, and anything inside it.
+        favourites = favourites.map { favourite in
+            guard case .folder(let folder) = favourite, folder == path || folder.hasPrefix(prefix) else { return favourite }
+            return .folder(newPath + folder.dropFirst(path.count))
+        }
         Task { await reload() }
         return newPath
     }
@@ -754,23 +769,67 @@ final class PhoneStore: ObservableObject {
         bookmarks = ObsidianBookmarks.load(vault: root)
     }
 
-    // MARK: Search
+    // MARK: Favourites
 
-    private func scheduleSearch() {
-        searchTask?.cancel()
-        let query = searchText.trimmingCharacters(in: .whitespaces)
+    func isFavourite(_ favourite: Favourite) -> Bool { favourites.contains(favourite) }
+
+    /// Adds it to the end of Favourites, or takes it off.
+    func toggleFavourite(_ favourite: Favourite) {
+        UISelectionFeedbackGenerator().selectionChanged()
+        if let index = favourites.firstIndex(of: favourite) {
+            favourites.remove(at: index)
+        } else {
+            favourites.append(favourite)
+        }
+    }
+
+    /// Favourites in the order shown (`shown`, those whose folder or tag is still there),
+    /// with the rest after, in case they come back.
+    func reorderFavourites(_ shown: [Favourite]) {
+        favourites = shown + favourites.filter { !shown.contains($0) }
+    }
+}
+
+/// A folder or a tag on home's Favourites.
+enum Favourite: Hashable, Codable {
+    case folder(String)
+    case tag(String)
+
+    var route: Route {
+        switch self {
+        case .folder(let folder): .folder(folder)
+        case .tag(let tag): .tag(tag)
+        }
+    }
+}
+
+/// Search: what's typed in the search field, and the results, which follow as it changes. An
+/// object of its own, not part of the store: as the store's, every keystroke, and Search opening,
+/// redrew every page showing the vault, home under Search among them.
+@MainActor
+final class PhoneSearch: ObservableObject {
+    @Published var text = "" {
+        didSet { if text != oldValue { searchAgain() } }
+    }
+    /// Results for `text`, or nil when not searching.
+    @Published private(set) var results: [SearchResult]?
+    /// Searches the vault (nil if it can't).
+    var find: ((String) async -> [SearchResult]?)?
+    private var task: Task<Void, Never>?
+
+    /// Searches for what's typed, if anything, after a pause in typing.
+    func searchAgain() {
+        task?.cancel()
+        let query = text.trimmingCharacters(in: .whitespaces)
         guard !query.isEmpty else {
-            searchResults = nil
+            if results != nil { results = nil }
             return
         }
-        guard let index else { return }
-        searchTask = Task { [weak self] in
+        guard let find else { return }
+        task = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 80_000_000) // Waits for a pause in typing.
-            guard !Task.isCancelled else { return }
-            let results = (try? await index.search(query)) ?? []
-            guard !Task.isCancelled, let self else { return }
-            // The notes opened and picked most move up among matches of similar quality.
-            self.searchResults = self.history.rank(results, for: query)
+            guard !Task.isCancelled, let results = await find(query), !Task.isCancelled else { return }
+            self?.results = results
         }
     }
 }

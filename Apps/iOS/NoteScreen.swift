@@ -5,7 +5,7 @@ import VaultKit
 
 /// One note, filling the screen, in the shared editor, its title at the top (its file name, as
 /// on the Mac: changing it renames the note), and below it, its properties and the notes linking
-/// to it. Along the bottom, finding in it, and the actions: moving, bookmarking, sharing and
+/// to it. Along the bottom, finding in it, Search (the map), and the actions: moving, bookmarking, sharing and
 /// deleting it among them. While writing, hiding the keyboard is at the top right. A new note
 /// opens with the cursor in its title. Opened with `-SpikeTypeTest`, what opening and typing
 /// cost shows across the top (see the spike).
@@ -66,11 +66,6 @@ struct NoteScreen: View {
             .sheet(isPresented: $showsMove) {
                 FolderPicker(title: "Move Note", current: FolderTree.folder(of: session.note.id)) { session.move(to: $0) }
                     .environmentObject(store)
-            }
-            .sheet(isPresented: $session.showsShare) {
-                ShareSheet(url: session.note.url)
-                    .presentationDetents([.medium, .large])
-                    .ignoresSafeArea()
             }
             .alert("Delete “\(session.note.title)”?", isPresented: $confirmsDelete) {
                 Button("Cancel", role: .cancel) {}
@@ -138,17 +133,6 @@ struct TemplateMenu: View {
     }
 }
 
-/// The system's share sheet, for a note's file.
-private struct ShareSheet: UIViewControllerRepresentable {
-    let url: URL
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: [url], applicationActivities: nil)
-    }
-
-    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
-}
-
 /// Above the note: something went wrong, and what can be done.
 private struct Banner<Actions: View>: View {
     let text: String
@@ -188,7 +172,6 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     /// The note's frontmatter, as its text is now.
     @Published private(set) var frontmatter: Frontmatter?
     @Published var showsProperties = false
-    @Published var showsShare = false
     /// The notes linking to this one, by title.
     @Published private(set) var backlinks: [Backlink] = []
     @Published var showsBacklinks = false
@@ -353,9 +336,14 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     }
 
     /// Shares the note's file, as it is now, under the title as typed.
+    /// The system's share sheet, for the note's file. Presented by UIKit itself: in a SwiftUI
+    /// sheet it came up later, inside a sheet of SwiftUI's own.
     func share() {
         commitTitle()
-        if save() { showsShare = true }
+        guard save(), let window = textView?.window, var presenter = window.rootViewController else { return }
+        while let presented = presenter.presentedViewController { presenter = presented }
+        let sheet = UIActivityViewController(activityItems: [note.url], applicationActivities: nil)
+        presenter.present(sheet, animated: true)
     }
 
     /// Moves the note to the trash, with its latest edits. Those that can't be saved keep it here.

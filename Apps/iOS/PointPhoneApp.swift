@@ -13,6 +13,7 @@ struct PointPhoneApp: App {
         WindowGroup {
             HomeScreen()
                 .environmentObject(store)
+                .environmentObject(store.search)
         }
     }
 }
