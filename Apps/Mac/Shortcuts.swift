@@ -118,7 +118,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .explorer: "Explorer"
         case .runCommand: "Run Command…"
         case .searchVault: "Search Vault"
-        case .searchInList: "Search in List"
+        case .searchInList: "Filter List"
         case .findInNote: "Find in Note"
         case .toggleNoteList: "Show or Hide Note List"
         case .biggerText: "Bigger Text"

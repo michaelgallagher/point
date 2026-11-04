@@ -618,7 +618,7 @@ struct PaletteCommand {
             PaletteCommand(name: model.isSplit ? "Merge Split into Tabs" : "Split", shortcut: ShortcutStore.shared.label(for: .split)) { model.toggleSplit() },
             PaletteCommand(name: model.isSplit ? "Move Tab to Other Side" : "Move Tab to New Split", shortcut: nil) { model.moveTabToOtherSide() },
         ]
-        commands.append(PaletteCommand(name: "Search in List", shortcut: ShortcutStore.shared.label(for: .searchInList)) { model.focusSearch() })
+        commands.append(PaletteCommand(name: "Filter List", shortcut: ShortcutStore.shared.label(for: .searchInList)) { model.focusSearch() })
         commands.append(PaletteCommand(name: "Keyboard Shortcuts", shortcut: ShortcutStore.shared.label(for: .keyboardShortcuts)) { model.isShowingShortcuts = true })
         commands.append(PaletteCommand(name: "Forget What Search Has Learned", shortcut: nil) { model.forgetSearchHistory() })
         commands.append(model.sidebarDensity == .compact

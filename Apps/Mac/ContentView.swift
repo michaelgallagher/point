@@ -116,7 +116,7 @@ struct ContentView: View {
                     }
                 }
                 .onChange(of: model.searchFocusRequest) { _ in
-                    if !model.showsNoteList { model.showsNoteList = true } // Search needs the list.
+                    if !model.showsNoteList { model.showsNoteList = true } // The filter needs the list.
                 }
                 .onChange(of: model.isFocused) { focused in
                     model.sidebarSplit.hidesSidebarButton = focused
@@ -231,33 +231,13 @@ private struct NoteList: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if includesPlaces {
-                if model.place != .allNotes, model.searchResults == nil { PlaceHeader() }
-                searchField
-                if let results = model.searchResults {
-                    List(results, selection: $model.selection) { result in
-                        SearchResultRow(result: result)
-                    }
-                    // On the sidebar's material, not white.
-                    .listStyle(.sidebar)
-                    .scrollContentBackground(.hidden)
-                    .overlay {
-                        if results.isEmpty {
-                            Text("No Results")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                } else {
-                    browser
-                }
-            } else {
-                // In two columns, the name and sort are in the column's top bar (see
-                // `NoteListTopBar`), and the field at its foot filters just this list.
-                browser
-                Divider()
-                filterField
-            }
+            // In two columns, the name and sort are in the column's top bar (see
+            // `NoteListTopBar`).
+            if includesPlaces, model.place != .allNotes { PlaceHeader() }
+            browser
         }
+        // Floating at the foot, in glass, with the list going on beneath it.
+        .overlay(alignment: .bottom) { filterField }
         .onChange(of: model.searchFocusRequest) { _ in searchFocused = true }
         .overlay {
             if let message = model.errorMessage {
@@ -269,49 +249,39 @@ private struct NoteList: View {
         }
     }
 
-    /// At the foot of the two-column note list: narrows the list to notes whose names match.
-    private var filterField: some View {
-        SearchField(text: $model.noteFilter, prompt: "Filter", isFocused: $searchFocused, height: VaultModel.SidebarDensity.comfortable.rowHeight) {
-            // Return opens the top note.
-            if let first = model.sidebarRows(collapsed: [], content: .notes).lazy.compactMap(\.noteID).first { model.selection = first }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-    }
+    /// The filter field's height and the space around it.
+    private static let fieldHeight = VaultModel.SidebarDensity.comfortable.rowHeight
+    private static let fieldPadding: CGFloat = 10
 
-    private var searchField: some View {
-        // As tall as a comfortable row, in either density.
-        SearchField(text: $model.searchText, isFocused: $searchFocused, height: VaultModel.SidebarDensity.comfortable.rowHeight) {
-            // Return opens the top result.
-            if let first = model.searchResults?.first { model.selection = first.id }
-        }
-        .padding(.horizontal, 10)
-        .padding(.top, 7)
-        .padding(.bottom, 5)
-        // The tags the search is filtered by, each removable.
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            let tags = SearchTags.tags(in: model.searchText)
-            if !tags.isEmpty {
-                HStack(spacing: 4) {
-                    ForEach(tags, id: \.self) { tag in
-                        SearchTagChip(tag: tag) { model.searchText = SearchTags.removing(tag, from: model.searchText) }
-                    }
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 6)
+    /// Narrows the list to what's named with what's typed: in one column, the folders, tags
+    /// and notes showing; in two, the notes, with how they're sorted on its right (in one
+    /// column, that's in the Notes section's label). Searching the whole vault is the explorer's.
+    private var filterField: some View {
+        HStack(spacing: 8) {
+            SearchField(text: $model.noteFilter, prompt: "Filter", isFocused: $searchFocused, height: Self.fieldHeight) {
+                // Return opens the top note.
+                if let first = model.sidebarRows(collapsed: [], content: content).lazy.compactMap(\.noteID).first { model.selection = first }
+            }
+            if !includesPlaces, model.place != .trash {
+                // In glass too, a circle as tall as the field.
+                SortButton(opensUpward: true)
+                    .frame(width: Self.fieldHeight, height: Self.fieldHeight)
+                    .modifier(NoticeBackground())
             }
         }
+        .padding(Self.fieldPadding)
     }
+
+    private var content: SidebarTable.Content { includesPlaces ? .everything : .notes }
 
     /// Pins, folders (or nested tags), tags and notes for the current place.
     private var browser: some View {
-        SidebarTable(model: model, content: includesPlaces ? .everything : .notes)
+        SidebarTable(model: model, content: content, bottomInset: Self.fieldHeight + Self.fieldPadding * 2)
             .overlay {
                 if model.notes(in: model.place).isEmpty, !includesPlaces || model.subplaces(of: model.place).isEmpty, model.place != .allNotes {
                     Text(model.place.isTag ? "No notes have this tag." : "This folder has no notes.")
                         .foregroundStyle(.secondary)
-                } else if !includesPlaces, !model.noteFilter.isEmpty, model.sidebarRows(collapsed: [], content: .notes).isEmpty {
+                } else if !model.noteFilter.isEmpty, !model.sidebarRows(collapsed: [], content: content).contains(where: \.isItem) {
                     Text("No Matches")
                         .foregroundStyle(.secondary)
                 }
@@ -398,7 +368,7 @@ extension SidebarPlace {
     }
 }
 
-/// The search field above the note list, or the filter field below the two-column one.
+/// The filter field at the foot of the sidebar's list.
 private struct SearchField: View {
     @Binding var text: String
     var prompt = "Search"
@@ -425,54 +395,9 @@ private struct SearchField: View {
                 .help("Clear Search")
             }
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 10)
         .frame(height: height)
-        .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary.opacity(0.6)))
-    }
-}
-
-/// A search result: the note's name and, if its text matched, a snippet with the match marked.
-private struct SearchResultRow: View {
-    let result: SearchResult
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(result.title)
-                .lineLimit(1)
-            if let snippet = result.snippet {
-                Text(Self.highlighted(snippet))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-        }
-        .padding(.vertical, 2)
-    }
-
-    /// The snippet with matches in bold, from the index's start and end marks.
-    static func highlighted(_ snippet: String) -> AttributedString {
-        var result = AttributedString()
-        var isMatch = false
-        var current = ""
-        func flush() {
-            var piece = AttributedString(current.replacingOccurrences(of: "\n", with: " "))
-            if isMatch {
-                piece.inlinePresentationIntent = .stronglyEmphasized
-                piece.foregroundColor = .primary
-            }
-            result += piece
-            current = ""
-        }
-        for character in snippet {
-            if character == SearchResult.matchStart || character == SearchResult.matchEnd {
-                flush()
-                isMatch = character == SearchResult.matchStart
-            } else {
-                current.append(character)
-            }
-        }
-        flush()
-        return result
+        .modifier(NoticeBackground())
     }
 }
 
@@ -730,32 +655,5 @@ enum SearchTags {
 
     static func removing(_ tag: String, from query: String) -> String {
         query.split(whereSeparator: \.isWhitespace).filter { $0 != "#" + tag }.joined(separator: " ")
-    }
-}
-
-/// A tag filtering a search: drawn as tags are, with a button to stop filtering by it.
-private struct SearchTagChip: View {
-    let tag: String
-    let remove: () -> Void
-
-    var body: some View {
-        HStack(spacing: 3) {
-            Text("#" + tag)
-                .lineLimit(1)
-            Button(action: remove) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .bold))
-                    .frame(width: 12, height: 12)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .help("Stop filtering by #\(tag)")
-        }
-        .font(.callout)
-        .padding(.leading, 7)
-        .padding(.trailing, 4)
-        .padding(.vertical, 1)
-        .background(Capsule().fill(Color.accentColor.opacity(0.15)))
     }
 }

@@ -12,15 +12,11 @@ import VaultKit
 final class VaultModel: ObservableObject {
     let store: VaultStore
     private var storeChanges: AnyCancellable?
-    private var indexChanges: AnyCancellable?
 
     init(store: VaultStore) {
         self.store = store
         // Redraw this window's views whenever the shared vault changes.
         storeChanges = store.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
-        indexChanges = store.$indexGeneration.dropFirst().sink { [weak self] _ in
-            Task { @MainActor in self?.scheduleSearch() }
-        }
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(noteMoved(_:)), name: .pointNoteMoved, object: nil)
         center.addObserver(self, selector: #selector(folderMoved(_:)), name: .pointFolderMoved, object: nil)
@@ -428,8 +424,7 @@ final class VaultModel: ObservableObject {
     private func show(_ id: Note.ID?) {
         let old = selection
         guard id != old else { return }
-        // Opened from the sidebar's search results: a pick for what was typed.
-        if let id { store.noteOpened(id, searchedFor: searchResults?.contains { $0.id == id } == true ? searchText : nil) }
+        if let id { store.noteOpened(id) }
         if let id, let (p, t) = location(of: id) {
             if p == activePane || panes[p].current == t {
                 activePane = p
@@ -827,7 +822,7 @@ final class VaultModel: ObservableObject {
     @objc private func vaultOpened() {
         panes = [NotePane()]
         activePane = 0
-        searchText = ""
+        noteFilter = ""
         place = .allNotes
     }
 
@@ -1023,12 +1018,6 @@ final class VaultModel: ObservableObject {
 
     // MARK: Search
 
-    /// What's typed in the search field. Searching starts as soon as it changes.
-    @Published var searchText = "" {
-        didSet { scheduleSearch() }
-    }
-    /// Results for `searchText`, or nil when not searching.
-    @Published private(set) var searchResults: [SearchResult]?
     /// Whether the command palette is showing.
     @Published var isPaletteShown = false {
         didSet {
@@ -1148,11 +1137,10 @@ final class VaultModel: ObservableObject {
             isPaletteShown = true
         }
     }
-    /// Incremented to ask the search field to take focus.
+    /// Incremented to ask the sidebar's filter field to take focus.
     @Published private(set) var searchFocusRequest = 0
-    private var searchTask: Task<Void, Never>?
 
-    /// Puts the cursor in the sidebar's search field, showing the sidebar if it's hidden.
+    /// Puts the cursor in the sidebar's filter field, showing the sidebar if it's hidden.
     func focusSearch() {
         isFocused = false
         searchFocusRequest += 1
@@ -1175,7 +1163,7 @@ final class VaultModel: ObservableObject {
         }
     }
 
-    /// Searches for a tag, for example after a tag is clicked in a note.
+    /// Shows a tag's notes, for example after a tag is clicked in a note.
     func search(tag: String) {
         // With the sidebar hidden, show the tag's notes in the explorer rather than bringing
         // the sidebar back.
@@ -1190,25 +1178,7 @@ final class VaultModel: ObservableObject {
             }
             return
         }
-        searchText = "#" + tag
-        focusSearch()
-    }
-
-    private func scheduleSearch() {
-        searchTask?.cancel()
-        let query = searchText.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty else {
-            searchResults = nil
-            return
-        }
-        searchTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 80_000_000) // Let a burst of typing settle.
-            guard !Task.isCancelled, let index = self?.index else { return }
-            let results = (try? await index.search(query)) ?? []
-            guard !Task.isCancelled, let self else { return }
-            // The notes opened and picked most move up among matches of similar quality.
-            self.searchResults = self.store.searchHistory.rank(results, for: query)
-        }
+        browse(.tag(tag))
     }
 
     // MARK: Browsing folders and tags
@@ -1218,14 +1188,14 @@ final class VaultModel: ObservableObject {
         didSet { saveWindowState() }
     }
 
-    /// What's typed in the two-column note list's filter field: only notes whose names contain
-    /// it are listed. Cleared on going to another place.
+    /// What's typed in the sidebar's filter field: only what's listed whose name contains it
+    /// stays (in two columns, the notes). Cleared on going to another place. Searching the
+    /// whole vault is the explorer's (⌘E).
     @Published var noteFilter = ""
 
     func browse(_ place: SidebarPlace) {
         Trace.mark("browse \(place.key)")
         if place.isTag { lastTagPlace = place } else { lastFolderPlace = place }
-        searchText = ""
         noteFilter = ""
         if place == .trash { store.refreshTrash() } // Obsidian may have added to it.
         self.place = place
@@ -1239,7 +1209,8 @@ final class VaultModel: ObservableObject {
 
     /// Opens the previous (-1) or next (+1) note in the list showing (⌥⌘↑ / ⌥⌘↓).
     func selectAdjacentNote(_ offset: Int) {
-        let ids = searchResults?.map(\.id) ?? notes(in: place).map(\.id)
+        let content: SidebarTable.Content = browsingStyle == .twoColumns ? .notes : .everything
+        let ids = sidebarRows(collapsed: [], content: content).compactMap(\.noteID)
         guard !ids.isEmpty else { return NSSound.beep() }
         guard let current = selection, let index = ids.firstIndex(of: current) else {
             selection = offset > 0 ? ids.first : ids.last

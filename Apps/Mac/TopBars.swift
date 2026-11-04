@@ -60,8 +60,9 @@ struct SidebarTopBar: View {
     }
 }
 
-/// The two-column note list's top bar: the folder or tag's name, then how its notes are sorted
-/// (or, in the trash, emptying it), clear of the sidebar button at its end. See-through, like a
+/// The two-column note list's top bar: the folder or tag's name (and, in the trash, emptying
+/// it), clear of the sidebar button at its end. How the notes are sorted is at the list's foot,
+/// beside the filter. See-through, like a
 /// side's bar: the list scrolls up beneath it and blurs (see `BarEdgeScrollView`). Its empty
 /// space drags the window.
 struct NoteListTopBar: View {
@@ -73,11 +74,7 @@ struct NoteListTopBar: View {
                 .font(.headline)
                 .lineLimit(1)
             Spacer(minLength: 0)
-            if model.place == .trash {
-                EmptyTrashButton()
-            } else {
-                SortButton()
-            }
+            if model.place == .trash { EmptyTrashButton() }
         }
         // In line with the list's text: its date headings, and its notes when not grouped
         // (the source list's row inset, then the row's own padding).
@@ -450,6 +447,8 @@ private struct PaneMenuButton: View {
 /// How the notes are sorted, in the two-column note list's top bar.
 struct SortButton: View {
     @EnvironmentObject private var model: VaultModel
+    /// At a list's foot, the menu opens above it.
+    var opensUpward = false
 
     private func menu() -> NSMenu {
         let menu = NSMenu()
@@ -462,7 +461,7 @@ struct SortButton: View {
     }
 
     var body: some View {
-        BarMenu("Sort", systemImage: "arrow.up.arrow.down", help: "How notes are sorted", menu: menu)
+        BarMenu("Sort", systemImage: "arrow.up.arrow.down", help: "How notes are sorted", opensUpward: opensUpward, menu: menu)
     }
 }
 
@@ -616,20 +615,25 @@ struct BarMenu: View {
     let title: String
     let systemImage: String
     let help: String
+    var opensUpward = false
     let menu: () -> NSMenu
     @State private var anchor = MenuAnchor.Holder()
 
-    init(_ title: String, systemImage: String, help: String, menu: @escaping () -> NSMenu) {
+    init(_ title: String, systemImage: String, help: String, opensUpward: Bool = false, menu: @escaping () -> NSMenu) {
         self.title = title
         self.systemImage = systemImage
         self.help = help
+        self.opensUpward = opensUpward
         self.menu = menu
     }
 
     var body: some View {
         BarButton(title, systemImage: systemImage, help: help) {
             guard let view = anchor.view else { return }
-            menu().popUp(positioning: nil, at: NSPoint(x: 0, y: -6), in: view)
+            let menu = menu()
+            // The point is the menu's top left: above, it's the menu's height up from the button.
+            let y = opensUpward ? view.bounds.height + 6 + menu.size.height : -6
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: y), in: view)
         }
         .background(MenuAnchor(holder: anchor))
     }

@@ -23,6 +23,14 @@ enum SidebarRow: Hashable {
         if case .note(let id) = self { return id }
         return nil
     }
+
+    /// A folder, tag or note (in the trash too), rather than a label, divider or switch.
+    var isItem: Bool {
+        switch self {
+        case .place, .note, .trashed: true
+        case .header, .divider, .treeSwitch, .dateGroup: false
+        }
+    }
 }
 
 /// The sidebar's sections at the vault's top level, each of which can be folded away.
@@ -41,20 +49,29 @@ extension VaultModel {
         }
     }
 
-    /// `expanded` holds the folders and tags unfolded to show the ones inside them.
+    /// `expanded` holds the folders and tags unfolded to show the ones inside them. Narrowed by
+    /// the filter field below the list: of what would show, only what's named with what's typed
+    /// (not the two-column view's tree).
     func sidebarRows(collapsed: Set<SidebarSection>, expanded: Set<String> = [], content: SidebarTable.Content = .everything) -> [SidebarRow] {
         // The two-column view's tree is always the top level, wherever its notes are.
         let place = content == .places ? SidebarPlace.allNotes : place
-        if content != .places, place == .trash { return trashedNotes.map { .trashed($0) } }
-        guard content != .notes else {
-            // Narrowed by the filter field below the list.
-            let filter = noteFilter.trimmingCharacters(in: .whitespaces)
-            let notes = notes(in: place)
-            return noteRows(filter.isEmpty ? notes : notes.filter { $0.title.localizedStandardContains(filter) })
-        }
+        let filter = content == .places ? "" : noteFilter.trimmingCharacters(in: .whitespaces)
+        func shows(_ name: String) -> Bool { filter.isEmpty || name.localizedStandardContains(filter) }
+        if content != .places, place == .trash { return trashedNotes.filter { shows($0.title) }.map { .trashed($0) } }
+        guard content != .notes else { return noteRows(notes(in: place).filter { shows($0.title) }) }
+        // Filtering, folded sections open, so what matches in them shows.
+        let collapsed = filter.isEmpty ? collapsed : []
         var sections: [[SidebarRow]] = []
         func section(_ name: SidebarSection, _ rows: [SidebarRow]) -> [SidebarRow] {
-            [.header(name)] + (collapsed.contains(name) ? [] : rows)
+            // A section with nothing left that matches goes, label and all.
+            if !filter.isEmpty, rows.isEmpty { return [] }
+            return [.header(name)] + (collapsed.contains(name) ? [] : rows)
+        }
+        func places(_ rows: [SidebarRow]) -> [SidebarRow] {
+            rows.filter { row in
+                guard case .place(let place, _) = row else { return true }
+                return shows(place.title)
+            }
         }
         // Folders, each followed by its subfolders if it's unfolded.
         func folderRows(_ places: [SidebarPlace], depth: Int) -> [SidebarRow] {
@@ -69,9 +86,9 @@ extension VaultModel {
             // between folders and tags, if they show one at a time: below these, which it
             // doesn't change.
             let oneAtATime = treeLayout == .toggle
-            sections.append([.place(.everything, depth: 0), .place(.bookmarks, depth: 0), .place(.trash, depth: 0)]
-                            + (oneAtATime ? [.treeSwitch] : []))
-            if !pins.isEmpty { sections.append(section(.pinned, pins.map { .place($0, depth: 0) })) }
+            sections.append(places([.place(.everything, depth: 0), .place(.bookmarks, depth: 0), .place(.trash, depth: 0)])
+                            + (oneAtATime && filter.isEmpty ? [.treeSwitch] : []))
+            if !pins.isEmpty { sections.append(section(.pinned, places(pins.map { .place($0, depth: 0) }))) }
             // Shown one at a time, folders or tags have no label of their own, and can't be
             // folded away: the switch names them, and folding the only one would leave nothing.
             // Straight below the switch (no pins between), they go on from it with no divider.
@@ -87,7 +104,7 @@ extension VaultModel {
             if !oneAtATime || treeKind == .folders {
                 // The tree starts with the vault itself, for the notes at its top level.
                 let top: [SidebarRow] = content == .places ? [.place(.allNotes, depth: 0)] : []
-                if !subplaces.isEmpty || !top.isEmpty { addTree(.folders, top + folderRows(subplaces, depth: 0)) }
+                if !subplaces.isEmpty || !top.isEmpty { addTree(.folders, places(top + folderRows(subplaces, depth: 0))) }
             }
             if !tagTree.entries.isEmpty, !oneAtATime || treeKind == .tags {
                 // Nested tags show beneath a tag that's unfolded, as subfolders do.
@@ -95,20 +112,20 @@ extension VaultModel {
                     let parts = entry.tag.split(separator: "/")
                     return (1..<max(parts.count, 1)).allSatisfy { expanded.contains(Self.expansionKey(.tag(parts.prefix($0).joined(separator: "/")))) }
                 }
-                addTree(.tags, tags.map { .place(.tag($0.tag), depth: $0.depth) })
+                addTree(.tags, places(tags.map { .place(.tag($0.tag), depth: $0.depth) }))
             }
         } else if !subplaces.isEmpty {
             // Inside a folder (or tag) with folders (or tags) in it: labelled, as at the top.
             let rows = place.isTag ? subplaces.map { SidebarRow.place($0, depth: 0) } : folderRows(subplaces, depth: 0)
-            sections.append(section(place.isTag ? .tags : .folders, rows))
+            sections.append(section(place.isTag ? .tags : .folders, places(rows)))
         }
         // The notes, always under their label, which holds the sort menu.
-        let notes = content == .places ? [] : notes(in: place)
+        let notes = content == .places ? [] : notes(in: place).filter { shows($0.title) }
         if !notes.isEmpty {
             sections.append(section(.notes, noteRows(notes)))
         }
         // Thin dividers between sections.
-        return sections.enumerated().flatMap { index, rows in index == 0 ? rows : [.divider] + rows }
+        return sections.filter { !$0.isEmpty }.enumerated().flatMap { index, rows in index == 0 ? rows : [.divider] + rows }
     }
 
     /// Notes' rows: under headings by date, when the list shows dates that way and is sorted
@@ -129,6 +146,8 @@ struct SidebarTable: NSViewRepresentable {
     /// and tags beside them.
     enum Content { case everything, notes, places }
     var content = Content.everything
+    /// Room at the foot, for the filter field floating over the list.
+    var bottomInset: CGFloat = 0
     /// The folded sections, comma separated, each as the place it's folded in and its name
     /// (`folder:Projects|Notes`): folding a section in one place leaves it open in others. A
     /// name alone (as saved before) is one folded at the top level.
@@ -197,12 +216,13 @@ struct SidebarTable: NSViewRepresentable {
         menu.delegate = context.coordinator
         table.menu = menu
 
-        // The two-column note list scrolls up beneath its see-through top bar, as a note does.
-        let scrollView = content == .notes ? BarEdgeScrollView() : NSScrollView()
-        if content == .notes {
-            scrollView.automaticallyAdjustsContentInsets = false
-            scrollView.contentInsets.top = model.topBarHeight
-        }
+        // The two-column note list scrolls up beneath its see-through top bar, as a note does,
+        // and the lists with a filter field down beneath that, softly blurred.
+        let scrollView = BarEdgeScrollView()
+        // On the sidebar's material, the blur alone; on the page's colour, washed with it.
+        scrollView.footWash = content == .notes ? .textBackgroundColor : nil
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = insets
         scrollView.documentView = table
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
@@ -215,11 +235,13 @@ struct SidebarTable: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        if content == .notes, scrollView.contentInsets.top != model.topBarHeight {
-            scrollView.contentInsets.top = model.topBarHeight
-        }
+        if !NSEdgeInsetsEqual(scrollView.contentInsets, insets) { scrollView.contentInsets = insets }
         context.coordinator.parent = self
         context.coordinator.update(animated: true)
+    }
+
+    private var insets: NSEdgeInsets {
+        NSEdgeInsets(top: content == .notes ? model.topBarHeight : 0, left: 0, bottom: bottomInset, right: 0)
     }
 
     @MainActor

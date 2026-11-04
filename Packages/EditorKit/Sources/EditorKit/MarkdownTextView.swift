@@ -964,7 +964,7 @@ private final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
-/// The editor's scroll view, and the two-column sidebar's note list's. Where the window's top
+/// The editor's scroll view, and the sidebar's lists'. Where the window's top
 /// bars cover its top (its top content inset), it blurs the text scrolling beneath them under a light wash of
 /// the page's colour, with a one-pixel hairline at the edge, like the system's scroll edge
 /// effect; both show only once the text has scrolled under the bars. The blur is a Core
@@ -972,7 +972,16 @@ private final class FlippedView: NSView {
 /// system's own effect needs a title bar that isn't transparent, which takes the top bars'
 /// clicks and drops; a blur from outside the scroll view doesn't pick up the text; and a
 /// within-window material either hides the text or, faded, shows it unblurred.)
+///
+/// Where something floats over its foot (its bottom content inset), the system's soft style
+/// instead: the same blur, fading out upwards, with no line, once there's more beneath.
 public final class BarEdgeScrollView: NSScrollView {
+    /// The colour washed over the blur at the foot; nil for none (on the sidebar's material).
+    public var footWash: NSColor? = .textBackgroundColor {
+        didSet { updateEdge(animated: false) }
+    }
+    /// How far above the inset the foot's blur reaches, as it fades.
+    private static let footFade: CGFloat = 16
     private let edgeBlur: NSView = {
         let view = NSView()
         view.wantsLayer = true
@@ -992,7 +1001,28 @@ public final class BarEdgeScrollView: NSScrollView {
         return line
     }()
 
+    private let footBlur: NSView = {
+        let view = NSView()
+        view.wantsLayer = true
+        view.layerUsesCoreImageFilters = true
+        view.layer?.masksToBounds = true
+        if let blur = CIFilter(name: "CIGaussianBlur") {
+            blur.setValue(8, forKey: kCIInputRadiusKey)
+            view.backgroundFilters = [blur]
+        }
+        // Soft: whole at the foot, fading to nothing above the floating control.
+        let fade = CAGradientLayer()
+        fade.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
+        fade.locations = [0, 0.55, 1]
+        fade.startPoint = CGPoint(x: 0.5, y: 0)
+        fade.endPoint = CGPoint(x: 0.5, y: 1)
+        view.layer?.mask = fade
+        view.alphaValue = 0
+        return view
+    }()
+
     private var isScrolledUnder = false
+    private var hasMoreBeneath = false
     private var topInset: CGFloat = 0
 
     /// Text at the very top stays there as the inset changes, rather than ending up under
@@ -1009,6 +1039,7 @@ public final class BarEdgeScrollView: NSScrollView {
     public override func tile() {
         super.tile()
         keepAtTop()
+        tileFoot()
         let height = contentInsets.top
         guard height > 0 else {
             edgeBlur.removeFromSuperview()
@@ -1027,14 +1058,49 @@ public final class BarEdgeScrollView: NSScrollView {
         updateEdge(animated: false)
     }
 
+    private func tileFoot() {
+        let inset = contentInsets.bottom
+        guard inset > 0 else { return footBlur.removeFromSuperview() }
+        if footBlur.superview == nil { addSubview(footBlur, positioned: .above, relativeTo: contentView) }
+        let height = min(inset + Self.footFade, bounds.height)
+        footBlur.frame = NSRect(x: 0, y: isFlipped ? bounds.height - height : 0, width: bounds.width, height: height)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        footBlur.layer?.mask?.frame = footBlur.bounds
+        CATransaction.commit()
+        updateFoot(animated: false)
+    }
+
     public override func reflectScrolledClipView(_ clipView: NSClipView) {
         super.reflectScrolledClipView(clipView)
         updateEdge(animated: true)
+        updateFoot(animated: true)
+    }
+
+    /// Shows the foot's blur while there's more of the document beneath the floating control.
+    private func updateFoot(animated: Bool) {
+        guard footBlur.superview != nil else { return }
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            footBlur.layer?.backgroundColor = footWash?.withAlphaComponent(0.45).cgColor
+        }
+        let documentHeight = documentView?.frame.height ?? 0
+        let more = documentHeight > contentView.bounds.maxY - contentInsets.bottom + 0.5
+        guard more != hasMoreBeneath || !animated else { return }
+        hasMoreBeneath = more
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.15
+                footBlur.animator().alphaValue = more ? 1 : 0
+            }
+        } else {
+            footBlur.alphaValue = more ? 1 : 0
+        }
     }
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateEdge(animated: false)
+        updateFoot(animated: false)
     }
 
     /// Shows the blur and the line once the text has scrolled under the bars (the clip view's

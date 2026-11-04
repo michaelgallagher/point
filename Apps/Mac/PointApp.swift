@@ -213,8 +213,8 @@ struct AppCommands: Commands {
             Button("Search Vault") { model?.togglePalette(.explorer) }
                 .shortcut(.searchVault, in: shortcuts)
                 .disabled(model == nil || store.root == nil)
-            // The sidebar's own search field (there's no sidebar in Minimal).
-            Button("Search in List") { model?.focusSearch() }
+            // The sidebar's own filter field (there's no sidebar in Minimal).
+            Button("Filter List") { model?.focusSearch() }
                 .shortcut(.searchInList, in: shortcuts)
                 .disabled(model == nil || store.root == nil)
             Button("Find in Note") { FindInNote.show() }
