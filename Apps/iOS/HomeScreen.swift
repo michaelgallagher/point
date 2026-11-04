@@ -12,7 +12,8 @@ enum Route: Hashable {
 
 /// Home, as the Notes app's list of folders: All notes, Bookmarks and Recent, each a page of its
 /// own; the vault's folders; then its tags. Settings at the top left; along the bottom, on every
-/// page, the system's search field and the actions for where you are.
+/// list, Sort (where the list can be sorted), the system's search field and the actions for
+/// where you are.
 struct HomeScreen: View {
     @EnvironmentObject private var store: PhoneStore
     @ObservedObject private var quickActions = QuickActions.shared
@@ -41,9 +42,8 @@ struct HomeScreen: View {
                     ToolbarItem(placement: .topBarLeading) {
                         Button("Settings", systemImage: "gear") { showsSettings = true }
                     }
-                    ToolbarItem(placement: .topBarTrailing) { SortMenu() }
                 }
-                .pageBar { topLevelActions }
+                .pageBar(.sort) { topLevelActions }
         }
         .alert("New Folder", isPresented: Binding(get: { newFolderParent != nil }, set: { if !$0 { newFolderParent = nil } })) {
             TextField("Name", text: $newFolderName)
@@ -136,7 +136,7 @@ struct HomeScreen: View {
             }
             let folders = store.sorted(folders: store.subfolders(of: ""))
             if !folders.isEmpty {
-                Section {
+                Section("Folders") {
                     ForEach(folders, id: \.self) { folder in
                         NavigationLink(value: Route.folder(folder)) { FolderRow(folder: folder) }
                     }
@@ -168,17 +168,17 @@ struct HomeScreen: View {
             if let note = store.note(store.currentID(id)) {
                 NoteScreen(note: note, store: store, isNew: id == newNote) { folder in createNote(in: folder) }
             }
-        case .notes: NotesScreen().pageBar { topLevelActions }
+        case .notes: NotesScreen().pageBar(.sort) { topLevelActions }
         case .bookmarks: BookmarksScreen().pageBar { topLevelActions }
         case .recent: RecentScreen().pageBar { topLevelActions }
         case .tag(let tag):
-            TagScreen(tag: tag).pageBar {
+            TagScreen(tag: tag).pageBar(.sort) {
                 Button("New Note", systemImage: "square.and.pencil") {
                     createNote(text: Frontmatter.edit(adding: "tags", values: [tag], isList: true).1)
                 }
             }
         case .folder(let folder):
-            FolderScreen(folder: folder).pageBar {
+            FolderScreen(folder: folder).pageBar(.sort) {
                 newNoteButton(in: folder)
                 newFolderButton(in: folder)
                 Button("Move Folder", systemImage: "folder") { movingFolder = folder }
@@ -253,7 +253,6 @@ struct NotesScreen: View {
         let notes = store.notes.sorted(by: store.sort)
         List { NoteSections(notes: notes) }
             .navigationTitle("All notes")
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { SortMenu() } }
             .overlay { if notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text") } }
     }
 }
@@ -304,7 +303,6 @@ struct TagScreen: View {
         let notes = store.notes(taggedWith: tag)
         List { NoteSections(notes: notes) }
             .navigationTitle("#" + tag)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { SortMenu() } }
             .overlay { if notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text") } }
     }
 }
@@ -328,7 +326,6 @@ struct FolderScreen: View {
             NoteSections(notes: notes)
         }
         .navigationTitle((folder as NSString).lastPathComponent)
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { SortMenu() } }
         .overlay { if folders.isEmpty && notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "folder") } }
     }
 }
@@ -338,31 +335,64 @@ func symbol(_ name: String, or older: String) -> String {
     UIImage(systemName: name) == nil ? older : name
 }
 
-/// What every page has: along the bottom, the system's search field and a menu of what can be
-/// done here, as Apple's own apps have them; and over the page, while searching, Search.
+/// What goes at the left of a page's bottom bar: on a list that can be sorted, Sort; in a note,
+/// finding in it, in place of search.
+enum PageTool {
+    case none, sort
+    case find(() -> Void)
+}
+
+/// What every page has along the bottom, as Apple's own apps have it: at the left, Sort or Find
+/// (`PageTool`); on a list, the system's search field, with Search over the page while it's in
+/// use; and at the right, a menu of what can be done here.
 private struct PageBar<Actions: View>: ViewModifier {
     @EnvironmentObject private var store: PhoneStore
-    let note: Note?
+    let tool: PageTool
     @ViewBuilder let actions: Actions
 
     func body(content: Content) -> some View {
-        content
-            .overlay { SearchScreen(note: note) }
-            .searchable(text: $store.searchText, prompt: "Search")
-            .toolbar {
-                DefaultToolbarItem(kind: .search, placement: .bottomBar)
-                ToolbarSpacer(.fixed, placement: .bottomBar)
+        switch tool {
+        case .find(let find):
+            // A note: finding in it, not searching the vault.
+            content.toolbar {
                 ToolbarItem(placement: .bottomBar) {
-                    Menu("Actions", systemImage: symbol("text.menu", or: "line.3.horizontal")) { actions }
+                    Button("Find in Note", systemImage: "text.page.badge.magnifyingglass", action: find)
                 }
+                ToolbarSpacer(.flexible, placement: .bottomBar)
+                ToolbarItem(placement: .bottomBar) { menu }
             }
+        case .none, .sort:
+            content
+                .overlay { SearchScreen() }
+                .searchable(text: $store.searchText, prompt: "Search")
+                // The navigation bar isn't hidden by the system while searching: it went at once,
+                // without animating, and the page jumped up under Search as it faded in. Search
+                // hides it itself, animated.
+                .searchPresentationToolbarBehavior(.avoidHidingContent)
+                .toolbar {
+                    if case .sort = tool {
+                        ToolbarItem(placement: .bottomBar) { SortMenu() }
+                        ToolbarSpacer(.fixed, placement: .bottomBar)
+                    }
+                    DefaultToolbarItem(kind: .search, placement: .bottomBar)
+                    ToolbarSpacer(.fixed, placement: .bottomBar)
+                    ToolbarItem(placement: .bottomBar) { menu }
+                }
+        }
+    }
+
+    private var menu: some View {
+        Menu("Actions", systemImage: symbol("text.menu", or: "line.3.horizontal")) { actions }
+            // In the order given, top to bottom: from the bottom bar, the system would turn it
+            // over, putting the first item nearest the thumb.
+            .menuOrder(.fixed)
     }
 }
 
 extension View {
-    /// `note` is the note on this page, if there is one, for Search to look in.
-    func pageBar<Actions: View>(note: Note? = nil, @ViewBuilder actions: () -> Actions) -> some View {
-        modifier(PageBar(note: note, actions: actions))
+    /// `tool` is what goes at the bar's left.
+    func pageBar<Actions: View>(_ tool: PageTool = .none, @ViewBuilder actions: () -> Actions) -> some View {
+        modifier(PageBar(tool: tool, actions: actions))
     }
 }
 

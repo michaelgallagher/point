@@ -262,6 +262,23 @@ After trying the first draft, on `ios-second-draft`. One commit per step.
 - **A list's end.** The empty last line of a note has no text of its own, so the system lays it out as the line above, and setting the typing attributes doesn't change that. `caretRect` puts the cursor at the margin there.
 - **Symbols.** `number.sign.circle` and `text.menu` arrived with iOS 27. On iOS 26.1, the Simulator's system, toolbars show the word "Actions" and the tag rows nothing. `symbol(_:or:)` falls back to `number.circle` and `line.3.horizontal`.
 
+## Mike's fourth notes (4 November 2026)
+
+- **The bottom bar.** On a list that can be sorted (home, All notes, a folder, a tag), Sort is at the left, so it goes Sort, search, actions. Bookmarks and Recent have no Sort. Sort has left the top right. `PageBar` takes what goes at the left (`PageTool`).
+- **In a note, Find replaces search.** The bottom bar is Find in Note at the left and the actions at the right, with no search field, and the find button at the top right has gone. Search, with its "Find in …" result and its Linked list, is now only on the lists. Back goes to them.
+- **Search's animation.** Recorded frame by frame in the Simulator, opening Search hid the navigation bar at once, without animating, so the page jumped up under Search, then stalled, then faded. The system no longer hides the bar (`searchPresentationToolbarBehavior(.avoidHidingContent)`); Search hides it itself, animated, so the page slides up as Search fades in. Search shows no title and no Settings, as Mike asked after the first try, which kept the bar. The stall of 100 to 150 ms as the keyboard starts is the system's and stays (see "Search's stutter"). Measure on the iPhone.
+- **Search's look.** The page's own grey background, with the lists grouped in white, as home's are. A snippet's line breaks are spaces now: they left a row's second line empty.
+- **Voice.** The keyboard's dictation key works in the search field already. SwiftUI's `searchDictationBehavior`, which would put a microphone in the field, does nothing on iOS (it's for visionOS), so it's not used. A microphone in the field would need Point's own speech recognition, and the microphone permission. Mike decided the keyboard's key is enough.
+- **Search that learns** was already in use on the phone: opens and picks are recorded, and results reranked (`PhoneStore`). Tried in the Simulator: after picking Workshop notes, the fourth result for "service", it came first for "serv".
+- **Hiding the keyboard** is at the note's top right while writing (in the title too), on the highlight colour, not beside the format bar, whose tools now run the full width.
+- **Folders** has its heading back on home, now that tags are there too.
+- **Backlinks.** Beside the properties button under the title, "2 links" (none, and it's not there) opens a sheet of the notes linking here, each with its line, from the search index's `backlinks`, as the Mac's links panel. A note opens at its link to this one. Unlinked mentions are left for the Mac.
+- **The action menu,** top to bottom: New Note; Move Note, Apply Template, Show Markdown, Bookmark, Share; Delete Note. The system turns a bottom bar's menu over, to put the first item nearest the thumb, which Mike found reversed, so every action menu keeps its order now (`menuOrder(.fixed)`). Bookmark has come from the top right. Show Markdown is the Mac's: every marker and the frontmatter shown, in a monospaced font, for every note until it's turned off or the app quits. The frontmatter can be edited as text then, and the properties button steps aside. `PhoneTextView.showsMarkdown`.
+
+**Tried:** all of the above in the Simulator, on iOS 27 and 26.1, with a test vault. Both bottom bars stay whole on both systems. The package tests pass.
+
+**Not tried:** the iPhone itself, so how the search animation feels there; opening a long note at a backlink further down; dark mode.
+
 ## Decided (27 October 2026)
 
 1. **Bookmarks are Obsidian's** (`.obsidian/bookmarks.json`): the phone shows the notes in it, in its order, and bookmarking or reordering on the phone writes it back, keeping everything else in the file (folders, searches and headings Obsidian bookmarks too, which the phone doesn't show). The Mac can move to the same file later.

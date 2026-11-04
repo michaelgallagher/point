@@ -23,6 +23,12 @@ final class PhoneStore: ObservableObject {
     }
     /// Results for `searchText`, or nil when not searching.
     @Published private(set) var searchResults: [SearchResult]?
+    /// Goes up each time the search index takes in changed notes, for what's read from it to
+    /// be read again.
+    @Published private(set) var indexUpdates = 0
+    /// Notes show their raw Markdown, every marker visible, as on the Mac: for every note,
+    /// until it's turned off or the app quits.
+    @Published var showsMarkdown = false
     /// How folders, All notes and tags list their notes, as on the Mac. Recent keeps its own
     /// order, and is the only list that opening a note changes.
     @Published var sort = UserDefaults.standard.string(forKey: "noteSort").flatMap(NoteSort.init) ?? .modified {
@@ -90,15 +96,13 @@ final class PhoneStore: ObservableObject {
         if changed > 0 || tagsByNote.isEmpty, let tags = try? await index.tagsByNote() { tagsByNote = tags }
         if changed > 0 || propertyNames.isEmpty, let names = try? await index.propertyNames() { propertyNames = names }
         if changed > 0 {
+            indexUpdates += 1
             PhoneVault.log("indexed \(changed) notes in \(Int((CACurrentMediaTime() - indexStart) * 1000)) ms")
             if !searchText.isEmpty { scheduleSearch() }
         }
     }
 
     // MARK: Links
-
-    /// Text to find in the open note, from search ("" to just open the find bar).
-    @Published var findRequest: String?
 
     /// Where a tapped link leads, for home's navigation to go to.
     @Published var linkedRoute: Route?
@@ -162,21 +166,26 @@ final class PhoneStore: ObservableObject {
         return Array(tags.map(\.tag).filter { $0.lowercased().hasPrefix(query) }.prefix(20))
     }
 
-    /// The notes linked with `note`: those it links to, then those linking to it, each once.
-    func linkedNotes(of note: Note) async -> [Note] {
-        let notes = notes
-        let outgoing = await Task.detached(priority: .userInitiated) { () -> [Note] in
-            guard let text = try? NoteReader.read(contentsOf: note.url) else { return [] }
-            let resolver = LinkResolver(notes: notes)
-            let wikiLinks = LinkUpdater.wikiLinks(in: text).compactMap { resolver.resolve(wikiTarget: $0.target, from: note.id) }
-            return wikiLinks + MarkdownParser.parse(text).compactMap { token in
-                guard case .link(let destination) = token.kind else { return nil }
-                return resolver.resolve(markdownDestination: destination, from: note.id)
-            }
-        }.value
-        let backlinks = (try? await index?.backlinks(to: note, notes: notes)) ?? []
-        var seen: Set<Note.ID> = [note.id]
-        return (outgoing.map(\.id) + backlinks.map(\.noteID)).filter { seen.insert($0).inserted }.compactMap { self.note($0) }
+    /// The notes linking to `note`, each with the line its link is on, by title.
+    func backlinks(to note: Note) async -> [Backlink] {
+        (try? await index?.backlinks(to: note, notes: notes)) ?? []
+    }
+
+    /// Where to take a note to as it opens (from its backlink, the link to the note it came
+    /// from), until it's taken.
+    private var revealing: (id: Note.ID, range: NSRange)?
+
+    /// Opens a note linking to another, at the link.
+    func open(_ backlink: Backlink) {
+        if backlink.range.location != NSNotFound { revealing = (backlink.noteID, backlink.range) }
+        linkedRoute = .note(backlink.noteID)
+    }
+
+    /// Where to show in a note being opened, if it was opened at a link.
+    func revealRange(for id: Note.ID) -> NSRange? {
+        guard let revealing, revealing.id == id else { return nil }
+        self.revealing = nil
+        return revealing.range
     }
 
     private func createLinkedNote(named target: String) -> Note.ID? {

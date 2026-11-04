@@ -180,10 +180,23 @@ public final class PhoneTextView: UITextView {
         super.scrollRangeToVisible(range)
     }
 
+    /// Shows the raw Markdown instead of formatted text, as on the Mac, for fixing anything odd:
+    /// every marker visible, the frontmatter too, in a monospaced font.
+    public var showsMarkdown: Bool {
+        get { styler.showsMarkdown }
+        set {
+            guard newValue != styler.showsMarkdown else { return }
+            styler.showsMarkdown = newValue
+            restyle(NSRange(location: 0, length: textStorage.length))
+            settleCursor()
+        }
+    }
+
     /// Where the note's body starts: after its frontmatter, which is hidden and edited as
-    /// properties, so nothing above this can be selected, typed in or deleted.
+    /// properties, so nothing above this can be selected, typed in or deleted. While the
+    /// Markdown shows, the frontmatter is text like the rest, and this is 0.
     public var bodyStart: Int {
-        guard let token = tokens.first, token.kind == .frontmatter, token.range.length > 0 else { return 0 }
+        guard !styler.showsMarkdown, let token = tokens.first, token.kind == .frontmatter, token.range.length > 0 else { return 0 }
         let text = textStorage.string as NSString
         let last = min(NSMaxRange(token.range) - 1, text.length - 1)
         guard last >= 0 else { return 0 }

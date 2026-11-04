@@ -2,9 +2,9 @@ import EditorKit
 import UIKit
 
 /// The bar above the keyboard while writing a note: links, styles and lists in a glass capsule,
-/// scrolling sideways, in the order they're reached for; and apart from it at the right, always
-/// in reach, hiding the keyboard. While a `[[link` or `#tag` is being typed, what it could be
-/// takes the tools' place.
+/// scrolling sideways, in the order they're reached for. (Hiding the keyboard is at the note's
+/// top right.) While a `[[link` or `#tag` is being typed, what it could be takes the tools'
+/// place.
 final class FormatBar: UIView {
     private weak var textView: PhoneTextView?
     private let scroller = UIScrollView()
@@ -12,7 +12,7 @@ final class FormatBar: UIView {
     private let choiceStack = UIStackView()
     private let glass = UIVisualEffectView(effect: UIGlassEffect())
     private static let height: CGFloat = 44
-    /// Off in the title, which has no styles: only hiding the keyboard is left.
+    /// Off in the title, which has no styles.
     var showsTools = true {
         didSet { glass.isHidden = !showsTools }
     }
@@ -63,29 +63,12 @@ final class FormatBar: UIView {
         glass.contentView.addSubview(scroller)
         glass.contentView.addSubview(choices)
 
-        var configuration = UIButton.Configuration.prominentGlass()
-        configuration.image = UIImage(systemName: "keyboard.chevron.compact.down")?
-            .withTintColor(.white, renderingMode: .alwaysOriginal)
-        let hide = UIButton(configuration: configuration, primaryAction: UIAction { [weak self] _ in
-            // The title shows this bar too, and may be what has the keyboard. Leaving the title
-            // hands the cursor to the note's text, its superview, so that's let go of as well.
-            self?.textView?.window?.endEditing(true)
-            DispatchQueue.main.async { self?.textView?.resignFirstResponder() }
-        })
-        hide.accessibilityLabel = "Hide Keyboard"
-        hide.translatesAutoresizingMaskIntoConstraints = false
-
         addSubview(glass)
-        addSubview(hide)
         NSLayoutConstraint.activate([
             glass.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             glass.centerYAnchor.constraint(equalTo: centerYAnchor),
             glass.heightAnchor.constraint(equalToConstant: Self.height),
-            glass.trailingAnchor.constraint(equalTo: hide.leadingAnchor, constant: -8),
-            hide.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            hide.centerYAnchor.constraint(equalTo: centerYAnchor),
-            hide.widthAnchor.constraint(equalToConstant: Self.height),
-            hide.heightAnchor.constraint(equalToConstant: Self.height),
+            glass.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             scroller.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor),
             scroller.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor),
             scroller.topAnchor.constraint(equalTo: glass.contentView.topAnchor),

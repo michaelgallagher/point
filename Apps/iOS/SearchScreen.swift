@@ -3,24 +3,25 @@ import SwiftUI
 import VaultKit
 
 /// Search, over the page while the system's search field is in use: lists to pick from, recent
-/// notes (which stand in for tabs), bookmarks, and notes linked with the one on the page. Typing
-/// shows results in their place. On a note's page, the first result finds the text in that note.
+/// notes (which stand in for tabs) and bookmarks. Typing shows results in their place. It's on
+/// the lists, not in a note, where the bottom bar finds in the note instead.
 struct SearchScreen: View {
     @EnvironmentObject private var store: PhoneStore
     @Environment(\.isSearching) private var isSearching
     @Environment(\.dismissSearch) private var dismissSearch
-    /// The note on the page, if any.
-    let note: Note?
-    /// The note's text, for counting matches in it.
-    @State private var noteText = ""
-    /// The notes linked with the note.
-    @State private var linked: [Note] = []
+
+    /// The page's navigation bar (its title, Settings) is hidden while searching, with an
+    /// animation of its own: the system's own hiding went at once, and the page jumped.
+    @State private var hidesBar = false
 
     private var query: String { store.searchText.trimmingCharacters(in: .whitespaces) }
 
     var body: some View {
         ZStack {
+            // Only while searching: a scroll view always over the page would be the one its
+            // large title follows.
             if isSearching {
+                // Grouped, on the page's own background, as the lists below it are.
                 List {
                     if query.isEmpty {
                         lists
@@ -28,22 +29,18 @@ struct SearchScreen: View {
                         results
                     }
                 }
-                .listStyle(.plain)
-                .background(Color(.systemBackground))
                 .transition(.opacity)
-                .task {
-                    guard let note else { return }
-                    // Off the main thread: a long note would hold up the opening animation.
-                    noteText = await Task.detached { (try? NoteReader.read(note)) ?? "" }.value
-                    linked = await store.linkedNotes(of: note)
-                }
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: isSearching)
+        .animation(.easeOut(duration: 0.25), value: isSearching)
+        .toolbarVisibility(hidesBar ? .hidden : .automatic, for: .navigationBar)
+        .onChange(of: isSearching) { _, searching in
+            withAnimation(.easeOut(duration: 0.25)) { hidesBar = searching }
+        }
     }
 
     @ViewBuilder private var lists: some View {
-        let recent = store.recentlyOpened(limit: 5, excluding: note?.id)
+        let recent = store.recentlyOpened(limit: 5, excluding: nil)
         if !recent.isEmpty {
             Section("Recent") {
                 ForEach(recent) { note in row(note.id) { NoteRow(title: note.title) } }
@@ -58,55 +55,18 @@ struct SearchScreen: View {
                 }
             }
         }
-        // Those not listed already.
-        let others = linked.lazy.filter { note in !recent.contains { $0.id == note.id } && !store.isBookmarked(note.id) }.prefix(5)
-        if !others.isEmpty {
-            Section("Linked") {
-                ForEach(Array(others)) { note in row(note.id) { NoteRow(title: note.title) } }
-            }
-        }
     }
 
     @ViewBuilder private var results: some View {
-        if let note, matches > 0 {
-            Section {
-                Button {
-                    // Before dismissing, which clears the field the query comes from.
-                    store.findRequest = query
-                    dismissSearch()
-                } label: {
-                    HStack {
-                        Label("Find in “\(note.title)”", systemImage: "text.magnifyingglass")
-                        Spacer()
-                        Text("\(matches)")
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-                }
-                .foregroundStyle(.primary)
-            }
-        }
         if let results = store.searchResults {
             Section {
                 ForEach(results) { result in row(result.id, searchedFor: query) { SearchRow(result: result) } }
             }
-            if results.isEmpty, matches == 0 {
+            if results.isEmpty {
                 ContentUnavailableView.search(text: query)
                     .listRowBackground(Color.clear)
             }
         }
-    }
-
-    /// How many times what's typed is in the note.
-    private var matches: Int {
-        guard !query.isEmpty else { return 0 }
-        var count = 0
-        var rest = noteText[...]
-        while let range = rest.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) {
-            count += 1
-            rest = rest[range.upperBound...]
-        }
-        return count
     }
 
     /// A note to open, found by searching for `query` if given (search learns from it).
@@ -129,7 +89,8 @@ private struct SearchRow: View {
             Text(result.title)
                 .fontWeight(result.matchedTitle ? .semibold : .regular)
             if let snippet = result.snippet {
-                Text(Self.marked(snippet))
+                // On as few lines as it fits: a line break in the note would leave a line empty.
+                Text(Self.marked(snippet.split(whereSeparator: \.isNewline).joined(separator: " ")))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)

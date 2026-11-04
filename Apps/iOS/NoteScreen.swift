@@ -1,12 +1,14 @@
 import EditorKit
+import IndexKit
 import SwiftUI
 import VaultKit
 
 /// One note, filling the screen, in the shared editor, its title at the top (its file name, as
-/// on the Mac: changing it renames the note). At the top right, always there, are bookmarking,
-/// finding and sharing it; moving and deleting it are among the actions at the bottom. A new note
-/// opens with the cursor in its title. Opened with `-SpikeTypeTest`, what opening and typing cost shows across
-/// the top (see the spike).
+/// on the Mac: changing it renames the note), and below it, its properties and the notes linking
+/// to it. Along the bottom, finding in it, and the actions: moving, bookmarking, sharing and
+/// deleting it among them. While writing, hiding the keyboard is at the top right. A new note
+/// opens with the cursor in its title. Opened with `-SpikeTypeTest`, what opening and typing
+/// cost shows across the top (see the spike).
 struct NoteScreen: View {
     @EnvironmentObject private var store: PhoneStore
     @StateObject private var session: NoteSession
@@ -32,18 +34,23 @@ struct NoteScreen: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    let bookmarked = store.isBookmarked(session.note.id)
-                    Button(bookmarked ? "Remove Bookmark" : "Bookmark", systemImage: bookmarked ? "bookmark.fill" : "bookmark") {
-                        store.toggleBookmark(session.note.id)
+                if session.isWriting {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Hide Keyboard", systemImage: "keyboard.chevron.compact.down") { session.hideKeyboard() }
+                            .buttonStyle(.glassProminent)
                     }
-                    Button("Find in Note", systemImage: "text.page.badge.magnifyingglass") { session.find("") }
                 }
             }
-            .pageBar(note: session.note) {
+            .pageBar(.find { session.find("") }) {
                 Button("New Note", systemImage: "square.and.pencil") { newNote(FolderTree.folder(of: session.note.id)) }
+                Divider()
                 Button("Move Note", systemImage: "folder") { showsMove = true }
                 TemplateMenu(session: session)
+                Toggle("Show Markdown", systemImage: "chevron.left.forwardslash.chevron.right", isOn: $store.showsMarkdown)
+                let bookmarked = store.isBookmarked(session.note.id)
+                Button(bookmarked ? "Remove Bookmark" : "Bookmark", systemImage: bookmarked ? "bookmark.slash" : "bookmark") {
+                    store.toggleBookmark(session.note.id)
+                }
                 Button("Share", systemImage: "square.and.arrow.up") { session.share() }
                 Divider()
                 Button("Delete Note", systemImage: "trash", role: .destructive) { confirmsDelete = true }
@@ -52,6 +59,9 @@ struct NoteScreen: View {
             .toolbarVisibility(session.isWriting ? .hidden : .automatic, for: .bottomBar)
             .sheet(isPresented: $session.showsProperties) {
                 PropertiesSheet(session: session).environmentObject(store)
+            }
+            .sheet(isPresented: $session.showsBacklinks) {
+                BacklinksSheet(session: session).environmentObject(store)
             }
             .sheet(isPresented: $showsMove) {
                 FolderPicker(title: "Move Note", current: FolderTree.folder(of: session.note.id)) { session.move(to: $0) }
@@ -73,12 +83,9 @@ struct NoteScreen: View {
                 Text("It moves to the vault’s trash, where the Mac or Obsidian can put it back.")
             }
             .onAppear { store.noteOpened(session.note.id) }
-            .onChange(of: store.findRequest) { _, text in
-                guard let text else { return }
-                store.findRequest = nil
-                // Once this screen's back in place.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { session.find(text) }
-            }
+            .onChange(of: store.showsMarkdown) { _, shows in session.showMarkdown(shows) }
+            // The index has taken in changed notes: what links here may have changed.
+            .onChange(of: store.indexUpdates) { _, _ in session.refreshBacklinks() }
             .onDisappear {
                 guard !isDeleting else { return session.moveToTrash() }
                 // Left: its title taken, saved, then (if it has no title) named from its first
@@ -181,6 +188,9 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     @Published private(set) var frontmatter: Frontmatter?
     @Published var showsProperties = false
     @Published var showsShare = false
+    /// The notes linking to this one, by title.
+    @Published private(set) var backlinks: [Backlink] = []
+    @Published var showsBacklinks = false
     /// Writing in the note, when the format bar takes the bottom of the screen.
     @Published private(set) var isWriting = false
     /// Why a title couldn't be used (the name's taken, say), until dismissed.
@@ -226,6 +236,8 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
             return
         }
         let read = (CACurrentMediaTime() - readStart) * 1000
+        textView.showsMarkdown = store.showsMarkdown
+        header?.showsProperties = !store.showsMarkdown
         let load = textView.load(text)
         onDisk = text
         noteFrontmatter(of: text)
@@ -239,7 +251,11 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         } else if let cursor = store.resumeCursor(for: note.id) {
             textView.placeCursor(at: cursor)
             textView.becomeFirstResponder()
+        } else if let link = store.revealRange(for: note.id), NSMaxRange(link) <= (text as NSString).length {
+            // Opened from one of another note's backlinks: at the link to that note.
+            textView.scrollRangeToVisible(link)
         }
+        refreshBacklinks()
         openedTimings = "Read \(Int(read)) ms, shown \(Int(load)) ms (\(text.count / 1000)k characters)"
         if showsTimings {
             timings = openedTimings
@@ -249,6 +265,40 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     }
 
     func open(_ link: LinkTarget) { store.open(link, from: note.id) }
+
+    /// Lets go of the keyboard, from the title or the note's text. Leaving the title hands the
+    /// cursor to the note's text, its superview, so that's let go of as well.
+    func hideKeyboard() {
+        textView?.window?.endEditing(true)
+        DispatchQueue.main.async { [weak self] in _ = self?.textView?.resignFirstResponder() }
+    }
+
+    /// Shows the raw Markdown, or the formatted note, as on the Mac. With the Markdown showing,
+    /// the properties are edited as text, so their button goes.
+    func showMarkdown(_ shows: Bool) {
+        textView?.showsMarkdown = shows
+        header?.showsProperties = !shows
+        textView?.setNeedsLayout()
+    }
+
+    /// Reads which notes link here, from the search index.
+    func refreshBacklinks() {
+        let note = note
+        Task { [weak self] in
+            guard let self else { return }
+            let found = await store.backlinks(to: note)
+            guard self.note == note, found != backlinks else { return }
+            backlinks = found
+            header?.showLinks(count: found.count)
+            textView?.setNeedsLayout()
+        }
+    }
+
+    /// Opens a note linking here, at its link, from the backlinks sheet.
+    func open(_ backlink: Backlink) {
+        showsBacklinks = false
+        store.open(backlink)
+    }
 
     /// Opens the system's find bar on the note, with `text` searched for.
     func find(_ text: String) {
@@ -496,20 +546,44 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     }
 }
 
-/// What's above a note's text: its title, and below that a button to its properties, saying how
-/// many there are.
+/// What's above a note's text: its title, and below that, side by side, a button to its
+/// properties, saying how many there are, and one to the notes linking to it, if any.
 final class NoteHeader: UIView {
     let title = TitleView()
     var onProperties: (() -> Void)?
-    private let properties = UIButton(type: .system)
+    var onLinks: (() -> Void)?
+    private let properties = NoteHeader.button()
+    private let links = NoteHeader.button()
     private static let gap: CGFloat = 8
-    /// Between the button and the note's text.
+    /// Between the buttons, side by side.
+    private static let between: CGFloat = 8
+    /// Between the buttons and the note's text.
     private static let below: CGFloat = 12
+    /// Off while the note's Markdown shows, when its properties are text like the rest.
+    var showsProperties = true {
+        didSet {
+            properties.isHidden = !showsProperties
+            setNeedsLayout()
+        }
+    }
 
     init() {
         super.init(frame: .zero)
         addSubview(title)
         addSubview(properties)
+        addSubview(links)
+        properties.addAction(UIAction { [weak self] _ in self?.onProperties?() }, for: .touchUpInside)
+        links.addAction(UIAction { [weak self] _ in self?.onLinks?() }, for: .touchUpInside)
+        showProperties(count: 0)
+        showLinks(count: 0)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("Not used") }
+
+    /// A pale grey capsule.
+    private static func button() -> UIButton {
+        let button = UIButton(type: .system)
         var configuration = UIButton.Configuration.filled()
         configuration.baseBackgroundColor = .secondarySystemFill
         configuration.baseForegroundColor = .secondaryLabel
@@ -520,31 +594,79 @@ final class NoteHeader: UIView {
             attributes.font = .preferredFont(forTextStyle: .footnote)
             return attributes
         }
-        properties.configuration = configuration
-        properties.titleLabel?.adjustsFontForContentSizeCategory = true
-        properties.addAction(UIAction { [weak self] _ in self?.onProperties?() }, for: .touchUpInside)
-        showProperties(count: 0)
+        button.configuration = configuration
+        button.titleLabel?.adjustsFontForContentSizeCategory = true
+        return button
     }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("Not used") }
 
     func showProperties(count: Int) {
         properties.configuration?.title = count == 0 ? "Add properties" : "\(count) \(count == 1 ? "property" : "properties")"
         setNeedsLayout()
     }
 
+    /// "2 links": how many notes link here. None, and the button goes.
+    func showLinks(count: Int) {
+        links.configuration?.title = "\(count) \(count == 1 ? "link" : "links")"
+        links.accessibilityHint = "Shows the notes linking to this one."
+        links.isHidden = count == 0
+        setNeedsLayout()
+    }
+
+    /// The buttons showing, in order.
+    private var buttons: [UIButton] { [properties, links].filter { !$0.isHidden } }
+
     override func sizeThatFits(_ size: CGSize) -> CGSize {
         let height = title.sizeThatFits(size).height
-        return CGSize(width: size.width, height: height + Self.gap + properties.sizeThatFits(size).height + Self.below)
+        let row = buttons.map { $0.sizeThatFits(size).height }.max()
+        return CGSize(width: size.width, height: height + (row.map { Self.gap + $0 + Self.below } ?? Self.below))
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         let height = title.sizeThatFits(bounds.size).height
         title.frame = CGRect(x: 0, y: 0, width: bounds.width, height: height)
-        let size = properties.sizeThatFits(bounds.size)
-        properties.frame = CGRect(x: 0, y: height + Self.gap, width: min(size.width, bounds.width), height: size.height)
+        var x: CGFloat = 0
+        for button in buttons {
+            let size = button.sizeThatFits(bounds.size)
+            button.frame = CGRect(x: x, y: height + Self.gap, width: min(size.width, bounds.width - x), height: size.height)
+            x += size.width + Self.between
+        }
+    }
+}
+
+/// The notes linking to a note, as the Mac's links panel lists them: each with the line its link
+/// is on, opening at that link.
+private struct BacklinksSheet: View {
+    @EnvironmentObject private var store: PhoneStore
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var session: NoteSession
+
+    var body: some View {
+        NavigationStack {
+            List(session.backlinks) { backlink in
+                Button { session.open(backlink) } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(backlink.title)
+                        if !backlink.context.isEmpty {
+                            Text(backlink.context)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(3)
+                        }
+                    }
+                }
+                .foregroundStyle(.primary)
+            }
+            .navigationTitle("Links to this note")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close", systemImage: "xmark") { dismiss() }
+                }
+            }
+            .overlay { if session.backlinks.isEmpty { ContentUnavailableView("No Links", systemImage: "link") } }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 
@@ -603,6 +725,7 @@ struct EditorView: UIViewRepresentable {
         session.titleField = title
         session.header = header
         header.onProperties = { [weak session] in session?.showsProperties = true }
+        header.onLinks = { [weak session] in session?.showsBacklinks = true }
         textView.header = header
         let bar = FormatBar(textView: textView)
         textView.inputAccessoryView = bar
