@@ -125,12 +125,13 @@ final class InsertionCursorView: NSView {
     }
 
     /// The system draws no cursor of its own in `view` beside ours. Since macOS 14 it's a view
-    /// of its own.
-    static func hideSystemIndicator(in view: NSView) {
+    /// of its own: one of `view`'s, or with `deep`, anywhere inside it.
+    static func hideSystemIndicator(in view: NSView, deep: Bool = false) {
         if #available(macOS 14.0, *) {
             for case let indicator as NSTextInsertionIndicator in view.subviews where indicator.displayMode != .hidden {
                 indicator.displayMode = .hidden
             }
+            if deep { view.subviews.forEach { hideSystemIndicator(in: $0, deep: true) } }
         }
     }
 }

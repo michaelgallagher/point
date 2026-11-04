@@ -15,6 +15,8 @@ public final class FieldCursors {
     /// field editor moves from field to field.
     private weak var textView: NSTextView?
     private weak var holder: NSView?
+    /// The text view's own insertion point colour, while it's made clear (see `update`).
+    private var shownColor: NSColor?
     private var observers: [NSObjectProtocol] = []
     private var isQueued = false
     private var animates = false
@@ -78,11 +80,20 @@ public final class FieldCursors {
             // Into another field: it appears there rather than gliding from the last.
             cursor.removeFromSuperview()
             cursor.isHidden = true
+            if next !== textView, let shownColor { textView?.insertionPointColor = shownColor }
+            if next !== textView { shownColor = nil }
             textView = next
             holder = next?.superview
         }
         guard let view = next else { return }
-        InsertionCursorView.hideSystemIndicator(in: view)
+        // A field editor lays out with TextKit 2, which keeps the system's cursor deeper than
+        // the editor's (TextKit 1) and makes it again as it likes, so hiding it isn't enough:
+        // it's also made clear, while ours is there, and given its colour back after.
+        InsertionCursorView.hideSystemIndicator(in: view, deep: true)
+        if view.insertionPointColor != .clear {
+            shownColor = view.insertionPointColor
+            view.insertionPointColor = .clear
+        }
         if cursor.superview !== view || view.subviews.last !== cursor {
             view.addSubview(cursor, positioned: .above, relativeTo: nil)
         }
@@ -90,7 +101,7 @@ public final class FieldCursors {
             cursor.isHidden = true
             return
         }
-        cursor.color = view.insertionPointColor
+        cursor.color = shownColor ?? .controlAccentColor
         cursor.move(to: target, animated: animated, clicked: clicked, reach: view.visibleRect.height + 1)
     }
 
