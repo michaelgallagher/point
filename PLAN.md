@@ -6,26 +6,25 @@ The plan is in several documents, in [`plan/`](plan/). This page says where thin
 
 ## Where things stand (3 November 2026)
 
-Branch `search-learning`, committed, to try and then merge into `main`. `main` has everything before it.
+On `main`, which has everything so far, including search that learns.
 
 **Since 27 October:**
 - **The real-vault trial is under way.** Point has been the main notes app on the Mac since 29 October, on the real vault (phase 4 of [Live vault safety](plan/live-vault-safety.md)).
 - **Tables** are a grid view laid over their hidden Markdown, with wrapping cells, rows and columns to add and drag, Tab and arrows between cells, and always a line to type on above and below. See [Tables: where things stand](plan/tables-status-2026-11-03.md), including what's still missing.
 - **Bold and italic at the cursor** work as in a word processor: nothing to see until you type, the shortcut again stops the style, and a run across several words stays one run in the Markdown.
 - **A new principle:** the Markdown Point writes is well formed, as if written by hand, at every keystroke. See [Principles and decisions](plan/decisions.md).
-- **Search that learns** (on `search-learning`): the notes you open and pick move up among matches of similar quality, on each device, outside the vault. See [Search that learns](plan/search-learning.md).
-- **The Mac:** tabs rebuilt in Liquid Glass and hidden while only one note is open, revised headers and breadcrumb, the properties UI and the explorer, and a new icon.
+- **Search that learns** (merged into `main`): the notes you open and pick move up among matches of similar quality, on each device, outside the vault. See [Search that learns](plan/search-learning.md).
+- **The Mac:** tabs rebuilt in Liquid Glass and hidden while only one note is open, revised headers and breadcrumb, the properties UI, and a new icon. In the explorer (⌘E), commands that match better than any note's title come first, and Run Command (⇧⌘E) lists only commands.
 - **The iPhone:** three rounds of Mike's notes (30 October to 1 November): the system's search field, a menu of actions for each page, moving notes and folders, templates, the properties sheet and adding a property, the bar above the keyboard, and the note being worked on reopening the same day. See [M4, the iPhone app](plan/m4-iphone.md).
 
 **Next:**
-1. **Try search that learns, then merge it.** Picks and the reordered results have only been checked by tests so far.
-2. **The real-vault trial goes on.** Anything it turns up comes first. The [27 October review](plan/app-review-2026-10-27.md)'s findings are fixed except 5 (iCloud conflict versions, to fix against a real one) and 13–15 (performance, to measure first).
-3. **The iPhone app (M4):** finish step 3, editing through the day, then step 4, making it feel right. The bold and italic rules and search that learns are shared with the iPhone but haven't been tried on one yet.
-4. **The properties view** across the vault, the last item of the [25 October batch](plan/batch-2026-10-25.md).
-5. **The sidebar's remaining steps:** the swipe follows the fingers, and auto-hide resizes the window at the end of a drag. See [The sidebar widens the window](plan/sidebar-widens-window.md).
-6. **When the screen is free for recordings:** the header's jitter as the sidebar slides, and full screen. See [App review](plan/app-review-2026-10-25.md).
-7. **Small things, if they get in the way:** in tables, several cursors don't reach into cells and Find's highlight doesn't show over a match in a cell; a note renamed in Obsidian loses what search had learned about it.
-8. **Later milestones:** meaning (M5) and extras (M6). See [Milestones](plan/milestones.md).
+1. **The real-vault trial goes on.** Anything it turns up comes first, including how search that learns (so far checked only by tests) and tables do on real notes. The [27 October review](plan/app-review-2026-10-27.md)'s findings are fixed except 5 (iCloud conflict versions, to fix against a real one) and 13–15 (performance, to measure first).
+2. **The iPhone app (M4):** finish step 3, editing through the day, then step 4, making it feel right. The bold and italic rules and search that learns are shared with the iPhone but haven't been tried on one yet.
+3. **The properties view** across the vault, the last item of the [25 October batch](plan/batch-2026-10-25.md).
+4. **The sidebar's remaining steps:** the swipe follows the fingers, and auto-hide resizes the window at the end of a drag. See [The sidebar widens the window](plan/sidebar-widens-window.md).
+5. **When the screen is free for recordings:** the header's jitter as the sidebar slides, and full screen. See [App review](plan/app-review-2026-10-25.md).
+6. **Small things, if they get in the way:** in tables, several cursors don't reach into cells and Find's highlight doesn't show over a match in a cell; a note renamed in Obsidian loses what search had learned about it.
+7. **Later milestones:** meaning (M5) and extras (M6). See [Milestones](plan/milestones.md).
 
 ## The documents
 
@@ -35,7 +34,7 @@ Branch `search-learning`, committed, to try and then merge into `main`. `main` h
 - [Milestones](plan/milestones.md): M0 to M6.
 
 **Work, newest first**
-- [Search that learns](plan/search-learning.md) (3 November, built on `search-learning`): ranking the notes you open and pick higher, kept on each device, outside the vault.
+- [Search that learns](plan/search-learning.md) (3 November, merged): ranking the notes you open and pick higher, kept on each device, outside the vault.
 - [Tables: where things stand](plan/tables-status-2026-11-03.md) (3 November): why tables became a grid view over hidden Markdown, how it works, the rough edges fixed, and the limits left.
 - [Live vault safety](plan/live-vault-safety.md) (26–27 October): testing, then fixing, what Point writes to a real vault; the results, and the trial still to come.
 - [M4, the iPhone app](plan/m4-iphone.md) (27 October): what it's for, two screens and a button, what it leaves out, how it's built, and the steps.
