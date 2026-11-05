@@ -366,6 +366,11 @@ extension MarkdownTextView {
             insertText("\n> ", replacementRange: selection)
             return
         }
+        // At the start of a heading: a line above, the heading moving down with its marker.
+        if let edit = MarkdownEditing(text: string, tokens: tokens, selection: selection).headingStartNewline() {
+            replace(edit.range, with: edit.replacement, select: edit.selection)
+            return
+        }
         super.insertNewline(sender)
     }
 

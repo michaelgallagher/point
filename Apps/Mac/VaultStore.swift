@@ -741,6 +741,11 @@ final class VaultStore: ObservableObject {
     @Published var listDate = VaultModel.ListDate(rawValue: UserDefaults.standard.string(forKey: "listDate") ?? "") ?? .edited {
         didSet { UserDefaults.standard.set(listDate.rawValue, forKey: "listDate") }
     }
+    /// Whether the sidebar lists Bookmarks beside All Notes and the trash. (Bookmarked notes
+    /// still come first in the palette.)
+    @Published var showsBookmarksInSidebar = UserDefaults.standard.object(forKey: "showsBookmarksInSidebar") == nil || UserDefaults.standard.bool(forKey: "showsBookmarksInSidebar") {
+        didSet { UserDefaults.standard.set(showsBookmarksInSidebar, forKey: "showsBookmarksInSidebar") }
+    }
     @Published var showsTagsInList = UserDefaults.standard.bool(forKey: "showsTagsInList") {
         didSet {
             UserDefaults.standard.set(showsTagsInList, forKey: "showsTagsInList")

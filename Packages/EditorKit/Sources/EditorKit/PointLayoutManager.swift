@@ -221,7 +221,11 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         enumerateLineFragments(forGlyphRange: glyphs) { line, _, _, _, _ in bounds = bounds.union(line) }
         guard !bounds.isNull else { return }
         let left = container.lineFragmentPadding + theme.indentPerLevel * CGFloat(decoration.level) - 4
-        let rect = CGRect(x: origin.x + left, y: origin.y + bounds.minY,
+        // Lowered to centre on the letters: the line has the font's room above its capitals
+        // as well as the line height's, so the whole line's rect sat high on the text.
+        let font = storage.attribute(.font, at: range.location, effectiveRange: nil) as? PlatformFont ?? theme.body
+        let lowered = ((font.ascender - font.capHeight) / 2).rounded()
+        let rect = CGRect(x: origin.x + left, y: origin.y + bounds.minY + lowered,
                           width: bounds.maxX - container.lineFragmentPadding - left + 4, height: bounds.height)
         color.withAlphaComponent(0.14).setFill()
         PlatformBezierPath(roundedRect: rect.insetBy(dx: 0, dy: 1), xRadius: 5, yRadius: 5).fill()
@@ -241,8 +245,11 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
             let character = characterIndexForGlyph(at: part.location)
             let font = storage.attribute(.font, at: min(character, storage.length - 1), effectiveRange: nil) as? PlatformFont ?? theme.body
             let baseline = origin.y + line.minY + location(forGlyphAt: part.location).y
-            let rect = CGRect(x: origin.x + bounds.minX - 2, y: baseline - font.ascender - 1,
-                              width: bounds.width + 4, height: (font.ascender - font.descender + 2).rounded())
+            // From a little above the capitals to a little below the descenders: the font's
+            // ascender, which it ran from, leaves more room above the letters than below, so
+            // the colour sat high on them.
+            let top = baseline - font.capHeight - 3.5, bottom = baseline - font.descender + 2
+            let rect = CGRect(x: origin.x + bounds.minX - 2, y: top.rounded(), width: bounds.width + 4, height: (bottom - top).rounded())
             PlatformBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3).fill()
         }
     }

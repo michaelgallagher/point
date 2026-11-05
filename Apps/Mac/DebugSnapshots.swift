@@ -13,6 +13,7 @@ enum DebugSnapshots {
     static func runIfAsked(for model: VaultModel) {
         scrollNoteIfAsked(for: model)
         scrollTestIfAsked(for: model)
+        typeTestIfAsked(for: model)
         markerClickTestIfAsked(for: model)
         focusFieldIfAsked(for: model)
         clickBackIfAsked(for: model)
@@ -211,6 +212,70 @@ enum DebugSnapshots {
                     scrollView.reflectScrolledClipView(clip)
                 }
                 Trace.mark("scrolled \(id) by \(amount)")
+            }
+        }
+    }
+
+    /// `-PointTypeTest <note ID>`: opens that note, scrolls it by `-PointScrollBy` (300),
+    /// puts the cursor on the line in the middle of the view, then types `-PointTypeText`
+    /// ("abc" and Return unless given) a key at a time through the window, tracing where the
+    /// note is scrolled to after each key. A note that jumps while typing shows as a change.
+    private static func typeTestIfAsked(for model: VaultModel) {
+        guard let id = UserDefaults.standard.string(forKey: "PointTypeTest") else { return }
+        let amount = UserDefaults.standard.object(forKey: "PointScrollBy") == nil ? 300 : UserDefaults.standard.double(forKey: "PointScrollBy")
+        let text = UserDefaults.standard.string(forKey: "PointTypeText") ?? "abc\rdef\r"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            model.selection = id
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                guard let window = model.window, let content = window.contentView,
+                      let view = scrollViews(in: content).lazy.compactMap({ $0.documentView as? MarkdownTextView }).first,
+                      let scrollView = view.enclosingScrollView, let layoutManager = view.layoutManager, let container = view.textContainer else {
+                    Trace.mark("type test: no editor"); return
+                }
+                let clip = scrollView.contentView
+                clip.scroll(to: NSPoint(x: 0, y: clip.bounds.origin.y + amount))
+                scrollView.reflectScrolledClipView(clip)
+                let fraction = UserDefaults.standard.object(forKey: "PointTypeAt") == nil ? 0.5 : UserDefaults.standard.double(forKey: "PointTypeAt")
+                let visibleTop = clip.bounds.minY + scrollView.contentInsets.top
+                let y = visibleTop + (clip.bounds.maxY - visibleTop) * fraction
+                let middle = NSPoint(x: container.lineFragmentPadding + 2, y: y - view.textContainerOrigin.y)
+                var index = layoutManager.characterIndexForGlyph(at: layoutManager.glyphIndex(for: middle, in: container))
+                // `-PointTypeIn <text>`: in the first place after there that has it (a table's cell, say).
+                if let marker = UserDefaults.standard.string(forKey: "PointTypeIn") {
+                    let found = (view.string as NSString).range(of: marker, range: NSRange(location: index, length: (view.string as NSString).length - index))
+                    if found.location != NSNotFound { index = NSMaxRange(found) }
+                }
+                window.makeFirstResponder(view)
+                view.setSelectedRange(NSRange(location: index, length: 0))
+                Trace.mark("type test: scrolled \(clip.bounds.minY) inset \(scrollView.contentInsets.top) header \(view.headerHeight) cursor \(index)")
+                func next(_ keys: [Character]) {
+                    guard let first = keys.first else {
+                        for t in 1...8 {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + Double(t)) { Trace.mark("type test: +\(t)s \(clip.bounds.minY) header \(view.headerHeight)") }
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 9) {
+                            Trace.mark("type test: settled \(clip.bounds.minY) header \(view.headerHeight)")
+                            NSApp.terminate(nil)
+                        }
+                        return
+                    }
+                    let key = String(first)
+                    let before = clip.bounds.minY
+                    let window = view.window ?? window
+                    for type in [NSEvent.EventType.keyDown, .keyUp] {
+                        if let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                        windowNumber: window.windowNumber, context: nil, characters: key, charactersIgnoringModifiers: key,
+                                                        isARepeat: false, keyCode: key == "\r" ? 36 : 0) {
+                            window.sendEvent(event)
+                        }
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                        let after = clip.bounds.minY
+                        Trace.mark("type test: \(key == "\r" ? "⏎" : key) \(before) → \(after)\(abs(after - before) > 0.5 ? " JUMP \(after - before)" : "") header \(view.headerHeight) insets \(scrollView.contentInsets.top)/\(scrollView.contentInsets.bottom) clip \(clip.bounds.height) caret \(view.firstRect(forCharacterRange: view.selectedRange(), actualRange: nil).minY) responder \(window.firstResponder.map { String(describing: type(of: $0)) } ?? "-")")
+                        next(Array(keys.dropFirst()))
+                    }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { next(Array(text)) }
             }
         }
     }
@@ -490,8 +555,22 @@ enum DebugSnapshots {
                 }
             }
             report("start")
+            // `-PointSidebarZoom YES`: the window fills the screen (zoomed) after the first hide,
+            // so the sidebar shows again in place rather than widening the window.
+            let zooms = UserDefaults.standard.bool(forKey: "PointSidebarZoom")
             for step in 0..<(count * 2) {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5 + Double(step) * 0.6) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5 + Double(step) * (zooms ? 1.5 : 0.6)) {
+                    if zooms, step == 1, let window = model.window, !window.isZoomed {
+                        window.zoom(nil)
+                        // `-PointSidebarSwitch YES`: and the sidebar changes to two columns while hidden.
+                        if UserDefaults.standard.bool(forKey: "PointSidebarSwitch") { model.browsingStyle = .twoColumns }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { report("zoomed") }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                            model.showsNoteList.toggle()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { report("\(step + 1)") }
+                        }
+                        return
+                    }
                     if UserDefaults.standard.bool(forKey: "PointSidebarButton") {
                         // As the system's sidebar button does.
                         let split = views(of: NSSplitView.self, in: model.window?.contentView).first { ($0.delegate as? NSSplitViewController) != nil }

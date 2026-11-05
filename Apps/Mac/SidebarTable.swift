@@ -86,7 +86,8 @@ extension VaultModel {
             // between folders and tags, if they show one at a time: below these, which it
             // doesn't change.
             let oneAtATime = treeLayout == .toggle
-            sections.append(places([.place(.everything, depth: 0), .place(.bookmarks, depth: 0), .place(.trash, depth: 0)])
+            let special: [SidebarPlace] = store.showsBookmarksInSidebar ? [.everything, .bookmarks, .trash] : [.everything, .trash]
+            sections.append(places(special.map { .place($0, depth: 0) })
                             + (oneAtATime && filter.isEmpty ? [.treeSwitch] : []))
             if !pins.isEmpty { sections.append(section(.pinned, places(pins.map { .place($0, depth: 0) }))) }
             // Shown one at a time, folders or tags have no label of their own, and can't be
@@ -258,9 +259,9 @@ struct SidebarTable: NSViewRepresentable {
             hasTags ? density.twoLineHeight : density.rowHeight
         }
 
-        /// In the one-column sidebar, comfortable, a note's whole title shows, on as many
-        /// lines as it takes.
-        private var wrapsTitles: Bool { parent.content == .everything && model.sidebarDensity == .comfortable }
+        /// In the sidebar's list of notes (one column or two), comfortable, a note's whole
+        /// title shows, on as many lines as it takes, its row growing to fit.
+        private var wrapsTitles: Bool { parent.content != .places && model.sidebarDensity == .comfortable }
 
         /// The table's width when its rows' heights were last worked out.
         private var measuredWidth: CGFloat = 0
@@ -408,8 +409,10 @@ struct SidebarTable: NSViewRepresentable {
             let height = (note.title as NSString).boundingRect(with: NSSize(width: width, height: .greatestFiniteMagnitude),
                                                                options: [.usesLineFragmentOrigin, .usesFontLeading],
                                                                attributes: [.font: font]).height
-            let line = ceil(font.ascender - font.descender + font.leading)
-            return max(0, ceil(height) - line)
+            let line = font.ascender - font.descender + font.leading
+            // Each line after the first, with the room the row puts between wrapped lines.
+            let lines = max(1, (height / line).rounded())
+            return ceil((lines - 1) * (line + SidebarNoteRow.wrappedLineSpacing))
         }
 
         func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
@@ -987,6 +990,8 @@ struct SidebarNoteRow: View {
     /// On as many lines as it takes, rather than cut short.
     var wrapsTitle = false
 
+    /// Between a wrapped title's lines: the system's own spacing was too tight to read.
+    static let wrappedLineSpacing: CGFloat = 3
     private static let padding: CGFloat = 8
     private static let spacing: CGFloat = 6
     private static let iCloudWidth: CGFloat = 16
@@ -1019,6 +1024,7 @@ struct SidebarNoteRow: View {
             HStack(alignment: .firstTextBaseline, spacing: Self.spacing) {
                 Text(note.title)
                     .lineLimit(wrapsTitle ? nil : 1)
+                    .lineSpacing(wrapsTitle ? Self.wrappedLineSpacing : 0)
                     .fixedSize(horizontal: false, vertical: wrapsTitle)
                 Spacer(minLength: 4)
                 if !note.isDownloaded {

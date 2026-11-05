@@ -12,11 +12,17 @@ import VaultKit
 final class VaultModel: ObservableObject {
     let store: VaultStore
     private var storeChanges: AnyCancellable?
+    private var bookmarksHidden: AnyCancellable?
 
     init(store: VaultStore) {
         self.store = store
         // Redraw this window's views whenever the shared vault changes.
         storeChanges = store.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
+        // Bookmarks taken out of the sidebar while showing them: back to all the notes.
+        bookmarksHidden = store.$showsBookmarksInSidebar.sink { [weak self] shown in
+            guard let self, !shown, place == .bookmarks else { return }
+            place = browsingStyle == .twoColumns ? .everything : .allNotes
+        }
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(noteMoved(_:)), name: .pointNoteMoved, object: nil)
         center.addObserver(self, selector: #selector(folderMoved(_:)), name: .pointFolderMoved, object: nil)

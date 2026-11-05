@@ -163,6 +163,7 @@ struct SettingsView: View {
                     Text("Folders Above Tags").tag(VaultModel.TreeLayout.stacked)
                     Text("One at a Time").tag(VaultModel.TreeLayout.toggle)
                 }
+                Toggle("Show bookmarks", isOn: $store.showsBookmarksInSidebar)
             }
 
             Section("Showing and hiding") {

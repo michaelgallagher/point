@@ -432,6 +432,11 @@ final class SidebarSplitController: NSSplitViewController {
         let width = shown ? savedWidth : (shownWidth ?? savedWidth)
         let count = begin(holding: max(width, savedWidth))
         afterHolding(count) { [self] in
+            // Shown at its own width. Left to itself, the split view brings a collapsed sidebar
+            // back at the width it had when it hid, which can be another layout's (one column's,
+            // hidden, then two chosen) or none (hidden by the window narrowing): in full screen,
+            // or a window filling the screen, two columns came back at their narrowest.
+            if shown { sidebarItem.minimumThickness = width }
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = Self.duration
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -440,7 +445,12 @@ final class SidebarSplitController: NSSplitViewController {
                 // view had just made flew in from the middle of the window.)
                 sidebarItem.animator().isCollapsed = !shown
             } completionHandler: {
-                MainActor.assumeIsolated { self.end(count) }
+                MainActor.assumeIsolated {
+                    self.sidebarItem.minimumThickness = self.widths.min
+                    guard self.animationCount == count else { return }
+                    if shown, !self.sidebarItem.isCollapsed { self.splitView.setPosition(width, ofDividerAt: 0) }
+                    self.end(count)
+                }
             }
         }
     }

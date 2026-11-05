@@ -366,6 +366,26 @@ struct ReturnKeyTests {
         #expect(marked(view) == "> a\n> |")
     }
 
+    @Test func atAHeadingsStartTheHeadingMovesDownWhole() {
+        let view = editor("a\n## |Heading")
+        view.insertNewline(nil)
+        #expect(marked(view) == "a\n\n## |Heading")
+        view.insertNewline(nil)
+        #expect(marked(view) == "a\n\n\n## |Heading")
+    }
+
+    @Test func atAHeadingsStartOnTheFirstLine() {
+        let view = editor("# |Title\nbody")
+        view.insertNewline(nil)
+        #expect(marked(view) == "\n# |Title\nbody")
+    }
+
+    @Test func insideAHeadingItBreaksAsUsual() {
+        let view = editor("## Head|ing")
+        view.insertNewline(nil)
+        #expect(marked(view) == "## Head\n|ing")
+    }
+
     @Test func plainLinesAreUnaffected() {
         let view = editor("a|")
         view.insertNewline(nil)

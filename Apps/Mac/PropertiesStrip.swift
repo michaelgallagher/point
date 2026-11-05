@@ -53,6 +53,9 @@ struct PropertiesStrip: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(frontmatter.properties) { property in
                         row(for: property)
+                            // Each above the rows after it, so suggestions floating below a
+                            // field show over them.
+                            .zIndex(Double(frontmatter.properties.count - (frontmatter.properties.firstIndex { $0.key == property.key } ?? 0)))
                             .opacity(dragging == property.key ? 0.4 : 1)
                             .background(GeometryReader { proxy in
                                 Color.clear.preference(key: RowFrames.self, value: [property.key: proxy.frame(in: .named(Self.space))])
@@ -521,6 +524,36 @@ private struct SuggestionChips: View {
     }
 }
 
+/// Suggestions for a field, floating just below it over the rows beneath, like a menu, rather
+/// than in the strip's layout: there, every keystroke that changed how many there were moved
+/// everything below up or down.
+private struct FloatingSuggestions: ViewModifier {
+    let suggestions: [String]
+    let pick: (String) -> Void
+
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .bottomLeading) {
+            if !suggestions.isEmpty {
+                SuggestionChips(suggestions: suggestions, pick: pick)
+                    .padding(5)
+                    .background {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color(nsColor: .textBackgroundColor))
+                            .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Color(nsColor: .separatorColor))
+                    }
+                    // Its chips lined up with what's typed, hanging from just below the field:
+                    // from a frame of no height at the field's bottom edge.
+                    .offset(x: -5)
+                    .padding(.top, 4)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(height: 0, alignment: .top)
+            }
+        }
+    }
+}
+
 /// Tab takes the first suggestion, while there are any (macOS 14 and later).
 private struct TakesFirstSuggestion: ViewModifier {
     let suggestions: [String]
@@ -619,13 +652,9 @@ private struct TextValue: View {
     }
 
     private var field: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            plainField
-                .modifier(TakesFirstSuggestion(suggestions: fieldSuggestions, pick: pick))
-            if !fieldSuggestions.isEmpty {
-                SuggestionChips(suggestions: fieldSuggestions, pick: pick)
-            }
-        }
+        plainField
+            .modifier(TakesFirstSuggestion(suggestions: fieldSuggestions, pick: pick))
+            .modifier(FloatingSuggestions(suggestions: fieldSuggestions, pick: pick))
     }
 
     private var plainField: some View {
@@ -732,20 +761,16 @@ private struct TokenEditor: View {
     @FocusState private var isFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            FlowLayout(spacing: 4) {
-                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                    Token(text: item, isTag: isTags, link: isTags ? nil : link(item)) {
-                        commit(items.enumerated().filter { $0.offset != index }.map(\.element))
-                    }
+        FlowLayout(spacing: 4) {
+            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                Token(text: item, isTag: isTags, link: isTags ? nil : link(item)) {
+                    commit(items.enumerated().filter { $0.offset != index }.map(\.element))
                 }
-                field
             }
-            // Matching tags from the vault while typing one, or notes while typing a link.
-            if !matches.isEmpty {
-                SuggestionChips(suggestions: matches, pick: pick)
-            }
+            field
         }
+        // Matching tags from the vault while typing one, or notes while typing a link.
+        .modifier(FloatingSuggestions(suggestions: matches, pick: pick))
     }
 
     /// What to suggest for what's typed: notes for a `[[link]]`, otherwise tags (for tags).
@@ -770,7 +795,9 @@ private struct TokenEditor: View {
             .modifier(PropertyPlaceholder(text: items.isEmpty ? "Empty" : "Add…", isShown: draft.isEmpty))
             .modifier(TakesFirstSuggestion(suggestions: matches, pick: pick))
             .frame(minWidth: 60, maxWidth: 160)
-            .fixedSize(horizontal: false, vertical: true)
+            // As tall as a token, focused or not, typed in or not, so the row's height never
+            // changes while an item is added (it went shorter while typing, then back).
+            .frame(height: Token.height)
             .focused($isFocused)
             .onSubmit { add() }
             .onChange(of: draft) { text in
@@ -806,6 +833,9 @@ private struct TokenEditor: View {
 
 /// One item of a list: a rounded label with a remove button.
 private struct Token: View {
+    /// Every token's height, and the field's beside them: room around the text, which was
+    /// tight to it, and the same in every row.
+    static let height: CGFloat = 21
     let text: String
     let isTag: Bool
     var link: PropertyLink?
@@ -831,9 +861,9 @@ private struct Token: View {
             .opacity(isHovering ? 1 : 0.5)
             .help("Remove")
         }
-        .padding(.leading, 7)
-        .padding(.trailing, 4)
-        .padding(.vertical, 1)
+        .padding(.leading, 9)
+        .padding(.trailing, 5)
+        .frame(height: Self.height)
         .background(Capsule().fill(isTag ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.07)))
         .onHover { isHovering = $0 }
     }
@@ -861,6 +891,18 @@ private struct FlowLayout: Layout {
             }
             y += row.height + spacing
         }
+    }
+
+    /// The first row's baseline, so the property's name beside it lines up with the text in
+    /// it. Every item is a line of the strip's text centred in its row, so it's where that
+    /// line's baseline falls. (Without it, SwiftUI took the layout's bottom edge for its
+    /// baseline, and the name sat high beside tokens; nor can the items' own be trusted: a
+    /// link token's comes from its remove button, and a text field's is below its text.)
+    func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize,
+                           subviews: Subviews, cache: inout ()) -> CGFloat? {
+        guard guide == .firstTextBaseline, let row = arrange(subviews, width: bounds.width).first else { return nil }
+        let font = NSFont.preferredFont(forTextStyle: .callout)
+        return bounds.minY + row.height / 2 + (font.ascender + font.descender) / 2
     }
 
     private struct Row { var indices: [Int] = []; var width: CGFloat = 0; var height: CGFloat = 0 }

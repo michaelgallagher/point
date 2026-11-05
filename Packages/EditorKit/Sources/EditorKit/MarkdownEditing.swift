@@ -395,7 +395,27 @@ public struct MarkdownEditing {
             }
             return inserting("\n> ")
         }
-        return nil
+        return headingStartNewline()
+    }
+
+    /// Return at the start of a heading's text (just after its hidden `## `, where the cursor
+    /// shows at the line's start) adds a line above, and the heading moves down whole, its
+    /// marker with it, rather than leaving the marker behind on an empty heading above.
+    /// Nil anywhere else, and on an empty heading.
+    public func headingStartNewline() -> MarkdownEdit? {
+        guard selection.length == 0, let line = selectedLineRanges().first,
+              let heading = tokens.first(where: {
+                  if case .heading = $0.kind { return $0.range.location == line.location }
+                  return false
+              }),
+              let marker = heading.syntax.first, marker.location == line.location,
+              selection.location >= line.location, selection.location <= NSMaxRange(marker) else { return nil }
+        // Something after the marker: an empty heading breaks as an ordinary line.
+        var contentsEnd = 0
+        text.getLineStart(nil, end: nil, contentsEnd: &contentsEnd, for: NSRange(location: line.location, length: 0))
+        guard contentsEnd > NSMaxRange(marker) else { return nil }
+        return MarkdownEdit(range: NSRange(location: line.location, length: 0), replacement: "\n",
+                            selection: NSRange(location: selection.location + 1, length: 0))
     }
 
     /// Puts `string` in place of the selection, the cursor after it.
