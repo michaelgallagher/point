@@ -49,3 +49,4 @@ On `main`, which has everything so far, including search that learns.
 
 **Ideas**
 - [Investigations and open questions](plan/investigations.md): daily notes as a meeting log, and questions still open.
+- [Optional: tabs kept alive](plan/tabs-kept-alive.md) (5 November): keeping each open tab's editor so switching tabs is instant; for later, if switching feels slow again.
