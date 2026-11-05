@@ -49,6 +49,8 @@ struct HomeScreen: View {
                 }
                 .pageBar(.sort) { topLevelActions }
         }
+        // Search, over the bars and pages, opening out from the bar's field. Nothing under it moves.
+        .overlay { SearchLayerHost() }
         .alert("New Folder", isPresented: Binding(get: { newFolderParent != nil }, set: { if !$0 { newFolderParent = nil } })) {
             TextField("Name", text: $newFolderName)
             Button("Cancel", role: .cancel) {}
@@ -481,72 +483,35 @@ private struct PageBar<Actions: View>: ViewModifier {
     @EnvironmentObject private var search: PhoneSearch
     let tool: PageTool
     @ViewBuilder let actions: Actions
-    /// Whether Search is over a note, and whether it's there to be (from the map until it closes).
-    @State private var searchesFromNote = false
-    @State private var mountsSearch = false
-    @State private var hidesNote = false
-
     func body(content: Content) -> some View {
         switch tool {
         case .find(let find):
-            // A note: finding in it, and, with the map, Search, as on the lists. Search is
-            // there only while it's in use: anywhere else, the system put its field at the top
-            // of the note.
-            PageOverSearch(searching: hidesNote) { content }
-                .background {
-                    if mountsSearch {
-                        SearchScreen()
-                            .searchable(text: $search.text, isPresented: $searchesFromNote, prompt: "Search")
-                            .searchPresentationToolbarBehavior(.avoidHidingContent)
-                    }
-                }
+            // A note: finding in it, and, with the map, Search, as on the lists.
+            content
                 .toolbar {
-                    if mountsSearch {
-                        DefaultToolbarItem(kind: .search, placement: .bottomBar)
-                    } else {
-                        ToolbarItem(placement: .bottomBar) {
-                            Button("Find in Note", systemImage: "text.page.badge.magnifyingglass", action: find)
-                        }
-                        ToolbarItem(placement: .bottomBar) {
-                            Button("Search", systemImage: "map") {
-                                mountsSearch = true
-                                searchesFromNote = true
-                                // After Search has its picture of the note, which it does as
-                                // it appears.
-                                DispatchQueue.main.async { hidesNote = true }
-                            }
-                        }
-                        ToolbarSpacer(.flexible, placement: .bottomBar)
-                        ToolbarItem(placement: .bottomBar) { menu }
+                    ToolbarItem(placement: .bottomBar) {
+                        Button("Find in Note", systemImage: "text.page.badge.magnifyingglass", action: find)
                     }
-                }
-                .onChange(of: searchesFromNote) { _, searching in
-                    if !searching {
-                        mountsSearch = false
-                        hidesNote = false
+                    ToolbarItem(placement: .bottomBar) {
+                        Button("Search", systemImage: "map") { search.present(from: nil) }
                     }
+                    ToolbarSpacer(.flexible, placement: .bottomBar)
+                    ToolbarItem(placement: .bottomBar) { menu }
                 }
         case .none, .sort:
-            ZStack {
-                SearchScreen()
-                PageOverSearch {
-                    content
-                        // The page stays its size under the keyboard: shrunk, the rows below
-                        // were left undrawn, and showed blank as the keyboard went down.
-                        .ignoresSafeArea(.keyboard)
-                }
-            }
-                .searchable(text: $search.text, prompt: "Search")
-                // The navigation bar isn't hidden by the system while searching: it went at once,
-                // without animating, and the page jumped up under Search as it faded in. It stays,
-                // and Search fades it out, in place.
-                .searchPresentationToolbarBehavior(.avoidHidingContent)
+            content
+                // The page stays its size under the keyboard: shrunk, the rows below were left
+                // undrawn, and showed blank as the keyboard went down.
+                .ignoresSafeArea(.keyboard)
                 .toolbar {
                     if case .sort = tool {
                         ToolbarItem(placement: .bottomBar) { SortMenu() }
                         ToolbarSpacer(.fixed, placement: .bottomBar)
                     }
-                    DefaultToolbarItem(kind: .search, placement: .bottomBar)
+                    // Point's own search field, not the system's: Search opens out from it.
+                    ToolbarItem(placement: .bottomBar) {
+                        SearchCapsule(besides: { if case .sort = tool { 2 } else { 1 } }())
+                    }
                     ToolbarSpacer(.fixed, placement: .bottomBar)
                     ToolbarItem(placement: .bottomBar) { menu }
                 }

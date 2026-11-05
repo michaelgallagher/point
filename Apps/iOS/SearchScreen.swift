@@ -2,201 +2,261 @@ import IndexKit
 import SwiftUI
 import VaultKit
 
-/// Search, shown in place of the page while the system's search field is in use: lists to pick
-/// from, recent notes (which stand in for tabs) and bookmarks. Typing shows results in their
-/// place. It's on the lists, not in a note, where the bottom bar finds in the note instead.
+/// Search: Point's own, not the system's `.searchable`. The bar's search field (`SearchCapsule`)
+/// opens Search (`SearchLayer`) over everything, in place: its field opens out from the bar's and
+/// rides up with the keyboard, and its lists (recent notes and bookmarks, or results as you type)
+/// fade in over the page. Nothing under it moves. With the system's field, iOS moved the field
+/// from the bar to over the keyboard and took the bar out of the page's safe area as Search
+/// started and ended, moving the page, and hiding that meant cuts and waits.
 ///
-/// Its list is in the navigation stack's own view, over the pages and under the bars, not in
-/// the page: the system moves the page by the bar's height as Search starts and ends, and in the
-/// page the list moved with it, waited, and left the bar thinking the page was scrolled.
-struct SearchScreen: View {
-    @EnvironmentObject private var store: PhoneStore
-    @Environment(\.isSearching) private var isSearching
-    @Environment(\.dismissSearch) private var dismissSearch
+/// Search's field is focused before it starts to open, and it opens once the keyboard is on its
+/// way: bringing up the keyboard holds up the main thread, where SwiftUI animates.
 
-    @State private var overlay = SearchOverlay()
+/// How Search opens and closes.
+private enum SearchMotion {
+    static let open = Animation.smooth(duration: 0.3)
+    /// The field's going back into the bar's, as long as the fade out, so Search goes once
+    /// both are done.
+    static let close = Animation.smooth(duration: 0.4)
+    /// Softer than the field's movement: longer, and the fade out easing in and out.
+    static let fadeIn = Animation.easeOut(duration: 0.55)
+    static let fadeOut = Animation.easeInOut(duration: 0.4)
+    /// The field's height, the system's.
+    static let fieldHeight: CGFloat = 48
+    /// Search's field's room at each side, beside its X and over the keyboard, as the system's.
+    static let margin: CGFloat = 12
+    /// The room the bar leaves between its glass and an item in it.
+    static let barInset: CGFloat = 5
 
-    /// How long the system takes to put the page back under the bar as Search closes. The page
-    /// waits for it, hidden, so it never slides into place.
-    static let settle: TimeInterval = 0.2
+    /// The bar's measurements, the system's, as measured from its own search field: its room
+    /// at each side, its round buttons, and the space between them.
+    private static var barMargin: CGFloat { isIOS27 ? 27.67 : 28 }
+    private static var barButton: CGFloat { isIOS27 ? 48.67 : 48 }
+    private static var barGap: CGFloat { isIOS27 ? 11.33 : 12 }
+
+    /// The width of the bar's field's contents, inside the bar's glass, filling the bar.
+    static func barFieldWidth(in windowWidth: CGFloat, besides: Int) -> CGFloat {
+        let glass = windowWidth - 2 * barMargin - CGFloat(besides) * (barButton + barGap)
+        return max(0, glass - 2 * barInset)
+    }
+
+    /// The room inside a search field before its magnifying glass, and after it.
+    static var fieldPadding: CGFloat { isIOS27 ? 12.33 : 18 }
+    static var iconGap: CGFloat { isIOS27 ? 8.67 : 8 }
+    static var iconWeight: Font.Weight { isIOS27 ? .medium : .regular }
+
+    /// The system's search field's colours: its magnifying glass black on iOS 27, grey before.
+    static var iconColor: Color { isIOS27 ? Color(.label) : Color(.secondaryLabel) }
+    static var placeholderColor: Color {
+        isIOS27 ? Color(UIColor { $0.userInterfaceStyle == .dark ? .secondaryLabel : UIColor(white: 0.612, alpha: 1) })
+            : Color(.secondaryLabel)
+    }
+
+    private static let isIOS27: Bool = {
+        if #available(iOS 27, *) { return true }
+        return false
+    }()
+}
+
+/// A search field's look: the system's, a capsule of Liquid Glass with a magnifying glass. The
+/// bar's and Search's are the same, so one opens out from the other. The bar's glass is the
+/// bar's own, as the system's field's was; Search's is its own.
+private struct SearchFieldLook<Content: View>: View {
+    var glass = true
+    @ViewBuilder let content: Content
 
     var body: some View {
-        let dismiss = dismissSearch
-        let overlay = overlay
-        Color.clear
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-            .background {
-                SearchInstaller(overlay: overlay, list: AnyView(
-                    SearchList(shows: isSearching, top: overlay.top) { overlay.opensNote = true; dismiss() }
-                        .environmentObject(store)
-                        .environmentObject(store.search)))
-            }
-            .onChange(of: isSearching) { _, searching in
-                if searching { overlay.open() } else { overlay.close() }
-            }
-            // Over a note, Search is up as it appears. Once the list has its stack.
-            .onAppear { if isSearching { DispatchQueue.main.async { overlay.open() } } }
-            .onDisappear {
-                // Over a note, Search goes as it closes.
-                if !overlay.host.view.isHidden { overlay.close() }
-                overlay.remove()
-            }
+        HStack(spacing: SearchMotion.iconGap) {
+            Image(systemName: "magnifyingglass")
+                .font(.body.weight(SearchMotion.iconWeight))
+                .imageScale(.medium)
+                .foregroundStyle(SearchMotion.iconColor)
+            content
+        }
+        // The bar puts its own room around its items, its glass's edge beyond them.
+        .padding(.horizontal, glass ? SearchMotion.fieldPadding : SearchMotion.fieldPadding - SearchMotion.barInset)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: glass ? SearchMotion.fieldHeight : SearchMotion.fieldHeight - 2 * SearchMotion.barInset)
+        .contentShape(Capsule())
+        .glassEffect(glass ? .regular.interactive() : .identity, in: .capsule)
     }
 }
 
-/// Search's list in the navigation stack's view, and the fades between it and the page.
-@MainActor private final class SearchOverlay {
-    weak var navigation: UINavigationController?
-    let host = UIHostingController(rootView: AnyView(EmptyView()))
-    /// Search is closing to open a note.
-    var opensNote = false
-    /// Room at the top of the list, for the clock.
-    let top = TopInset()
+/// The bar's search field, at rest: tapping it opens Search, from where it is. Hidden while
+/// Search is up, whose field takes its place.
+struct SearchCapsule: View {
+    @EnvironmentObject private var search: PhoneSearch
+    /// How many buttons are beside it in the bar.
+    let besides: Int
+    @State private var frame: CGRect = .zero
 
-    init() {
-        host.view.backgroundColor = .clear
-        host.view.isHidden = true
-    }
-
-    /// The stack's view, and its view of pages, which the list goes over.
-    private var places: (stack: UIView, pages: UIView)? {
-        guard let stack = navigation?.view, var pages = navigation?.topViewController?.view else { return nil }
-        while let superview = pages.superview, superview !== stack { pages = superview }
-        return pages.superview === stack ? (stack, pages) : nil
-    }
-
-    /// The page's list, found by looking: the biggest scroll view on the page.
-    private var pageList: UIScrollView? {
-        guard let page = navigation?.topViewController?.view else { return nil }
-        var queue = [page], best: UIScrollView?
-        while !queue.isEmpty {
-            let view = queue.removeFirst()
-            if let scroll = view as? UIScrollView, scroll.bounds.height > (best?.bounds.height ?? 0) { best = scroll }
-            queue += view.subviews
+    var body: some View {
+        Button {
+            search.present(from: frame)
+        } label: {
+            SearchFieldLook(glass: false) {
+                Text("Search")
+                    // The bar's items are semibold; a search field's placeholder isn't.
+                    .font(.system(.body, weight: .regular))
+                    .foregroundStyle(SearchMotion.placeholderColor)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            // The system's field filled the bar; an item of Point's own is only as wide as
+            // its contents on iOS 27, so it's given the room.
+            .frame(width: search.windowWidth > 0 ? SearchMotion.barFieldWidth(in: search.windowWidth, besides: besides) : nil)
         }
-        return best
+        .buttonStyle(.plain)
+        .opacity(search.isShown ? 0 : 1)
+        // Where the bar's glass is, for Search's field to open out from.
+        .onGeometryChange(for: CGRect.self) {
+            $0.frame(in: .global).insetBy(dx: -SearchMotion.barInset, dy: -SearchMotion.barInset)
+        } action: { frame = $0 }
+        .accessibilityLabel("Search")
+        .accessibilityAddTraits(.isSearchField)
     }
+}
 
-    /// How far the page's list was scrolled from its top as Search started.
-    private var scrolled: CGFloat?
+/// Search, over the whole app while it's up. Watches search alone, so typing redraws only this.
+struct SearchLayerHost: View {
+    @EnvironmentObject private var search: PhoneSearch
 
-    /// The page's list where it was: the system puts the bar back a fraction of a point out, and
-    /// the bar then showed its background, as if the page were scrolled.
-    private func restoreScroll() {
-        guard let scrolled, let list = pageList else { return }
-        let y = scrolled - list.adjustedContentInset.top
-        if abs(list.contentOffset.y - y) > 0.01 { list.contentOffset.y = y }
+    var body: some View {
+        ZStack {
+            if search.isShown { SearchLayer() }
+        }
+        // The window's size, while empty too (it takes no touches then).
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Touches go through to the app: a UIKit view in SwiftUI takes them otherwise.
+        .background { WindowFinder().allowsHitTesting(false) }
+        // The window's width, for the bar's field.
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { search.windowWidth = $0 }
     }
+}
 
-    func open() {
-        if let list = pageList { scrolled = list.contentOffset.y + list.adjustedContentInset.top }
-        guard let (stack, pages) = places else { return }
-        // The page goes at once, under a picture of it fading out: the system takes the bar out
-        // of the page's safe area as Search starts, and the page jumped up.
-        var below: UIView = pages
-        if let page = navigation?.topViewController?.view, let still = page.snapshotView(afterScreenUpdates: false) {
-            still.frame = page.convert(page.bounds, to: stack)
-            still.isUserInteractionEnabled = false
-            stack.insertSubview(still, aboveSubview: pages)
-            below = still
-            UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseOut) {
-                still.alpha = 0
-            } completion: { _ in
-                still.removeFromSuperview()
+/// Search's field, its X, and its lists, opening out from the bar's field and closing back
+/// into it.
+private struct SearchLayer: View {
+    @EnvironmentObject private var store: PhoneStore
+    @EnvironmentObject private var search: PhoneSearch
+    @State private var expanded = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        GeometryReader { geometry in
+            let insets = geometry.safeAreaInsets
+            let origin = geometry.frame(in: .global).origin
+            // The keyboard is up when it's in the safe area's bottom.
+            let keyboardUp = insets.bottom > 100
+            // The screen's width and height.
+            let width = origin.x + geometry.size.width + insets.trailing
+            let height = keyboardUp ? 0 : origin.y + geometry.size.height + insets.bottom
+            let from = search.from ?? defaultFrame(width: width, height: height)
+            ZStack(alignment: .bottom) {
+                SearchList(close: close)
+                    .opacity(expanded ? 1 : 0)
+                    // The page's own background, under the status bar too.
+                    .background(Color(.systemGroupedBackground).opacity(expanded ? 1 : 0).ignoresSafeArea())
+                    // The fade, longer than the field's movement going in, so it's gentle.
+                    .animation(expanded ? SearchMotion.fadeIn : SearchMotion.fadeOut, value: expanded)
+                HStack(spacing: expanded ? SearchMotion.margin : 0) {
+                    field
+                    Button(action: close) {
+                        Image(systemName: "xmark")
+                            .font(.body.weight(.medium))
+                            .imageScale(.large)
+                            .frame(width: SearchMotion.fieldHeight, height: SearchMotion.fieldHeight)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.interactive(), in: .circle)
+                    .scaleEffect(expanded ? 1 : 0.2)
+                    .frame(width: expanded ? SearchMotion.fieldHeight : 0)
+                    .opacity(expanded ? 1 : 0)
+                    .accessibilityLabel("Close Search")
+                }
+                .padding(.leading, expanded ? SearchMotion.margin : from.minX - origin.x)
+                .padding(.trailing, expanded ? SearchMotion.margin : width - from.maxX - insets.trailing)
+                // At rest, where the bar's field is, measured from the safe area's bottom (the
+                // keyboard's top when it's up); with the keyboard, just above it.
+                .offset(y: keyboardUp ? -SearchMotion.margin : from.maxY - (origin.y + geometry.size.height))
+                .opacity(search.from == nil && !expanded ? 0 : 1)
             }
         }
-        let list = host.view!
-        stack.insertSubview(list, aboveSubview: below)
-        list.frame = stack.bounds
-        list.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        list.isHidden = false
-        // Not a child of any view controller, it has no safe area, and its list started under
-        // the clock.
-        top.inset = stack.safeAreaInsets.top
-        list.alpha = 0
-        UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .beginFromCurrentState]) {
-            list.alpha = 1
+        .onAppear(perform: open)
+        // The keyboard is about to move: its work is done, and its animation committed.
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            DispatchQueue.main.async { expand() }
         }
-        fadeBar(out: true)
     }
 
-    func close() {
-        // Once the bar is back, and again after the page has faded in, in case it was still moving.
-        for delay in [SearchScreen.settle, SearchScreen.settle + 0.3] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.restoreScroll() }
-        }
-        let list = host.view!
-        if opensNote {
-            // A note is opening over it, and the bar is the note's.
-            opensNote = false
-            list.isHidden = true
-            fadeBar(out: false, after: 0)
-            return
-        }
-        // A picture of the list, as it was, stays until the page is back, and they cross: the
-        // list itself empties at once.
-        if let stack = list.superview, let still = list.snapshotView(afterScreenUpdates: false) {
-            still.frame = list.frame
-            still.isUserInteractionEnabled = false
-            stack.insertSubview(still, aboveSubview: list)
-            UIView.animate(withDuration: 0.25, delay: SearchScreen.settle, options: .curveEaseOut) {
-                still.alpha = 0
-            } completion: { _ in
-                still.removeFromSuperview()
+    private var field: some View {
+        SearchFieldLook {
+            TextField("Search", text: $search.text, prompt: Text("Search").foregroundStyle(SearchMotion.placeholderColor))
+                .focused($focused)
+                .submitLabel(.search)
+                .textInputAutocapitalization(.never)
+                .onSubmit { focused = false }
+            if !search.text.isEmpty {
+                Button {
+                    search.text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear")
             }
         }
-        list.isHidden = true
-        fadeBar(out: false)
     }
 
-    /// Takes the list out. The bar comes back now, if closing isn't bringing it back already.
-    func remove() {
-        host.view.removeFromSuperview()
-        host.view.isHidden = true
-        fadeBar(out: false, after: 0)
+    /// Where the field is at rest when Search opens from elsewhere (a note's map): full width,
+    /// where the bar is. It fades in there instead.
+    private func defaultFrame(width: CGFloat, height: CGFloat) -> CGRect {
+        CGRect(x: SearchMotion.margin, y: height - 28 - SearchMotion.fieldHeight,
+               width: width - 3 * SearchMotion.margin - SearchMotion.fieldHeight, height: SearchMotion.fieldHeight)
     }
 
-    /// The bar's contents (title, Back, Settings) fade out with the page, in place, and back.
-    private func fadeBar(out: Bool, after delay: TimeInterval = SearchScreen.settle) {
-        guard let navigationBar = navigation?.navigationBar, navigationBar.alpha != (out ? 0 : 1) else { return }
-        UIView.animate(withDuration: 0.25, delay: out ? 0 : delay, options: [.curveEaseOut, .beginFromCurrentState]) {
-            navigationBar.alpha = out ? 0 : 1
+    /// The keyboard first, then Search's movement. SwiftUI animates on the main thread, and
+    /// bringing up the keyboard holds the main thread up (about 150 ms on an iPhone 13): begun
+    /// first, the fade and the field stopped part way while it did, and jumped on. So Search
+    /// waits, looking just like the bar, until the keyboard has done that work, and then the
+    /// field, the fade and the keyboard all move together.
+    private func open() {
+        focused = true
+        // Without a keyboard to wait for (a hardware keyboard), not for long.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { expand() }
+    }
+
+    private func expand() {
+        guard !expanded, search.isShown else { return }
+        withAnimation(SearchMotion.open) { expanded = true }
+    }
+
+    private func close() {
+        focused = false
+        withAnimation(SearchMotion.close) {
+            expanded = false
+        } completion: {
+            search.isShown = false
+            search.text = ""
         }
     }
 }
 
-/// Finds the navigation stack of the page it's on, for Search's list, and keeps the list's view
-/// up to date.
-private struct SearchInstaller: UIViewRepresentable {
-    let overlay: SearchOverlay
-    let list: AnyView
-
+/// Finds the app's window, for the keyboard's warm-up.
+private struct WindowFinder: UIViewRepresentable {
     func makeUIView(context: Context) -> FinderView {
         let view = FinderView()
-        view.overlay = overlay
         view.isUserInteractionEnabled = false
         return view
     }
 
-    func updateUIView(_ view: FinderView, context: Context) {
-        overlay.host.rootView = list
-    }
+    func updateUIView(_ view: FinderView, context: Context) {}
 
     final class FinderView: UIView {
-        weak var overlay: SearchOverlay?
-
         override func didMoveToWindow() {
             super.didMoveToWindow()
             if let window { KeyboardWarmUp.soon(in: window) }
-            var responder: UIResponder? = self
-            while let next = responder?.next {
-                if let navigation = (next as? UIViewController)?.navigationController {
-                    overlay?.navigation = navigation
-                    return
-                }
-                responder = next
-            }
         }
     }
 }
@@ -228,31 +288,23 @@ private extension UIView {
     var containsFirstResponder: Bool { isFirstResponder || subviews.contains { $0.containsFirstResponder } }
 }
 
-/// Search's list. Grouped, on the page's own background, as the lists below it are.
-@Observable private final class TopInset {
-    var inset: CGFloat = 0
-}
-
+/// Search's lists. Grouped, on the page's own background, as the lists below it are.
 private struct SearchList: View {
     @EnvironmentObject private var store: PhoneStore
     @EnvironmentObject private var search: PhoneSearch
-    let shows: Bool
-    let top: TopInset
-    let dismissSearch: () -> Void
+    let close: () -> Void
 
     private var query: String { search.text.trimmingCharacters(in: .whitespaces) }
 
     var body: some View {
         List {
-            if shows {
-                if query.isEmpty {
-                    lists
-                } else {
-                    results
-                }
+            if query.isEmpty {
+                lists
+            } else {
+                results
             }
         }
-        .contentMargins(.top, top.inset, for: .scrollContent)
+        .scrollDismissesKeyboard(.immediately)
         // Room for the search field, over the keyboard.
         .contentMargins(.bottom, 72, for: .scrollContent)
     }
@@ -291,8 +343,8 @@ private struct SearchList: View {
     private func row<Label: View>(_ id: Note.ID, searchedFor query: String? = nil, @ViewBuilder label: () -> Label) -> some View {
         Button {
             if let query, !query.trimmingCharacters(in: .whitespaces).isEmpty { store.resultPicked(id, for: query) }
-            dismissSearch()
             store.linkedRoute = .note(id)
+            close()
         } label: { label() }
             .foregroundStyle(.primary)
     }
@@ -337,51 +389,5 @@ private struct SearchRow: View {
         }
         flush()
         return result
-    }
-}
-
-/// The page, which fades out as Search starts (a picture of it fades instead: see
-/// `SearchOverlay`), and back as it ends.
-///
-/// While Search is up, the system takes the navigation bar out of the page's safe area, and
-/// puts it back as Search closes, moving the page. So, closing, the page waits, hidden, for it
-/// to settle before fading in.
-struct PageOverSearch<Content: View>: View {
-    @Environment(\.isSearching) private var isSearchingHere
-    /// Whether Search is up, when it isn't the page's own (a note's is beside it).
-    private let searchingBeside: Bool?
-    private let content: Content
-
-    init(searching: Bool? = nil, @ViewBuilder content: () -> Content) {
-        searchingBeside = searching
-        self.content = content()
-    }
-
-    private var isSearching: Bool { searchingBeside ?? isSearchingHere }
-
-    @State private var hidden = false
-    /// Whether Search is up, for the delayed fade-in to check: it may have opened again.
-    @State private var searching = false
-
-    var body: some View {
-        content
-            // At once as Search starts: Search shows a picture of it fading out instead.
-            .opacity(isSearching || hidden ? 0 : 1)
-            // Also keeps the system from moving the page's list under Search as it starts.
-            .allowsHitTesting(!(isSearching || hidden))
-            .accessibilityHidden(isSearching || hidden)
-            .onChange(of: isSearching) { _, searching in
-                self.searching = searching
-                if searching {
-                    hidden = true
-                } else {
-                    // Not an animation's delay: with one, the page showed at once, for a frame
-                    // or two, before fading in.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + SearchScreen.settle) {
-                        guard !self.searching else { return }
-                        withAnimation(.easeOut(duration: 0.25)) { hidden = false }
-                    }
-                }
-            }
     }
 }

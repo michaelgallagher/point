@@ -815,7 +815,21 @@ final class PhoneSearch: ObservableObject {
     @Published private(set) var results: [SearchResult]?
     /// Searches the vault (nil if it can't).
     var find: ((String) async -> [SearchResult]?)?
+    /// Whether Search is up.
+    @Published var isShown = false
+    /// The app's window's width, for the bar's search field.
+    @Published var windowWidth: CGFloat = 0
+    /// Where the bar's search field was when Search opened, in the window, for Search's field
+    /// to open out from (nil when Search opened from elsewhere).
+    private(set) var from: CGRect?
     private var task: Task<Void, Never>?
+
+    /// Opens Search, from the bar's field at `frame`, or from nowhere in particular.
+    func present(from frame: CGRect?) {
+        guard !isShown else { return }
+        from = frame.flatMap { $0.isEmpty ? nil : $0 }
+        isShown = true
+    }
 
     /// Searches for what's typed, if anything, after a pause in typing.
     func searchAgain() {

@@ -275,6 +275,33 @@ After trying the first draft, on `ios-second-draft`. One commit per step.
 
 **Tried:** all of the above in the Simulator, iOS 27 (with 4,000 notes) and 26.1, frame by frame for Search.
 
+## Search, Point's own (4 November 2026)
+
+Mike: the search animation was "still kinda shit", and everything must be smooth and fast. Of the ways it could go (in the side-session notes), he chose Point's own field and Search.
+
+- **No system search.** `.searchable` has gone from the iPhone app. With it, iOS moved the field from the bar to over the keyboard and took the bar out of the page's safe area as Search started and ended, moving the page; hiding that meant cuts and waits.
+- **The bar's field** (`SearchCapsule`) is Point's own: a capsule of Liquid Glass with a magnifying glass and "Search", where the system's was, between Sort and the actions.
+- **Search** (`SearchLayer`) goes over everything, the bars too, and nothing under it moves. Tapping the bar's field, Search's field opens out from it to the full width with an X beside it, and rises with the keyboard, while the page crossfades to Search's lists. It's focused 30 ms after it starts to open, so the fade, already under way, runs through the keyboard's start.
+- **Closing** (the X, or picking a note): the keyboard goes down, the field goes back into the bar's, and Search fades out, all at once. What was typed is cleared.
+- **From a note,** the map opens Search the same way, its field fading in at full width.
+- **Mike's notes on the first go:**
+  - The bar's field must look as it did. It's on the bar's own glass again, as the system's was, and matches it to a pixel, side by side with the old build.
+  - There must be no background behind the bottom bar. A grey band had appeared there, because the field had its own glass. Now it's on the bar's glass, and the band has gone.
+  - The fade into Search was rough. It now lasts 450 ms and starts at once, easing out, so the page fades as the field rises; a fade that started slowly left home showing under the rising field. The field's movement and the close are as they were.
+- **Mike's notes on the second go:**
+  - The bar's field must fill the bar, and look as it did. Checked against the old build side by side on home, Bookmarks and a folder: the same width, glass, colours and text, to a pixel. Its placeholder is regular weight; the bar made it semibold.
+  - Search's field should look like the system's. It's now the old system field's size and place: 12 pt from the edges, from its X and from the keyboard, with the old field's placeholder grey and a larger X.
+  - Opening looked wrong. It began 34 pt above the bar's field, so it jumped on the first frame; it starts exactly on it now. And SwiftUI animates on the main thread, which the keyboard's start holds up, so the fade and the field stopped part way and jumped on. Now the field is focused first, and Search opens once the keyboard is on its way (`keyboardWillShowNotification`): the bar stays still for that moment, then the field, the fade and the keyboard move together, every frame changing, in the Simulator.
+  - Search's overlay no longer takes touches meant for the page under it.
+  - **On the iPhone (iOS 27)** the bar's field hugged its text: on iOS 27 an item of Point's own in the bar is only as wide as its contents. It's given its width now, the window's less the bar's margins, buttons and gaps, as measured from the system's field on the phone (`SearchMotion.barFieldWidth`). On iOS 27 the system's field also has a black magnifying glass (as Find's has), a lighter placeholder and less room inside, and Point's fields follow suit there. Checked against the old build on the phone, and on iOS 26.1 in the Simulator: they match.
+  - **Softer fades** (Mike: "pretty good", but softer, especially going out): 0.55 s in, easing out; 0.4 s out, easing in and out, with the field going back into the bar's over the same 0.4 s.
+  - In the Simulator, since it was restarted, the keyboard disappears without sliding when it goes, for Find in a note too, so closing couldn't be judged there.
+- **Gone:** the pictures of the page and of Search, fading the bars, and Search's own hosting controller (`SearchOverlay`, `PageOverSearch`).
+
+**Measured** frame by frame in the Simulator on iOS 26.1 (iOS 27's Simulator runtime needs downloading again in Xcode's settings after the Mac's update). Opening (after the first notes), the first change is within about 85 ms of the Simulator's press, and it's one movement of about 400 ms to still, every frame changing, with no cut and no second field. Closing, it's one movement of about 380 ms, not two stages. Before: opening was 450 ms with a cut, a 50 ms freeze and two fields at once; closing was 430 ms in two stages.
+
+**Tried:** opening and closing, typing and results, picking a result, the map in a note, on 26.1. Installed on the iPhone 13, **not tried there**. Not tried: iOS 27, dark mode, VoiceOver.
+
 ## Mike's sixth notes (4 November 2026)
 
 - **Search on the iPhone.** About 150 of the 215 ms of work as Search opens is iOS bringing up the keyboard; Point's own part, Search's rows and its fade, is small. There's little more for Point to take out.
