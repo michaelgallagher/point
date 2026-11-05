@@ -516,18 +516,28 @@ private struct SuggestionChips: View {
     let suggestions: [String]
     let pick: (String) -> Void
 
+    /// The first is the one Tab takes (macOS 14 and later), and is marked as it.
+    private var tabTakesFirst: Bool {
+        if #available(macOS 14, *) { true } else { false }
+    }
+
     var body: some View {
         FlowLayout(spacing: 4) {
             ForEach(suggestions, id: \.self) { suggestion in
+                let isTabs = tabTakesFirst && suggestion == suggestions.first
                 Button { pick(suggestion) } label: {
                     Text(suggestion.hasPrefix("[[") && suggestion.hasSuffix("]]") ? String(suggestion.dropFirst(2).dropLast(2)) : suggestion)
                         .lineLimit(1)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 1)
-                        .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.4)))
-                        .foregroundStyle(.secondary)
+                        // Tab's, in the accent colour; the rest outlined. The same size either
+                        // way, so nothing moves as the first changes.
+                        .background(Capsule().fill(Color.accentColor.opacity(isTabs ? 0.15 : 0)))
+                        .overlay(Capsule().strokeBorder(isTabs ? Color.accentColor.opacity(0.6) : Color.secondary.opacity(0.4)))
+                        .foregroundStyle(isTabs ? Color.primary : Color.secondary)
                 }
                 .buttonStyle(.plain)
+                .help(isTabs ? "Press Tab to use this" : "")
             }
         }
     }
