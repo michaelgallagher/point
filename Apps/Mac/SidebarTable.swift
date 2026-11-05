@@ -265,6 +265,11 @@ struct SidebarTable: NSViewRepresentable {
 
         /// The table's width when its rows' heights were last worked out.
         private var measuredWidth: CGFloat = 0
+        /// How much more than one line each title takes, wrapped to a width: measured once,
+        /// not again at every update (each switch of tab, say).
+        private var titleExtras: [TitleMeasure: CGFloat] = [:]
+        private struct TitleMeasure: Hashable { let title: String; let width: CGFloat }
+
 
         /// Titles wrap to the column's width, so a new width can change rows' heights.
         func widthChanged() {
@@ -286,10 +291,23 @@ struct SidebarTable: NSViewRepresentable {
         func update(animated: Bool) {
             guard let table else { return }
             watchFocus(in: table.window)
+            today = Calendar.current.startOfDay(for: Date())
             let newRows = model.sidebarRows(collapsed: parent.collapsed, expanded: parent.expanded, content: parent.content)
             // The tree doesn't move with the place it shows.
             let place = parent.content == .places ? SidebarPlace.allNotes : model.place
             let placeChanged = shownPlace != nil && shownPlace != place
+            // What the rows' heights come from: if none of it has changed, nor have they.
+            let heightInputs = HeightInputs(version: model.store.listVersion, width: table.bounds.width, wraps: wrapsTitles,
+                                            density: model.sidebarDensity, dateStyle: model.listDateStyle, sort: model.sort,
+                                            listDate: model.listDate, showsTags: model.showsTagsInList, day: today)
+            defer { shownHeightInputs = heightInputs }
+            if !placeChanged, newRows == rows, heightInputs == shownHeightInputs {
+                // Same rows, made from the same notes: only the selection can have changed.
+                table.reloadData(forRowIndexes: table.rows(in: table.visibleRect).toIndexSet, columnIndexes: [0])
+                shownPlace = place
+                syncSelection()
+                return
+            }
             if !placeChanged, newRows == rows {
                 // Same rows: refresh their contents, and let any that gained or lost a tags
                 // line grow or shrink smoothly rather than jump.
@@ -389,22 +407,61 @@ struct SidebarTable: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             switch rows[row] {
-            case .header, .dateGroup: model.sidebarDensity.headerHeight
-            case .divider: model.sidebarDensity.dividerHeight
-            case .place, .trashed: model.sidebarDensity.rowHeight
-            case .treeSwitch: model.sidebarDensity.rowHeight + 18
+            case .header, .dateGroup: return model.sidebarDensity.headerHeight
+            case .divider: return model.sidebarDensity.dividerHeight
+            case .place, .trashed: return model.sidebarDensity.rowHeight
+            case .treeSwitch: return model.sidebarDensity.rowHeight + 18
             case .note(let id):
                 // Two lines only for a note that has tags to show.
-                Self.noteHeight(hasTags: model.showsTagsInList && !model.listTags(for: id).isEmpty, density: model.sidebarDensity)
-                    + extraTitleHeight(id, in: tableView)
+                let hasTags = model.showsTagsInList && !model.listTags(for: id).isEmpty
+                guard let note = model.note(id) else { return Self.noteHeight(hasTags: hasTags, density: model.sidebarDensity) }
+                let key = RowHeight(note: note, hasTags: hasTags, width: tableView.bounds.width, wraps: wrapsTitles,
+                                    density: model.sidebarDensity, dateStyle: model.listDateStyle, sort: model.sort,
+                                    listDate: model.listDate, day: today)
+                if let known = rowHeights[id], known.key == key { return known.height }
+                let height = Self.noteHeight(hasTags: hasTags, density: model.sidebarDensity) + extraTitleHeight(note, in: tableView)
+                rowHeights[id] = (key, height)
+                return height
             }
         }
 
+        /// Each note's row height, and what it was worked out from: worked out again only
+        /// when one of those changes, not for every row at every update (each switch of tab).
+        private var rowHeights: [Note.ID: (key: RowHeight, height: CGFloat)] = [:]
+        private struct RowHeight: Equatable {
+            let note: Note
+            let hasTags: Bool
+            let width: CGFloat
+            let wraps: Bool
+            let density: VaultModel.SidebarDensity
+            let dateStyle: VaultModel.ListDateStyle
+            let sort: NoteSort
+            let listDate: VaultModel.ListDate
+            /// Dates show differently from one day to the next (a time today, a weekday after).
+            let day: Date
+        }
+        private struct HeightInputs: Equatable {
+            let version: Int
+            let width: CGFloat
+            let wraps: Bool
+            let density: VaultModel.SidebarDensity
+            let dateStyle: VaultModel.ListDateStyle
+            let sort: NoteSort
+            let listDate: VaultModel.ListDate
+            let showsTags: Bool
+            let day: Date
+        }
+        private var shownHeightInputs: HeightInputs?
+        /// The start of today, looked up once an update rather than for every row.
+        private var today = Calendar.current.startOfDay(for: Date())
+
         /// How much more than one line a note's title takes, wrapped.
-        private func extraTitleHeight(_ id: Note.ID, in tableView: NSTableView) -> CGFloat {
-            guard wrapsTitles, let note = model.notes.first(where: { $0.id == id }) else { return 0 }
+        private func extraTitleHeight(_ note: Note, in tableView: NSTableView) -> CGFloat {
+            guard wrapsTitles else { return 0 }
             measuredWidth = tableView.bounds.width
             let width = SidebarNoteRow.titleWidth(of: note, model: model, rowWidth: tableView.bounds.width - SidebarTableView.rowInset * 2)
+            let measure = TitleMeasure(title: note.title, width: width)
+            if let extra = titleExtras[measure] { return extra }
             let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
             let height = (note.title as NSString).boundingRect(with: NSSize(width: width, height: .greatestFiniteMagnitude),
                                                                options: [.usesLineFragmentOrigin, .usesFontLeading],
@@ -412,7 +469,9 @@ struct SidebarTable: NSViewRepresentable {
             let line = font.ascender - font.descender + font.leading
             // Each line after the first, with the room the row puts between wrapped lines.
             let lines = max(1, (height / line).rounded())
-            return ceil((lines - 1) * (line + SidebarNoteRow.wrappedLineSpacing))
+            let extra = ceil((lines - 1) * (line + SidebarNoteRow.wrappedLineSpacing))
+            titleExtras[measure] = extra
+            return extra
         }
 
         func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
@@ -1003,14 +1062,23 @@ struct SidebarNoteRow: View {
 
     private var indent: CGFloat { model.listDateStyle == .groups && model.sort != .title ? 12 : 0 }
 
+    /// Each date label's width, measured once (the same dates come up again and again).
+    @MainActor private static var dateWidths: [String: CGFloat] = [:]
+
     /// The room a row `rowWidth` wide leaves its title.
     @MainActor static func titleWidth(of note: Note, model: VaultModel, rowWidth: CGFloat) -> CGFloat {
         let row = SidebarNoteRow(note: note, model: model)
         var width = rowWidth - padding * 2 - row.indent
         if !note.isDownloaded { width -= iCloudWidth + spacing }
         if row.showsDate {
-            let font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .caption1).pointSize, weight: .regular)
-            width -= ceil((row.dateLabel as NSString).size(withAttributes: [.font: font]).width) + spacing
+            let label = row.dateLabel
+            let labelWidth = dateWidths[label] ?? {
+                let font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .caption1).pointSize, weight: .regular)
+                let measured = ceil((label as NSString).size(withAttributes: [.font: font]).width)
+                dateWidths[label] = measured
+                return measured
+            }()
+            width -= labelWidth + spacing
         } else {
             width -= 4 // The spacer's least.
         }
@@ -1102,4 +1170,9 @@ extension SidebarPlace {
         case .trash: "trash"
         }
     }
+}
+
+private extension NSRange {
+    /// The rows a range covers, as indexes.
+    var toIndexSet: IndexSet { location == NSNotFound ? [] : IndexSet(integersIn: location..<(location + length)) }
 }

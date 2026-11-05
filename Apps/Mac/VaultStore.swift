@@ -24,21 +24,33 @@ final class VaultStore: ObservableObject {
     @Published private(set) var root: URL?
     @Published private(set) var notes: [Note] = [] {
         didSet {
+            listVersion += 1
+            notesByID = Dictionary(notes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             folderTree = FolderTree(notes: notes, folders: folders)
             // Only when notes come, go or are renamed, not when one is saved.
             let ids = Set(notes.map(\.id))
             if ids != noteIDs {
                 noteIDs = ids
                 linkResolver = LinkResolver(notes: notes)
+                titleIndex = nil
                 notesGeneration += 1
             }
         }
     }
+    /// Goes up whenever a note, or its tags, changes, so the list can tell when nothing it
+    /// shows has (as when only the tab shown has changed).
+    private(set) var listVersion = 0
+    /// The notes by ID, to find one without going through them all.
+    private(set) var notesByID: [Note.ID: Note] = [:]
     /// Resolves links against the notes as they are now.
     private(set) var linkResolver = LinkResolver(notes: [])
     /// Counts changes to the notes, so editors know to restyle their links.
     private(set) var notesGeneration = 0
     private var noteIDs: Set<Note.ID> = []
+    /// Every note's title, lowercased and in words, for completing links as they're typed
+    /// without going through every title again at each keystroke. Built when first needed
+    /// after notes come, go or are renamed.
+    private var titleIndex: [(title: String, lowered: String, words: [Substring])]?
     /// Every folder on disk, including empty ones (which the notes alone wouldn't show).
     private var folders: [String] = [] {
         didSet { folderTree = FolderTree(notes: notes, folders: folders) }
@@ -645,16 +657,20 @@ final class VaultStore: ObservableObject {
         guard !query.isEmpty else {
             return Array(notes.sorted(by: .modified).prefix(20).map(\.title))
         }
-        func rank(_ title: String) -> Int? {
-            let lowered = title.lowercased()
-            if lowered.hasPrefix(query) { return 0 }
-            if lowered.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).contains(where: { $0.hasPrefix(query) }) { return 1 }
-            if lowered.contains(query) { return 2 }
-            return nil
+        let index = titleIndex ?? notes.map { note in
+            let lowered = note.title.lowercased()
+            return (note.title, lowered, lowered.split(whereSeparator: { !$0.isLetter && !$0.isNumber }))
         }
+        titleIndex = index
         var ranked: [(title: String, rank: Int)] = []
-        for note in notes {
-            if let rank = rank(note.title) { ranked.append((note.title, rank)) }
+        for entry in index {
+            if entry.lowered.hasPrefix(query) {
+                ranked.append((entry.title, 0))
+            } else if entry.words.contains(where: { $0.hasPrefix(query) }) {
+                ranked.append((entry.title, 1))
+            } else if entry.lowered.contains(query) {
+                ranked.append((entry.title, 2))
+            }
         }
         ranked.sort { $0.rank != $1.rank ? $0.rank < $1.rank : $0.title.count < $1.title.count }
         var seen = Set<String>()
@@ -804,10 +820,10 @@ final class VaultStore: ObservableObject {
     // MARK: Tags
 
     /// Each note's tags, read from its file in the background while tags are shown in the list.
-    @Published private(set) var tagsByNote: [Note.ID: [String]] = [:]
+    @Published private(set) var tagsByNote: [Note.ID: [String]] = [:] { didSet { listVersion += 1 } }
     private var tagsReadAt: [Note.ID: Date] = [:]
     /// Every note's tags, from the search index (which keeps them between launches).
-    @Published private(set) var indexedTags: [Note.ID: [String]] = [:]
+    @Published private(set) var indexedTags: [Note.ID: [String]] = [:] { didSet { listVersion += 1 } }
     @Published private(set) var tagTree = TagTree(tagsByNote: [])
 
     /// Reads tags for notes that are new or changed since they were last read.

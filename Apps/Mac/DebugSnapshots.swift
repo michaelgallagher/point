@@ -26,6 +26,7 @@ enum DebugSnapshots {
         safetyIfAsked(for: model)
         shortcutTestIfAsked(for: model)
         tabTestIfAsked(for: model)
+        tabTimingIfAsked(for: model)
         tabBarIfAsked(for: model)
         scanIfAsked(for: model)
         // `-PointOpenSettings YES`: opens Settings (at `-settingsPage`), for checking it.
@@ -457,9 +458,13 @@ enum DebugSnapshots {
               let path = UserDefaults.standard.string(forKey: "PointWindowSnapshot") else { return }
         let index = UserDefaults.standard.integer(forKey: "PointFocusField")
         func shot(_ n: Int) { save(model.window, to: URL(fileURLWithPath: path.replacingOccurrences(of: ".png", with: "-\(n).png"))) }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+        // Longer for a big vault (`-PointFocusDelay`), which takes a while to open.
+        let delay = UserDefaults.standard.object(forKey: "PointFocusDelay") != nil ? UserDefaults.standard.double(forKey: "PointFocusDelay") : 4
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             guard let window = model.window else { return }
+            // Top to bottom: they're found in no fixed order.
             let fields = views(of: NSTextField.self, in: window.contentView).filter { $0.isEditable }
+                .sorted { $0.convert($0.bounds, to: nil).maxY > $1.convert($1.bounds, to: nil).maxY }
             Trace.mark("focus test: fields \(fields.map { "\($0.placeholderString ?? "") \($0.convert($0.bounds, to: nil))" })")
             guard fields.indices.contains(index) else { return }
             shot(1)
@@ -474,6 +479,37 @@ enum DebugSnapshots {
             }
             let frame = fields[index].convert(fields[index].bounds, to: nil)
             click(at: NSPoint(x: frame.minX + 20, y: frame.midY))
+            // `-PointFocusTypeSlow "text"`: typed a character at a time, tracing how long each
+            // one keeps the app busy (until the next turn of the run loop after it's drawn).
+            if let typed = UserDefaults.standard.string(forKey: "PointFocusTypeSlow")?.replacingOccurrences(of: "«", with: "[") {
+                // `-PointFocusTypeGap`: seconds between characters (0.15 if not given).
+                let gap = UserDefaults.standard.object(forKey: "PointFocusTypeGap") != nil ? UserDefaults.standard.double(forKey: "PointFocusTypeGap") : 0.15
+                @MainActor func type(_ characters: ArraySlice<Character>) {
+                    guard let first = characters.first, let editor = window.firstResponder as? NSTextView else { return }
+                    let character = String(first)
+                    let start = CACurrentMediaTime()
+                    // As key presses through the window, as a person's come ("⌫" deletes back).
+                    _ = editor
+                    let isDelete = character == "⌫"
+                    for type in [NSEvent.EventType.keyDown, .keyUp] {
+                        if let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                        windowNumber: window.windowNumber, context: nil,
+                                                        characters: isDelete ? "\u{7F}" : character, charactersIgnoringModifiers: isDelete ? "\u{7F}" : character,
+                                                        isARepeat: false, keyCode: isDelete ? 51 : 0) {
+                            window.sendEvent(event)
+                        }
+                    }
+                    DispatchQueue.main.async {
+                        window.displayIfNeeded()
+                        CATransaction.flush()
+                        DispatchQueue.main.async {
+                            Trace.mark("slow type: \(character) took \(Int((CACurrentMediaTime() - start) * 1000)) ms")
+                            DispatchQueue.main.asyncAfter(deadline: .now() + gap) { type(characters.dropFirst()) }
+                        }
+                    }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { type(Array(typed)[...]) }
+            }
             if let typed = UserDefaults.standard.string(forKey: "PointFocusType")?.replacingOccurrences(of: "«", with: "[") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     (window.firstResponder as? NSTextView)?.insertText(typed, replacementRange: NSRange(location: NSNotFound, length: 0))
@@ -482,6 +518,31 @@ enum DebugSnapshots {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 Trace.mark("focus test: first responder \(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")")
                 shot(2)
+                // `-PointFocusClick "left down"`: then a click that far left of the field's bottom
+                // left corner and below it, such as on a suggestion, tracing the view it hits.
+                if let text = UserDefaults.standard.string(forKey: "PointFocusClick") {
+                    // ("up" before the second number goes above the field's bottom instead.)
+                    let parts = text.replacingOccurrences(of: "up", with: "-").split(separator: " ").compactMap { Double($0) }
+                    if parts.count == 2 {
+                        let point = NSPoint(x: frame.minX - parts[0], y: frame.minY - parts[1])
+                        let hit = window.contentView?.superview?.hitTest(point)
+                        Trace.mark("focus test: click at \(point) hits \(hit.map { String(describing: type(of: $0)) } ?? "nil")")
+                        // Both queued: sent at once, a button's mouse down tracks the mouse
+                        // until a mouse up that, queued after it, never came. (SwiftUI's tap
+                        // gestures don't take these clicks; buttons and fields do.)
+                        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                            if let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                              windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                                NSApp.postEvent(event, atStart: false)
+                            }
+                        }
+                        Trace.mark("focus test: click queued")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            Trace.mark("focus test: after the click, \(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil") holds \((window.firstResponder as? NSTextView)?.string ?? "-")")
+                            shot(4)
+                        }
+                    }
+                }
                 if UserDefaults.standard.bool(forKey: "PointFocusTab"),
                    let tab = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                               windowNumber: window.windowNumber, context: nil, characters: "\t", charactersIgnoringModifiers: "\t",
@@ -491,9 +552,12 @@ enum DebugSnapshots {
                         Trace.mark("focus test: after Tab, field holds \((window.firstResponder as? NSTextView)?.string ?? "-")")
                     }
                 }
-                // Away again, after Tab has had its effect.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { window.makeFirstResponder(nil) }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+                // Away again, after Tab has had its effect (not while typing slowly).
+                if UserDefaults.standard.string(forKey: "PointFocusTypeSlow") == nil {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { window.makeFirstResponder(nil) }
+                }
+                let slow = UserDefaults.standard.string(forKey: "PointFocusTypeSlow") != nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + (slow ? 12 : 3.5)) {
                     shot(3)
                     if let note = model.note(model.selection) {
                         Trace.mark("focus test: file now\n" + ((try? String(contentsOf: note.url, encoding: .utf8)) ?? "?"))
@@ -1044,6 +1108,57 @@ enum DebugSnapshots {
     /// `-PointTabTest YES`, on a vault of at least four notes: opens four tabs, then checks
     /// their numbers, ⌥⌘1 to ⌥⌘9, and ⌃Tab: a quick one, one held until the palette shows, and
     /// one pressed twice. (Letting go of ⌃ is called directly: it can't be pressed from here.)
+    /// `-PointTabTiming "a.md,b.md,c.md,d.md"`: opens those notes in tabs, then goes from tab
+    /// to tab, tracing how long each switch keeps the app busy and how long until the new
+    /// note's text shows (its editor is hidden until its header is measured).
+    private static func tabTimingIfAsked(for model: VaultModel) {
+        guard let spec = UserDefaults.standard.string(forKey: "PointTabTiming") else { return }
+        let ids = spec.split(separator: ",").map(String.init)
+        // Not napping: in the background, macOS held back the app's timers for seconds.
+        let activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical], reason: "Timing tab switches")
+        _ = Unmanaged.passRetained(activity as AnyObject)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+            guard let window = model.window else { return }
+            while model.numberedTabs.count > 1 { model.closeTab() }
+            model.selection = ids[0]
+            ids.dropFirst().forEach { model.newTab(noteID: $0) }
+            let order = [0, 1, 2, 3, 0, 2, 1, 3, 0, 1, 2, 3, 2, 0, 3, 1]
+            final class Times { var busy: Double? }
+            @MainActor func step(_ n: Int) {
+                guard n < order.count else { return NSApp.terminate(nil) }
+                guard let note = model.note(ids[order[n]]), let contents = try? String(contentsOf: note.url, encoding: .utf8) else { return }
+                let marker = String(contents.prefix(120))
+                let start = CACurrentMediaTime()
+                let times = Times()
+                model.selectTab(order[n], inPane: 0)
+                Trace.mark("tab timing: selectTab returned after \(Int((CACurrentMediaTime() - start) * 1000)) ms; window \(window.title) visible \(window.isVisible)")
+                DispatchQueue.main.async {
+                    Trace.mark("tab timing: first turn")
+                    window.displayIfNeeded()
+                    DispatchQueue.main.async { times.busy = CACurrentMediaTime() - start }
+                }
+                // Until a text view showing the note shows, checked each millisecond.
+                @MainActor func poll() {
+                    let shown = views(of: MarkdownTextView.self, in: window.contentView).filter {
+                        $0.alphaValue > 0 && !$0.isHiddenOrHasHiddenAncestor && $0.window != nil && $0.string.hasPrefix(marker)
+                    }
+                    let elapsed = CACurrentMediaTime() - start
+                    if elapsed > 1.9 {
+                        Trace.mark("tab timing: views \(views(of: MarkdownTextView.self, in: window.contentView).map { "\($0.alphaValue) \($0.isHiddenOrHasHiddenAncestor) \($0.string.prefix(40).debugDescription)" }) want \(marker.prefix(40).debugDescription) selection \(model.selection ?? "-")")
+                    }
+                    if !shown.isEmpty || elapsed > 2 {
+                        Trace.mark("tab timing: to tab \(order[n]) busy \(times.busy.map { Int($0 * 1000) } ?? -1) ms, shown \(shown.isEmpty ? "never" : "\(Int(elapsed * 1000)) ms")")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { step(n + 1) }
+                    } else {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.001) { poll() }
+                    }
+                }
+                poll()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { step(0) }
+        }
+    }
+
     private static func tabTestIfAsked(for model: VaultModel) {
         guard UserDefaults.standard.bool(forKey: "PointTabTest") else { return }
         func check(_ name: String, _ ok: Bool, _ detail: String = "") {

@@ -21,6 +21,8 @@ struct PropertiesStrip: View {
     @State private var dragY: CGFloat = 0
     /// Where each property's row is, to work out where a dragged one would land.
     @State private var rowFrames: [String: CGRect] = [:]
+    /// The property whose field has suggestions showing below it, over the rows beneath.
+    @State private var suggestingKey: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -53,9 +55,12 @@ struct PropertiesStrip: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(frontmatter.properties) { property in
                         row(for: property)
-                            // Each above the rows after it, so suggestions floating below a
-                            // field show over them.
-                            .zIndex(Double(frontmatter.properties.count - (frontmatter.properties.firstIndex { $0.key == property.key } ?? 0)))
+                            // While suggestions float over the rows, only the row they're for
+                            // takes clicks: the fields beneath, AppKit's, took the clicks on them.
+                            .onPreferenceChange(ShowsSuggestions.self) { shows in
+                                if shows { suggestingKey = property.key } else if suggestingKey == property.key { suggestingKey = nil }
+                            }
+                            .allowsHitTesting(suggestingKey == nil || suggestingKey == property.key)
                             .opacity(dragging == property.key ? 0.4 : 1)
                             .background(GeometryReader { proxy in
                                 Color.clear.preference(key: RowFrames.self, value: [property.key: proxy.frame(in: .named(Self.space))])
@@ -74,9 +79,13 @@ struct PropertiesStrip: View {
                     .frame(minHeight: Self.lineHeight)
                     .padding(.horizontal, Self.rowInset)
                     .padding(.vertical, Self.rowPadding)
+                    .allowsHitTesting(suggestingKey == nil)
                 }
                 .coordinateSpace(name: Self.space)
                 .onPreferenceChange(RowFrames.self) { rowFrames = $0 }
+                .overlayPreferenceValue(FloatingSuggestionsKey.self) { floating in
+                    if let floating { FloatingSuggestionsPanel(floating: floating) }
+                }
                 // A selected row takes the keyboard: ⌫ deletes it, Escape lets it go.
                 .background {
                     if let key = selectedKey {
@@ -526,32 +535,62 @@ private struct SuggestionChips: View {
 
 /// Suggestions for a field, floating just below it over the rows beneath, like a menu, rather
 /// than in the strip's layout: there, every keystroke that changed how many there were moved
-/// everything below up or down.
+/// everything below up or down. The field reports where it is and the strip draws them: drawn
+/// by the field's row, outside the row, they showed but took no clicks (a row takes clicks only
+/// inside its own shape).
 private struct FloatingSuggestions: ViewModifier {
     let suggestions: [String]
     let pick: (String) -> Void
 
     func body(content: Content) -> some View {
-        content.overlay(alignment: .bottomLeading) {
-            if !suggestions.isEmpty {
-                SuggestionChips(suggestions: suggestions, pick: pick)
-                    .padding(5)
-                    .background {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color(nsColor: .textBackgroundColor))
-                            .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(Color(nsColor: .separatorColor))
-                    }
-                    // Its chips lined up with what's typed, hanging from just below the field:
-                    // from a frame of no height at the field's bottom edge.
-                    .offset(x: -5)
-                    .padding(.top, 4)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(height: 0, alignment: .top)
+        content
+            .preference(key: ShowsSuggestions.self, value: !suggestions.isEmpty)
+            .anchorPreference(key: FloatingSuggestionsKey.self, value: .bounds) { bounds in
+                suggestions.isEmpty ? nil : FloatingField(field: bounds, suggestions: suggestions, pick: pick)
             }
+    }
+}
+
+/// The field with suggestions showing, if any: where it is, and what to suggest.
+private struct FloatingSuggestionsKey: PreferenceKey {
+    static var defaultValue: FloatingField? { nil }
+    static func reduce(value: inout FloatingField?, nextValue: () -> FloatingField?) { value = value ?? nextValue() }
+}
+
+private struct FloatingField {
+    let field: Anchor<CGRect>
+    let suggestions: [String]
+    let pick: (String) -> Void
+}
+
+/// The suggestions, in a panel as wide as the field, just below it, its chips lined up with
+/// what's typed.
+private struct FloatingSuggestionsPanel: View {
+    let floating: FloatingField
+
+    var body: some View {
+        GeometryReader { proxy in
+            let field = proxy[floating.field]
+            SuggestionChips(suggestions: floating.suggestions, pick: floating.pick)
+                .padding(5)
+                .background {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color(nsColor: .textBackgroundColor))
+                        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Color(nsColor: .separatorColor))
+                }
+                .frame(width: field.width + 5, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .offset(x: field.minX - 5, y: field.maxY + 4)
         }
     }
+}
+
+/// Whether a field in a row has suggestions floating below it.
+private struct ShowsSuggestions: PreferenceKey {
+    static let defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
 }
 
 /// Tab takes the first suggestion, while there are any (macOS 14 and later).
@@ -585,6 +624,9 @@ private struct TextValue: View {
     @State private var text = ""
     @State private var isEditing = false
     @FocusState private var isFocused: Bool
+    /// Worked out when what's typed changes, not each time the view is: it can mean going
+    /// through every note's title.
+    @State private var suggested: [String] = []
 
     private var displayed: String { property.values.joined(separator: ", ") }
 
@@ -635,6 +677,11 @@ private struct TextValue: View {
 
     /// Notes whose titles fit a `[[link]]` being typed, otherwise what's been put in this
     /// field before that fits what's typed.
+    private func suggest() {
+        let new = fieldSuggestions
+        if new != suggested { suggested = new }
+    }
+
     private var fieldSuggestions: [String] {
         guard isFocused else { return [] }
         if let typing = wikiLinkBeingTyped(in: text) { return Array(noteTitles(typing.partial).prefix(8)) }
@@ -653,8 +700,10 @@ private struct TextValue: View {
 
     private var field: some View {
         plainField
-            .modifier(TakesFirstSuggestion(suggestions: fieldSuggestions, pick: pick))
-            .modifier(FloatingSuggestions(suggestions: fieldSuggestions, pick: pick))
+            .modifier(TakesFirstSuggestion(suggestions: suggested, pick: pick))
+            .modifier(FloatingSuggestions(suggestions: suggested, pick: pick))
+            .onChange(of: text) { _ in suggest() }
+            .onChange(of: isFocused) { _ in suggest() }
     }
 
     private var plainField: some View {
@@ -759,9 +808,14 @@ private struct TokenEditor: View {
     let commit: ([String]) -> Void
     @State private var draft = ""
     @FocusState private var isFocused: Bool
+    /// Worked out when what's typed changes, not each time the view is: it can mean going
+    /// through every note's title.
+    @State private var matches: [String] = []
 
     var body: some View {
-        FlowLayout(spacing: 4) {
+        // The field fills the rest of its line, so a click anywhere beside the tokens goes
+        // into it, not only one on what's typed (it was no wider than that).
+        FlowLayout(spacing: 4, fillsLast: true) {
             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                 Token(text: item, isTag: isTags, link: isTags ? nil : link(item)) {
                     commit(items.enumerated().filter { $0.offset != index }.map(\.element))
@@ -769,12 +823,18 @@ private struct TokenEditor: View {
             }
             field
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         // Matching tags from the vault while typing one, or notes while typing a link.
         .modifier(FloatingSuggestions(suggestions: matches, pick: pick))
     }
 
+    private func match() {
+        let new = suggestedMatches
+        if new != matches { matches = new }
+    }
+
     /// What to suggest for what's typed: notes for a `[[link]]`, otherwise tags (for tags).
-    private var matches: [String] {
+    private var suggestedMatches: [String] {
         guard isFocused else { return [] }
         if !isTags, let typing = wikiLinkBeingTyped(in: draft) {
             return Array(noteTitles(typing.partial).prefix(8))
@@ -794,7 +854,7 @@ private struct TokenEditor: View {
             .textFieldStyle(.plain)
             .modifier(PropertyPlaceholder(text: items.isEmpty ? "Empty" : "Add…", isShown: draft.isEmpty))
             .modifier(TakesFirstSuggestion(suggestions: matches, pick: pick))
-            .frame(minWidth: 60, maxWidth: 160)
+            .frame(minWidth: 60, maxWidth: .infinity)
             // As tall as a token, focused or not, typed in or not, so the row's height never
             // changes while an item is added (it went shorter while typing, then back).
             .frame(height: Token.height)
@@ -802,10 +862,13 @@ private struct TokenEditor: View {
             .onSubmit { add() }
             .onChange(of: draft) { text in
                 if text.contains(",") { add() }
+                match()
             }
             .onChange(of: isFocused) { focused in
                 if !focused { add() }
+                match()
             }
+            .onChange(of: items) { _ in match() }
         if #available(macOS 14, *) {
             // ⌫ in an empty field removes the last item.
             base.onKeyPress(.delete) {
@@ -872,22 +935,35 @@ private struct Token: View {
 /// Lays its views out in rows, left to right, wrapping when a row is full.
 private struct FlowLayout: Layout {
     var spacing: CGFloat = 4
+    /// The last view takes the rest of its row.
+    var fillsLast = false
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let rows = arrange(subviews, width: proposal.width ?? .infinity)
+    /// Each view's size, measured once a layout pass rather than in each step of it (a text
+    /// field is slow to measure, and the strip is laid out anew for each note opened).
+    func makeCache(subviews: Subviews) -> [CGSize] {
+        subviews.map { $0.sizeThatFits(.unspecified) }
+    }
+
+    func updateCache(_ cache: inout [CGSize], subviews: Subviews) {
+        cache = makeCache(subviews: subviews)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout [CGSize]) -> CGSize {
+        let rows = arrange(cache, width: proposal.width ?? .infinity)
         let width = rows.map { $0.width }.max() ?? 0
         let height = rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(rows.count - 1, 0))
         return CGSize(width: proposal.width ?? width, height: height)
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout [CGSize]) {
         var y = bounds.minY
-        for row in arrange(subviews, width: bounds.width) {
+        for row in arrange(cache, width: bounds.width) {
             var x = bounds.minX
             for index in row.indices {
-                let size = subviews[index].sizeThatFits(.unspecified)
+                var size = cache[index]
+                if fillsLast, index == subviews.count - 1 { size.width = max(size.width, bounds.maxX - x) }
                 subviews[index].place(at: CGPoint(x: x, y: y + (row.height - size.height) / 2), proposal: ProposedViewSize(size))
-                x += size.width + spacing
+                x += cache[index].width + spacing
             }
             y += row.height + spacing
         }
@@ -899,18 +975,18 @@ private struct FlowLayout: Layout {
     /// baseline, and the name sat high beside tokens; nor can the items' own be trusted: a
     /// link token's comes from its remove button, and a text field's is below its text.)
     func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize,
-                           subviews: Subviews, cache: inout ()) -> CGFloat? {
-        guard guide == .firstTextBaseline, let row = arrange(subviews, width: bounds.width).first else { return nil }
-        let font = NSFont.preferredFont(forTextStyle: .callout)
-        return bounds.minY + row.height / 2 + (font.ascender + font.descender) / 2
+                           subviews: Subviews, cache: inout [CGSize]) -> CGFloat? {
+        guard guide == .firstTextBaseline, let row = arrange(cache, width: bounds.width).first else { return nil }
+        return bounds.minY + row.height / 2 + (Self.font.ascender + Self.font.descender) / 2
     }
+
+    nonisolated(unsafe) private static let font = NSFont.preferredFont(forTextStyle: .callout)
 
     private struct Row { var indices: [Int] = []; var width: CGFloat = 0; var height: CGFloat = 0 }
 
-    private func arrange(_ subviews: Subviews, width: CGFloat) -> [Row] {
+    private func arrange(_ sizes: [CGSize], width: CGFloat) -> [Row] {
         var rows: [Row] = [Row()]
-        for index in subviews.indices {
-            let size = subviews[index].sizeThatFits(.unspecified)
+        for (index, size) in sizes.enumerated() {
             let needed = rows[rows.count - 1].indices.isEmpty ? size.width : rows[rows.count - 1].width + spacing + size.width
             if needed > width, !rows[rows.count - 1].indices.isEmpty {
                 rows.append(Row())

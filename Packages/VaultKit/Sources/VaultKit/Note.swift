@@ -73,13 +73,41 @@ public enum NoteDateGroup {
         return date.formatted(format)
     }
 
+    /// Every date under the same heading as `date` (labelled `label`), or nil if unsure.
+    static func dates(under label: String, around date: Date, now: Date, calendar: Calendar) -> Range<Date>? {
+        let today = calendar.startOfDay(for: now)
+        guard let yesterday = calendar.date(byAdding: .day, value: -1, to: today),
+              let week = calendar.date(byAdding: .day, value: -6, to: today) else { return nil }
+        let range: Range<Date>?
+        switch label {
+        case "Today": range = today..<Date.distantFuture
+        case "Yesterday": range = yesterday..<today
+        case "Previous 7 days": range = week..<yesterday
+        default:
+            let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
+            range = calendar.dateInterval(of: sameYear ? .month : .year, for: date).map { $0.start..<min($0.end, week) }
+        }
+        // Only if it truly holds the date: anything odd, and each note is labelled itself.
+        guard let range, !range.isEmpty, range.contains(date) else { return nil }
+        return range
+    }
+
     /// The notes, in their order, under their headings: a heading starts wherever the label
     /// changes. Only for the date sorts; sorted by title, there are none.
     public static func grouped(_ notes: [Note], by sort: NoteSort, now: Date = Date(), calendar: Calendar = .current) -> [(label: String, notes: [Note])] {
         guard sort != .title else { return [] }
         var groups: [(label: String, notes: [Note])] = []
+        // The dates the last heading covers, so a note in them needn't have its date formatted
+        // again (thousands of notes, each time the list is made).
+        var covered: Range<Date>?
         for note in notes {
-            let label = label(for: sort == .created ? note.created : note.modified, now: now, calendar: calendar)
+            let date = sort == .created ? note.created : note.modified
+            if let covered, covered.contains(date), !groups.isEmpty {
+                groups[groups.count - 1].notes.append(note)
+                continue
+            }
+            let label = label(for: date, now: now, calendar: calendar)
+            covered = dates(under: label, around: date, now: now, calendar: calendar)
             if groups.last?.label == label {
                 groups[groups.count - 1].notes.append(note)
             } else {

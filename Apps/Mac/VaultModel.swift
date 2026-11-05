@@ -288,11 +288,11 @@ final class VaultModel: ObservableObject {
     }
 
     var selectedNote: Note? {
-        notes.first { $0.id == selection }
+        note(selection)
     }
 
     func note(_ id: Note.ID?) -> Note? {
-        id.flatMap { id in notes.first { $0.id == id } }
+        id.flatMap { store.notesByID[$0] }
     }
 
     /// The window's sidebar and notes, side by side; shows and hides the sidebar by widening
