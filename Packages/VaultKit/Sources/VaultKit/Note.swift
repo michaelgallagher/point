@@ -54,7 +54,7 @@ extension Sequence where Element == Note {
     }
 }
 
-/// Headings for a note list sorted by date, newest first: Today, Yesterday, Previous 7 Days,
+/// Headings for a note list sorted by date, newest first: Today, Yesterday, Previous 7 days,
 /// then each month of this year (October), then each year before it (2025).
 public enum NoteDateGroup {
     /// The heading a note with this date goes under.
@@ -63,7 +63,7 @@ public enum NoteDateGroup {
         // A date in the future (a clock set wrong somewhere) counts as today.
         if days <= 0 { return "Today" }
         if days == 1 { return "Yesterday" }
-        if days < 7 { return "Previous 7 Days" }
+        if days < 7 { return "Previous 7 days" }
         var format = Date.FormatStyle(calendar: calendar, timeZone: calendar.timeZone)
         if calendar.component(.year, from: date) == calendar.component(.year, from: now) {
             format = format.month(.wide)

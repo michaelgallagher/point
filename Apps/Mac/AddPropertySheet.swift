@@ -28,7 +28,7 @@ struct AddPropertySheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Add Property")
+            Text("Add property")
                 .font(.headline)
             Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 12) {
                 GridRow {

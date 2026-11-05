@@ -9,7 +9,7 @@
 			<key>UIApplicationShortcutItemType</key>
 			<string>org.mikegallagher.point.newNote</string>
 			<key>UIApplicationShortcutItemTitle</key>
-			<string>New Note</string>
+			<string>New note</string>
 			<key>UIApplicationShortcutItemIconSymbolName</key>
 			<string>square.and.pencil</string>
 		</dict>

@@ -172,7 +172,7 @@ private struct SearchLayer: View {
                     .scaleEffect(expanded ? 1 : 0.2)
                     .frame(width: expanded ? SearchMotion.fieldHeight : 0)
                     .opacity(expanded ? 1 : 0)
-                    .accessibilityLabel("Close Search")
+                    .accessibilityLabel("Close search")
                 }
                 .padding(.leading, expanded ? SearchMotion.margin : from.minX - origin.x)
                 .padding(.trailing, expanded ? SearchMotion.margin : width - from.maxX - insets.trailing)

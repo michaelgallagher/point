@@ -51,42 +51,42 @@ struct HomeScreen: View {
         }
         // Search, over the bars and pages, opening out from the bar's field. Nothing under it moves.
         .overlay { SearchLayerHost() }
-        .alert("New Folder", isPresented: Binding(get: { newFolderParent != nil }, set: { if !$0 { newFolderParent = nil } })) {
+        .alert("New folder", isPresented: Binding(get: { newFolderParent != nil }, set: { if !$0 { newFolderParent = nil } })) {
             TextField("Name", text: $newFolderName)
             Button("Cancel", role: .cancel) {}
             Button("Create", action: createFolder)
         } message: {
             Text(newFolderParent.map { $0.isEmpty ? "In the vault root." : "Inside “\(($0 as NSString).lastPathComponent)”." } ?? "")
         }
-        .alert("Couldn’t Make the Folder", isPresented: Binding(get: { folderProblem != nil }, set: { if !$0 { folderProblem = nil } })) {
+        .alert("Couldn’t make the folder", isPresented: Binding(get: { folderProblem != nil }, set: { if !$0 { folderProblem = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(folderProblem ?? "")
         }
-        .alert("Couldn’t Move the Folder", isPresented: Binding(get: { moveProblem != nil }, set: { if !$0 { moveProblem = nil } })) {
+        .alert("Couldn’t move the folder", isPresented: Binding(get: { moveProblem != nil }, set: { if !$0 { moveProblem = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(moveProblem ?? "")
         }
         .sheet(isPresented: Binding(get: { movingFolder != nil }, set: { if !$0 { movingFolder = nil } })) {
             if let movingFolder {
-                FolderPicker(title: "Move Folder", current: FolderTree.parent(of: movingFolder), moving: movingFolder) { moveFolder(movingFolder, into: $0) }
+                FolderPicker(title: "Move folder", current: FolderTree.parent(of: movingFolder), moving: movingFolder) { moveFolder(movingFolder, into: $0) }
                     .environmentObject(store)
             }
         }
-        .alert("Couldn’t Delete the Note", isPresented: Binding(get: { store.trashProblem != nil }, set: { if !$0 { store.trashProblem = nil } })) {
+        .alert("Couldn’t delete the note", isPresented: Binding(get: { store.trashProblem != nil }, set: { if !$0 { store.trashProblem = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(store.trashProblem ?? "")
         }
-        .alert("Open This Link?", isPresented: Binding(get: { store.linkToConfirm != nil }, set: { if !$0 { store.linkToConfirm = nil } }),
+        .alert("Open this link?", isPresented: Binding(get: { store.linkToConfirm != nil }, set: { if !$0 { store.linkToConfirm = nil } }),
                presenting: store.linkToConfirm) { url in
             Button("Cancel", role: .cancel) {}
             Button("Open") { store.openConfirmed(url) }
         } message: { url in
             Text(url.absoluteString.count > 200 ? String(url.absoluteString.prefix(200)) + "…" : url.absoluteString)
         }
-        .alert("No App Opens This Link", isPresented: $store.linkDidNotOpen) {
+        .alert("No app opens this link", isPresented: $store.linkDidNotOpen) {
             Button("OK", role: .cancel) {}
         }
         .sheet(isPresented: $showsSettings) { SettingsScreen().environmentObject(store) }
@@ -123,11 +123,11 @@ struct HomeScreen: View {
     }
 
     private func newNoteButton(in folder: String) -> some View {
-        Button("New Note", systemImage: "square.and.pencil") { createNote(in: folder) }
+        Button("New note", systemImage: "square.and.pencil") { createNote(in: folder) }
     }
 
     private func newFolderButton(in parent: String) -> some View {
-        Button("New Folder", systemImage: "folder.badge.plus") {
+        Button("New folder", systemImage: "folder.badge.plus") {
             newFolderName = ""
             newFolderParent = parent
         }
@@ -148,7 +148,7 @@ struct HomeScreen: View {
                 Section(isExpanded: $showsFolders) {
                     // The notes in no folder.
                     NavigationLink(value: Route.folder("")) {
-                        PlaceRow(title: "Vault Root", symbol: "tray", count: store.notes(in: "").count)
+                        PlaceRow(title: "Vault root", symbol: "tray", count: store.notes(in: "").count)
                     }
                     .favouriteMenu(.folder(""))
                     ForEach(folders, id: \.self) { folder in
@@ -177,13 +177,13 @@ struct HomeScreen: View {
                 }
             }
             Section {
-                NavigationLink(value: Route.deleted) { PlaceRow(title: "Deleted Notes", symbol: "trash", count: store.deletedNotes.count, tint: .red) }
+                NavigationLink(value: Route.deleted) { PlaceRow(title: "Deleted notes", symbol: "trash", count: store.deletedNotes.count, tint: .red) }
             }
         }
         .onChange(of: showsFolders) { UserDefaults.standard.set($1, forKey: "showsFolders") }
         .onChange(of: showsTags) { UserDefaults.standard.set($1, forKey: "showsTags") }
         // Not until the vault's been read: at launch, it showed for a moment before the notes.
-        .overlay { if store.hasScanned, store.notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text",
+        .overlay { if store.hasScanned, store.notes.isEmpty { ContentUnavailableView("No notes", systemImage: "doc.text",
             description: Text("Copy notes into Point’s folder in the Files app.")) } }
     }
 
@@ -199,7 +199,7 @@ struct HomeScreen: View {
         case .recent: RecentScreen().pageBar { topLevelActions }
         case .tag(let tag):
             TagScreen(tag: tag).pageBar(.sort) {
-                Button("New Note", systemImage: "square.and.pencil") {
+                Button("New note", systemImage: "square.and.pencil") {
                     createNote(text: Frontmatter.edit(adding: "tags", values: [tag], isList: true).1)
                 }
                 FavouriteButton(favourite: .tag(tag))
@@ -213,7 +213,7 @@ struct HomeScreen: View {
             FolderScreen(folder: folder).pageBar(.sort) {
                 newNoteButton(in: folder)
                 newFolderButton(in: folder)
-                Button("Move Folder", systemImage: "folder") { movingFolder = folder }
+                Button("Move folder", systemImage: "folder") { movingFolder = folder }
                 FavouriteButton(favourite: .folder(folder))
             }
         case .deleted: DeletedNotesScreen()
@@ -287,7 +287,7 @@ struct NotesScreen: View {
         let notes = store.notes.sorted(by: store.sort)
         List { NoteSections(notes: notes) }
             .pageTitle("All notes")
-            .overlay { if notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text") } }
+            .overlay { if notes.isEmpty { ContentUnavailableView("No notes", systemImage: "doc.text") } }
     }
 }
 
@@ -305,7 +305,7 @@ struct BookmarksScreen: View {
             .onMove(perform: store.moveBookmarks)
         }
         .pageTitle("Bookmarks")
-        .overlay { if store.bookmarks.isEmpty { ContentUnavailableView("No Bookmarks", systemImage: "bookmark",
+        .overlay { if store.bookmarks.isEmpty { ContentUnavailableView("No bookmarks", systemImage: "bookmark",
             description: Text("Press and hold a note to bookmark it.")) } }
     }
 }
@@ -324,7 +324,7 @@ struct RecentScreen: View {
             }
         }
         .pageTitle("Recent")
-        .overlay { if groups.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text") } }
+        .overlay { if groups.isEmpty { ContentUnavailableView("No notes", systemImage: "doc.text") } }
     }
 }
 
@@ -337,7 +337,7 @@ struct TagScreen: View {
         let notes = store.notes(taggedWith: tag)
         List { NoteSections(notes: notes) }
             .pageTitle("#" + tag)
-            .overlay { if notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text") } }
+            .overlay { if notes.isEmpty { ContentUnavailableView("No notes", systemImage: "doc.text") } }
     }
 }
 
@@ -361,8 +361,8 @@ struct FolderScreen: View {
             }
             NoteSections(notes: notes)
         }
-        .pageTitle(folder.isEmpty ? "Vault Root" : (folder as NSString).lastPathComponent)
-        .overlay { if folders.isEmpty && notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "folder") } }
+        .pageTitle(folder.isEmpty ? "Vault root" : (folder as NSString).lastPathComponent)
+        .overlay { if folders.isEmpty && notes.isEmpty { ContentUnavailableView("No notes", systemImage: "folder") } }
     }
 }
 
@@ -381,7 +381,7 @@ struct DeletedNotesScreen: View {
                     Button { chosen = item } label: { row(item) }
                         .foregroundStyle(.primary)
                         .swipeActions(edge: .leading) {
-                            Button("Put Back", systemImage: "arrow.uturn.backward") { store.restore(item) }
+                            Button("Put back", systemImage: "arrow.uturn.backward") { store.restore(item) }
                                 .tint(.accentColor)
                         }
                         .swipeActions(edge: .trailing) {
@@ -396,26 +396,26 @@ struct DeletedNotesScreen: View {
                 }
             }
         }
-        .pageTitle("Deleted Notes")
-        .overlay { if store.deletedNotes.isEmpty { ContentUnavailableView("No Deleted Notes", systemImage: "trash") } }
+        .pageTitle("Deleted notes")
+        .overlay { if store.deletedNotes.isEmpty { ContentUnavailableView("No deleted notes", systemImage: "trash") } }
         .onAppear { store.refreshTrash() }
         .confirmationDialog(chosen?.title ?? "", isPresented: Binding(get: { chosen != nil }, set: { if !$0 { chosen = nil } }),
                             titleVisibility: .visible, presenting: chosen) { item in
-            Button("Put Back") { store.restore(item) }
-            Button("Delete Now", role: .destructive) { store.deleteForever(item) }
+            Button("Put back") { store.restore(item) }
+            Button("Delete now", role: .destructive) { store.deleteForever(item) }
         } message: { _ in
             Text("Deleting it now can’t be undone.")
         }
         .confirmationDialog("Delete the \(store.deletedNotes.count) deleted notes for good?", isPresented: $confirmsDeleteAll, titleVisibility: .visible) {
-            Button("Delete All", role: .destructive) { store.deleteAllForever() }
+            Button("Delete all", role: .destructive) { store.deleteAllForever() }
         }
-        .alert("Deleted Notes", isPresented: Binding(get: { store.deletedNotesProblem != nil }, set: { if !$0 { store.deletedNotesProblem = nil } })) {
+        .alert("Deleted notes", isPresented: Binding(get: { store.deletedNotesProblem != nil }, set: { if !$0 { store.deletedNotesProblem = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(store.deletedNotesProblem ?? "")
         }
         .pageBar {
-            Button("Delete All", systemImage: "trash", role: .destructive) { confirmsDeleteAll = true }
+            Button("Delete all", systemImage: "trash", role: .destructive) { confirmsDeleteAll = true }
                 .disabled(store.deletedNotes.isEmpty)
         }
     }
@@ -490,7 +490,7 @@ private struct PageBar<Actions: View>: ViewModifier {
             content
                 .toolbar {
                     ToolbarItem(placement: .bottomBar) {
-                        Button("Find in Note", systemImage: "text.page.badge.magnifyingglass", action: find)
+                        Button("Find in note", systemImage: "text.page.badge.magnifyingglass", action: find)
                     }
                     ToolbarItem(placement: .bottomBar) {
                         Button("Search", systemImage: "map") { search.present(from: nil) }
@@ -595,7 +595,7 @@ struct FolderPicker: View {
     var body: some View {
         NavigationStack {
             List {
-                row("Vault Root", folder: "", depth: 0)
+                row("Vault root", folder: "", depth: 0)
                 ForEach(tree(of: "", depth: 0), id: \.folder) { row(FolderTree.name(of: $0.folder), folder: $0.folder, depth: $0.depth) }
             }
             .listStyle(.plain)
@@ -658,8 +658,8 @@ private struct SortMenu: View {
     var body: some View {
         Menu {
             Picker("Sort", selection: $store.sort) {
-                Text("Date Edited").tag(NoteSort.modified)
-                Text("Date Created").tag(NoteSort.created)
+                Text("Date edited").tag(NoteSort.modified)
+                Text("Date created").tag(NoteSort.created)
                 Text("Title").tag(NoteSort.title)
             }
         } label: {
@@ -690,7 +690,7 @@ private struct NoteLink: View {
         }
         .contextMenu {
             let bookmarked = store.isBookmarked(note.id)
-            Button(bookmarked ? "Remove Bookmark" : "Bookmark", systemImage: bookmarked ? "bookmark.slash" : "bookmark") {
+            Button(bookmarked ? "Remove bookmark" : "Bookmark", systemImage: bookmarked ? "bookmark.slash" : "bookmark") {
                 store.toggleBookmark(note.id)
             }
         }
@@ -780,7 +780,7 @@ private struct FavouritesSection: View {
     private func label(_ favourite: Favourite) -> (title: String, symbol: String) {
         switch favourite {
         case .folder(let folder):
-            (folder.isEmpty ? "Vault Root" : (folder as NSString).lastPathComponent, folder.isEmpty ? "tray" : "folder")
+            (folder.isEmpty ? "Vault root" : (folder as NSString).lastPathComponent, folder.isEmpty ? "tray" : "folder")
         case .tag(let tag): (tag, symbol("number.sign.circle", or: "number.circle"))
         }
     }
@@ -839,7 +839,7 @@ private struct FavouriteButton: View {
 
     var body: some View {
         let isFavourite = store.isFavourite(favourite)
-        Button(isFavourite ? "Remove from Favourites" : "Add to Favourites", systemImage: isFavourite ? "star.slash" : "star") {
+        Button(isFavourite ? "Remove from favourites" : "Add to favourites", systemImage: isFavourite ? "star.slash" : "star") {
             store.toggleFavourite(favourite)
         }
     }

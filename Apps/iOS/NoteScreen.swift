@@ -36,24 +36,24 @@ struct NoteScreen: View {
             .toolbar {
                 if session.isWriting {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button("Hide Keyboard", systemImage: "keyboard.chevron.compact.down") { session.hideKeyboard() }
+                        Button("Hide keyboard", systemImage: "keyboard.chevron.compact.down") { session.hideKeyboard() }
                             .buttonStyle(.glassProminent)
                     }
                 }
             }
             .pageBar(.find { session.find("") }) {
-                Button("New Note", systemImage: "square.and.pencil") { newNote(FolderTree.folder(of: session.note.id)) }
+                Button("New note", systemImage: "square.and.pencil") { newNote(FolderTree.folder(of: session.note.id)) }
                 Divider()
-                Button("Move Note", systemImage: "folder") { showsMove = true }
+                Button("Move note", systemImage: "folder") { showsMove = true }
                 TemplateMenu(session: session)
                 Toggle("Show Markdown", systemImage: "chevron.left.forwardslash.chevron.right", isOn: $store.showsMarkdown)
                 let bookmarked = store.isBookmarked(session.note.id)
-                Button(bookmarked ? "Remove Bookmark" : "Bookmark", systemImage: bookmarked ? "bookmark.slash" : "bookmark") {
+                Button(bookmarked ? "Remove bookmark" : "Bookmark", systemImage: bookmarked ? "bookmark.slash" : "bookmark") {
                     store.toggleBookmark(session.note.id)
                 }
                 Button("Share", systemImage: "square.and.arrow.up") { session.share() }
                 Divider()
-                Button("Delete Note", systemImage: "trash", role: .destructive) { confirmsDelete = true }
+                Button("Delete note", systemImage: "trash", role: .destructive) { confirmsDelete = true }
             }
             // A hardware keyboard leaves the format bar at the bottom, on top of this one.
             .toolbarVisibility(session.isWriting ? .hidden : .automatic, for: .bottomBar)
@@ -64,7 +64,7 @@ struct NoteScreen: View {
                 BacklinksSheet(session: session).environmentObject(store)
             }
             .sheet(isPresented: $showsMove) {
-                FolderPicker(title: "Move Note", current: FolderTree.folder(of: session.note.id)) { session.move(to: $0) }
+                FolderPicker(title: "Move note", current: FolderTree.folder(of: session.note.id)) { session.move(to: $0) }
                     .environmentObject(store)
             }
             .alert("Delete “\(session.note.title)”?", isPresented: $confirmsDelete) {
@@ -75,7 +75,7 @@ struct NoteScreen: View {
                     dismiss()
                 }
             } message: {
-                Text("It moves to Deleted Notes, where you can put it back.")
+                Text("It moves to Deleted notes, where you can put it back.")
             }
             .onAppear { store.noteOpened(session.note.id) }
             .onChange(of: store.showsMarkdown) { _, shows in session.showMarkdown(shows) }
@@ -99,7 +99,7 @@ struct NoteScreen: View {
             }
         } else if let problem = session.saveProblem {
             Banner(text: problem) {
-                Button("Try Again") { session.save() }
+                Button("Try again") { session.save() }
             }
         } else if let draft = session.recoveredDraft {
             Banner(text: "Changes made \(draft.saved.formatted(date: .abbreviated, time: .shortened)) couldn’t be saved at the time.") {
@@ -124,7 +124,7 @@ struct TemplateMenu: View {
     let session: NoteSession
 
     var body: some View {
-        Menu("Apply Template", systemImage: "doc.text") {
+        Menu("Apply template", systemImage: "doc.text") {
             ForEach(store.templates, id: \.url) { template in
                 Button(template.name) { session.applyTemplate(at: template.url) }
             }
@@ -654,7 +654,7 @@ private struct BacklinksSheet: View {
                     Button("Close", systemImage: "xmark") { dismiss() }
                 }
             }
-            .overlay { if session.backlinks.isEmpty { ContentUnavailableView("No Links", systemImage: "link") } }
+            .overlay { if session.backlinks.isEmpty { ContentUnavailableView("No links", systemImage: "link") } }
         }
         .presentationDetents([.medium, .large])
     }

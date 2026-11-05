@@ -280,10 +280,10 @@ private struct SaveBanner: View {
                 Text(problem)
                 Spacer()
                 if session.fileIsMissing {
-                    Button("Save It Again") { session.recreateFile() }
+                    Button("Save it again") { session.recreateFile() }
                         .keyboardShortcut(.defaultAction)
                 } else {
-                    Button("Try Again") { session.retrySave() }
+                    Button("Try again") { session.retrySave() }
                         .keyboardShortcut(.defaultAction)
                 }
             }
@@ -292,7 +292,7 @@ private struct SaveBanner: View {
                 Text("Changes made \(draft.saved.formatted(date: .abbreviated, time: .shortened)) couldn’t be saved at the time.")
                 Spacer()
                 Button("Discard") { session.discardDraft() }
-                Button("Restore Them") { session.restoreDraft() }
+                Button("Restore them") { session.restoreDraft() }
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -326,15 +326,15 @@ private struct ConflictBanner: View {
                 case .changedElsewhere?:
                     Text("This note was changed in another app while you were editing it.")
                     Spacer()
-                    Button("Use Theirs") { session.useTheirs() }
-                    Button("Keep Mine") { session.keepMine() }
+                    Button("Use theirs") { session.useTheirs() }
+                    Button("Keep mine") { session.keepMine() }
                         .keyboardShortcut(.defaultAction)
                 case .iCloud(let other)?:
                     Text("iCloud has another version of this note\(other.localizedNameOfSavingComputer.map { " from \($0)" } ?? "").")
                     Spacer()
-                    Button("Keep Both") { session.keepBothVersions() }
-                    Button("Use Other") { session.useOtherVersion() }
-                    Button("Keep This") { session.keepThisVersion() }
+                    Button("Keep both") { session.keepBothVersions() }
+                    Button("Use other") { session.useOtherVersion() }
+                    Button("Keep this") { session.keepThisVersion() }
                         .keyboardShortcut(.defaultAction)
                 case nil:
                     EmptyView()

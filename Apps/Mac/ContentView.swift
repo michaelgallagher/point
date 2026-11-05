@@ -110,7 +110,7 @@ struct ContentView: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(.tertiary)
-                        .help("Show Note List")
+                        .help("Show note list")
                         .padding(.leading, 76)
                         .padding(.top, 2)
                     }
@@ -199,7 +199,7 @@ private struct OpenVaultView: View {
                 Text(message)
                     .foregroundStyle(.red)
             }
-            Button("Open Vault…") { model.chooseVault() }
+            Button("Open vault…") { model.chooseVault() }
                 .controlSize(.large)
                 .keyboardShortcut(.defaultAction)
                 .padding(.top, 8)
@@ -282,7 +282,7 @@ private struct NoteList: View {
                     Text(model.place.isTag ? "No notes have this tag." : "This folder has no notes.")
                         .foregroundStyle(.secondary)
                 } else if !model.noteFilter.isEmpty, !model.sidebarRows(collapsed: [], content: content).contains(where: \.isItem) {
-                    Text("No Matches")
+                    Text("No matches")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -334,7 +334,7 @@ struct EmptyTrashButton: View {
             .disabled(model.trashedNotes.isEmpty)
             .help("Delete every note in the trash now")
             .confirmationDialog("Delete the \(model.trashedNotes.count) notes in the trash for good?", isPresented: $isConfirming) {
-                Button("Empty Trash", role: .destructive) { model.store.emptyTrash() }
+                Button("Empty trash", role: .destructive) { model.store.emptyTrash() }
             } message: {
                 Text("This can't be undone.")
             }
@@ -350,10 +350,10 @@ extension SidebarPlace {
     /// "Work", "Projects" or "work/imprint" (a tag without its "#": its symbol says it's a tag).
     var title: String {
         switch self {
-        case .allNotes: "All Notes"
+        case .allNotes: "All notes"
         case .folder(let path): FolderTree.name(of: path)
         case .tag(let tag): tag
-        case .everything: "All Notes"
+        case .everything: "All notes"
         case .bookmarks: "Bookmarks"
         case .trash: "Trash"
         }
@@ -392,7 +392,7 @@ private struct SearchField: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.tertiary)
-                .help("Clear Search")
+                .help("Clear search")
             }
         }
         .padding(.horizontal, 10)
@@ -409,7 +409,7 @@ private struct RenameSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Rename Note")
+            Text("Rename note")
                 .font(.headline)
             TextField("Name", text: $title)
                 .frame(width: 320)
@@ -444,7 +444,7 @@ private struct NewFolderSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("New Folder")
+            Text("New folder")
                 .font(.headline)
             TextField("Name", text: $name)
                 .frame(width: 320)
@@ -487,7 +487,7 @@ private struct TemplatePicker: View {
         let templates = model.templates
         let density = model.sidebarDensity
         VStack(alignment: .leading, spacing: 14) {
-            Text("New Note from Template")
+            Text("New note from template")
                 .font(.headline)
             if templates.isEmpty {
                 Text(model.settings.templatesFolder.isEmpty

@@ -25,13 +25,13 @@ final class FormatBar: UIView {
         maximumContentSizeCategory = .extraExtraExtraLarge
 
         let tools = UIStackView(arrangedSubviews: [
-            button("Link to a Note", title: "[[") { $0.format { $0.wikiLink() } },
+            button("Link to a note", title: "[[") { $0.format { $0.wikiLink() } },
             button("Bold", symbol: "bold") { $0.format { $0.toggleBold() } },
             button("Italic", symbol: "italic") { $0.format { $0.toggleItalic() } },
             headingButton(),
             button("Quote", symbol: "text.quote") { $0.format { $0.toggleBlockQuote() } },
             button("Checklist", symbol: "checklist") { $0.format { $0.toggleChecklist() } },
-            button("Bulleted List", symbol: "list.bullet") { $0.format { $0.toggleBulletList() } },
+            button("Bulleted list", symbol: "list.bullet") { $0.format { $0.toggleBulletList() } },
             button("Outdent", symbol: "decrease.indent") { $0.format { $0.outdent() } },
             button("Indent", symbol: "increase.indent") { $0.format { $0.indent() } },
         ])
@@ -136,7 +136,7 @@ final class FormatBar: UIView {
     /// The heading levels, from a menu: three is as many as a phone needs.
     private func headingButton() -> UIButton {
         let button = button("Heading", symbol: "textformat.size") { _ in }
-        let levels = [("Heading 1", 1), ("Heading 2", 2), ("Heading 3", 3), ("Body Text", 0)].map { name, level in
+        let levels = [("Heading 1", 1), ("Heading 2", 2), ("Heading 3", 3), ("Body text", 0)].map { name, level in
             UIAction(title: name) { [weak self] _ in self?.textView?.format { $0.setHeading(level) } }
         }
         button.menu = UIMenu(children: levels)

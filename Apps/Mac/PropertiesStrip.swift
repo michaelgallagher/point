@@ -63,7 +63,7 @@ struct PropertiesStrip: View {
                         Button {
                             NotificationCenter.default.post(name: .pointAddProperty, object: model)
                         } label: {
-                            Label("Add Property", systemImage: "plus")
+                            Label("Add property", systemImage: "plus")
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)

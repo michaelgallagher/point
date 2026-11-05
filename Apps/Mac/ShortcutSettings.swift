@@ -17,7 +17,7 @@ struct ShortcutSettings: View {
                     Text("Click a shortcut and press the keys for it. Escape leaves it as it was; Delete removes it.")
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Button("Restore Defaults") {
+                    Button("Restore defaults") {
                         shortcuts.resetAll()
                         notice = nil
                     }

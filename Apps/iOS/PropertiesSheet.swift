@@ -38,7 +38,7 @@ struct PropertiesSheet: View {
                 }
                 .fullWidthSeparators()
                 Section {
-                    Button("Add Property", systemImage: "plus") { isAdding = true }
+                    Button("Add property", systemImage: "plus") { isAdding = true }
                     TemplateMenu(session: session)
                 }
                 .fullWidthSeparators()
@@ -53,7 +53,7 @@ struct PropertiesSheet: View {
                 }
             }
             .navigationDestination(isPresented: $isAdding) { AddPropertyScreen(session: session) }
-            .alert("Rename Property", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            .alert("Rename property", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
                 TextField("Name", text: $name)
                     .textInputAutocapitalization(.never)
                 Button("Cancel", role: .cancel) {}
@@ -137,7 +137,7 @@ private struct AddPropertyScreen: View {
                 }
             }
             if !suggestions.isEmpty {
-                Section(key.isEmpty ? "In This Vault" : "Matching") {
+                Section(key.isEmpty ? "In this vault" : "Matching") {
                     ForEach(suggestions, id: \.name) { suggestion in
                         Button {
                             add(suggestion.name)
@@ -159,12 +159,12 @@ private struct AddPropertyScreen: View {
             }
             if !key.isEmpty, known == nil, !taken.contains(key.lowercased()) {
                 Section {
-                    Button("Add “\(key)” as a New Property", systemImage: type(of: key).symbol) { add(key) }
+                    Button("Add “\(key)” as a new property", systemImage: type(of: key).symbol) { add(key) }
                 }
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("Add Property")
+        .navigationTitle("Add property")
         .navigationBarTitleDisplayMode(.inline)
         .scrollDismissesKeyboard(.interactively)
         .onAppear { isFocused = true }
@@ -393,7 +393,7 @@ private struct DateValue: View {
             ), displayedComponents: hasTime ? [.date, .hourAndMinute] : [.date])
             .labelsHidden()
         } else {
-            Button(property.values.first ?? "Set to Now") {
+            Button(property.values.first ?? "Set to now") {
                 let now = Date()
                 set([PropertyDate.format(now, like: PropertyDate.Value(date: now, hasTime: hasTime))])
             }

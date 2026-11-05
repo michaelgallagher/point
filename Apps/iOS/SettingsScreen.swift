@@ -21,7 +21,7 @@ struct SettingsScreen: View {
                     Text("Notes are kept in Point’s folder on this iPhone, which the Files app shows. They don’t sync yet.")
                 }
                 Section {
-                    Button("Forget What Search Has Learned", role: .destructive) { confirmsForget = true }
+                    Button("Forget what search has learned", role: .destructive) { confirmsForget = true }
                         .disabled(store.history.isEmpty)
                 } footer: {
                     Text("Search puts the notes you open and pick most first. What it learns stays on this iPhone.")
@@ -58,7 +58,7 @@ private struct TypographySettings: View {
                 LabeledContent("Size", value: "\(Int(typography.bodySize)) pt")
             }
             Stepper(value: $typography.lineHeight, in: 1...2.2, step: 0.05) {
-                LabeledContent("Line Height", value: typography.lineHeight.formatted(.number.precision(.fractionLength(2))))
+                LabeledContent("Line height", value: typography.lineHeight.formatted(.number.precision(.fractionLength(2))))
             }
             Text("The quick brown fox jumps over the lazy dog, and the line after it shows the spacing between lines of a paragraph.")
                 .font(.system(size: typography.bodySize))
@@ -81,7 +81,7 @@ private struct TypographySettings: View {
             }
         }
         Section {
-            Button("Restore Defaults") { typography = PhoneTextView.standardTypography }
+            Button("Restore defaults") { typography = PhoneTextView.standardTypography }
                 .disabled(typography == PhoneTextView.standardTypography)
         }
     }

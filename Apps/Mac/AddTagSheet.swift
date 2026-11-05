@@ -24,7 +24,7 @@ struct AddTagSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Add Tag to “\(note.title)”")
+            Text("Add tag to “\(note.title)”")
                 .font(.headline)
             TextField("Tag", text: $text, prompt: Text("work/imprint"))
                 .onSubmit { add(text) }

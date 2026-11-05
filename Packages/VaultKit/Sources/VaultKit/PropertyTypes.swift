@@ -23,7 +23,7 @@ public enum PropertyType: String, CaseIterable, Sendable, Identifiable {
         case .number: "Number"
         case .checkbox: "Checkbox"
         case .date: "Date"
-        case .datetime: "Date & Time"
+        case .datetime: "Date & time"
         case .tags: "Tags"
         case .aliases: "Aliases"
         }

@@ -222,7 +222,7 @@ struct ExplorerColumns: View {
             }
             .overlay {
                 if state.notes.isEmpty {
-                    Text("No Notes").foregroundStyle(.secondary)
+                    Text("No notes").foregroundStyle(.secondary)
                 }
             }
             .onChange(of: state.noteIndex) { _ in

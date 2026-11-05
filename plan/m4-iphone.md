@@ -275,6 +275,10 @@ After trying the first draft, on `ios-second-draft`. One commit per step.
 
 **Tried:** all of the above in the Simulator, iOS 27 (with 4,000 notes) and 26.1, frame by frame for Search.
 
+## Sentence case (5 November 2026)
+
+Mike: Point's house style is sentence case, everywhere: "New note", not "New Note"; "Vault root", not "Vault Root". Proper nouns keep their capitals (Point, Markdown, Obsidian, Mac, Files). On the iPhone, every title, button, menu item, heading, alert and empty page follows it, and the icon's quick action too. In VaultKit, shared with the Mac, so are "Previous 7 days" and "Date & time". On the Mac, menu commands keep title case, the Mac's convention (the menu bar, context menus, the command palette, and the shortcut lists that name commands); everything else there is sentence case too: sheet titles, buttons, Settings, empty states, tooltips and labels.
+
 ## Search, Point's own (4 November 2026)
 
 Mike: the search animation was "still kinda shit", and everything must be smooth and fast. Of the ways it could go (in the side-session notes), he chose Point's own field and Search.
