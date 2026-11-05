@@ -80,6 +80,10 @@ targets:
     sources:
       - path: Apps/iOS
         excludes: [Info.plist]
+      # The app icon, the Mac's (Icon Composer: light, dark and tinted).
+      - path: Resources/AppIcon.icon
+        type: file
+        buildPhase: resources
     dependencies:
       - package: VaultKit
       - package: EditorKit
@@ -89,6 +93,7 @@ targets:
       base:
         PRODUCT_NAME: Point
         PRODUCT_BUNDLE_IDENTIFIER: org.mikegallagher.point.ios
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
         # The quick action (New Note), which build settings can't give, merged in.
         INFOPLIST_FILE: Apps/iOS/Info.plist
