@@ -89,7 +89,7 @@ final class VaultStore: ObservableObject {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.prompt = "Open Vault"
+        panel.prompt = "Open vault"
         panel.message = "Choose the folder that holds your notes. It can be an existing Obsidian vault."
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {

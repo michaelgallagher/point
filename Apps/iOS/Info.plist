@@ -2,14 +2,24 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Merged into the generated Info.plist. Pressing and holding the app icon offers New Note. -->
+	<!-- Merged into the generated Info.plist. The launch screen: the launch cover's eye, from the app icon, on the
+	     system background, so the cover follows it without a change. LaunchBackground is the
+	     system background: white, or black in dark mode. -->
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIImageName</key>
+		<string>LaunchEye</string>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+	</dict>
+	<!-- Pressing and holding the app icon offers New note. -->
 	<key>UIApplicationShortcutItems</key>
 	<array>
 		<dict>
 			<key>UIApplicationShortcutItemType</key>
 			<string>org.mikegallagher.point.newNote</string>
 			<key>UIApplicationShortcutItemTitle</key>
-			<string>New Note</string>
+			<string>New note</string>
 			<key>UIApplicationShortcutItemIconSymbolName</key>
 			<string>square.and.pencil</string>
 		</dict>

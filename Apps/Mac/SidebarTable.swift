@@ -1078,12 +1078,12 @@ extension VaultModel {
         switch section {
         case .notes:
             switch sort {
-            case .modified: "Date Edited"
-            case .created: "Date Created"
+            case .modified: "Date edited"
+            case .created: "Date created"
             case .title: "Title"
             }
         case .folders, .tags:
-            tagOrder == .name ? "Name" : "Date Modified"
+            tagOrder == .name ? "Name" : "Date modified"
         case .pinned:
             nil
         }

@@ -98,7 +98,7 @@ struct ShortcutsSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Keyboard Shortcuts")
+            Text("Keyboard shortcuts")
                 .font(.title2.weight(.semibold))
             HStack(alignment: .top, spacing: 36) {
                 column(Self.groups.prefix(3))

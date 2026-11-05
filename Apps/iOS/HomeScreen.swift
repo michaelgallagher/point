@@ -8,11 +8,13 @@ enum Route: Hashable {
     case notes, bookmarks, recent
     case tag(String)
     case folder(String)
+    case deleted
 }
 
 /// Home, as the Notes app's list of folders: All notes, Bookmarks and Recent, each a page of its
-/// own; the vault's folders; then its tags. Settings at the top left; along the bottom, on every
-/// page, the system's search field and the actions for where you are.
+/// own; the vault's folders; then its tags; then Deleted Notes. Settings at the top right; along the bottom, on every
+/// list, Sort (where the list can be sorted), the system's search field and the actions for
+/// where you are.
 struct HomeScreen: View {
     @EnvironmentObject private var store: PhoneStore
     @ObservedObject private var quickActions = QuickActions.shared
@@ -29,58 +31,62 @@ struct HomeScreen: View {
     /// The folder being moved, while choosing where to.
     @State private var movingFolder: String?
     @State private var moveProblem: String?
+    /// Whether Folders and Tags are open on home. Folding one keeps it folded next time. Kept
+    /// as state, not app storage, which folded them without animating.
+    @State private var showsFolders = UserDefaults.standard.object(forKey: "showsFolders") as? Bool ?? true
+    @State private var showsTags = UserDefaults.standard.object(forKey: "showsTags") as? Bool ?? true
 
     var body: some View {
         NavigationStack(path: $path) {
             home
-                .navigationTitle("Point")
-                .navigationBarTitleDisplayMode(.large)
+                .pageTitle("Home")
                 .navigationDestination(for: Route.self, destination: destination)
                 .refreshable { await store.reload() }
                 .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
+                    ToolbarItem(placement: .topBarTrailing) {
                         Button("Settings", systemImage: "gear") { showsSettings = true }
                     }
-                    ToolbarItem(placement: .topBarTrailing) { SortMenu() }
                 }
-                .pageBar { topLevelActions }
+                .pageBar(.sort) { topLevelActions }
         }
-        .alert("New Folder", isPresented: Binding(get: { newFolderParent != nil }, set: { if !$0 { newFolderParent = nil } })) {
+        // Search, over the bars and pages, opening out from the bar's field. Nothing under it moves.
+        .overlay { SearchLayerHost() }
+        .alert("New folder", isPresented: Binding(get: { newFolderParent != nil }, set: { if !$0 { newFolderParent = nil } })) {
             TextField("Name", text: $newFolderName)
             Button("Cancel", role: .cancel) {}
             Button("Create", action: createFolder)
         } message: {
-            Text(newFolderParent.map { $0.isEmpty ? "At the top level." : "Inside “\(($0 as NSString).lastPathComponent)”." } ?? "")
+            Text(newFolderParent.map { $0.isEmpty ? "In the vault root." : "Inside “\(($0 as NSString).lastPathComponent)”." } ?? "")
         }
-        .alert("Couldn’t Make the Folder", isPresented: Binding(get: { folderProblem != nil }, set: { if !$0 { folderProblem = nil } })) {
+        .alert("Couldn’t make the folder", isPresented: Binding(get: { folderProblem != nil }, set: { if !$0 { folderProblem = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(folderProblem ?? "")
         }
-        .alert("Couldn’t Move the Folder", isPresented: Binding(get: { moveProblem != nil }, set: { if !$0 { moveProblem = nil } })) {
+        .alert("Couldn’t move the folder", isPresented: Binding(get: { moveProblem != nil }, set: { if !$0 { moveProblem = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(moveProblem ?? "")
         }
         .sheet(isPresented: Binding(get: { movingFolder != nil }, set: { if !$0 { movingFolder = nil } })) {
             if let movingFolder {
-                FolderPicker(title: "Move Folder", current: FolderTree.parent(of: movingFolder), moving: movingFolder) { moveFolder(movingFolder, into: $0) }
+                FolderPicker(title: "Move folder", current: FolderTree.parent(of: movingFolder), moving: movingFolder) { moveFolder(movingFolder, into: $0) }
                     .environmentObject(store)
             }
         }
-        .alert("Couldn’t Delete the Note", isPresented: Binding(get: { store.trashProblem != nil }, set: { if !$0 { store.trashProblem = nil } })) {
+        .alert("Couldn’t delete the note", isPresented: Binding(get: { store.trashProblem != nil }, set: { if !$0 { store.trashProblem = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(store.trashProblem ?? "")
         }
-        .alert("Open This Link?", isPresented: Binding(get: { store.linkToConfirm != nil }, set: { if !$0 { store.linkToConfirm = nil } }),
+        .alert("Open this link?", isPresented: Binding(get: { store.linkToConfirm != nil }, set: { if !$0 { store.linkToConfirm = nil } }),
                presenting: store.linkToConfirm) { url in
             Button("Cancel", role: .cancel) {}
             Button("Open") { store.openConfirmed(url) }
         } message: { url in
             Text(url.absoluteString.count > 200 ? String(url.absoluteString.prefix(200)) + "…" : url.absoluteString)
         }
-        .alert("No App Opens This Link", isPresented: $store.linkDidNotOpen) {
+        .alert("No app opens this link", isPresented: $store.linkDidNotOpen) {
             Button("OK", role: .cancel) {}
         }
         .sheet(isPresented: $showsSettings) { SettingsScreen().environmentObject(store) }
@@ -117,11 +123,11 @@ struct HomeScreen: View {
     }
 
     private func newNoteButton(in folder: String) -> some View {
-        Button("New Note", systemImage: "square.and.pencil") { createNote(in: folder) }
+        Button("New note", systemImage: "square.and.pencil") { createNote(in: folder) }
     }
 
     private func newFolderButton(in parent: String) -> some View {
-        Button("New Folder", systemImage: "folder.badge.plus") {
+        Button("New folder", systemImage: "folder.badge.plus") {
             newFolderName = ""
             newFolderParent = parent
         }
@@ -134,18 +140,29 @@ struct HomeScreen: View {
                 NavigationLink(value: Route.bookmarks) { PlaceRow(title: "Bookmarks", symbol: "bookmark", count: store.bookmarks.count) }
                 NavigationLink(value: Route.recent) { PlaceRow(title: "Recent", symbol: "clock", count: nil) }
             }
+            let allTags = store.tags
+            let tagCounts = Dictionary(allTags.map { ($0.tag, $0.count) }, uniquingKeysWith: { first, _ in first })
+            FavouritesSection(tagCounts: tagCounts)
             let folders = store.sorted(folders: store.subfolders(of: ""))
             if !folders.isEmpty {
-                Section {
+                Section(isExpanded: $showsFolders) {
+                    // The notes in no folder.
+                    NavigationLink(value: Route.folder("")) {
+                        PlaceRow(title: "Vault root", symbol: "tray", count: store.notes(in: "").count)
+                    }
+                    .favouriteMenu(.folder(""))
                     ForEach(folders, id: \.self) { folder in
                         NavigationLink(value: Route.folder(folder)) { FolderRow(folder: folder) }
+                            .favouriteMenu(.folder(folder))
                     }
+                } header: {
+                    FoldingHeader(title: "Folders", isExpanded: $showsFolders)
                 }
             }
-            let tags = store.sorted(tags: store.tags)
+            let tags = store.sorted(tags: allTags)
             if !tags.isEmpty {
                 // Nested tags under their parents.
-                Section("Tags") {
+                Section(isExpanded: $showsTags) {
                     ForEach(tags, id: \.tag) { entry in
                         NavigationLink(value: Route.tag(entry.tag)) {
                             let depth = entry.tag.split(separator: "/").count - 1
@@ -153,11 +170,20 @@ struct HomeScreen: View {
                                      symbol: symbol("number.sign.circle", or: "number.circle"), count: entry.count)
                                 .padding(.leading, CGFloat(depth) * 20)
                         }
+                        .favouriteMenu(.tag(entry.tag))
                     }
+                } header: {
+                    FoldingHeader(title: "Tags", isExpanded: $showsTags)
                 }
             }
+            Section {
+                NavigationLink(value: Route.deleted) { PlaceRow(title: "Deleted notes", symbol: "trash", count: store.deletedNotes.count, tint: .red) }
+            }
         }
-        .overlay { if store.notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text",
+        .onChange(of: showsFolders) { UserDefaults.standard.set($1, forKey: "showsFolders") }
+        .onChange(of: showsTags) { UserDefaults.standard.set($1, forKey: "showsTags") }
+        // Not until the vault's been read: at launch, it showed for a moment before the notes.
+        .overlay { if store.hasScanned, store.notes.isEmpty { ContentUnavailableView("No notes", systemImage: "doc.text",
             description: Text("Copy notes into Point’s folder in the Files app.")) } }
     }
 
@@ -168,21 +194,29 @@ struct HomeScreen: View {
             if let note = store.note(store.currentID(id)) {
                 NoteScreen(note: note, store: store, isNew: id == newNote) { folder in createNote(in: folder) }
             }
-        case .notes: NotesScreen().pageBar { topLevelActions }
+        case .notes: NotesScreen().pageBar(.sort) { topLevelActions }
         case .bookmarks: BookmarksScreen().pageBar { topLevelActions }
         case .recent: RecentScreen().pageBar { topLevelActions }
         case .tag(let tag):
-            TagScreen(tag: tag).pageBar {
-                Button("New Note", systemImage: "square.and.pencil") {
+            TagScreen(tag: tag).pageBar(.sort) {
+                Button("New note", systemImage: "square.and.pencil") {
                     createNote(text: Frontmatter.edit(adding: "tags", values: [tag], isList: true).1)
                 }
+                FavouriteButton(favourite: .tag(tag))
+            }
+        case .folder(""):
+            FolderScreen(folder: "").pageBar(.sort) {
+                topLevelActions
+                FavouriteButton(favourite: .folder(""))
             }
         case .folder(let folder):
-            FolderScreen(folder: folder).pageBar {
+            FolderScreen(folder: folder).pageBar(.sort) {
                 newNoteButton(in: folder)
                 newFolderButton(in: folder)
-                Button("Move Folder", systemImage: "folder") { movingFolder = folder }
+                Button("Move folder", systemImage: "folder") { movingFolder = folder }
+                FavouriteButton(favourite: .folder(folder))
             }
+        case .deleted: DeletedNotesScreen()
         }
     }
 
@@ -252,9 +286,8 @@ struct NotesScreen: View {
     var body: some View {
         let notes = store.notes.sorted(by: store.sort)
         List { NoteSections(notes: notes) }
-            .navigationTitle("All notes")
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { SortMenu() } }
-            .overlay { if notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text") } }
+            .pageTitle("All notes")
+            .overlay { if notes.isEmpty { ContentUnavailableView("No notes", systemImage: "doc.text") } }
     }
 }
 
@@ -271,8 +304,8 @@ struct BookmarksScreen: View {
             }
             .onMove(perform: store.moveBookmarks)
         }
-        .navigationTitle("Bookmarks")
-        .overlay { if store.bookmarks.isEmpty { ContentUnavailableView("No Bookmarks", systemImage: "bookmark",
+        .pageTitle("Bookmarks")
+        .overlay { if store.bookmarks.isEmpty { ContentUnavailableView("No bookmarks", systemImage: "bookmark",
             description: Text("Press and hold a note to bookmark it.")) } }
     }
 }
@@ -290,8 +323,8 @@ struct RecentScreen: View {
                 }
             }
         }
-        .navigationTitle("Recent")
-        .overlay { if groups.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text") } }
+        .pageTitle("Recent")
+        .overlay { if groups.isEmpty { ContentUnavailableView("No notes", systemImage: "doc.text") } }
     }
 }
 
@@ -303,33 +336,104 @@ struct TagScreen: View {
     var body: some View {
         let notes = store.notes(taggedWith: tag)
         List { NoteSections(notes: notes) }
-            .navigationTitle("#" + tag)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { SortMenu() } }
-            .overlay { if notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "doc.text") } }
+            .pageTitle("#" + tag)
+            .overlay { if notes.isEmpty { ContentUnavailableView("No notes", systemImage: "doc.text") } }
     }
 }
 
-/// A folder: the folders inside it, then its notes.
+/// A folder: the folders inside it, then its notes. The top level ("") is just its notes.
 struct FolderScreen: View {
     @EnvironmentObject private var store: PhoneStore
     let folder: String
 
     var body: some View {
-        let folders = store.sorted(folders: store.subfolders(of: folder))
+        // At the top level, just its notes: home has its folders.
+        let folders = folder.isEmpty ? [] : store.sorted(folders: store.subfolders(of: folder))
         let notes = store.notes(in: folder)
         List {
             if !folders.isEmpty {
                 Section {
                     ForEach(folders, id: \.self) { folder in
                         NavigationLink(value: Route.folder(folder)) { FolderRow(folder: folder) }
+                            .favouriteMenu(.folder(folder))
                     }
                 }
             }
             NoteSections(notes: notes)
         }
-        .navigationTitle((folder as NSString).lastPathComponent)
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { SortMenu() } }
-        .overlay { if folders.isEmpty && notes.isEmpty { ContentUnavailableView("No Notes", systemImage: "folder") } }
+        .pageTitle(folder.isEmpty ? "Vault root" : (folder as NSString).lastPathComponent)
+        .overlay { if folders.isEmpty && notes.isEmpty { ContentUnavailableView("No notes", systemImage: "folder") } }
+    }
+}
+
+/// The notes in the vault's trash, the latest deleted first: put back, or deleted for good. The
+/// Mac's Trash, and Obsidian's.
+struct DeletedNotesScreen: View {
+    @EnvironmentObject private var store: PhoneStore
+    /// The note tapped, to put back or delete.
+    @State private var chosen: VaultTrash.Item?
+    @State private var confirmsDeleteAll = false
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(store.deletedNotes) { item in
+                    Button { chosen = item } label: { row(item) }
+                        .foregroundStyle(.primary)
+                        .swipeActions(edge: .leading) {
+                            Button("Put back", systemImage: "arrow.uturn.backward") { store.restore(item) }
+                                .tint(.accentColor)
+                        }
+                        .swipeActions(edge: .trailing) {
+                            // Asks first: it's for good.
+                            Button("Delete", systemImage: "trash") { chosen = item }
+                                .tint(.red)
+                        }
+                }
+            } footer: {
+                if !store.deletedNotes.isEmpty {
+                    Text("Notes stay here for \(PhoneStore.keepsDeletedNotesDays) days, then go for good. Notes deleted in Obsidian stay until they’re deleted here.")
+                }
+            }
+        }
+        .pageTitle("Deleted notes")
+        .overlay { if store.deletedNotes.isEmpty { ContentUnavailableView("No deleted notes", systemImage: "trash") } }
+        .onAppear { store.refreshTrash() }
+        .confirmationDialog(chosen?.title ?? "", isPresented: Binding(get: { chosen != nil }, set: { if !$0 { chosen = nil } }),
+                            titleVisibility: .visible, presenting: chosen) { item in
+            Button("Put back") { store.restore(item) }
+            Button("Delete now", role: .destructive) { store.deleteForever(item) }
+        } message: { _ in
+            Text("Deleting it now can’t be undone.")
+        }
+        .confirmationDialog("Delete the \(store.deletedNotes.count) deleted notes for good?", isPresented: $confirmsDeleteAll, titleVisibility: .visible) {
+            Button("Delete all", role: .destructive) { store.deleteAllForever() }
+        }
+        .alert("Deleted notes", isPresented: Binding(get: { store.deletedNotesProblem != nil }, set: { if !$0 { store.deletedNotesProblem = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(store.deletedNotesProblem ?? "")
+        }
+        .pageBar {
+            Button("Delete all", systemImage: "trash", role: .destructive) { confirmsDeleteAll = true }
+                .disabled(store.deletedNotes.isEmpty)
+        }
+    }
+
+    /// Its title, where it was and when it was deleted.
+    private func row(_ item: VaultTrash.Item) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(item.title)
+            Text(subtitle(item))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func subtitle(_ item: VaultTrash.Item) -> String {
+        let when = HomeScreen.label(for: item.deleted)
+        guard let folder = item.folder, !folder.isEmpty else { return when }
+        return "\(when) · \((folder as NSString).lastPathComponent)"
     }
 }
 
@@ -338,31 +442,143 @@ func symbol(_ name: String, or older: String) -> String {
     UIImage(systemName: name) == nil ? older : name
 }
 
-/// What every page has: along the bottom, the system's search field and a menu of what can be
-/// done here, as Apple's own apps have them; and over the page, while searching, Search.
+/// What goes at the left of a page's bottom bar: on a list that can be sorted, Sort; in a note,
+/// finding in it, in place of search.
+enum PageTool {
+    case none, sort
+    case find(() -> Void)
+}
+
+/// What every page has along the bottom, as Apple's own apps have it: at the left, Sort or Find
+/// (`PageTool`); on a list, the system's search field, with Search over the page while it's in
+/// use, and in a note, a map that opens Search; and at the right, a menu of what can be done here.
+/// A section's header that folds the section up, and opens it again: the whole header is the
+/// button, with a chevron at the end that turns down when it's open.
+private struct FoldingHeader: View {
+    let title: String
+    @Binding var isExpanded: Bool
+
+    var body: some View {
+        Button {
+            withAnimation(.snappy(duration: 0.3)) { isExpanded.toggle() }
+        } label: {
+            HStack {
+                Text(title)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .accessibilityLabel(title)
+        .accessibilityValue(isExpanded ? "Open" : "Folded")
+        .accessibilityHint(isExpanded ? "Folds it up" : "Opens it")
+    }
+}
+
 private struct PageBar<Actions: View>: ViewModifier {
-    @EnvironmentObject private var store: PhoneStore
-    let note: Note?
+    @EnvironmentObject private var search: PhoneSearch
+    let tool: PageTool
     @ViewBuilder let actions: Actions
+    func body(content: Content) -> some View {
+        switch tool {
+        case .find(let find):
+            // A note: finding in it, and, with the map, Search, as on the lists.
+            content
+                .toolbar {
+                    ToolbarItem(placement: .bottomBar) {
+                        Button("Find in note", systemImage: "text.page.badge.magnifyingglass", action: find)
+                    }
+                    ToolbarItem(placement: .bottomBar) {
+                        Button("Search", systemImage: "map") { search.present(from: nil) }
+                    }
+                    ToolbarSpacer(.flexible, placement: .bottomBar)
+                    ToolbarItem(placement: .bottomBar) { menu }
+                }
+        case .none, .sort:
+            content
+                // The page stays its size under the keyboard: shrunk, the rows below were left
+                // undrawn, and showed blank as the keyboard went down.
+                .ignoresSafeArea(.keyboard)
+                .toolbar {
+                    if case .sort = tool {
+                        ToolbarItem(placement: .bottomBar) { SortMenu() }
+                        ToolbarSpacer(.fixed, placement: .bottomBar)
+                    }
+                    // Point's own search field, not the system's: Search opens out from it.
+                    ToolbarItem(placement: .bottomBar) {
+                        SearchCapsule(besides: { if case .sort = tool { 2 } else { 1 } }())
+                    }
+                    ToolbarSpacer(.fixed, placement: .bottomBar)
+                    ToolbarItem(placement: .bottomBar) { menu }
+                }
+        }
+    }
+
+    private var menu: some View {
+        Menu("Actions", systemImage: symbol("text.menu", or: "line.3.horizontal")) { actions }
+            // In the order given, top to bottom: from the bottom bar, the system would turn it
+            // over, putting the first item nearest the thumb.
+            .menuOrder(.fixed)
+    }
+}
+
+/// A page's large title, the page's own, at the top of its list and scrolling with it, and the
+/// system's small title once it's scrolled away. The system's large title collapsed as Search
+/// started, and the page jumped up with it; one of the page's own in the bar didn't slide with
+/// the page on going in and back. This one is part of the page: it slides and fades with it.
+private struct PageTitle: ViewModifier {
+    let title: String
+    /// How far the list has scrolled from the top.
+    @State private var scrolled: CGFloat = 0
+
+    /// The room the title takes above the list, as the system's did.
+    static let height: CGFloat = 52
 
     func body(content: Content) -> some View {
+        let showsSmallTitle = scrolled > Self.height - 12
         content
-            .overlay { SearchScreen(note: note) }
-            .searchable(text: $store.searchText, prompt: "Search")
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                DefaultToolbarItem(kind: .search, placement: .bottomBar)
-                ToolbarSpacer(.fixed, placement: .bottomBar)
-                ToolbarItem(placement: .bottomBar) {
-                    Menu("Actions", systemImage: symbol("text.menu", or: "line.3.horizontal")) { actions }
+                ToolbarItem(placement: .principal) {
+                    Text(title)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .opacity(showsSmallTitle ? 1 : 0)
+                        .animation(.easeOut(duration: 0.2), value: showsSmallTitle)
                 }
+            }
+            .contentMargins(.top, Self.height, for: .scrollContent)
+            .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, offset in
+                scrolled = offset
+            }
+            .overlay(alignment: .topLeading) {
+                Text(title)
+                    .font(.largeTitle.bold())
+                    .lineLimit(1)
+                    .padding(.horizontal, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 6)
+                    .frame(height: Self.height, alignment: .bottomLeading)
+                    .offset(y: -scrolled)
+                    // Goes as it scrolls under the bar.
+                    .opacity(1 - min(max(scrolled / (Self.height - 12), 0), 1))
+                    .allowsHitTesting(false)
+                    .accessibilityAddTraits(.isHeader)
             }
     }
 }
 
 extension View {
-    /// `note` is the note on this page, if there is one, for Search to look in.
-    func pageBar<Actions: View>(note: Note? = nil, @ViewBuilder actions: () -> Actions) -> some View {
-        modifier(PageBar(note: note, actions: actions))
+    func pageTitle(_ title: String) -> some View { modifier(PageTitle(title: title)) }
+
+    /// `tool` is what goes at the bar's left.
+    func pageBar<Actions: View>(_ tool: PageTool = .none, @ViewBuilder actions: () -> Actions) -> some View {
+        modifier(PageBar(tool: tool, actions: actions))
     }
 }
 
@@ -379,7 +595,7 @@ struct FolderPicker: View {
     var body: some View {
         NavigationStack {
             List {
-                row("Top Level", folder: "", depth: 0)
+                row("Vault root", folder: "", depth: 0)
                 ForEach(tree(of: "", depth: 0), id: \.folder) { row(FolderTree.name(of: $0.folder), folder: $0.folder, depth: $0.depth) }
             }
             .listStyle(.plain)
@@ -440,13 +656,24 @@ private struct SortMenu: View {
     @EnvironmentObject private var store: PhoneStore
 
     var body: some View {
-        Menu("Sort", systemImage: "arrow.up.arrow.down") {
+        Menu {
             Picker("Sort", selection: $store.sort) {
-                Text("Date Edited").tag(NoteSort.modified)
-                Text("Date Created").tag(NoteSort.created)
+                Text("Date edited").tag(NoteSort.modified)
+                Text("Date created").tag(NoteSort.created)
                 Text("Title").tag(NoteSort.title)
             }
+        } label: {
+            // Lighter than the bar's own weight, which looked heavy for two arrows side by side.
+            // The bar takes no font weight, so the symbol comes with its own.
+            Label {
+                Text("Sort")
+            } icon: {
+                Image(uiImage: UIImage(systemName: "arrow.up.arrow.down",
+                                       withConfiguration: UIImage.SymbolConfiguration(weight: .regular))!)
+            }
         }
+        // Top to bottom as listed: from the bottom bar, the system turned it over.
+        .menuOrder(.fixed)
     }
 }
 
@@ -463,7 +690,7 @@ private struct NoteLink: View {
         }
         .contextMenu {
             let bookmarked = store.isBookmarked(note.id)
-            Button(bookmarked ? "Remove Bookmark" : "Bookmark", systemImage: bookmarked ? "bookmark.slash" : "bookmark") {
+            Button(bookmarked ? "Remove bookmark" : "Bookmark", systemImage: bookmarked ? "bookmark.slash" : "bookmark") {
                 store.toggleBookmark(note.id)
             }
         }
@@ -475,17 +702,153 @@ private struct PlaceRow: View {
     let title: String
     let symbol: String
     let count: Int?
+    /// The title and symbol's colour, if not the usual.
+    var tint: Color?
+    /// The count's, if not the usual.
+    var countColor: Color?
 
     var body: some View {
         HStack {
-            Label(title, systemImage: symbol)
+            Label {
+                Text(title).foregroundStyle(tint ?? .primary)
+            } icon: {
+                Image(systemName: symbol).foregroundStyle(tint ?? .accentColor)
+            }
             Spacer()
             if let count {
                 Text("\(count)")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(countColor.map(AnyShapeStyle.init) ?? AnyShapeStyle(.secondary))
                     .monospacedDigit()
             }
         }
+    }
+}
+
+/// Home's Favourites: folders and tags chosen from their menus (`favouriteMenu`), on the
+/// highlight colour, in white. Not there until something's added. Missing ones (a folder
+/// gone, a tag no note has now) aren't shown, but are kept, in case they come back.
+private struct FavouritesSection: View {
+    @EnvironmentObject private var store: PhoneStore
+    let tagCounts: [String: Int]
+    @State private var edits = false
+
+    var body: some View {
+        let shown = store.favourites.filter { favourite in
+            switch favourite {
+            case .folder(let folder): folder.isEmpty || store.folders.contains(folder)
+            case .tag(let tag): tagCounts[tag] != nil
+            }
+        }
+        if !shown.isEmpty {
+            Section {
+                ForEach(shown, id: \.self) { favourite in
+                    NavigationLink(value: favourite.route) {
+                        HStack(spacing: 14) {
+                            row(favourite)
+                            // The system's own was grey on the blue.
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.6))
+                        }
+                    }
+                        .navigationLinkIndicatorVisibility(.hidden)
+                        .foregroundStyle(.white)
+                        .listRowBackground(Color.accentColor)
+                        .listRowSeparatorTint(.white.opacity(0.3))
+                        .favouriteMenu(favourite)
+                        .swipeActions {
+                            Button("Remove", systemImage: "star.slash", role: .destructive) { store.toggleFavourite(favourite) }
+                        }
+                }
+            } header: {
+                // Reordered here, not by dragging: a long press is Remove from Favourites, and
+                // a drag let go over it removed the row.
+                HStack {
+                    Text("Favourites")
+                    Spacer()
+                    Button("Edit") { edits = true }
+                        .font(.subheadline)
+                }
+            }
+            .sheet(isPresented: $edits) {
+                FavouritesEditor(shown: shown, label: label).environmentObject(store)
+            }
+        }
+    }
+
+    /// A favourite's name and symbol.
+    private func label(_ favourite: Favourite) -> (title: String, symbol: String) {
+        switch favourite {
+        case .folder(let folder):
+            (folder.isEmpty ? "Vault root" : (folder as NSString).lastPathComponent, folder.isEmpty ? "tray" : "folder")
+        case .tag(let tag): (tag, symbol("number.sign.circle", or: "number.circle"))
+        }
+    }
+
+    private func row(_ favourite: Favourite) -> some View {
+        let count = switch favourite {
+        case .folder(let folder): folder.isEmpty ? store.notes(in: "").count : store.noteCount(inFolder: folder)
+        case .tag(let tag): tagCounts[tag]
+        }
+        let (title, symbol) = label(favourite)
+        return PlaceRow(title: title, symbol: symbol, count: count, tint: .white, countColor: .white.opacity(0.6))
+    }
+}
+
+/// Favourites, to put in order and take off.
+private struct FavouritesEditor: View {
+    @EnvironmentObject private var store: PhoneStore
+    @Environment(\.dismiss) private var dismiss
+    @State var shown: [Favourite]
+    let label: (Favourite) -> (title: String, symbol: String)
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(shown, id: \.self) { favourite in
+                    let (title, symbol) = label(favourite)
+                    Label(title, systemImage: symbol)
+                }
+                .onMove { offsets, destination in
+                    shown.move(fromOffsets: offsets, toOffset: destination)
+                    store.reorderFavourites(shown)
+                }
+                .onDelete { offsets in
+                    for favourite in offsets.map({ shown[$0] }) { store.toggleFavourite(favourite) }
+                    shown.remove(atOffsets: offsets)
+                    if shown.isEmpty { dismiss() }
+                }
+            }
+            .environment(\.editMode, .constant(.active))
+            .navigationTitle("Favourites")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done", systemImage: "checkmark") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+/// Adds a folder or tag to Favourites, or takes it off, in an action menu.
+private struct FavouriteButton: View {
+    @EnvironmentObject private var store: PhoneStore
+    let favourite: Favourite
+
+    var body: some View {
+        let isFavourite = store.isFavourite(favourite)
+        Button(isFavourite ? "Remove from favourites" : "Add to favourites", systemImage: isFavourite ? "star.slash" : "star") {
+            store.toggleFavourite(favourite)
+        }
+    }
+}
+
+extension View {
+    /// Add to Favourites (or Remove), on a long press.
+    fileprivate func favouriteMenu(_ favourite: Favourite) -> some View {
+        contextMenu { FavouriteButton(favourite: favourite) }
     }
 }
 

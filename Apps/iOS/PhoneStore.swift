@@ -10,6 +10,11 @@ import VaultKit
 @MainActor
 final class PhoneStore: ObservableObject {
     @Published private(set) var notes: [Note] = []
+    /// Whether the vault has been read since launch: until then, no notes doesn't mean none.
+    @Published private(set) var hasScanned = false
+    /// Whether the app has what it needs to show, after launch: the notes, folders and tags. Until
+    /// then the launch cover is up, not home half filled in.
+    @Published private(set) var isReady = false
     /// Every folder in the vault, by path ("Projects/Point").
     @Published private(set) var folders: [String] = []
     /// Each note's tags, from the search index (nested tags as written: `work/point`).
@@ -17,21 +22,34 @@ final class PhoneStore: ObservableObject {
     /// The property names used in notes, with how many notes use each, most used first.
     @Published private(set) var propertyNames: [(name: String, count: Int)] = []
     @Published private(set) var bookmarks: [ObsidianBookmarks.Bookmark] = []
-    /// What's typed in the search field; results follow as it changes.
-    @Published var searchText = "" {
-        didSet { scheduleSearch() }
+    /// The folders and tags on home's Favourites, in their order: the phone's own, in its
+    /// defaults, not the vault's (Obsidian has nothing like it).
+    @Published private(set) var favourites: [Favourite] = UserDefaults.standard.data(forKey: "favourites")
+        .flatMap { try? JSONDecoder().decode([Favourite].self, from: $0) } ?? [] {
+        didSet { UserDefaults.standard.set(try? JSONEncoder().encode(favourites), forKey: "favourites") }
     }
-    /// Results for `searchText`, or nil when not searching.
-    @Published private(set) var searchResults: [SearchResult]?
+    /// What's typed in the search field, and what's found.
+    let search = PhoneSearch()
+    /// Goes up each time the search index takes in changed notes, for what's read from it to
+    /// be read again.
+    @Published private(set) var indexUpdates = 0
+    /// Notes show their raw Markdown, every marker visible, as on the Mac: for every note,
+    /// until it's turned off or the app quits.
+    @Published var showsMarkdown = false
     /// How folders, All notes and tags list their notes, as on the Mac. Recent keeps its own
     /// order, and is the only list that opening a note changes.
     @Published var sort = UserDefaults.standard.string(forKey: "noteSort").flatMap(NoteSort.init) ?? .modified {
         didSet { UserDefaults.standard.set(sort.rawValue, forKey: "noteSort") }
     }
 
+    /// How note text is set, from Settings.
+    @Published var typography: Typography = UserDefaults.standard.data(forKey: "typography")
+        .flatMap { try? JSONDecoder().decode(Typography.self, from: $0) } ?? PhoneTextView.standardTypography {
+        didSet { UserDefaults.standard.set(try? JSONEncoder().encode(typography), forKey: "typography") }
+    }
+
     let root = PhoneVault.root
     private var index: SearchIndex?
-    private var searchTask: Task<Void, Never>?
 
     /// Where edits that can't be saved are kept, outside the vault.
     let drafts = NoteDrafts(storage: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -42,6 +60,12 @@ final class PhoneStore: ObservableObject {
         PhoneVault.makeSampleNotes()
         index = try? SearchIndex(url: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Index/vault.sqlite"))
+        search.find = { [weak self] query in
+            guard let self, let index = self.index else { return nil }
+            let results = (try? await index.search(query)) ?? []
+            // The notes opened and picked most move up among matches of similar quality.
+            return self.history.rank(results, for: query)
+        }
         Task { await reload() }
     }
 
@@ -63,9 +87,20 @@ final class PhoneStore: ObservableObject {
     func reload() async {
         let root = root
         let start = CACurrentMediaTime()
+        // On the first read, the tags and properties the index had last time are read beside the
+        // scan, so home has its tags when it shows; the index catches up after.
+        let early: Task<([Note.ID: [String]]?, [(name: String, count: Int)]?), Never>? = isReady ? nil : index.map { index in
+            Task { (try? await index.tagsByNote(), try? await index.propertyNames()) }
+        }
         let result = try? await Task.detached(priority: .userInitiated) { try VaultScanner.scanWithFolders(root) }.value
         let scanned = result?.notes ?? []
+        if let early {
+            let (tags, names) = await early.value
+            if let tags { tagsByNote = tags }
+            if let names { propertyNames = names }
+        }
         notes = scanned
+        hasScanned = true
         // Notes that are gone take what was learned about them (not while the folder reads
         // as empty, which is more likely unavailable for a moment).
         if !scanned.isEmpty {
@@ -78,10 +113,15 @@ final class PhoneStore: ObservableObject {
         propertyTypes = PropertyTypes.load(vault: root)
         settings = ObsidianSettings.load(vault: root)
         templates = Templates.available(in: root, settings: settings)
+        refreshTrash()
         // Notes left untitled when the app last stopped (none is open yet): named, or removed.
         if !isLaunched {
             isLaunched = true
             untitled.forEach { finishUntitled($0) }
+        }
+        if !isReady {
+            isReady = true
+            PhoneVault.log("ready \(Int((CACurrentMediaTime() - PhoneVault.launched) * 1000)) ms after launch")
         }
         PhoneVault.log("scanned \(scanned.count) notes in \(Int((CACurrentMediaTime() - start) * 1000)) ms")
         guard let index else { return }
@@ -90,15 +130,13 @@ final class PhoneStore: ObservableObject {
         if changed > 0 || tagsByNote.isEmpty, let tags = try? await index.tagsByNote() { tagsByNote = tags }
         if changed > 0 || propertyNames.isEmpty, let names = try? await index.propertyNames() { propertyNames = names }
         if changed > 0 {
+            indexUpdates += 1
             PhoneVault.log("indexed \(changed) notes in \(Int((CACurrentMediaTime() - indexStart) * 1000)) ms")
-            if !searchText.isEmpty { scheduleSearch() }
+            search.searchAgain()
         }
     }
 
     // MARK: Links
-
-    /// Text to find in the open note, from search ("" to just open the find bar).
-    @Published var findRequest: String?
 
     /// Where a tapped link leads, for home's navigation to go to.
     @Published var linkedRoute: Route?
@@ -162,21 +200,26 @@ final class PhoneStore: ObservableObject {
         return Array(tags.map(\.tag).filter { $0.lowercased().hasPrefix(query) }.prefix(20))
     }
 
-    /// The notes linked with `note`: those it links to, then those linking to it, each once.
-    func linkedNotes(of note: Note) async -> [Note] {
-        let notes = notes
-        let outgoing = await Task.detached(priority: .userInitiated) { () -> [Note] in
-            guard let text = try? NoteReader.read(contentsOf: note.url) else { return [] }
-            let resolver = LinkResolver(notes: notes)
-            let wikiLinks = LinkUpdater.wikiLinks(in: text).compactMap { resolver.resolve(wikiTarget: $0.target, from: note.id) }
-            return wikiLinks + MarkdownParser.parse(text).compactMap { token in
-                guard case .link(let destination) = token.kind else { return nil }
-                return resolver.resolve(markdownDestination: destination, from: note.id)
-            }
-        }.value
-        let backlinks = (try? await index?.backlinks(to: note, notes: notes)) ?? []
-        var seen: Set<Note.ID> = [note.id]
-        return (outgoing.map(\.id) + backlinks.map(\.noteID)).filter { seen.insert($0).inserted }.compactMap { self.note($0) }
+    /// The notes linking to `note`, each with the line its link is on, by title.
+    func backlinks(to note: Note) async -> [Backlink] {
+        (try? await index?.backlinks(to: note, notes: notes)) ?? []
+    }
+
+    /// Where to take a note to as it opens (from its backlink, the link to the note it came
+    /// from), until it's taken.
+    private var revealing: (id: Note.ID, range: NSRange)?
+
+    /// Opens a note linking to another, at the link.
+    func open(_ backlink: Backlink) {
+        if backlink.range.location != NSNotFound { revealing = (backlink.noteID, backlink.range) }
+        linkedRoute = .note(backlink.noteID)
+    }
+
+    /// Where to show in a note being opened, if it was opened at a link.
+    func revealRange(for id: Note.ID) -> NSRange? {
+        guard let revealing, revealing.id == id else { return nil }
+        self.revealing = nil
+        return revealing.range
     }
 
     private func createLinkedNote(named target: String) -> Note.ID? {
@@ -339,13 +382,15 @@ final class PhoneStore: ObservableObject {
         return (moved, links)
     }
 
-    /// Moves a note to the vault's trash, as the Mac does, where the Mac and Obsidian can put it
-    /// back: the phone has no trash list. What it was known by (opened, worked on, its bookmark)
-    /// goes with it.
+    /// Moves a note to the vault's trash, as the Mac does: Deleted Notes, where it can be put
+    /// back, here or on the Mac (or in Obsidian). What it was known by (opened, worked on, its
+    /// bookmark) goes with it.
     func moveToTrash(_ id: Note.ID) {
         guard let note = note(id) else { return }
         do {
-            _ = try VaultTrash.move(note.url, vault: root)
+            let name = try VaultTrash.move(note.url, vault: root)
+            trashRecords[name] = VaultTrash.Record(deleted: Date(), folder: FolderTree.folder(of: note.id), deletedByPoint: true)
+            refreshTrash()
         } catch {
             trashProblem = "“\(note.title)” is still in your notes (\(error.localizedDescription))."
             return
@@ -364,6 +409,83 @@ final class PhoneStore: ObservableObject {
 
     /// Why a note couldn't be deleted, for home to say: its own screen has gone by then.
     @Published var trashProblem: String?
+
+    // MARK: Deleted notes
+
+    /// The notes in the vault's trash, newest first.
+    @Published private(set) var deletedNotes: [VaultTrash.Item] = []
+    /// Why a deleted note couldn't be put back or deleted for good.
+    @Published var deletedNotesProblem: String?
+    /// How long the notes Point deletes are kept, as on the Mac by default.
+    static let keepsDeletedNotesDays = 30
+
+    /// When each note in the trash was deleted, and where from, by its name there.
+    private var trashRecords: [String: VaultTrash.Record] {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: "trashRecords") else { return [:] }
+            return (try? JSONDecoder().decode([String: VaultTrash.Record].self, from: data)) ?? [:]
+        }
+        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: "trashRecords") }
+    }
+
+    /// Lists the trash, removing for good the notes Point deleted more than 30 days ago, as the
+    /// Mac does. Notes found there (put there by Obsidian, say) stay until it's emptied.
+    func refreshTrash() {
+        var records = trashRecords
+        let now = Date()
+        let cutoff = now.addingTimeInterval(-Double(Self.keepsDeletedNotesDays) * 86_400)
+        let all = VaultTrash.items(in: root, records: records, now: now)
+        var expired: Set<String> = []
+        for item in VaultTrash.expired(all, before: cutoff) {
+            do {
+                try VaultTrash.delete(item)
+                expired.insert(item.name)
+            } catch {
+                PhoneVault.log("couldn't remove \(item.name) from the trash: \(error.localizedDescription)")
+            }
+        }
+        let items = all.filter { !expired.contains($0.name) }
+        for item in items where records[item.name] == nil {
+            records[item.name] = VaultTrash.Record(deleted: now, folder: item.folder ?? "", deletedByPoint: false)
+        }
+        // Forget notes no longer there (emptied or put back elsewhere).
+        let names = Set(items.map(\.name))
+        records = records.filter { names.contains($0.key) }
+        if records != trashRecords { trashRecords = records }
+        if items != deletedNotes { deletedNotes = items }
+    }
+
+    /// Puts a note back where it was (or at the top level, if its folder is gone).
+    func restore(_ item: VaultTrash.Item) {
+        do {
+            _ = try VaultTrash.restore(item, vault: root)
+            trashRecords[item.name] = nil
+            refreshTrash()
+            Task { await reload() }
+        } catch {
+            deletedNotesProblem = "“\(item.title)” couldn’t be put back (\(error.localizedDescription))."
+        }
+    }
+
+    func deleteForever(_ item: VaultTrash.Item) {
+        do {
+            try VaultTrash.delete(item)
+        } catch {
+            deletedNotesProblem = "“\(item.title)” couldn’t be deleted (\(error.localizedDescription))."
+        }
+        refreshTrash()
+    }
+
+    func deleteAllForever() {
+        var failed: [String] = []
+        for item in deletedNotes {
+            do { try VaultTrash.delete(item) } catch { failed.append(item.title) }
+        }
+        refreshTrash()
+        if !failed.isEmpty {
+            deletedNotesProblem = failed.count == 1 ? "“\(failed[0])” couldn’t be deleted." : "\(failed.count) notes couldn’t be deleted."
+        }
+    }
 
     /// A note's file renamed: the list, and what it was known by (opened, worked on, its
     /// bookmarks), follow it.
@@ -430,6 +552,11 @@ final class PhoneStore: ObservableObject {
             let inside = note.id.dropFirst(prefix.count)
             let folder = ((newPath + "/" + inside) as NSString).deletingLastPathComponent
             moved(note, to: root.appendingPathComponent(newPath + "/" + inside), in: folder)
+        }
+        // Favourites follow it, and anything inside it.
+        favourites = favourites.map { favourite in
+            guard case .folder(let folder) = favourite, folder == path || folder.hasPrefix(prefix) else { return favourite }
+            return .folder(newPath + folder.dropFirst(path.count))
         }
         Task { await reload() }
         return newPath
@@ -659,23 +786,81 @@ final class PhoneStore: ObservableObject {
         bookmarks = ObsidianBookmarks.load(vault: root)
     }
 
-    // MARK: Search
+    // MARK: Favourites
 
-    private func scheduleSearch() {
-        searchTask?.cancel()
-        let query = searchText.trimmingCharacters(in: .whitespaces)
+    func isFavourite(_ favourite: Favourite) -> Bool { favourites.contains(favourite) }
+
+    /// Adds it to the end of Favourites, or takes it off.
+    func toggleFavourite(_ favourite: Favourite) {
+        UISelectionFeedbackGenerator().selectionChanged()
+        if let index = favourites.firstIndex(of: favourite) {
+            favourites.remove(at: index)
+        } else {
+            favourites.append(favourite)
+        }
+    }
+
+    /// Favourites in the order shown (`shown`, those whose folder or tag is still there),
+    /// with the rest after, in case they come back.
+    func reorderFavourites(_ shown: [Favourite]) {
+        favourites = shown + favourites.filter { !shown.contains($0) }
+    }
+}
+
+/// A folder or a tag on home's Favourites.
+enum Favourite: Hashable, Codable {
+    case folder(String)
+    case tag(String)
+
+    var route: Route {
+        switch self {
+        case .folder(let folder): .folder(folder)
+        case .tag(let tag): .tag(tag)
+        }
+    }
+}
+
+/// Search: what's typed in the search field, and the results, which follow as it changes. An
+/// object of its own, not part of the store: as the store's, every keystroke, and Search opening,
+/// redrew every page showing the vault, home under Search among them.
+@MainActor
+final class PhoneSearch: ObservableObject {
+    @Published var text = "" {
+        didSet { if text != oldValue { searchAgain() } }
+    }
+    /// Results for `text`, or nil when not searching.
+    @Published private(set) var results: [SearchResult]?
+    /// Searches the vault (nil if it can't).
+    var find: ((String) async -> [SearchResult]?)?
+    /// Whether Search is up.
+    @Published var isShown = false
+    /// The app's window's width, for the bar's search field.
+    @Published var windowWidth: CGFloat = 0
+    /// Where the bar's search field was when Search opened, in the window, for Search's field
+    /// to open out from (nil when Search opened from elsewhere).
+    private(set) var from: CGRect?
+    private var task: Task<Void, Never>?
+
+    /// Opens Search, from the bar's field at `frame`, or from nowhere in particular.
+    func present(from frame: CGRect?) {
+        guard !isShown else { return }
+        from = frame.flatMap { $0.isEmpty ? nil : $0 }
+        isShown = true
+    }
+
+    /// Searches for what's typed, if anything, after a pause in typing.
+    func searchAgain() {
+        task?.cancel()
+        let query = text.trimmingCharacters(in: .whitespaces)
         guard !query.isEmpty else {
-            searchResults = nil
+            if results != nil { results = nil }
             return
         }
-        guard let index else { return }
-        searchTask = Task { [weak self] in
+        guard let find else { return }
+        task = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 80_000_000) // Waits for a pause in typing.
-            guard !Task.isCancelled else { return }
-            let results = (try? await index.search(query)) ?? []
-            guard !Task.isCancelled, let self else { return }
-            // The notes opened and picked most move up among matches of similar quality.
-            self.searchResults = self.history.rank(results, for: query)
+            guard !Task.isCancelled, let results = await find(query), !Task.isCancelled else { return }
+            self?.results = results
         }
     }
 }

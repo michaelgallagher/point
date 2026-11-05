@@ -21,7 +21,7 @@ struct NoteDateGroupTests {
         #expect(NoteDateGroup.label(for: date(2026, 10, 28, 1), now: now, calendar: calendar) == "Today")
         #expect(NoteDateGroup.label(for: date(2026, 10, 29), now: now, calendar: calendar) == "Today")
         #expect(NoteDateGroup.label(for: date(2026, 10, 27, 23), now: now, calendar: calendar) == "Yesterday")
-        #expect(NoteDateGroup.label(for: date(2026, 10, 22), now: now, calendar: calendar) == "Previous 7 Days")
+        #expect(NoteDateGroup.label(for: date(2026, 10, 22), now: now, calendar: calendar) == "Previous 7 days")
         #expect(NoteDateGroup.label(for: date(2026, 10, 21), now: now, calendar: calendar) == "October")
         #expect(NoteDateGroup.label(for: date(2026, 1, 2), now: now, calendar: calendar) == "January")
         #expect(NoteDateGroup.label(for: date(2025, 12, 31), now: now, calendar: calendar) == "2025")
@@ -39,10 +39,10 @@ struct NoteDateGroupTests {
             note("e", modified: date(2023, 5, 5), created: date(2023, 5, 5)),
         ]
         let byEdited = NoteDateGroup.grouped(notes.sorted(by: .modified), by: .modified, now: now, calendar: calendar)
-        #expect(byEdited.map(\.label) == ["Today", "Previous 7 Days", "October", "September", "2023"])
+        #expect(byEdited.map(\.label) == ["Today", "Previous 7 days", "October", "September", "2023"])
         #expect(byEdited.map { $0.notes.map(\.title) } == [["a"], ["b"], ["c"], ["d"], ["e"]])
         let byCreated = NoteDateGroup.grouped(notes.sorted(by: .created), by: .created, now: now, calendar: calendar)
-        #expect(byCreated.map(\.label) == ["Previous 7 Days", "October", "September", "2024", "2023"])
+        #expect(byCreated.map(\.label) == ["Previous 7 days", "October", "September", "2024", "2023"])
         #expect(NoteDateGroup.grouped(notes, by: .title, now: now, calendar: calendar).isEmpty)
     }
 }

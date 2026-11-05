@@ -51,7 +51,7 @@ struct SidebarTopBar: View {
             .background(WindowDragArea())
             .overlay(alignment: .trailing) {
                 if model.browsingStyle == .singleColumn {
-                    BarButton("Home", systemImage: "house", help: "All Notes") { model.browse(.allNotes) }
+                    BarButton("Home", systemImage: "house", help: "All notes") { model.browse(.allNotes) }
                         .disabled(model.place == .allNotes)
                         // Clear of the sidebar button, which sits 8 points in from the edge.
                         .padding(.trailing, TopBar.buttonSpacing + TopBar.sidebarButtonWidth)
@@ -196,7 +196,7 @@ struct PaneTabs: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let titles = pane.tabs.map { model.note($0.noteID)?.title ?? "New Tab" }
+            let titles = pane.tabs.map { model.note($0.noteID)?.title ?? "New tab" }
             let widths = Self.widths(of: titles, in: geometry.size.width)
             let rowWidth = widths.reduce(0, +) + Self.spacing * CGFloat(widths.count - 1) + Self.inset * 2
             ScrollViewReader { proxy in
@@ -321,7 +321,7 @@ private struct PaneTab: View {
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
             .accessibilityAction { select() }
-            .accessibilityAction(named: "Close Tab") { close() }
+            .accessibilityAction(named: "Close tab") { close() }
     }
 }
 
@@ -440,7 +440,7 @@ private struct PaneMenuButton: View {
     }
 
     var body: some View {
-        BarMenu("Note Options", systemImage: "ellipsis", help: "Note Options", menu: menu)
+        BarMenu("Note options", systemImage: "ellipsis", help: "Note options", menu: menu)
     }
 }
 

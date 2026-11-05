@@ -790,7 +790,7 @@ struct SidebarButton: View {
     let action: () -> Void
 
     var body: some View {
-        BarButton("Sidebar", systemImage: "sidebar.left", help: "Show or Hide the Sidebar (⌘S)", action: action)
+        BarButton("Sidebar", systemImage: "sidebar.left", help: "Show or hide the sidebar (⌘S)", action: action)
             .ignoresSafeArea() // Placed exactly, in the title bar.
     }
 }

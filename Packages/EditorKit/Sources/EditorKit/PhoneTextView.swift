@@ -68,8 +68,7 @@ public final class PhoneTextView: UITextView {
         storage.delegate = self
         delegate = self
         addTapRecognizer()
-        styler.theme.typography.bodySize = 17 // The iPhone's own body size.
-        styler.theme.typography.headings[0].size = 22.0 / 17 // Below the note's title, at 28.
+        styler.theme.typography = Self.standardTypography
         styler.theme.keepsTagsInsideMargin = true
         styler.theme.tagSpace = 8
         styler.theme.tagRise = 3
@@ -180,10 +179,46 @@ public final class PhoneTextView: UITextView {
         super.scrollRangeToVisible(range)
     }
 
+    /// Shows the raw Markdown instead of formatted text, as on the Mac, for fixing anything odd:
+    /// every marker visible, the frontmatter too, in a monospaced font.
+    /// The phone's own typography, before any changes in Settings: the body at 17 pt, the
+    /// iPhone's own size, and Heading 1 at 22, below the note's title at 28.
+    public static var standardTypography: Typography {
+        var typography = Typography()
+        typography.bodySize = 17
+        typography.headings[0].size = 22.0 / 17
+        return typography
+    }
+
+    /// The body's size and line height, and each heading's size and style (from Settings), at
+    /// the phone's standard text size: a larger text size scales it all.
+    public var typography: Typography {
+        get { styler.theme.typography }
+        set {
+            guard newValue != styler.theme.typography else { return }
+            styler.theme.typography = newValue
+            pointLayoutManager.theme = styler.theme
+            typingAttributes = styler.baseAttributes
+            restyle(NSRange(location: 0, length: textStorage.length))
+            setNeedsLayout()
+        }
+    }
+
+    public var showsMarkdown: Bool {
+        get { styler.showsMarkdown }
+        set {
+            guard newValue != styler.showsMarkdown else { return }
+            styler.showsMarkdown = newValue
+            restyle(NSRange(location: 0, length: textStorage.length))
+            settleCursor()
+        }
+    }
+
     /// Where the note's body starts: after its frontmatter, which is hidden and edited as
-    /// properties, so nothing above this can be selected, typed in or deleted.
+    /// properties, so nothing above this can be selected, typed in or deleted. While the
+    /// Markdown shows, the frontmatter is text like the rest, and this is 0.
     public var bodyStart: Int {
-        guard let token = tokens.first, token.kind == .frontmatter, token.range.length > 0 else { return 0 }
+        guard !styler.showsMarkdown, let token = tokens.first, token.kind == .frontmatter, token.range.length > 0 else { return 0 }
         let text = textStorage.string as NSString
         let last = min(NSMaxRange(token.range) - 1, text.length - 1)
         guard last >= 0 else { return 0 }

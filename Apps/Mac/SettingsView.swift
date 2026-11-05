@@ -19,7 +19,7 @@ struct SettingsView: View {
             case .notes: "Notes"
             case .templates: "Templates"
             case .shortcuts: "Shortcuts"
-            case .appIcon: "App Icon"
+            case .appIcon: "App icon"
             }
         }
 
@@ -152,16 +152,16 @@ struct SettingsView: View {
         Form {
             Section {
                 Picker("Layout", selection: $store.browsingStyle) {
-                    Text("One Column").tag(VaultModel.BrowsingStyle.singleColumn)
-                    Text("Two Columns").tag(VaultModel.BrowsingStyle.twoColumns)
+                    Text("One column").tag(VaultModel.BrowsingStyle.singleColumn)
+                    Text("Two columns").tag(VaultModel.BrowsingStyle.twoColumns)
                 }
                 Picker("Density", selection: $store.sidebarDensity) {
                     Text("Comfortable").tag(VaultModel.SidebarDensity.comfortable)
                     Text("Compact").tag(VaultModel.SidebarDensity.compact)
                 }
                 Picker("Folders and tags", selection: $store.treeLayout) {
-                    Text("Folders Above Tags").tag(VaultModel.TreeLayout.stacked)
-                    Text("One at a Time").tag(VaultModel.TreeLayout.toggle)
+                    Text("Folders above tags").tag(VaultModel.TreeLayout.stacked)
+                    Text("One at a time").tag(VaultModel.TreeLayout.toggle)
                 }
                 Toggle("Show bookmarks", isOn: $store.showsBookmarksInSidebar)
             }
@@ -187,25 +187,25 @@ struct SettingsView: View {
             Section("Sorting") {
                 Picker("Folders and tags", selection: $store.tagOrder) {
                     Text("Name").tag(VaultModel.TagOrder.name)
-                    Text("Date Modified").tag(VaultModel.TagOrder.modified)
+                    Text("Date modified").tag(VaultModel.TagOrder.modified)
                 }
                 Picker("Notes", selection: $store.sort) {
-                    Text("Date Edited").tag(NoteSort.modified)
-                    Text("Date Created").tag(NoteSort.created)
+                    Text("Date edited").tag(NoteSort.modified)
+                    Text("Date created").tag(NoteSort.created)
                     Text("Title").tag(NoteSort.title)
                 }
             }
 
             Section("Note list") {
                 Picker("Dates", selection: $store.listDateStyle) {
-                    Text("In Groups").tag(VaultModel.ListDateStyle.groups)
-                    Text("Beside Titles").tag(VaultModel.ListDateStyle.beside)
+                    Text("In groups").tag(VaultModel.ListDateStyle.groups)
+                    Text("Beside titles").tag(VaultModel.ListDateStyle.beside)
                     Text("Hidden").tag(VaultModel.ListDateStyle.off)
                 }
                 // Beside each title. (Groups follow the date the notes are sorted by.)
                 Picker("Date shown", selection: $store.listDate) {
-                    Text("Date Edited").tag(VaultModel.ListDate.edited)
-                    Text("Date Created").tag(VaultModel.ListDate.created)
+                    Text("Date edited").tag(VaultModel.ListDate.edited)
+                    Text("Date created").tag(VaultModel.ListDate.created)
                 }
                 .disabled(store.listDateStyle != .beside)
                 Toggle("Show tags", isOn: $store.showsTagsInList)
@@ -335,7 +335,7 @@ private struct TypographySettings: View {
 
         Section {
             LabeledContent("Body text and headings") {
-                Button("Restore Defaults") { typography = Typography() }
+                Button("Restore defaults") { typography = Typography() }
                     .disabled(typography == Typography())
             }
         }
@@ -424,7 +424,7 @@ private struct TemplatesSettings: View {
                             }
                             .frame(maxWidth: 320)
                         }
-                        Button("New Template") { store.createTemplate() }
+                        Button("New template") { store.createTemplate() }
                             .padding(.top, 4)
                     }
                 }
