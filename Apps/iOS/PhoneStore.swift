@@ -12,6 +12,9 @@ final class PhoneStore: ObservableObject {
     @Published private(set) var notes: [Note] = []
     /// Whether the vault has been read since launch: until then, no notes doesn't mean none.
     @Published private(set) var hasScanned = false
+    /// Whether the app has what it needs to show, after launch: the notes, folders and tags. Until
+    /// then the launch cover is up, not home half filled in.
+    @Published private(set) var isReady = false
     /// Every folder in the vault, by path ("Projects/Point").
     @Published private(set) var folders: [String] = []
     /// Each note's tags, from the search index (nested tags as written: `work/point`).
@@ -84,8 +87,18 @@ final class PhoneStore: ObservableObject {
     func reload() async {
         let root = root
         let start = CACurrentMediaTime()
+        // On the first read, the tags and properties the index had last time are read beside the
+        // scan, so home has its tags when it shows; the index catches up after.
+        let early: Task<([Note.ID: [String]]?, [(name: String, count: Int)]?), Never>? = isReady ? nil : index.map { index in
+            Task { (try? await index.tagsByNote(), try? await index.propertyNames()) }
+        }
         let result = try? await Task.detached(priority: .userInitiated) { try VaultScanner.scanWithFolders(root) }.value
         let scanned = result?.notes ?? []
+        if let early {
+            let (tags, names) = await early.value
+            if let tags { tagsByNote = tags }
+            if let names { propertyNames = names }
+        }
         notes = scanned
         hasScanned = true
         // Notes that are gone take what was learned about them (not while the folder reads
@@ -105,6 +118,10 @@ final class PhoneStore: ObservableObject {
         if !isLaunched {
             isLaunched = true
             untitled.forEach { finishUntitled($0) }
+        }
+        if !isReady {
+            isReady = true
+            PhoneVault.log("ready \(Int((CACurrentMediaTime() - PhoneVault.launched) * 1000)) ms after launch")
         }
         PhoneVault.log("scanned \(scanned.count) notes in \(Int((CACurrentMediaTime() - start) * 1000)) ms")
         guard let index else { return }

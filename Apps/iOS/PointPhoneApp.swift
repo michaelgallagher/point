@@ -9,12 +9,38 @@ struct PointPhoneApp: App {
     @UIApplicationDelegateAdaptor private var appDelegate: AppDelegate
     @StateObject private var store = PhoneStore()
 
+    init() { _ = PhoneVault.launched }
+
     var body: some Scene {
         WindowGroup {
             HomeScreen()
                 .environmentObject(store)
                 .environmentObject(store.search)
+                // Until the vault's been read: home, half filled in, showed lists still filling
+                // and "No notes" for a moment.
+                .overlay {
+                    ZStack {
+                        if !store.isReady { LaunchCover().transition(.opacity) }
+                    }
+                    .animation(.easeOut(duration: 0.3), value: store.isReady)
+                }
         }
+    }
+}
+
+/// What shows while the app gets ready: the app icon's eye in the middle of the page, on the
+/// system background (white, or black in dark mode). It follows the launch screen, which is the same.
+private struct LaunchCover: View {
+    var body: some View {
+        // The launch screen's own eye, the app icon's (in Info.plist), centred on the whole screen as it is
+        // there, not in the safe area.
+        ZStack {
+            Color(.systemBackground)
+            Image("LaunchEye")
+        }
+        .ignoresSafeArea()
+        .accessibilityElement()
+            .accessibilityLabel("Loading")
     }
 }
 
@@ -54,6 +80,8 @@ final class SceneDelegate: NSObject, UIWindowSceneDelegate {
 /// The vault on the phone, for now: a folder in the app's Documents, which the Files app
 /// shows (copy notes in there). Two notes for measuring are made the first time.
 enum PhoneVault {
+    /// When the app started, for timing how long it takes to be ready.
+    static let launched = CACurrentMediaTime()
     static let root: URL = {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let root = documents.appendingPathComponent("Vault", isDirectory: true)

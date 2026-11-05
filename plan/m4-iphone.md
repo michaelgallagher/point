@@ -275,6 +275,15 @@ After trying the first draft, on `ios-second-draft`. One commit per step.
 
 **Tried:** all of the above in the Simulator, iOS 27 (with 4,000 notes) and 26.1, frame by frame for Search.
 
+## Launch cover (5 November 2026)
+
+On opening, home used to show part of the list, or empty states, while the vault was read. Now:
+- The launch screen (`UILaunchScreen` in `Apps/iOS/Info.plist`) is the app icon's eye in the middle, at 60 pt, on white, or black in dark mode. Both are in `Apps/iOS/Assets.xcassets`: `LaunchEye`, PNGs at 1x, 2x and 3x drawn from the three circles in `Resources/AppIcon.icon/Assets/eye.svg`, and `LaunchBackground`.
+- iOS caches the launch screen and doesn't always redraw it when only the image changes, even after a reinstall. Changing the `UILaunchScreen` entries makes it redraw. To see the launch screen on its own, launch with `xcrun simctl launch --wait-for-debugger`.
+- Home keeps the same eye over itself (`LaunchCover` in `PointPhoneApp.swift`) until `PhoneStore.isReady`, then fades it out over 0.3 s. It's centred on the whole screen, as the launch screen's is, so there's one eye throughout.
+- `isReady` is set once the first scan and the tags and properties from the index have all arrived, so home appears complete. The tags are read while the scan runs, not after.
+- On the iPhone 13 with 3,411 notes, home is ready 0.8–1.0 s after launch. In the Simulator, with the test vault, 0.25–0.5 s.
+
 ## Sentence case (5 November 2026)
 
 Mike: Point's house style is sentence case, everywhere: "New note", not "New Note"; "Vault root", not "Vault Root". Proper nouns keep their capitals (Point, Markdown, Obsidian, Mac, Files). On the iPhone, every title, button, menu item, heading, alert and empty page follows it, and the icon's quick action too. In VaultKit, shared with the Mac, so are "Previous 7 days" and "Date & time". On the Mac, menu commands keep title case, the Mac's convention (the menu bar, context menus, the command palette, and the shortcut lists that name commands); everything else there is sentence case too: sheet titles, buttons, Settings, empty states, tooltips and labels.
