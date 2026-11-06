@@ -269,6 +269,12 @@ struct SettingsView: View {
                 }
             }
             TypographySettings(typography: $store.typography)
+            Section("Images") {
+                Toggle(isOn: $store.showsWebImages) {
+                    Text("Show images from the web")
+                    Text("Loaded from their sites once, then kept on this Mac, outside the vault. A site can tell when its image is loaded.")
+                }
+            }
         }
     }
 }

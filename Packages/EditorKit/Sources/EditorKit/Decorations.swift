@@ -39,6 +39,8 @@ struct ImageDecoration: Hashable {
     let size: CGSize
     /// The room above the line that was there before the image's: the image is drawn below it.
     let spaceAbove: CGFloat
+    /// How far in from the line's start it's drawn: images side by side follow each other.
+    var x: CGFloat = 0
 }
 
 enum BlockDecoration: Hashable {

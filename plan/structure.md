@@ -163,4 +163,11 @@ The iPhone app (M4) and the real-vault trial still come first. Dropping side-by-
 - **Trashed with their note:** a note's images that no other note shows go to the trash with it (`.trash/images`), and come back when it's put back. They're deleted for good with it.
 - **Find Unused Images…** (palette): lists the images no note embeds or links to, each with Show in Finder, and moves them to the Trash.
 - **Also fixed:** a note Point named was listed in the trash by its file name, and put back under its title.
-- **Not yet:** images on the iPhone; web images (they need a cache, and a decision on privacy); resizing an image by dragging; the index doesn't yet list images as things of their own.
+- **Not yet:** images on the iPhone; resizing an image by dragging.
+
+**4b. Web images and browsing images (built 6 November 2026, branch `image-browsing`):**
+- **Web images** (`![](https://…)`, most of a clipped vault's) load from their sites once and are kept in Point's caches, outside the vault (`WebImageCache`), then shown from there, offline too. They're loaded without cookies and with a User-Agent that says what Point is; a site can still tell when its image is loaded. Notes restyle once they arrive. Settings › Notes › Images turns them off.
+- **Side by side and in quotes:** a line of only images (`![[a.png]]![[b.png]]`) shows them side by side at one height, fitted across the text; a quote or list item of only an image shows it inside.
+- **Images in the list:** a folder's images are listed after its notes, under Images, each with a small picture, and filtered with them. All notes stays notes only.
+- **The image viewer:** an image opens in a tab, as a note does (back, forward and tabs work for it): its name, size and folder, the picture as big as fits, and the notes that show it, each opening with a click. Show in Finder, Open in Preview, Rename… (which renames its embeds in every note, keeping a path or a width) and Move to Trash (the Finder's, saying how many notes show it first).
+- **Not yet:** dragging an image from the list into a note (it would be copied, not embedded); images sorted by date.

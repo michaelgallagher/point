@@ -294,7 +294,7 @@ private struct NoteList: View {
     private var browser: some View {
         SidebarTable(model: model, content: content, bottomInset: Self.fieldHeight + Self.fieldPadding * 2)
             .overlay {
-                if model.notes(in: model.place).isEmpty, !includesPlaces || model.subplaces(of: model.place).isEmpty, model.place != .allNotes {
+                if model.notes(in: model.place).isEmpty, model.store.images(in: model.place).isEmpty, !includesPlaces || model.subplaces(of: model.place).isEmpty, model.place != .allNotes {
                     if let message = emptyMessage {
                         Text(message)
                             .foregroundStyle(.secondary)

@@ -1,4 +1,5 @@
 import AppKit
+import EditorKit
 import SwiftUI
 import VaultKit
 
@@ -37,6 +38,10 @@ struct PaneView: View {
                         NoteEditor(note: note, model: model, paneID: paneID, tabID: pane.tab.id, offersTemplates: note.id == model.freshNoteID)
                             .environment(\.topBarCover, underBar)
                             .id(paneID.uuidString + note.id)
+                    } else if let image = model.store.image(pane.tab.noteID) {
+                        ImageViewer(image: image)
+                            .padding(.top, underBar)
+                            .id(paneID.uuidString + image.path)
                     } else {
                         // An empty tab is a start page: search, recent notes and the explorer.
                         CommandPalette(isPage: true)
@@ -198,5 +203,122 @@ struct SideBySide<Main: View, Side: View>: View {
         let total = minimumWidths.main + minimumWidths.side
         guard width > total else { return width * minimumWidths.main / total }
         return min(max(x, minimumWidths.main), width - minimumWidths.side).rounded()
+    }
+}
+
+/// An image opened from the list: shown as big as fits, with what it is, the notes that show
+/// it (each opens with a click), and what can be done with it.
+struct ImageViewer: View {
+    @EnvironmentObject private var model: VaultModel
+    let image: VaultImage
+    @State private var picture: CGImage?
+    @State private var pixels: CGSize?
+    @State private var showing: [Note]?
+    @State private var isRenaming = false
+    @State private var newName = ""
+    @State private var isConfirmingTrash = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(image.name)
+                    .font(.system(size: 28, weight: .bold))
+                    .textSelection(.enabled)
+                Text(details)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([image.url]) }
+                    Button("Open in Preview") { NSWorkspace.shared.open(image.url) }
+                    Button("Rename…") {
+                        newName = (image.name as NSString).deletingPathExtension
+                        isRenaming = true
+                    }
+                    Button("Move to Trash") { isConfirmingTrash = true }
+                }
+                .controlSize(.small)
+                Group {
+                    if let picture {
+                        Image(decorative: picture, scale: 2)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: pixels.map { $0.width } ?? .infinity, maxHeight: 640, alignment: .leading)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                    } else if !image.isDownloaded {
+                        Label("In iCloud, not yet on this Mac", systemImage: "icloud.and.arrow.down")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Shown in")
+                        .font(.headline)
+                    if let showing, showing.isEmpty {
+                        Text("No note shows this image.")
+                            .foregroundStyle(.secondary)
+                    } else if let showing {
+                        ForEach(showing) { note in
+                            Button(note.title) { model.selection = note.id }
+                                .buttonStyle(.link)
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: model.store.textColumnWidth, alignment: .leading)
+            .padding(.horizontal, 40)
+            .padding(.vertical, 32)
+            .frame(maxWidth: .infinity)
+        }
+        .task(id: image.url) {
+            pixels = EditorImages.shared.size(of: image.url)
+            if !image.isDownloaded { try? FileManager.default.startDownloadingUbiquitousItem(at: image.url) }
+            picture = await withCheckedContinuation { done in
+                EditorImages.shared.picture(of: image.url, pixels: 2400) { done.resume(returning: $0) }
+            }
+        }
+        .task(id: image.path + "\(model.store.indexGeneration)") { showing = await model.store.notesShowing(image) }
+        .sheet(isPresented: $isRenaming) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Rename image").font(.headline)
+                TextField("Name", text: $newName)
+                    .frame(width: 320)
+                    .onSubmit(rename)
+                Text(showing.map { $0.isEmpty ? "No note shows it." : "Its embeds in \($0.count == 1 ? "1 note" : "\($0.count) notes") are renamed too." } ?? "")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Spacer()
+                    Button("Cancel", role: .cancel) { isRenaming = false }
+                        .keyboardShortcut(.cancelAction)
+                    Button("Rename", action: rename)
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            .padding(20)
+        }
+        .confirmationDialog("Move “\(image.name)” to the Trash?", isPresented: $isConfirmingTrash) {
+            Button("Move to Trash", role: .destructive) { model.store.trashImage(image) }
+        } message: {
+            Text(showing.map { $0.isEmpty ? "No note shows it." : "\($0.count == 1 ? "1 note shows" : "\($0.count) notes show") it, and won’t any more." } ?? "")
+        }
+    }
+
+    private func rename() {
+        isRenaming = false
+        model.store.renameImage(image, to: newName)
+    }
+
+    /// Its size in pixels, on disk, and its folder.
+    private var details: String {
+        var parts: [String] = []
+        if let pixels { parts.append("\(Int(pixels.width)) × \(Int(pixels.height))") }
+        if let bytes = try? image.url.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+            parts.append(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))
+        }
+        let folder = (image.path as NSString).deletingLastPathComponent
+        parts.append(folder.isEmpty ? "Top of the vault" : folder)
+        return parts.joined(separator: " · ")
     }
 }

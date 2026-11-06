@@ -141,3 +141,19 @@ struct VaultImagesTests {
         return data as Data
     }
 }
+
+struct WebImageCacheTests {
+    @Test func keepsImagesByAddress() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("WebImages-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let cache = WebImageCache(folder: folder)
+        let a = URL(string: "https://example.com/a.png")!, b = URL(string: "https://example.com/b.png")!
+        #expect(cache.file(for: a) != cache.file(for: b))
+        #expect(cache.file(for: a) == cache.file(for: a))
+        #expect(cache.cached(a) == nil)
+        #expect(WebImageCache.isWeb("HTTPS://x.com/a.png"))
+        #expect(!WebImageCache.isWeb("Attachments/a.png"))
+        #expect(WebImageCache.isImage(try VaultImagesTests.image(.png)))
+        #expect(!WebImageCache.isImage(Data("<html>".utf8)))
+    }
+}

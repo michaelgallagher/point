@@ -10,6 +10,8 @@ enum SidebarRow: Hashable {
     case divider
     case place(SidebarPlace, depth: Int)
     case note(Note.ID)
+    /// An image in the folder, by its path from the vault's root.
+    case image(String)
     /// A note in the trash.
     case trashed(VaultTrash.Item)
     /// The switch between folders and tags, when they show one at a time.
@@ -18,16 +20,19 @@ enum SidebarRow: Hashable {
     /// (so two headings with the same name, in an odd order, are still two rows).
     case dateGroup(String, first: Note.ID)
 
-    /// The note a row opens, if it's a note's row.
+    /// What a row opens in a tab, if it's a note's row (its ID) or an image's (its path).
     var noteID: Note.ID? {
-        if case .note(let id) = self { return id }
-        return nil
+        switch self {
+        case .note(let id): id
+        case .image(let path): path
+        default: nil
+        }
     }
 
     /// A folder, tag or note (in the trash too), rather than a label, divider or switch.
     var isItem: Bool {
         switch self {
-        case .place, .note, .trashed: true
+        case .place, .note, .image, .trashed: true
         case .header, .divider, .treeSwitch, .dateGroup: false
         }
     }
@@ -35,7 +40,7 @@ enum SidebarRow: Hashable {
 
 /// The sidebar's sections at the vault's top level, each of which can be folded away.
 enum SidebarSection: String, CaseIterable {
-    case pinned = "Pinned", folders = "Folders", tags = "Tags", properties = "Properties", values = "Values", notes = "Notes"
+    case pinned = "Pinned", folders = "Folders", tags = "Tags", properties = "Properties", values = "Values", notes = "Notes", images = "Images"
 }
 
 extension VaultModel {
@@ -58,7 +63,8 @@ extension VaultModel {
         let filter = content == .places ? "" : noteFilter.trimmingCharacters(in: .whitespaces)
         func shows(_ name: String) -> Bool { filter.isEmpty || name.localizedStandardContains(filter) }
         if content != .places, place == .trash { return trashedNotes.filter { shows($0.title) }.map { .trashed($0) } }
-        guard content != .notes else { return noteRows(notes(in: place).filter { shows($0.title) }) }
+        let images = content == .places ? [] : store.images(in: place).filter { shows($0.name) }
+        guard content != .notes else { return noteRows(notes(in: place).filter { shows($0.title) }) + images.map { .image($0.path) } }
         // Filtering, folded sections open, so what matches in them shows.
         let collapsed = filter.isEmpty ? collapsed : []
         var sections: [[SidebarRow]] = []
@@ -132,6 +138,10 @@ extension VaultModel {
         let notes = content == .places ? [] : notes(in: place).filter { shows($0.title) }
         if !notes.isEmpty {
             sections.append(section(.notes, noteRows(notes)))
+        }
+        // A folder's images, after its notes.
+        if !images.isEmpty {
+            sections.append(section(.images, images.map { .image($0.path) }))
         }
         // Thin dividers between sections.
         return sections.filter { !$0.isEmpty }.enumerated().flatMap { index, rows in index == 0 ? rows : [.divider] + rows }
@@ -419,7 +429,7 @@ struct SidebarTable: NSViewRepresentable {
             switch rows[row] {
             case .header, .dateGroup: return model.sidebarDensity.headerHeight
             case .divider: return model.sidebarDensity.dividerHeight
-            case .place, .trashed: return model.sidebarDensity.rowHeight
+            case .place, .trashed, .image: return model.sidebarDensity.rowHeight
             case .treeSwitch: return model.sidebarDensity.rowHeight + 18
             case .note(let id):
                 // Two lines only for a note that has tags to show.
@@ -610,7 +620,7 @@ struct SidebarTable: NSViewRepresentable {
                     entry.state = model.tagOrder == order ? .on : .off
                     menu.addItem(entry)
                 }
-            case .pinned, .properties, .values:
+            case .pinned, .properties, .values, .images:
                 return nil
             }
             return menu
@@ -1051,6 +1061,10 @@ struct SidebarRowView: View {
                 // Some room above, apart from the trash.
                 .padding(.top, 8)
                 .frame(maxHeight: .infinity)
+        case .image(let path):
+            if let image = model.store.image(path) {
+                SidebarImageRow(image: image)
+            }
         case .trashed(let trashed):
             HStack(spacing: 6) {
                 Text(trashed.title)
@@ -1177,7 +1191,7 @@ extension VaultModel {
             }
         case .folders, .tags:
             tagOrder == .name ? "Name" : "Date modified"
-        case .pinned, .properties, .values:
+        case .pinned, .properties, .values, .images:
             nil
         }
     }
@@ -1224,4 +1238,39 @@ extension VaultModel {
 private extension NSRange {
     /// The rows a range covers, as indexes.
     var toIndexSet: IndexSet { location == NSNotFound ? [] : IndexSet(integersIn: location..<(location + length)) }
+}
+
+/// An image in the sidebar: a small picture of it, and its name.
+struct SidebarImageRow: View {
+    let image: VaultImage
+    @State private var thumbnail: CGImage?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Group {
+                if let thumbnail {
+                    Image(decorative: thumbnail, scale: 2)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    Image(systemName: "photo")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 20, height: 20)
+            .clipShape(RoundedRectangle(cornerRadius: 3))
+            Text(image.name)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .frame(maxHeight: .infinity)
+        .task(id: image.url) {
+            guard image.isDownloaded else { return }
+            thumbnail = await withCheckedContinuation { done in
+                EditorImages.shared.picture(of: image.url, pixels: 40) { done.resume(returning: $0) }
+            }
+        }
+    }
 }
