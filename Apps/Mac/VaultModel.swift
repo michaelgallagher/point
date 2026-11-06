@@ -954,6 +954,8 @@ final class VaultModel: ObservableObject {
 
     /// The note being renamed, moved or tagged, while that sheet is showing.
     @Published var renaming: Note?
+    /// A property, value or tag being renamed across the vault, while that sheet is showing.
+    @Published var renamingAcrossVault: VaultStore.VaultRename?
     /// Where a new folder is being made, while the New Folder sheet is showing.
     @Published var creatingFolder: FolderRequest?
 

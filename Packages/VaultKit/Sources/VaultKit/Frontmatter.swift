@@ -196,10 +196,14 @@ public struct Frontmatter: Equatable, Sendable {
         let line = ns.lineRange(for: NSRange(location: property.range.location, length: 0))
         let colon = ns.range(of: ":", range: line)
         guard colon.location != NSNotFound else { return nil }
-        // A name YAML would misread (a colon and space, a leading # or quote) is quoted.
+        return (NSRange(location: line.location, length: colon.location - line.location), Self.written(key: name))
+    }
+
+    /// A property's name as YAML needs it written: a name YAML would misread (a colon and
+    /// space, a leading # or quote) is quoted.
+    public static func written(key name: String) -> String {
         let needsQuotes = name.contains(": ") || name.hasSuffix(":") || name.first.map { "#'\"[{&*!|>%@`-?".contains($0) } == true
-        let written = needsQuotes ? "\"" + name.replacingOccurrences(of: "\"", with: "\\\"") + "\"" : name
-        return (NSRange(location: line.location, length: colon.location - line.location), written)
+        return needsQuotes ? "\"" + name.replacingOccurrences(of: "\"", with: "\\\"") + "\"" : name
     }
 
     /// The edit that moves a property to a new place among the others: the range to

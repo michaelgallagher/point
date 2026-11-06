@@ -144,6 +144,16 @@ struct ContentView: View {
             }
         }
         .animation(.spring(duration: 0.3, bounce: 0.1), value: store.linkUpdate)
+        // After a change across the vault: what changed, with Undo, for a moment.
+        .overlay(alignment: .bottom) {
+            if let notice = store.vaultChangeNotice {
+                VaultChangeNoticeView(notice: notice)
+                    .id(notice.id)
+                    .padding(.bottom, 20)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(duration: 0.3, bounce: 0.1), value: store.vaultChangeNotice)
         .overlay(alignment: .top) {
             if model.isPaletteShown {
                 ZStack(alignment: .top) {
@@ -159,6 +169,9 @@ struct ContentView: View {
         }
         .sheet(item: $model.renaming) { note in
             RenameSheet(note: note)
+        }
+        .sheet(item: $model.renamingAcrossVault) { rename in
+            RenameAcrossVaultSheet(rename: rename)
         }
         .sheet(item: $model.creatingFolder) { request in
             NewFolderSheet(parent: request.parent)
@@ -456,6 +469,85 @@ private struct RenameSheet: View {
     }
 }
 
+/// Renames a property, a value or a tag in every note that has it.
+private struct RenameAcrossVaultSheet: View {
+    @EnvironmentObject private var model: VaultModel
+    @Environment(\.dismiss) private var dismiss
+    let rename: VaultStore.VaultRename
+    @State private var name = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(heading)
+                .font(.headline)
+            TextField("Name", text: $name)
+                .frame(width: 320)
+                .onSubmit(apply)
+            Text(detail)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(width: 320, alignment: .leading)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button(isValue ? "Change" : "Rename", action: apply)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || name == rename.current)
+            }
+        }
+        .padding(20)
+        .onAppear { name = rename.current }
+    }
+
+    private var isValue: Bool {
+        if case .value = rename { return true }
+        return false
+    }
+
+    private var heading: String {
+        switch rename {
+        case .property: "Rename property"
+        case .value(let name, _): "Change value of \(name)"
+        case .tag: "Rename tag"
+        }
+    }
+
+    private var place: SidebarPlace {
+        switch rename {
+        case .property(let name): .property(name)
+        case .value(let name, let value): .propertyValue(name, value)
+        case .tag(let tag): .tag(tag)
+        }
+    }
+
+    private var detail: String {
+        let count = model.noteCount(of: place)
+        let notes = count == 1 ? "1 note" : "\(count) notes"
+        return switch rename {
+        case .property: "Renamed in \(notes). Their values stay as they are."
+        case .value: "Changed in \(notes)."
+        case .tag: "Renamed in \(notes), and tags inside it too."
+        }
+    }
+
+    private func apply() {
+        let new = name.trimmingCharacters(in: .whitespaces)
+        guard !new.isEmpty, new != rename.current else { return }
+        dismiss()
+        model.store.rename(rename, to: new)
+        // Still browsing what was renamed: follow it to its new name.
+        switch (rename, model.place) {
+        case (.property(let old), .property(let current)) where old == current: model.browse(.property(new))
+        case (.value(let property, let old), .propertyValue(let name, let current)) where old == current && property == name:
+            model.browse(.propertyValue(property, new))
+        case (.tag(let old), .tag(let current)) where old.lowercased() == current.lowercased(): model.browse(.tag(new))
+        default: break
+        }
+    }
+}
+
 private struct NewFolderSheet: View {
     @EnvironmentObject private var model: VaultModel
     @Environment(\.dismiss) private var dismiss
@@ -652,6 +744,36 @@ private struct LinkUpdateNotice: View {
             if Task.isCancelled { return }
         }
         if store.linkUpdate?.id == update.id { store.linkUpdate = nil }
+    }
+}
+
+/// "Renamed #work to #job in 12 notes", with Undo; it goes after a few seconds, unless the
+/// pointer is on it.
+private struct VaultChangeNoticeView: View {
+    @EnvironmentObject private var store: VaultStore
+    let notice: VaultStore.VaultChangeNotice
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Label(notice.text, systemImage: "checkmark.circle")
+            if notice.canUndo, store.lastVaultChange != nil {
+                Button("Undo") { store.undoLastVaultChange() }
+                    .buttonStyle(.link)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .modifier(NoticeBackground())
+        .onHover { isHovering = $0 }
+        .task(id: notice.id) {
+            try? await Task.sleep(nanoseconds: notice.canUndo ? 8_000_000_000 : 3_000_000_000)
+            while isHovering {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                if Task.isCancelled { return }
+            }
+            if store.vaultChangeNotice?.id == notice.id { store.vaultChangeNotice = nil }
+        }
     }
 }
 

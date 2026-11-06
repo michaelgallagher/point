@@ -563,6 +563,124 @@ final class VaultStore: ObservableObject {
         }
     }
 
+    // MARK: Changes across the vault
+
+    /// What's renamed across the vault: a property, one of its values, or a tag.
+    enum VaultRename: Identifiable, Equatable {
+        case property(String)
+        case value(property: String, value: String)
+        case tag(String)
+
+        var id: String {
+            switch self {
+            case .property(let name): "property:" + name
+            case .value(let name, let value): "value:" + name + "\u{1F}" + value
+            case .tag(let tag): "tag:" + tag
+            }
+        }
+
+        /// The name as it is now.
+        var current: String {
+            switch self {
+            case .property(let name): name
+            case .value(_, let value): value
+            case .tag(let tag): tag
+            }
+        }
+
+        /// Which notes it may be in, as the index finds them.
+        var query: NoteQuery {
+            switch self {
+            case .property(let name): NoteQuery([.property(name, .exists)])
+            case .value(let name, let value) where ["tags", "tag"].contains(name.lowercased()): NoteQuery([.tag(value)])
+            case .value(let name, let value): NoteQuery([.property(name, .equals(value))])
+            case .tag(let tag): NoteQuery([.tag(tag)])
+            }
+        }
+    }
+
+    /// The last change made across the vault, until undone or another is made.
+    @Published private(set) var lastVaultChange: VaultChange?
+    /// "Renamed “status” to “state” in 12 notes", shown for a moment, with Undo.
+    @Published var vaultChangeNotice: VaultChangeNotice?
+
+    struct VaultChangeNotice: Identifiable, Equatable {
+        let id = UUID()
+        let text: String
+        /// Whether it can still be undone.
+        var canUndo: Bool
+    }
+
+    /// Renames a property, a value or a tag in every note that has it, as one change that can
+    /// be undone. Open notes are saved first, and pick the change up from their files.
+    func rename(_ rename: VaultRename, to newName: String) {
+        let new = newName.trimmingCharacters(in: .whitespaces)
+        guard let index, !new.isEmpty, new != rename.current else { return }
+        NotificationCenter.default.post(name: .pointSaveNow, object: self)
+        let byID = notesByID
+        let generation = vaultGeneration
+        let label: String = switch rename {
+        case .property: "Renamed the property “\(rename.current)” to “\(new)”"
+        case .value(_, let value): "Changed “\(PropertyValueText.shown(value))” to “\(PropertyValueText.shown(new))”"
+        case .tag(let tag): "Renamed #\(tag) to #\(new)"
+        }
+        Task {
+            // The notes it's in, from the index; each is read again before it's changed.
+            let ids = (try? await index.notes(matching: rename.query)) ?? []
+            let candidates = ids.compactMap { byID[$0] }
+            let change = await Task.detached(priority: .userInitiated) {
+                VaultChanges.apply(label, to: candidates) { text in
+                    switch rename {
+                    case .property(let name): try VaultChanges.renamingProperty(name, to: new, in: text)
+                    case .value(let name, let value) where ["tags", "tag"].contains(name.lowercased()):
+                        VaultChanges.renamingTag(value, to: new, in: text)
+                    case .value(let name, let value): VaultChanges.renamingValue(value, to: new, ofProperty: name, in: text)
+                    case .tag(let tag): VaultChanges.renamingTag(tag, to: new, in: text)
+                    }
+                }
+            }.value
+            guard generation == vaultGeneration else { return }
+            if case .property(let name) = rename, !change.edits.isEmpty { renamePropertyType(name, to: new) }
+            lastVaultChange = change.edits.isEmpty ? nil : change
+            let count = change.edits.count
+            vaultChangeNotice = VaultChangeNotice(text: count == 0 ? "Nothing to change" : "\(label) in \(count == 1 ? "1 note" : "\(count) notes")",
+                                                  canUndo: count > 0)
+            Self.report(change)
+            Task { await reload() }
+        }
+    }
+
+    /// Undoes the last change across the vault, in the notes not changed since.
+    func undoLastVaultChange() {
+        guard let change = lastVaultChange else { return }
+        lastVaultChange = nil
+        NotificationCenter.default.post(name: .pointSaveNow, object: self)
+        Task {
+            let missed = await Task.detached(priority: .userInitiated) { VaultChanges.undo(change) }.value
+            vaultChangeNotice = VaultChangeNotice(text: missed.isEmpty ? "Undone" : "Undone, except in \(missed.count == 1 ? "1 note" : "\(missed.count) notes") changed since",
+                                                  canUndo: false)
+            Task { await reload() }
+        }
+    }
+
+    /// Says which notes a change across the vault left alone, and why.
+    private static func report(_ change: VaultChange) {
+        let missed = change.skippedNotes + change.unreadNotes
+        guard !missed.isEmpty || !change.clashingNotes.isEmpty else { return }
+        func names(_ ids: [String]) -> String {
+            ids.prefix(8).map { "• " + ($0 as NSString).deletingPathExtension }.joined(separator: "\n") + (ids.count > 8 ? "\n…and \(ids.count - 8) more" : "")
+        }
+        var detail = ""
+        if !change.clashingNotes.isEmpty {
+            detail += "These notes already have a property with the new name, so they were left as they are:\n\n\(names(change.clashingNotes))"
+        }
+        if !missed.isEmpty {
+            if !detail.isEmpty { detail += "\n\n" }
+            detail += "These notes were changed while Point was updating them, or aren’t downloaded from iCloud yet:\n\n\(names(missed))"
+        }
+        showProblem("Some notes weren’t changed", detail: detail)
+    }
+
     /// Notes whose links were just updated after a rename or move, shown for a moment.
     struct LinkUpdate: Identifiable, Equatable {
         let id = UUID()
