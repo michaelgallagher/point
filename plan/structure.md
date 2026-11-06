@@ -171,3 +171,9 @@ The iPhone app (M4) and the real-vault trial still come first. Dropping side-by-
 - **Images in the list:** a folder's images are listed after its notes, under Images, each with a small picture, and filtered with them. All notes stays notes only.
 - **The image viewer:** an image opens in a tab, as a note does (back, forward and tabs work for it): its name, size and folder, the picture as big as fits, and the notes that show it, each opening with a click. Show in Finder, Open in Preview, Rename… (which renames its embeds in every note, keeping a path or a width) and Move to Trash (the Finder's, saying how many notes show it first).
 - **Not yet:** dragging an image from the list into a note (it would be copied, not embedded); images sorted by date.
+- **Fixes (6 November 2026, branch `image-fixes`):**
+  - Right-clicking an image in a note offers Open Image, Replace Image… (keeping its width; the old image stays, for Find Unused Images), Copy Image, Show in Finder (or Copy Image Address for a web image) and Remove Image. Double-clicking opens it.
+  - Clicking an image's caption, or any link to an image, opens the image's viewer; it never makes a note. A missing image just beeps.
+  - An image could stay blurred: a small picture decoded before the note was laid out could arrive after the sharp one and replace it.
+  - Captions have no spelling marks.
+  - A wrapped title in the list could take more lines than its row had room for: titles now wrap at the width their row's height was measured for.

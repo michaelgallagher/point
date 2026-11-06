@@ -114,6 +114,19 @@ enum DebugSnapshots {
                 }
             }
         }
+        if let spec = UserDefaults.standard.string(forKey: "PointFollowLink"), let bar = spec.firstIndex(of: "|") {
+            // `-PointFollowLink "note.md|target"`: follows a wikilink in that note, as a click does.
+            let id = String(spec[..<bar]), target = String(spec[spec.index(after: bar)...])
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                let before = model.notes.count
+                model.selection = id
+                model.open(.note(target), from: id, inPane: model.panes[model.activePane].id)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    Trace.mark("follow link: tab shows \(model.selection ?? "nothing"), notes \(before) → \(model.notes.count)")
+                    NSApp.terminate(nil)
+                }
+            }
+        }
         if let path = UserDefaults.standard.string(forKey: "PointOpenImage") {
             // `-PointOpenImage <path>`: opens the image at that path from the vault's root in the tab.
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {

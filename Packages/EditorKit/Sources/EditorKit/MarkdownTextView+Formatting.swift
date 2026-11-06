@@ -488,6 +488,7 @@ extension MarkdownTextView {
             setFolded(!folds.contains(line), line: line)
             return
         }
+        if openImageOnDoubleClick(event, at: point) { return }
         if tableControlsMouseDown(event) { return }
         if clickBelowTable(at: point) { return }
         if showHighlightMenu(at: point, for: event) { return }

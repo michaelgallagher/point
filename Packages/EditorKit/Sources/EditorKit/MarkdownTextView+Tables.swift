@@ -376,6 +376,7 @@ extension MarkdownTextView {
         let menu = super.menu(for: event)
         guard let menu, let layoutManager, let textContainer else { return menu }
         let point = convert(event.locationInWindow, from: nil)
+        if let images = imageMenu(at: point) { return images }
         let origin = textContainerOrigin
         let location = layoutManager.characterIndexForPoint(NSPoint(x: point.x - origin.x, y: point.y - origin.y), in: textContainer)
         return tableMenu(at: location, adding: menu)
