@@ -415,6 +415,9 @@ extension MarkdownTextView {
     /// list item (say, one picked up with a triple-click) into another list item drops its
     /// own marker, and the line break after it, so it doesn't arrive as "- - item".
     public override func paste(_ sender: Any?) {
+        // Images (a screenshot, or image files copied in the Finder): saved and embedded.
+        let images = pastedImages(from: NSPasteboard.general)
+        if !images.isEmpty, insertImages(images) { return }
         let selection = selectedRange()
         guard let clip = NSPasteboard.general.string(forType: .string) else { return super.paste(sender) }
         if selection.length > 0, Self.isURL(clip) {

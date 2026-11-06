@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import UniformTypeIdentifiers
 import EditorKit
 import SwiftUI
 import VaultKit
@@ -85,6 +86,58 @@ enum DebugSnapshots {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                     Trace.mark("retitle: notes now \(model.notes.map { "\($0.id)=\($0.title)" })")
                     NSApp.terminate(nil)
+                }
+            }
+        }
+        if let id = UserDefaults.standard.string(forKey: "PointTypeTiming") {
+            // `-PointTypeTiming <note ID>`: types 30 letters at the note's middle, each with its
+            // layout and the views over the text brought up to date, and notes the slowest.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                model.selection = id
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    guard let content = model.window?.contentView,
+                          let view = scrollViews(in: content).lazy.compactMap({ $0.documentView as? MarkdownTextView }).first,
+                          let layoutManager = view.layoutManager, let container = view.textContainer else { return Trace.mark("type timing: no editor") }
+                    view.setSelectedRange(NSRange(location: (view.string as NSString).length / 2, length: 0))
+                    var times: [Double] = []
+                    for _ in 0..<30 {
+                        let start = DispatchTime.now().uptimeNanoseconds
+                        view.insertText("a", replacementRange: view.selectedRange())
+                        layoutManager.ensureLayout(for: container)
+                        RunLoop.main.run(until: Date()) // The views over the text, brought up to date.
+                        view.displayIfNeeded()
+                        times.append(Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
+                    }
+                    let sorted = times.sorted()
+                    Trace.mark(String(format: "type timing: median %.2f ms, slowest %.2f ms, %d image views", sorted[15], sorted.last!, view.subviews.count))
+                    NSApp.terminate(nil)
+                }
+            }
+        }
+        if UserDefaults.standard.bool(forKey: "PointUnusedImages") {
+            // `-PointUnusedImages YES`: notes the images no note shows, once the index is up.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                Task {
+                    let unused = await model.store.unusedImages()
+                    Trace.mark("unused images: \(unused.map(\.path)) of \(model.store.images.map(\.path).sorted())")
+                    NSApp.terminate(nil)
+                }
+            }
+        }
+        if let spec = UserDefaults.standard.string(forKey: "PointImagePaste"), let bar = spec.firstIndex(of: "|") {
+            // `-PointImagePaste "note.md|image file"`: puts the image into the note at its end, as
+            // pasting it would (without touching the pasteboard), then saves.
+            let id = String(spec[..<bar]), file = URL(fileURLWithPath: String(spec[spec.index(after: bar)...]))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                model.selection = id
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    guard let content = model.window?.contentView,
+                          let view = scrollViews(in: content).lazy.compactMap({ $0.documentView as? MarkdownTextView }).first,
+                          let data = try? Data(contentsOf: file) else { return Trace.mark("image paste: no editor or image") }
+                    view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0))
+                    let pasted = view.insertImages([(data, UTType(filenameExtension: file.pathExtension))])
+                    Trace.mark("image paste: \(pasted ? "pasted" : "not pasted")")
+                    NotificationCenter.default.post(name: .pointSaveNow, object: nil)
                 }
             }
         }
@@ -912,16 +965,23 @@ enum DebugSnapshots {
         func check(_ name: String, _ ok: Bool) { Trace.mark("trash test: \(ok ? "PASS" : "FAIL") \(name)") }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             guard let note = model.note(id) else { return check("note found", false) }
+            let imagesBefore = model.store.images.map(\.path).sorted()
             model.moveToTrash(note)
             check("gone from the notes", model.note(id) == nil)
             check("listed in the trash", model.trashedNotes.contains { $0.title == note.title })
             model.browse(.trash)
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                // The images only it showed went with it.
+                Trace.mark("trash test: images before \(imagesBefore), in the trash with it \(Set(imagesBefore).subtracting(model.store.images.map(\.path)).sorted())")
                 guard let item = model.trashedNotes.first(where: { $0.title == note.title }) else { return check("still listed", false) }
                 model.store.restore(item)
                 check("gone from the trash", !model.trashedNotes.contains { $0.title == note.title })
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     check("back where it was", model.note(id) != nil)
+                    Task {
+                        await model.store.reload()
+                        check("its images back", model.store.images.map(\.path).sorted() == imagesBefore)
+                    }
                 }
             }
         }

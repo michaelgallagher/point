@@ -28,6 +28,17 @@ extension NSAttributedString.Key {
     static let pointListHighlight = NSAttributedString.Key("point.listHighlight")
     /// A line-height multiple (CGFloat) overriding the theme's, for example in code blocks.
     static let pointLineHeight = NSAttributedString.Key("point.lineHeight")
+    /// An embedded image (an `ImageDecoration`), drawn by a view in the room made above its line.
+    static let pointImage = NSAttributedString.Key("point.image")
+}
+
+/// An image embed alone on its line, drawn above it: its Markdown stays, small, as a caption.
+struct ImageDecoration: Hashable {
+    let url: URL
+    /// The size it's shown at.
+    let size: CGSize
+    /// The room above the line that was there before the image's: the image is drawn below it.
+    let spaceAbove: CGFloat
 }
 
 enum BlockDecoration: Hashable {
@@ -93,6 +104,13 @@ struct EditorTheme {
     /// Whether tables are drawn as tables, with their pipes hidden, rather than as monospaced
     /// Markdown. Only the Mac's editor moves the cursor between cells as they need.
     var rendersTables = false
+    /// Whether images embedded alone on a line are shown, above it. Only the Mac's editor puts
+    /// views over the text to draw them.
+    var rendersImages = false
+    /// The tallest an image is shown, so a tall screenshot doesn't fill the window.
+    var imageMaxHeight: CGFloat = 520
+    /// The room between an image and its caption.
+    var imageGap: CGFloat = 4
     /// How wide the text is, which a table's columns are narrowed to fit.
     var textWidth: CGFloat = 720
     /// The room between a cell's text and its column's edges.

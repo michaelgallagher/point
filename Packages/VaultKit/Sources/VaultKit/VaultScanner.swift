@@ -14,6 +14,20 @@ public enum VaultScanner {
     /// Scans `root` for its notes and also every folder (as paths from the root, such as
     /// `Projects/Archive`), including empty ones, which the notes alone wouldn't reveal.
     public static func scanWithFolders(_ root: URL) throws -> (notes: [Note], folders: [String]) {
+        let scan = try scanAll(root)
+        return (scan.notes, scan.folders)
+    }
+
+    /// Everything a scan finds: the notes, the folders, and the images.
+    public struct Scan: Sendable {
+        public var notes: [Note]
+        public var folders: [String]
+        public var images: [VaultImage]
+    }
+
+    /// Scans `root` for its notes, its folders, and its images (anywhere outside folders whose
+    /// names start with a dot, as notes are).
+    public static func scanAll(_ root: URL) throws -> Scan {
         let root = root.standardizedFileURL.resolvingSymlinksInPath()
         guard let enumerator = FileManager.default.enumerator(
             at: root,
@@ -26,6 +40,7 @@ public enum VaultScanner {
 
         var notes: [Note] = []
         var folders: [String] = []
+        var images: [VaultImage] = []
         for case let url as URL in enumerator {
             let name = url.lastPathComponent
             let values = try? url.resourceValues(forKeys: keys)
@@ -37,7 +52,14 @@ public enum VaultScanner {
                 }
                 continue
             }
-            guard let (fileName, isDownloaded) = noteFileName(name) else { continue }
+            guard let (fileName, isDownloaded) = noteFileName(name) else {
+                if let (imageName, isDownloaded) = imageFileName(name) {
+                    let path = (url.pathComponents.suffix(enumerator.level).dropLast() + [imageName]).joined(separator: "/")
+                    images.append(VaultImage(path: path, url: url.deletingLastPathComponent().appendingPathComponent(imageName),
+                                             isDownloaded: isDownloaded))
+                }
+                continue
+            }
 
             let fileURL = url.deletingLastPathComponent().appendingPathComponent(fileName)
             // The enumerator may spell paths differently from `root` (for example /var versus
@@ -53,7 +75,17 @@ public enum VaultScanner {
                 isDownloaded: isDownloaded
             ))
         }
-        return (notes, folders)
+        return Scan(notes: notes, folders: folders, images: images)
+    }
+
+    /// An image's file name, and whether it's local (not an evicted iCloud placeholder).
+    static func imageFileName(_ name: String) -> (String, Bool)? {
+        if name.hasPrefix(".") {
+            guard name.hasSuffix(".icloud") else { return nil }
+            let inner = String(name.dropFirst().dropLast(".icloud".count))
+            return VaultImages.isImage(inner) && !inner.hasPrefix(".") ? (inner, false) : nil
+        }
+        return VaultImages.isImage(name) ? (name, true) : nil
     }
 
     /// Maps a filename on disk to the note's filename and whether its contents are local.

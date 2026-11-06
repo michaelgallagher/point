@@ -154,3 +154,13 @@ The iPhone app (M4) and the real-vault trial still come first. Dropping side-by-
 - **The `title:` property is hidden** in the Mac's properties strip and the iPhone's properties sheet. It's the title above the note.
 - **New notes only:** linked notes, daily notes and templates are named as before, and existing notes keep their names.
 - **Not yet:** checked on the iPhone only by building it, not by running it. Notes made in Obsidian aren't given titles.
+
+**4. Images (built 6 November 2026, branch `images-support`):**
+- **Shown in the Mac's editor:** an image embedded alone on its line (`![[a.png]]`, `![[a.png|300]]`, `![alt](Attachments/a.png)`) is drawn above the line, at its own size (a Retina screenshot at half its pixels), narrowed to fit the text and no taller than 520 points. Its Markdown stays under it as a small grey caption with the file's name, so the cursor, typing and Delete work on it as on any line. An image in a line of text stays a link; a missing one is a faint link.
+- **Quick:** sizes come from the files' headers, and pictures are decoded off the main thread at the size shown, and cached. Typing in a long note with 40 images is no slower than in the same note without them.
+- **Pasting and dropping:** a screenshot or image files pasted or dropped into a note are saved in the attachment folder Obsidian is set to (`attachmentFolderPath`), named after the note (`2026-11-06-meeting-1.png`, or `Meeting 1.png` for an older note), and embedded on lines of their own. A TIFF is saved as PNG, a HEIC photo as JPEG. Text copied from a web page still pastes as text.
+- **Renamed with their note:** renaming a note (or its title, or naming an untitled note) renames the images named after it, and their embeds, in it and in any other note showing them, keeping a path or a width as written.
+- **Trashed with their note:** a note's images that no other note shows go to the trash with it (`.trash/images`), and come back when it's put back. They're deleted for good with it.
+- **Find Unused Images…** (palette): lists the images no note embeds or links to, each with Show in Finder, and moves them to the Trash.
+- **Also fixed:** a note Point named was listed in the trash by its file name, and put back under its title.
+- **Not yet:** images on the iPhone; web images (they need a cache, and a decision on privacy); resizing an image by dragging; the index doesn't yet list images as things of their own.

@@ -58,6 +58,7 @@ extension MarkdownTextView {
             if let cell = window?.firstResponder as? TableCellView, cell.isDescendant(of: grid) { window?.makeFirstResponder(self) }
             grid.removeFromSuperview()
         }
+        syncImageViews()
     }
 
     /// The grid of the table holding `location`, and the view for one of its cells.

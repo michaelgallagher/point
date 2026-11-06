@@ -21,6 +21,9 @@ struct MarkdownStyler {
     /// Whether a wikilink's target is a note that exists. Links to notes that don't exist
     /// yet are fainter. Without it, every link looks as if its note exists.
     var wikiLinkExists: ((String) -> Bool)?
+    /// Where the image an embed names is (`a.png`, or a path), if it's in the vault. Without
+    /// it, no images are shown.
+    var imageURL: ((String) -> URL?)?
     /// Characters that highlight a list item when they start it, with their colours.
     var listHighlights: [Character: PlatformColor] = [:]
 
@@ -81,7 +84,92 @@ struct MarkdownStyler {
         for token in tokens where token.kind == .table && intersects(token.range, range) {
             layOutTable(token.range, storage: storage, text: text)
         }
+        // Images last too, once their lines' own room above is set.
+        if theme.rendersImages, imageURL != nil {
+            for token in tokens where intersects(token.range, range) {
+                layOutImage(token, storage: storage, text: text)
+            }
+        }
         return range
+    }
+
+    // MARK: Images
+
+    /// An image embed's target (`a.png`, a path or a web address) and the width it asks for:
+    /// `![[a.png|300]]` or `![alt|300](a.png)`. Nil for anything else.
+    static func imageEmbed(_ token: MarkdownToken, in text: NSString) -> (target: String, width: CGFloat?)? {
+        let range = token.range
+        guard NSMaxRange(range) <= text.length else { return nil }
+        switch token.kind {
+        case .embed:
+            guard range.length > 5 else { return nil }
+            let inside = text.substring(with: NSRange(location: range.location + 3, length: range.length - 5))
+            let parts = inside.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+            let target = parts[0].trimmingCharacters(in: .whitespaces)
+            guard isImageName(target) else { return nil }
+            return (target, parts.count > 1 ? width(parts[1]) : nil)
+        case .image(let source):
+            let whole = text.substring(with: range)
+            var width: CGFloat?
+            if let close = whole.range(of: "]("), let bar = whole[..<close.lowerBound].lastIndex(of: "|") {
+                width = Self.width(String(whole[whole.index(after: bar)..<close.lowerBound]))
+            }
+            return (source.trimmingCharacters(in: .whitespaces), width)
+        default:
+            return nil
+        }
+    }
+
+    private static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "avif", "svg"]
+
+    static func isImageName(_ name: String) -> Bool {
+        imageExtensions.contains(((name as NSString).lastPathComponent as NSString).pathExtension.lowercased())
+    }
+
+    /// `300` or `300x200`: the width.
+    private static func width(_ size: String) -> CGFloat? {
+        let first = size.trimmingCharacters(in: .whitespaces).split(separator: "x", maxSplits: 1).first.map(String.init) ?? ""
+        guard let value = Int(first), value > 0 else { return nil }
+        return CGFloat(value)
+    }
+
+    /// Makes room above an image embed that's alone on its line, for the image, drawn there by
+    /// a view (see `ImageEmbedView`), and shows its Markdown small and quiet, as a caption.
+    /// Nothing changes for an image that isn't in the vault, or one in a line of text.
+    private func layOutImage(_ token: MarkdownToken, storage: NSTextStorage, text: NSString) {
+        guard let embed = Self.imageEmbed(token, in: text), let url = imageURL?(embed.target),
+              let natural = EditorImages.shared.size(of: url) else { return }
+        var start = 0, end = 0, contentsEnd = 0
+        text.getLineStart(&start, end: &end, contentsEnd: &contentsEnd, for: token.range)
+        let line = NSRange(location: start, length: contentsEnd - start)
+        guard text.substring(with: line).trimmingCharacters(in: .whitespaces) == text.substring(with: token.range),
+              storage.attribute(.pointCollapsed, at: token.range.location, effectiveRange: nil) == nil else { return }
+        var width = min(embed.width ?? natural.width, max(theme.textWidth, 40))
+        var height = (width * natural.height / natural.width).rounded()
+        if height > theme.imageMaxHeight {
+            height = theme.imageMaxHeight
+            width = (height * natural.width / natural.height).rounded()
+        }
+        let existing = storage.attribute(.paragraphStyle, at: start, effectiveRange: nil) as? NSParagraphStyle ?? baseParagraphStyle
+        let style = existing.mutableCopy() as! NSMutableParagraphStyle
+        let above = existing.paragraphSpacingBefore
+        style.paragraphSpacingBefore = above + height + theme.imageGap
+        storage.addAttribute(.paragraphStyle, value: style, range: NSRange(location: start, length: end - start))
+        storage.addAttributes([
+            .pointImage: ImageDecoration(url: url, size: CGSize(width: width, height: height), spaceAbove: above),
+            .font: PlatformFont.systemFont(ofSize: (theme.bodySize * 0.75).rounded()),
+            .foregroundColor: PlatformColor.secondaryLabelColor,
+        ], range: token.range)
+        storage.removeAttribute(.pointWebLink, range: token.range)
+        storage.removeAttribute(.kern, range: token.range)
+        // The caption is the file's name, never a width (`|300`), which isn't a label.
+        if case .embed = token.kind {
+            let inside = NSRange(location: token.range.location + 3, length: token.range.length - 5)
+            let name = (text.substring(with: inside) as NSString).range(of: "|")
+            let nameLength = name.location == NSNotFound ? inside.length : name.location
+            storage.addAttribute(.pointHidden, value: true, range: token.range)
+            storage.removeAttribute(.pointHidden, range: NSRange(location: inside.location, length: nameLength))
+        }
     }
 
     private func intersects(_ a: NSRange, _ b: NSRange) -> Bool {
@@ -204,7 +292,8 @@ struct MarkdownStyler {
             storage.addAttributes(pointing([.foregroundColor: PlatformColor.linkColor]), range: range)
             markWebLink(at: NSMaxRange(range) - 1, storage: storage)
         case .wikiLink(let target), .embed(let target):
-            let exists = wikiLinkExists?(target) ?? true
+            let image = Self.imageEmbed(token, in: text)
+            let exists = image.map { imageURL?($0.target) != nil || imageURL == nil } ?? wikiLinkExists?(target) ?? true
             let color = exists ? PlatformColor.linkColor : PlatformColor.linkColor.withAlphaComponent(0.5)
             storage.addAttributes(pointing([.foregroundColor: color]), range: range)
         case .tag:
@@ -391,7 +480,7 @@ struct MarkdownStyler {
         collapseLine(line, storage: storage, text: text, height: 0.1)
         // Nothing drawn for it either: no bullet, checkbox, tag pill or block background.
         let full = text.lineRange(for: line)
-        for key: NSAttributedString.Key in [.pointListMarker, .pointTag, .pointWebLink, .pointRule, .pointBlock] {
+        for key: NSAttributedString.Key in [.pointListMarker, .pointTag, .pointWebLink, .pointRule, .pointBlock, .pointImage] {
             storage.removeAttribute(key, range: full)
         }
     }

@@ -600,6 +600,7 @@ struct PaletteCommand {
             PaletteCommand(name: "All Notes", shortcut: nil) { model.browse(.allNotes) },
             PaletteCommand(name: "Enclosing Folder", shortcut: ShortcutStore.shared.label(for: .enclosingFolder)) { model.goUp() },
             PaletteCommand(name: "Properties", shortcut: nil) { model.browse(.properties) },
+            PaletteCommand(name: "Find Unused Images…", shortcut: nil) { model.isShowingUnusedImages = true },
         ]
         // What's browsed renamed everywhere, and the last such change undone.
         switch model.place {

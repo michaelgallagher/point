@@ -511,6 +511,11 @@ public actor SearchIndex {
             .sorted { $0.count != $1.count ? $0.count > $1.count : $0.value.localizedStandardCompare($1.value) == .orderedAscending }
     }
 
+    /// Every name any note links to or embeds, in lowercase: for finding images no note shows.
+    public func linkedNames() throws -> Set<String> {
+        Set(try db.query("SELECT DISTINCT name FROM links", []).compactMap { $0[0] as? String })
+    }
+
     /// The notes that link to a name, with how (in the text, as an embed, from a property).
     public func linking(to name: String) throws -> [(note: Note.ID, kind: LinkKind, property: String?)] {
         try db.query("SELECT DISTINCT n.id, l.kind, l.property FROM links l JOIN notes n ON n.row = l.note WHERE l.name = ?", [LinkName.normalised(name)])

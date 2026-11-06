@@ -38,6 +38,7 @@ Part of [the plan](../PLAN.md).
 - **Folders:** real folders on disk, shared with Obsidian. The sidebar browses them (see "Sidebar navigation"). New notes go to the folder you're in, or the vault root.
 - **Dot-folders:** `.obsidian/` and other dot-folders are ignored, except for the Obsidian settings we read (below).
 - **Attachments:** follow Obsidian's configured attachment folder (`.obsidian/app.json`).
+  - **Images (6 November 2026):** named after their note (`2026-11-06-meeting-1.png`), renamed with it, and trashed with it when no other note shows them. Shown above their embeds on the Mac, with the embed as a caption. See [Beyond text](structure.md).
 - **Daily notes:** compatible with Obsidian. Read the folder, date format and template from `.obsidian/daily-notes.json`.
 - **Templates:** compatible with Obsidian's core Templates plugin. Read the template folder from `.obsidian/templates.json`, and support `{{title}}`, `{{date}}` and `{{time}}`, including custom date formats. New notes and daily notes can start from a template.
 - **Note names:** the title is the filename. An untitled note gets a timestamp name until it has a first line, and is renamed to that first line when you leave the note. Never rename while typing.
