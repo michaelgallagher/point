@@ -199,7 +199,7 @@ final class SidebarSplitController: NSSplitViewController {
         guard let window = view.window, let frameView = window.contentView?.superview,
               let zoom = window.standardWindowButton(.zoomButton),
               let close = window.standardWindowButton(.closeButton) else { return }
-        let size = NSSize(width: 36, height: 36)
+        let size = NSSize(width: TopBar.controlSize, height: TopBar.controlSize)
         let fixedX = (zoom.convert(zoom.bounds, to: nil).maxX + 16).rounded()
         let middle = close.convert(close.bounds, to: nil).midY
         let pane = sidebarContainer.view
@@ -324,7 +324,9 @@ final class SidebarSplitController: NSSplitViewController {
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = false
         window.toolbar = toolbar
-        window.toolbarStyle = .unified
+        // Compact: a slimmer row along the top, the window buttons closer to the corner, and
+        // the bars (sized from where they are) slimmer with it.
+        window.toolbarStyle = .unifiedCompact
         placeSidebarButton()
         // Placed again whenever the window buttons move (as the toolbar makes the title bar
         // taller, which can come after this), and as the window resizes or comes to the front:

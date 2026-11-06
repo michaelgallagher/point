@@ -22,7 +22,10 @@ enum TopBar {
 
     /// How far the bar starts past the window buttons while the sidebar is hidden: the sidebar
     /// button (see `SidebarSplitController`), then the gap.
-    static let sidebarButtonWidth: CGFloat = 36 + buttonSpacing
+    static let sidebarButtonWidth: CGFloat = controlSize + buttonSpacing
+    /// How tall the bars' buttons, the back and forward capsule and the tabs' capsule are:
+    /// sized for the compact title bar's slimmer row (36 in the standard one).
+    static let controlSize: CGFloat = 28
     /// The gap between buttons in a bar (the HStack's spacing), and how far a side's bar
     /// starts past the sidebar's edge or the divider, so its buttons never touch either.
     static let buttonSpacing: CGFloat = 8
@@ -162,7 +165,7 @@ struct PaneTabs: View {
     let pane: VaultModel.NotePane
     let paneIndex: Int
 
-    static let height: CGFloat = 36
+    static let height: CGFloat = TopBar.controlSize
     /// Between a tab and the capsule around it.
     private static let inset: CGFloat = 2
     private static let spacing: CGFloat = 2
@@ -269,8 +272,8 @@ private struct PaneTab: View {
     let menu: () -> NSMenu
     @State private var isHovering = false
 
-    static let height: CGFloat = 32
-    static let fontSize: CGFloat = 13
+    static let height: CGFloat = TopBar.controlSize - 4
+    static let fontSize: CGFloat = 12
     /// Either side of the title: room for the close button, and to balance it.
     static let padding: CGFloat = 20
 
@@ -476,12 +479,12 @@ struct BarIcon: View {
     let action: () -> Void
     @State private var isHovering = false
 
-    /// 32 points: in the back and forward capsule, 2 points in from its edge.
-    private static let size: CGFloat = 32
+    /// In the back and forward capsule, 2 points in from its edge.
+    private static let size: CGFloat = TopBar.controlSize - 4
 
     var body: some View {
         Image(systemName: symbol)
-            .font(.system(size: 14, weight: .medium))
+            .font(.system(size: 12, weight: .medium))
             .foregroundStyle(enabled ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
             .frame(width: Self.size, height: Self.size)
             .background {
@@ -582,13 +585,13 @@ struct BarButton: View {
 
     var body: some View {
         if #available(macOS 26, *) {
-            // A round glass button, as in a toolbar: 36 points, as tall as the back and
-            // forward capsule and the system's sidebar button.
+            // A round glass button, as in a toolbar: as tall as the back and forward capsule.
+            // (Glass buttons this size are 12 points wider and taller than their label.)
             Button(action: action) {
                 Label(title, systemImage: systemImage)
                     .labelStyle(.iconOnly)
-                    .font(.system(size: 15))
-                    .frame(width: 24, height: 24)
+                    .font(.system(size: 13))
+                    .frame(width: TopBar.controlSize - 12, height: TopBar.controlSize - 12)
             }
             .buttonStyle(.glass)
             .buttonBorderShape(.circle)
