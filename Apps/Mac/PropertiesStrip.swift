@@ -120,6 +120,9 @@ struct PropertiesStrip: View {
         .frame(maxWidth: model.store.textColumnWidth, alignment: .leading)
         .padding(.horizontal, 28)
         .frame(maxWidth: .infinity)
+        .sheet(isPresented: Binding(get: { editingChoices != nil }, set: { if !$0 { editingChoices = nil } })) {
+            if let key = editingChoices { ChoicesSheet(key: key) }
+        }
     }
 
     private static let space = "properties"
@@ -140,6 +143,8 @@ struct PropertiesStrip: View {
     /// The property whose name is being edited, and the name as typed.
     @State private var renamingKey: String?
     @State private var newName = ""
+    /// The choice property whose choices are being edited, while that sheet shows.
+    @State private var editingChoices: String?
     @FocusState private var isRenaming: Bool
 
     /// The keys' column, with the space after it: as wide as the longest key, within reason.
@@ -155,19 +160,20 @@ struct PropertiesStrip: View {
     /// empty space to select it, and ⌫ deletes it.
     private func row(for property: Frontmatter.Property) -> some View {
         let type = model.store.propertyTypes.type(of: property)
+        let kind = model.store.pointTypes.definition(forKey: property.key)
         let isSelected = selectedKey == property.key
         return HStack(alignment: .firstTextBaseline, spacing: Self.columnSpacing) {
             Menu {
                 typePicker(for: property, current: type)
             } label: {
-                Image(systemName: type.symbol)
+                Image(systemName: kind?.type.symbol ?? type.symbol)
                     .foregroundStyle(.secondary)
                     .frame(width: Self.iconWidth)
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            .help("\(type.name): click to change the type")
+            .help("\(kind?.type.name ?? type.name): click to change the type")
             Group {
                 if renamingKey == property.key {
                     TextField("Name", text: $newName)
@@ -190,11 +196,14 @@ struct PropertiesStrip: View {
                 }
             }
             .frame(width: keyWidth - Self.columnSpacing, alignment: .leading)
-            PropertyValue(property: property, type: type, session: session)
+            PropertyValue(property: property, type: type, kind: kind, session: session)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Menu {
                 Button("Rename") { startRenaming(property.key) }
                 Menu("Change Type") { typePicker(for: property, current: type) }
+                if kind?.type == .choice {
+                    Button("Edit Choices…") { editingChoices = property.key }
+                }
                 Divider()
                 Button("Delete", role: .destructive) { delete(property.key) }
             } label: {
@@ -232,6 +241,9 @@ struct PropertiesStrip: View {
         .contextMenu {
             Button("Rename") { startRenaming(property.key) }
             Menu("Change Type") { typePicker(for: property, current: type) }
+            if kind?.type == .choice {
+                Button("Edit Choices…") { editingChoices = property.key }
+            }
             Divider()
             Button("Delete") { delete(property.key) }
         }
@@ -241,21 +253,52 @@ struct PropertiesStrip: View {
     /// The types to choose from, the current one ticked. (A picker, as menus show its ticks;
     /// a checkmark image on a button didn't show.)
     @ViewBuilder private func typePicker(for property: Frontmatter.Property, current: PropertyType) -> some View {
-        Picker("Type", selection: Binding(get: { current }, set: { changeType(of: property, from: current, to: $0) })) {
+        let kind = model.store.pointTypes.definition(forKey: property.key)?.type
+        let chosen = kind.map(ChosenType.point) ?? .base(current)
+        Picker("Type", selection: Binding(get: { chosen }, set: { changeType(of: property, from: current, to: $0) })) {
             ForEach(PropertyType.choosable) { type in
-                Text(type.name).tag(type)
+                Text(type.name).tag(ChosenType.base(type))
+            }
+            Divider()
+            ForEach(PointTypes.Kind.allCases) { kind in
+                Text(kind.name).tag(ChosenType.point(kind))
             }
         }
         .pickerStyle(.inline)
         .labelsHidden()
     }
 
-    /// Sets a property's type for the vault (as Obsidian keeps it), and carries this note's
-    /// value over to it.
-    private func changeType(of property: Frontmatter.Property, from old: PropertyType, to type: PropertyType) {
-        guard type != old else { return }
-        model.store.setPropertyType(type, forKey: property.key)
-        session.setProperty(property.key, to: type.convert(PropertyValue.items(of: property, as: old), from: old), isList: type.isList)
+    /// One of Obsidian's types, or one of Point's own kinds.
+    private enum ChosenType: Hashable {
+        case base(PropertyType)
+        case point(PointTypes.Kind)
+    }
+
+    /// Sets a property's type for the vault (as Obsidian keeps it, and Point's own kinds in
+    /// Point's file), and carries this note's value over to it.
+    private func changeType(of property: Frontmatter.Property, from old: PropertyType, to chosen: ChosenType) {
+        switch chosen {
+        case .base(let type):
+            model.store.setPointType(nil, forKey: property.key)
+            guard type != old else { return }
+            model.store.setPropertyType(type, forKey: property.key)
+            session.setProperty(property.key, to: type.convert(PropertyValue.items(of: property, as: old), from: old), isList: type.isList)
+        case .point(let kind):
+            var definition = PointTypes.Definition(type: kind)
+            switch kind {
+            // The choices start as what the vault gives it already, most used first.
+            case .choice: definition.choices = Array(model.store.propertyValueList(property.key).prefix(12).map(\.value))
+            case .rating: definition.max = 5
+            case .person, .note: break
+            }
+            if let existing = model.store.pointTypes.definition(forKey: property.key), existing.type == kind { return }
+            model.store.setPointType(definition, forKey: property.key)
+            let type = kind.baseType
+            var values = type.convert(PropertyValue.items(of: property, as: old), from: old)
+            // People are links to their notes.
+            if kind == .person { values = values.map { PropertyLink.linkedName($0) == nil ? "[[\($0)]]" : $0 } }
+            if type != old || kind == .person { session.setProperty(property.key, to: values, isList: type.isList) }
+        }
     }
 
     private func delete(_ key: String) {
@@ -361,6 +404,8 @@ private struct PropertyValue: View {
     @EnvironmentObject private var model: VaultModel
     let property: Frontmatter.Property
     let type: PropertyType
+    /// One of Point's own kinds, if it has one.
+    let kind: PointTypes.Definition?
     @ObservedObject var session: EditorSession
 
     private var isNested: Bool { !property.isList && property.values.isEmpty && property.range.length > property.key.count + 3 }
@@ -380,6 +425,26 @@ private struct PropertyValue: View {
         if isNested {
             Text("Edit in Markdown")
                 .foregroundStyle(.tertiary)
+        } else if let kind {
+            switch kind.type {
+            case .choice:
+                ChoiceValue(value: property.values.first ?? "",
+                            choices: kind.choices ?? model.store.propertyValueList(property.key).map(\.value), set: set)
+            case .person:
+                TokenEditor(items: Self.items(of: property, as: .list), isTags: false,
+                            suggestions: { typed, items in model.store.peopleSuggestions(for: typed, excluding: items).map { "[[\($0)]]" } },
+                            noteTitles: { model.store.peopleSuggestions(for: $0) + model.titleSuggestions(for: $0) },
+                            link: link, commit: { items in set(items.map { PropertyLink.linkedName($0) == nil ? "[[\($0)]]" : $0 }) })
+            case .rating:
+                RatingValue(value: property.values.first.flatMap { Double($0) }.map { Int($0.rounded()) } ?? 0, stars: kind.stars) { stars in
+                    set(stars == 0 ? [] : [String(stars)])
+                }
+            case .note:
+                TextValue(property: property, isNumber: false, link: link,
+                          noteTitles: { model.store.noteSuggestions(inFolder: kind.folder, typed: $0) },
+                          suggestions: { typed in model.store.noteSuggestions(inFolder: kind.folder, typed: typed).map { "[[\($0)]]" } },
+                          set: set)
+            }
         } else {
             switch type {
             case .list, .tags, .aliases:
@@ -461,6 +526,15 @@ struct PropertyLink {
         label = parts.count > 1 ? parts[1] : parts[0]
         exists = resolver.resolve(wikiTarget: target, from: sourceID) != nil
         self.open = open
+    }
+
+    /// The note a value links to, if it's just one wikilink (`[[Sam Lee]]` gives "Sam Lee").
+    static func linkedName(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("[["), trimmed.hasSuffix("]]"), trimmed.count > 4 else { return nil }
+        let inside = trimmed.dropFirst(2).dropLast(2)
+        guard !inside.contains("[["), !inside.contains("]]") else { return nil }
+        return inside.split(separator: "|", maxSplits: 1).first.map(String.init)
     }
 
     /// A whole value that's a web address: http or https, with somewhere to go, and no spaces.
@@ -1068,6 +1142,94 @@ extension View {
             pointerStyle(.link)
         } else {
             onHover { inside in if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
+        }
+    }
+}
+
+
+/// A choice property's value: a menu of its choices, and None.
+private struct ChoiceValue: View {
+    let value: String
+    let choices: [String]
+    let set: ([String]) -> Void
+
+    var body: some View {
+        Menu {
+            ForEach(choices, id: \.self) { choice in
+                Button { set([choice]) } label: {
+                    if choice.lowercased() == value.lowercased() { Label(choice, systemImage: "checkmark") } else { Text(choice) }
+                }
+            }
+            if !choices.isEmpty { Divider() }
+            Button("None") { set([]) }
+        } label: {
+            Text(value.isEmpty ? "Choose" : value)
+                .foregroundStyle(value.isEmpty ? .tertiary : .primary)
+                .lineLimit(1)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help(choices.contains { $0.lowercased() == value.lowercased() } || value.isEmpty ? "Choose" : "Not one of the choices")
+    }
+}
+
+/// A rating: stars to click. Clicking the rating it has clears it.
+private struct RatingValue: View {
+    let value: Int
+    let stars: Int
+    let set: (Int) -> Void
+    @State private var hovered: Int?
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(1...stars, id: \.self) { star in
+                Image(systemName: star <= (hovered ?? value) ? "star.fill" : "star")
+                    .foregroundStyle(star <= (hovered ?? value) ? Color.accentColor : Color.secondary.opacity(0.6))
+                    .contentShape(Rectangle())
+                    .onTapGesture { set(star == value ? 0 : star) }
+                    .onHover { inside in if inside { hovered = star } else if hovered == star { hovered = nil } }
+                    .accessibilityLabel("\(star) of \(stars)")
+            }
+        }
+        .help(value == 0 ? "No rating" : "\(value) of \(stars)")
+    }
+}
+
+/// The choices a choice property offers, one per line.
+struct ChoicesSheet: View {
+    @EnvironmentObject private var model: VaultModel
+    @Environment(\.dismiss) private var dismiss
+    let key: String
+    @State private var text = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Choices for \(key)")
+                .font(.headline)
+            TextEditor(text: $text)
+                .font(.body)
+                .frame(width: 280, height: 160)
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.3)))
+            Text("One per line, in the order they’re offered.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Save") {
+                    var seen = Set<String>()
+                    let choices = text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
+                    model.store.setPointType(PointTypes.Definition(type: .choice, choices: choices), forKey: key)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .onAppear {
+            text = (model.store.pointTypes.definition(forKey: key)?.choices ?? []).joined(separator: "\n")
         }
     }
 }

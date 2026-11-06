@@ -207,6 +207,7 @@ final class VaultStore: ObservableObject {
         notes = []
         settings = ObsidianSettings.load(vault: url)
         propertyTypes = PropertyTypes.load(vault: url)
+        pointTypes = PointTypes.load(vault: url)
         indexedTags = [:]
         propertyValues = [:]
         propertySummaries = []
@@ -1299,6 +1300,75 @@ final class VaultStore: ObservableObject {
         let before = propertyTypes
         propertyTypes.rename(key, to: newKey)
         if propertyTypes != before { save(propertyTypes, in: root) }
+        let pointBefore = pointTypes
+        pointTypes.rename(key, to: newKey)
+        if pointTypes != pointBefore { try? pointTypes.save(vault: root) }
+    }
+
+    // MARK: Point's own types, and people
+
+    /// Point's own kinds of property (choice, person, rating, link to note), from the
+    /// vault's `.point/types.json`.
+    @Published private(set) var pointTypes = PointTypes()
+
+    /// Gives a property one of Point's own kinds (nil: back to Obsidian's types alone). It's
+    /// kept in Obsidian's types too, as the type it's written as, for editing alongside.
+    func setPointType(_ definition: PointTypes.Definition?, forKey key: String) {
+        guard let root, pointTypes.definition(forKey: key) != definition else { return }
+        pointTypes.set(definition, forKey: key)
+        do { try pointTypes.save(vault: root) } catch {
+            Self.showProblem("Couldn’t save the property’s type", error)
+        }
+        if let definition, propertyTypes.type(forKey: key) != definition.type.baseType {
+            propertyTypes.set(definition.type.baseType, forKey: key)
+            save(propertyTypes, in: root)
+        }
+        listVersion += 1
+    }
+
+    /// People, by their notes' titles: notes in the people folder, and whoever's linked in a
+    /// property of the person kind, most linked first.
+    var people: [String] {
+        if let cached = peopleCache, cached.version == listVersion { return cached.names }
+        var counts: [String: (name: String, count: Int)] = [:]
+        if let folder = pointTypes.peopleFolder(among: folderTree.subfolders(of: "")) {
+            for note in notes where FolderTree.folder(of: note.id) == folder || note.id.hasPrefix(folder + "/") {
+                counts[note.title.lowercased()] = (note.title, 0)
+            }
+        }
+        let personKeys = pointTypes.properties.filter { $0.value.type == .person }.map { $0.key.lowercased() }
+        for key in personKeys {
+            for entry in propertyValues[key] ?? [] {
+                guard let name = PropertyLink.linkedName(entry.value) else { continue }
+                let existing = counts[name.lowercased()]
+                counts[name.lowercased()] = (existing?.name ?? name, (existing?.count ?? 0) + entry.count)
+            }
+        }
+        let names = counts.values.sorted { $0.count != $1.count ? $0.count > $1.count : $0.name.localizedStandardCompare($1.name) == .orderedAscending }.map(\.name)
+        peopleCache = (listVersion, names)
+        return names
+    }
+    private var peopleCache: (version: Int, names: [String])?
+
+    /// People whose names have a word starting with what's typed (all of them, with nothing
+    /// typed), most linked first.
+    func peopleSuggestions(for typed: String, excluding: [String] = [], limit: Int = 8) -> [String] {
+        let query = typed.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]@ "))
+        let taken = Set(excluding.compactMap { PropertyLink.linkedName($0)?.lowercased() ?? $0.lowercased() })
+        return Array(people.filter { name in
+            !taken.contains(name.lowercased())
+                && (query.isEmpty || name.lowercased().split(separator: " ").contains { $0.hasPrefix(query) } || name.lowercased().hasPrefix(query))
+        }.prefix(limit))
+    }
+
+    /// Notes to link to from a property of the link-to-note kind: those in its folder (any,
+    /// if none) whose titles fit what's typed.
+    func noteSuggestions(inFolder folder: String?, typed: String, limit: Int = 8) -> [String] {
+        let query = typed.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[] "))
+        return Array(notes.lazy.filter { note in
+            (folder == nil || FolderTree.folder(of: note.id) == folder || note.id.hasPrefix(folder! + "/"))
+                && (query.isEmpty || note.title.lowercased().contains(query))
+        }.map(\.title).prefix(limit))
     }
 
     private func save(_ types: PropertyTypes, in root: URL) {

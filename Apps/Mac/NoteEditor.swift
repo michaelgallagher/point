@@ -417,6 +417,8 @@ private struct EditorView: NSViewRepresentable {
             DispatchQueue.main.async { model?.activate(pane: paneID) }
         }
         textView.completeNoteTitle = { [weak model] partial in model?.titleSuggestions(for: partial) ?? [] }
+        // `@` and a name: a link to that person's note.
+        textView.completePerson = { [weak model] partial in model?.store.peopleSuggestions(for: partial) ?? [] }
         // Typing ends the chance to reopen a just-closed tab with ⌘Z.
         let onTextChange = textView.onTextChange
         textView.onTextChange = { [weak model] view in
