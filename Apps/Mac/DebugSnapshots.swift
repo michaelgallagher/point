@@ -201,6 +201,21 @@ enum DebugSnapshots {
                 }
             }
         }
+        if let spec = UserDefaults.standard.string(forKey: "PointListSheet"), let bar = spec.firstIndex(of: "|"),
+           let path = UserDefaults.standard.string(forKey: "PointSheetSnapshot") {
+            // `-PointListSheet "note id|new"` (or `|condition:1`) with `-PointSheetSnapshot <file.png>`:
+            // opens a list, then its filter window, and saves a picture of the window; then quits.
+            let id = String(spec[..<bar]), target = String(spec[spec.index(after: bar)...])
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { model.selection = id }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) {
+                NotificationCenter.default.post(name: .pointOpenListFilter, object: nil, userInfo: ["target": target])
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 7) {
+                Trace.mark("list sheet: attached \(model.window?.attachedSheet != nil), windows \(NSApp.windows.map { "\(type(of: $0)) \($0.frame.size)" })")
+                save(model.window?.attachedSheet ?? NSApp.windows.first { "\(type(of: $0))".contains("Sheet") }, to: URL(fileURLWithPath: path))
+                NSApp.terminate(nil)
+            }
+        }
         if let spec = UserDefaults.standard.string(forKey: "PointListTest") {
             // `-PointListTest "note id"`: opens a list and changes it as its menus do, in steps,
             // tracing the note's properties after each; then undoes them all.

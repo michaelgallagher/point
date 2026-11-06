@@ -9,6 +9,8 @@ extension Notification.Name {
     /// Writes a list's properties: `noteID`, and `list`, a `ListDefinition`.
     static let pointWriteList = Notification.Name("PointWriteList")
     /// What notes embed has changed (an image loaded, a list found more notes): they restyle.
+    /// Opens a list's filter window (debug): `target`, "new" or "condition:<index>".
+    static let pointOpenListFilter = Notification.Name("PointOpenListFilter")
     static let pointEmbedsChanged = Notification.Name("PointEmbedsChanged")
     /// Asks a note's editor to do a Format menu command: `userInfo` has "noteID" and
     /// "action" (the command's selector, by name).

@@ -191,3 +191,14 @@ The iPhone app (M4) and the real-vault trial still come first. Dropping side-by-
 - **Embedded:** `![[Books to read]]` alone on a line in another note shows the list's first 10 notes, with Show all to open it, and its name under it as a caption. The room is made from what the list finds, and notes restyle when that changes. EditorKit has a general hook for this (`blockEmbedHeight` and `makeBlockEmbedView`).
 - **Also fixed:** notes didn't restyle when web images arrived while they were open (SwiftUI didn't update the editor). Editors now restyle on a notice.
 - **Not yet:** lists on the iPhone (the properties show as written); grouping; a list's results in the sidebar.
+- **The filters window (6 November 2026, branch `list-filters`):**
+  - Add filter, or a click on a filter, opens a window that edits all of a list's filters the way macOS edits rules (a Finder smart folder, a Mail rule). It reads "Show notes that match all (or any) of these conditions". Each condition is a row: what it's about (the note's folder, tag, title, dates, links and words, then the vault's properties A to Z, each with its type's symbol), how it compares, and its value, with − and + buttons.
+  - The comparisons and the value's control suit the property's type, from Point's kinds, the vault's types, or how its values read. A date can be on, before or after a day, between two days, this week, month or year, or in the last or next so many days, weeks, months or years. A choice gets its menu, a rating stars, a checkbox ticked or not. Text, lists, tags and links get a combo box that completes from what the vault uses.
+  - New in the list's format:
+    - `read between 2024-03-01 and 2025-06-30`
+    - `read is this year`
+    - `read in last 3 months`
+    - `folder is not Archive`
+    - `tag is not draft`
+  - "Has a value" and "has no value" mean what they say: a blank `read:` is no value.
+  - With "any", a note in one of the folders, or with one of the tags, is listed too, as with any other condition.

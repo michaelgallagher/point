@@ -16,15 +16,11 @@ struct ListPanel: View {
     /// How many rows show, before "Show more": a list of thousands mustn't slow the note.
     @State private var shownCount = Self.firstRows
     private static let firstRows = 50
-    /// The condition being edited (or added, when nil and `isAdding`), in its popover.
-    @State private var editingCondition: Int?
-    @State private var isAddingCondition = false
 
     var body: some View {
         let ids = store.noteIDs(matching: list.query)
         VStack(alignment: .leading, spacing: 10) {
-            ListFilters(list: list, model: model, store: store, write: write,
-                        editingCondition: $editingCondition, isAddingCondition: $isAddingCondition)
+            ListFilters(list: list, model: model, store: store, write: write)
             if let ids {
                 ListResults(list: list, ids: ids, limit: shownCount, moreLabel: "Show \(min(ids.count - shownCount, 200)) more",
                             more: { shownCount += 200 }, model: model, store: store, paneID: paneID, write: write)
@@ -62,19 +58,24 @@ private struct ListFilters: View {
     @ObservedObject var model: VaultModel
     @ObservedObject var store: VaultStore
     let write: (ListDefinition) -> Void
-    @Binding var editingCondition: Int?
-    @Binding var isAddingCondition: Bool
+    /// The filters window, while it's open: with a new condition to fill in, or not.
+    @State private var sheet: SheetTarget?
+
+    enum SheetTarget: String, Identifiable {
+        case add, edit
+        var id: String { rawValue }
+    }
 
     var body: some View {
         ListFlow(spacing: 6) {
-            ForEach(list.folders, id: \.self) { folder in
-                ChipLabel(text: "In \(folder.isEmpty ? "the vault" : folder)", systemImage: "folder") {
-                    var changed = list; changed.folders.removeAll { $0 == folder }; write(changed)
+            ForEach(Array(list.folders.enumerated()), id: \.offset) { index, folder in
+                ChipLabel(text: "In \(folder.isEmpty ? "the vault" : folder)", systemImage: "folder", open: { sheet = .edit }) {
+                    var changed = list; changed.folders.remove(at: index); write(changed)
                 }
             }
-            ForEach(list.tags, id: \.self) { tag in
-                ChipLabel(text: "Tagged #\(tag)", systemImage: "number") {
-                    var changed = list; changed.tags.removeAll { $0 == tag }; write(changed)
+            ForEach(Array(list.tags.enumerated()), id: \.offset) { index, tag in
+                ChipLabel(text: "Tagged #\(tag)", systemImage: "number", open: { sheet = .edit }) {
+                    var changed = list; changed.tags.remove(at: index); write(changed)
                 }
             }
             ForEach(Array(list.conditions.enumerated()), id: \.offset) { index, condition in
@@ -87,60 +88,60 @@ private struct ListFilters: View {
                     .foregroundStyle(.secondary)
                     .help(list.matchesAny ? "Notes meeting any of these: click for all" : "Notes meeting all of these: click for any")
                 }
-                Button { editingCondition = index } label: {
-                    ChipLabel(text: condition.written, systemImage: "line.3.horizontal.decrease")
-                }
-                .buttonStyle(.plain)
-                .popover(isPresented: Binding(get: { editingCondition == index }, set: { if !$0 { editingCondition = nil } })) {
-                    ConditionEditor(condition: condition, store: store, isNew: false) { edited in
-                        editingCondition = nil
-                        var changed = list
-                        if let edited { changed.conditions[index] = edited } else { changed.conditions.remove(at: index) }
-                        write(changed)
-                    }
+                ChipLabel(text: shown(condition), systemImage: store.listValueKind(of: subject(of: condition)).symbol,
+                          open: { sheet = .edit }) {
+                    var changed = list; changed.conditions.remove(at: index); write(changed)
                 }
             }
-            addMenu
+            Button { sheet = .add } label: {
+                Label("Add filter", systemImage: "plus")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
             Rectangle().fill(Color(nsColor: .separatorColor)).frame(width: 1, height: 16)
             sortMenu
             columnsMenu
         }
-    }
-
-    /// Add a folder, a tag or a condition.
-    private var addMenu: some View {
-        Menu {
-            Menu("Folder") {
-                ForEach(folders, id: \.self) { folder in
-                    Button(folder) { var changed = list; changed.folders.append(folder); write(changed) }
-                }
-            }
-            Menu("Tag") {
-                ForEach(store.tagTree.entries.filter { !list.tags.contains($0.tag) }) { entry in
-                    Button("#\(entry.tag)") { var changed = list; changed.tags.append(entry.tag); write(changed) }
-                }
-            }
-            Button("Condition…") { isAddingCondition = true }
-        } label: {
-            Label("Add filter", systemImage: "plus")
-                .foregroundStyle(.secondary)
+        #if DEBUG
+        .onReceive(NotificationCenter.default.publisher(for: .pointOpenListFilter)) { notification in
+            sheet = (notification.userInfo?["target"] as? String) == "new" ? .add : .edit
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .popover(isPresented: $isAddingCondition) {
-            ConditionEditor(condition: ListCondition("", .is), store: store, isNew: true) { added in
-                isAddingCondition = false
-                guard let added else { return }
-                var changed = list; changed.conditions.append(added); write(changed)
+        #endif
+        .sheet(item: $sheet) { target in
+            ListFiltersSheet(store: store, list: list, addsRow: target == .add) { changed in
+                sheet = nil
+                if let changed { write(changed) }
             }
         }
     }
 
-    /// Every folder, in order, but those already chosen.
-    private var folders: [String] {
-        store.folderTree.noteCounts.keys.filter { !list.folders.contains($0) }
-            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    private func subject(of condition: ListCondition) -> ListFilterSubject {
+        ListFilterRow(condition: condition).subject
+    }
+
+    /// A condition as its token reads: in the window's words ("read has no value").
+    private func shown(_ condition: ListCondition) -> String {
+        let kind = store.listValueKind(of: subject(of: condition))
+        if condition.op.isAboutNote { return condition.written }
+        var value = condition.value
+        switch condition.op {
+        case .inLastDays, .inNextDays:
+            if let amount = condition.amount {
+                value = "\(amount.count) " + (amount.count == 1 ? String(amount.unit.rawValue.dropLast()) : amount.unit.rawValue)
+            }
+        case .between:
+            if let range = condition.range { value = "\(Self.shownDate(range.from)) and \(Self.shownDate(range.to))" }
+        case .is, .before, .after:
+            if kind == .date { value = Self.shownDate(value) }
+        default: break
+        }
+        if kind == .checkbox { value = "" }
+        return [condition.subject, kind.label(condition.op), condition.op.takesValue ? value : ""].filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// A day as the Mac writes it (6 Nov 2026), for a day written in a list (2026-11-06).
+    static func shownDate(_ written: String) -> String {
+        PropertyDate.parse(written).map { $0.date.formatted(date: .abbreviated, time: .omitted) } ?? written
     }
 
     /// The order: note facts, then the vault's properties, most used first.
@@ -208,6 +209,8 @@ private struct ListFilters: View {
 private struct ChipLabel: View {
     let text: String
     let systemImage: String
+    /// What a click on it does (opens it, to change it), if anything.
+    var open: (() -> Void)?
     /// With a button to take it away, if given.
     var remove: (() -> Void)?
     @State private var isHovered = false
@@ -230,101 +233,11 @@ private struct ChipLabel: View {
             }
         }
         .onHover { isHovered = $0 }
+        .onTapGesture { open?() }
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
         .background(Capsule().fill(Color.primary.opacity(0.07)))
         .contentShape(Capsule())
-    }
-}
-
-/// Picks what a condition is about, how it compares and with what.
-private struct ConditionEditor: View {
-    @ObservedObject var store: VaultStore
-    let isNew: Bool
-    /// Done, with the condition, or nil to remove it (or, new, to add nothing).
-    let done: (ListCondition?) -> Void
-    @State private var subject: String
-    @State private var op: ListCondition.Operator
-    @State private var value: String
-
-    init(condition: ListCondition, store: VaultStore, isNew: Bool, done: @escaping (ListCondition?) -> Void) {
-        self.store = store
-        self.isNew = isNew
-        self.done = done
-        _subject = State(initialValue: condition.subject)
-        _op = State(initialValue: condition.op)
-        _value = State(initialValue: condition.value)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                if !op.isAboutNote {
-                    TextField("Property", text: $subject)
-                        .frame(width: 140)
-                    Menu {
-                        ForEach(["title", "folder", "date created", "date edited"] + store.propertySummaries.prefix(40).map(\.name), id: \.self) { name in
-                            Button(name) { subject = name }
-                        }
-                    } label: { Image(systemName: "chevron.down") }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.hidden)
-                        .fixedSize()
-                }
-                Picker("", selection: $op) {
-                    ForEach(ListCondition.Operator.allCases, id: \.self) { op in
-                        Text(op == .inLastDays ? "in last … days" : op == .inNextDays ? "in next … days" : op.words).tag(op)
-                    }
-                }
-                .labelsHidden()
-                .fixedSize()
-                if op.takesValue {
-                    TextField(placeholder, text: $value)
-                        .frame(width: 160)
-                        .onSubmit(finish)
-                }
-            }
-            HStack {
-                if !isNew {
-                    Button("Remove") { done(nil) }
-                }
-                Spacer()
-                Button("Cancel") { isNew ? done(nil) : dismissUnchanged() }
-                    .keyboardShortcut(.cancelAction)
-                Button(isNew ? "Add" : "Done", action: finish)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(made == nil)
-            }
-        }
-        .padding(14)
-    }
-
-    @Environment(\.dismiss) private var dismiss
-    private func dismissUnchanged() { dismiss() }
-
-    private var placeholder: String {
-        switch op {
-        case .inLastDays, .inNextDays: "Days"
-        case .linksTo: "Note"
-        case .hasWords: "Words"
-        case .before, .after: "Date"
-        default: "Value"
-        }
-    }
-
-    /// The condition as it stands, if it's whole.
-    private var made: ListCondition? {
-        let subject = op.isAboutNote ? "" : subject.trimmingCharacters(in: .whitespaces)
-        let value = op.takesValue ? value.trimmingCharacters(in: .whitespaces) : ""
-        guard op.isAboutNote || !subject.isEmpty, !op.takesValue || !value.isEmpty else { return nil }
-        if op == .inLastDays || op == .inNextDays, Int(value) == nil { return nil }
-        let linked = op == .linksTo && !value.hasPrefix("[[") ? "[[\(value)]]" : value
-        return ListCondition(subject, op, linked)
-    }
-
-    private func finish() {
-        guard let made else { return }
-        done(made)
     }
 }
 

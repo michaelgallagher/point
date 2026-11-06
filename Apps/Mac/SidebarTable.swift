@@ -1234,13 +1234,7 @@ extension VaultModel {
 
     /// For a property with no type set: from how its values read.
     private func guessedSymbol(_ name: String) -> String {
-        guard let summary = store.propertySummaries.first(where: { $0.id == name.lowercased() }) else { return PropertyType.text.symbol }
-        if name.lowercased() == "tags" { return PropertyType.tags.symbol }
-        if name.lowercased() == "aliases" { return PropertyType.aliases.symbol }
-        if summary.listCount * 2 > summary.noteCount { return PropertyType.list.symbol }
-        if summary.valueCount > 0, summary.dateValues * 2 > summary.valueCount { return PropertyType.date.symbol }
-        if summary.valueCount > 0, summary.numberValues * 2 > summary.valueCount { return PropertyType.number.symbol }
-        return PropertyType.text.symbol
+        store.guessedType(ofProperty: name).symbol
     }
 }
 
