@@ -1,5 +1,6 @@
 import AppKit
 import EditorKit
+import IndexKit
 import SwiftUI
 import VaultKit
 
@@ -67,6 +68,7 @@ struct NoteEditor: View {
 private struct NoteHeader: View {
     @ObservedObject var session: EditorSession
     @ObservedObject var model: VaultModel
+    let paneID: VaultModel.NotePane.ID
     let offersTemplates: Bool
 
     var body: some View {
@@ -87,6 +89,9 @@ private struct NoteHeader: View {
                 PropertiesStrip(frontmatter: frontmatter, session: session,
                                 isExpanded: model.store.propertiesOpen[session.note.id] ?? UserDefaults.standard.bool(forKey: "propertiesExpanded"))
             }
+            if let list = ListDefinition(frontmatter: session.frontmatter) {
+                ListPanel(list: list, session: session, model: model, store: model.store, paneID: paneID)
+            }
             if offersTemplates, session.isEmpty, !model.templates.isEmpty {
                 TemplateChoices()
             }
@@ -100,9 +105,14 @@ extension NoteHeader {
     /// (None at all, if that's its only one.)
     var shownFrontmatter: Frontmatter? {
         guard let frontmatter = session.frontmatter else { return nil }
-        guard NoteNames.isDated(session.note.name) else { return frontmatter }
+        // A list's own properties are shown as the list, under them.
+        let isList = ListDefinition(frontmatter: frontmatter) != nil
+        guard NoteNames.isDated(session.note.name) || isList else { return frontmatter }
         var shown = frontmatter
-        shown.properties.removeAll { $0.key.lowercased() == "title" }
+        shown.properties.removeAll { property in
+            (NoteNames.isDated(session.note.name) && property.key.lowercased() == "title")
+                || (isList && ListDefinition.isListKey(property.key))
+        }
         return shown.properties.isEmpty ? nil : shown
     }
 }
@@ -180,11 +190,12 @@ private struct TitleField: View {
 private struct NoteHeaderHost: View {
     let session: EditorSession
     let model: VaultModel
+    let paneID: VaultModel.NotePane.ID
     let offersTemplates: Bool
     let onHeight: (CGFloat) -> Void
 
     var body: some View {
-        NoteHeader(session: session, model: model, offersTemplates: offersTemplates)
+        NoteHeader(session: session, model: model, paneID: paneID, offersTemplates: offersTemplates)
             .environmentObject(model)
             // No SwiftUI animation inside: the editor moves the text and reveals the header
             // together (see `HeaderHeightAnimator`), and the two animating apart look like a jump.
@@ -406,7 +417,7 @@ private struct EditorView: NSViewRepresentable {
         // moment and then move down.
         textView.alphaValue = 0
         let header = NSHostingView(rootView: NoteHeaderHost(
-            session: session, model: model, offersTemplates: offersTemplates,
+            session: session, model: model, paneID: paneID, offersTemplates: offersTemplates,
             onHeight: { [weak textView, animator = HeaderHeightAnimator(textView: textView)] height in
                 animator.move(to: height)
                 // Scrolled back once the text is below the header, where it'll stay.
@@ -453,6 +464,15 @@ private struct EditorView: NSViewRepresentable {
             guard let model, let session else { return nil }
             return model.store.imageURL(for: target, from: session.note.id)
         }
+        // Lists embedded alone on a line show the notes they find, above the embed.
+        textView.blockEmbedHeight = { [weak model, weak session] target in
+            guard let model, let session else { return nil }
+            return model.store.listEmbedHeight(target, from: session.note.id)
+        }
+        textView.makeBlockEmbedView = { [weak model, weak session, paneID] target in
+            guard let model, let session, let id = model.store.embeddedListID(target, from: session.note.id) else { return NSView() }
+            return NSHostingView(rootView: ListEmbed(listID: id, model: model, store: model.store, paneID: paneID).environmentObject(model))
+        }
         textView.saveImage = { [weak model, weak session] data, type in
             guard let model, let session else { return nil }
             return model.store.saveImage(data, type: type, for: session.note)
@@ -462,6 +482,7 @@ private struct EditorView: NSViewRepresentable {
             ($0.character, NSColor(srgbRed: CGFloat($0.red) / 255, green: CGFloat($0.green) / 255, blue: CGFloat($0.blue) / 255, alpha: 1))
         }
         context.coordinator.notesGeneration = model.store.notesGeneration
+        context.coordinator.watchEmbeds(of: textView)
         return scrollView
     }
 
@@ -487,9 +508,25 @@ private struct EditorView: NSViewRepresentable {
         coordinator.model?.notePlaces[key] = VaultModel.NotePlace(scroll: textView.scrollAnchor, selection: textView.selectedRange())
     }
 
-    final class Coordinator {
+    @MainActor
+    final class Coordinator: NSObject {
         var notesGeneration = 0
         var placeKey: String?
         weak var model: VaultModel?
+        private weak var textView: MarkdownTextView?
+
+        /// Restyles the note when what it embeds changes (images loaded, lists finding more or
+        /// fewer notes): SwiftUI doesn't update the editor for that on its own.
+        func watchEmbeds(of textView: MarkdownTextView) {
+            self.textView = textView
+            NotificationCenter.default.removeObserver(self, name: .pointEmbedsChanged, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(embedsChanged), name: .pointEmbedsChanged, object: nil)
+        }
+
+        @objc private func embedsChanged() {
+            guard let textView, let model else { return }
+            notesGeneration = model.store.notesGeneration
+            textView.restyleAll()
+        }
     }
 }

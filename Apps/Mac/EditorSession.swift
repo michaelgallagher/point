@@ -1,5 +1,6 @@
 import AppKit
 import EditorKit
+import IndexKit
 import VaultKit
 
 extension Notification.Name {
@@ -73,6 +74,7 @@ final class EditorSession: NSObject, ObservableObject {
         center.addObserver(self, selector: #selector(applyTemplate(_:)), name: .pointApplyTemplate, object: nil)
         center.addObserver(self, selector: #selector(revealFromNotification(_:)), name: .pointRevealRange, object: nil)
         center.addObserver(self, selector: #selector(setPropertyFromNotification(_:)), name: .pointSetProperty, object: nil)
+        center.addObserver(self, selector: #selector(writeListFromNotification(_:)), name: .pointWriteList, object: nil)
         center.addObserver(self, selector: #selector(addTagFromNotification(_:)), name: .pointAddTag, object: nil)
         center.addObserver(self, selector: #selector(editorCommand(_:)), name: .pointEditorCommand, object: nil)
     }
@@ -397,6 +399,55 @@ final class EditorSession: NSObject, ObservableObject {
         let edit = frontmatter?.edit(setting: key, to: values, isList: isList)
             ?? Frontmatter.edit(adding: key, values: values, isList: isList)
         textView.applyEdit(replacing: edit.0, with: edit.1)
+    }
+
+    /// Sets several properties, and removes those set to nil, as one undoable edit.
+    func setProperties(_ changes: [(key: String, values: [String]?, isList: Bool)]) {
+        guard let textView, !changes.isEmpty else { return }
+        textView.undoManager?.beginUndoGrouping()
+        for change in changes {
+            // Read again after each edit: the one before moved everything after it.
+            let current = Frontmatter.parse(textView.string)
+            if let values = change.values {
+                let edit = current?.edit(setting: change.key, to: values, isList: change.isList)
+                    ?? Frontmatter.edit(adding: change.key, values: values, isList: change.isList)
+                textView.applyEdit(replacing: edit.0, with: edit.1)
+            } else if let edit = current?.edit(removing: change.key) {
+                textView.applyEdit(replacing: edit.0, with: edit.1)
+            }
+        }
+        textView.undoManager?.endUndoGrouping()
+    }
+
+    /// Writes a changed list into the note's properties, as one undoable edit: only the
+    /// properties that changed, by their names as the note spells them. A list with nothing
+    /// left to choose by keeps an empty `list-where`, so it stays a list (of every note).
+    func writeList(_ changed: ListDefinition) {
+        let current = ListDefinition(frontmatter: frontmatter)
+        guard changed != current else { return }
+        let properties = frontmatter?.properties ?? []
+        let spelled = Dictionary(properties.map { ($0.key.lowercased(), $0.key) }, uniquingKeysWith: { first, _ in first })
+        let before = Dictionary((current?.properties ?? []).map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+        var changes: [(key: String, values: [String]?, isList: Bool)] = []
+        for (key, values, isList) in changed.properties
+        where before[key]?.values != values || before[key]?.isList != isList || spelled[key] == nil {
+            changes.append((key, values, isList))
+        }
+        let kept = Set(changed.properties.map(\.key))
+        for key in ListDefinition.Key.all where !kept.contains(key) && spelled[key] != nil {
+            changes.append((key, nil, false))
+        }
+        if changed.folders.isEmpty, changed.tags.isEmpty, changed.conditions.isEmpty {
+            changes.removeAll { $0.key == ListDefinition.Key.conditions }
+            changes.append((ListDefinition.Key.conditions, [], true))
+        }
+        setProperties(changes.map { (spelled[$0.key] ?? $0.key, $0.values, $0.isList) })
+    }
+
+    @objc private func writeListFromNotification(_ notification: Notification) {
+        guard !isReleased, notification.userInfo?["noteID"] as? String == note.id,
+              let list = notification.userInfo?["list"] as? ListDefinition else { return }
+        writeList(list)
     }
 
     @objc private func setPropertyFromNotification(_ notification: Notification) {

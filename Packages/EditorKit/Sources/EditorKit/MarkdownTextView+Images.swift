@@ -99,6 +99,45 @@ extension MarkdownTextView {
         while imageViews.count > count {
             imageViews.removeLast().removeFromSuperview()
         }
+        syncBlockEmbedViews()
+    }
+
+    /// Puts the app's view over the room above each block embed (see `blockEmbedHeight`).
+    private func syncBlockEmbedViews() {
+        guard let storage = textStorage, let layoutManager, let container = textContainer else { return }
+        var count = 0
+        let origin = textContainerOrigin
+        if styler.theme.rendersImages, !styler.showsMarkdown, let make = makeBlockEmbedView {
+            storage.enumerateAttribute(.pointBlockEmbed, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+                guard let decoration = value as? BlockEmbedDecoration, range.length > 0 else { return }
+                let glyph = layoutManager.glyphIndexForCharacter(at: range.location)
+                let line = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+                guard line.height > decoration.height else { return }
+                let style = storage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle
+                let indent = style?.firstLineHeadIndent ?? 0
+                if count < blockEmbedViews.count, blockEmbedViews[count].target != decoration.target {
+                    blockEmbedViews[count].view.removeFromSuperview()
+                    blockEmbedViews.remove(at: count)
+                }
+                let view: NSView
+                if count < blockEmbedViews.count {
+                    view = blockEmbedViews[count].view
+                } else {
+                    view = make(decoration.target)
+                    addSubview(view)
+                    blockEmbedViews.insert((decoration.target, view), at: count)
+                }
+                count += 1
+                let width = min(styler.theme.textWidth, container.size.width - container.lineFragmentPadding * 2) - indent
+                let frame = CGRect(x: origin.x + container.lineFragmentPadding + indent,
+                                   y: origin.y + line.minY + decoration.spaceAbove,
+                                   width: max(width, 100), height: decoration.height)
+                if view.frame != frame { view.frame = frame }
+            }
+        }
+        while blockEmbedViews.count > count {
+            blockEmbedViews.removeLast().view.removeFromSuperview()
+        }
     }
 
     // MARK: An image's commands
