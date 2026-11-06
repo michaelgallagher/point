@@ -277,14 +277,18 @@ final class VaultStore: ObservableObject {
     }
 
     /// Creates a note in `folder` ("" is the vault root) and returns its ID: untitled (to be
-    /// named by its first line), unless given a title.
-    func createNote(text: String = "", titled title: String? = nil, inFolder folder: String) -> Note.ID? {
+    /// named by its first line), unless given a title. Point names it with the day and its title
+    /// (`2026-11-06-title.md`, the title in its `title:`), unless `dated` is false (templates,
+    /// named as their title).
+    func createNote(text: String = "", titled title: String? = nil, inFolder folder: String, dated: Bool = true) -> Note.ID? {
         guard let root else { return nil }
         do {
-            let url = try NoteFiles.create(title: title ?? NoteFiles.untitledName(), text: text,
-                                           in: folder.isEmpty ? root : root.appendingPathComponent(folder))
+            let directory = folder.isEmpty ? root : root.appendingPathComponent(folder)
+            let url = dated ? try NoteFiles.createDated(title: title, text: text, in: directory)
+                : try NoteFiles.create(title: title ?? NoteFiles.untitledName(), text: text, in: directory)
             let id = folder.isEmpty ? url.lastPathComponent : folder + "/" + url.lastPathComponent
-            add(Note(id: id, url: url, title: url.deletingPathExtension().lastPathComponent,
+            let name = url.deletingPathExtension().lastPathComponent
+            add(Note(id: id, url: url, title: dated ? (title ?? NoteNames.fallbackTitle(for: name)) : name,
                      modified: Date(), created: Date(), isDownloaded: true))
             if title == nil { untitled.insert(id) }
             return id
@@ -328,6 +332,11 @@ final class VaultStore: ObservableObject {
         }
         untitled.remove(id)
         guard let line = PlainText.firstLine(of: text) else { return }
+        // Named by Point: its first line is its title, and its name follows.
+        if NoteNames.isDated(note.name) {
+            retitle(note, to: line, text: text)
+            return
+        }
         let title = NoteFiles.sanitizedTitle(line)
         guard !title.isEmpty, title != note.title else { return }
         let available = NoteFiles.availableURL(for: title, in: note.url.deletingLastPathComponent())
@@ -352,6 +361,12 @@ final class VaultStore: ObservableObject {
         // first, a rename that failed, say to a name already taken, left the note open but
         // no longer saving.)
         guard saveBeforeMoving([note], "renamed") else { return }
+        if NoteNames.isDated(note.name) {
+            guard let text = try? NoteReader.read(contentsOf: note.url) else {
+                return Self.showProblem("Couldn’t rename “\(note.title)”", detail: "Point couldn’t read the note.")
+            }
+            return retitle(note, to: title, text: text)
+        }
         do {
             let vaultBeforeRename = notes
             let url = try NoteFiles.rename(note.url, to: title)
@@ -367,10 +382,44 @@ final class VaultStore: ObservableObject {
         }
     }
 
+    /// Gives a note Point named a new title: its `title:` set, and its name following, with the
+    /// day it was made kept (`2026-11-06-new-title.md`). Links to it are updated, and their
+    /// labels too where they were its old title. `text` is the note as it is on disk.
+    private func retitle(_ note: Note, to newTitle: String, text: String) {
+        let title = newTitle.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ")
+        guard !title.isEmpty, title != note.title || NoteNames.title(in: text) == nil else { return }
+        let retitled = NoteNames.settingTitle(title, in: text)
+        do {
+            switch try NoteWriter.write(retitled, to: note.url, expecting: text, ifChanged: .report) {
+            case .saved: break
+            default: return Self.showProblem("Couldn’t rename “\(note.title)”", detail: "The note changed while Point was renaming it. Try again.")
+            }
+        } catch {
+            return Self.showProblem("Couldn’t rename “\(note.title)”", error)
+        }
+        let vaultBefore = notes
+        var url = note.url
+        if let name = NoteNames.renamed(note.name, to: title), name != note.name {
+            let available = NoteFiles.availableDatedURL(for: name, in: note.url.deletingLastPathComponent(), excluding: note.url)
+            do {
+                url = try NoteFiles.rename(note.url, to: available.deletingPathExtension().lastPathComponent)
+            } catch {
+                // The title's set; the file keeps its name, which is fine (links still work).
+                NSLog("Point: couldn't rename \(note.id) for its new title: \(error.localizedDescription)")
+            }
+        }
+        if url != note.url { EditorSession.release(note.url) }
+        updateLinks(to: note, newTitle: url.deletingPathExtension().lastPathComponent, vault: vaultBefore, retitling: (note.title, title))
+        let folder = FolderTree.folder(of: note.id)
+        replace(note, with: folder.isEmpty ? url.lastPathComponent : folder + "/" + url.lastPathComponent, url: url, title: title)
+        Task { await reload() }
+    }
+
     /// Updates a note's place in the list and tells windows its new ID.
-    private func replace(_ note: Note, with newID: Note.ID, url: URL) {
+    private func replace(_ note: Note, with newID: Note.ID, url: URL, title: String? = nil) {
         if let index = notes.firstIndex(where: { $0.id == note.id }) {
-            notes[index] = Note(id: newID, url: url, title: url.deletingPathExtension().lastPathComponent,
+            let name = url.deletingPathExtension().lastPathComponent
+            notes[index] = Note(id: newID, url: url, title: title ?? NoteNames.shownTitle(name: name, url: url),
                                 modified: note.modified, created: note.created, isDownloaded: true)
         }
         if untitled.remove(note.id) != nil { untitled.insert(newID) }
@@ -555,10 +604,10 @@ final class VaultStore: ObservableObject {
 
     /// Points every link to `note` at its new title, in the background. Open notes save
     /// first, and pick up the rewritten links through the vault watcher.
-    private func updateLinks(to note: Note, newTitle: String, vault: [Note]) {
+    private func updateLinks(to note: Note, newTitle: String, vault: [Note], retitling: (from: String, to: String)? = nil) {
         NotificationCenter.default.post(name: .pointSaveNow, object: self)
         Task.detached(priority: .userInitiated) {
-            let result = LinkUpdater.updateLinks(to: note, newTitle: newTitle, notes: vault)
+            let result = LinkUpdater.updateLinks(to: note, newTitle: newTitle, notes: vault, retitling: retitling)
             await Self.report(result, for: note.title)
             await self.announce(result.updatedNotes.filter { $0 != note.id }, to: newTitle)
         }
@@ -772,6 +821,17 @@ final class VaultStore: ObservableObject {
         return note.id
     }
 
+    /// What goes between `[[` and `]]` for a link to the note with this title: its name, and
+    /// for a note Point named (whose name isn't its title), the title as the link's label,
+    /// `2026-11-06-questions|Questions?`, which reads well in any app.
+    func linkText(forTitle title: String) -> String {
+        guard let note = notes.first(where: { $0.title == title }) ?? notes.first(where: { $0.title.lowercased() == title.lowercased() }),
+              note.name != note.title else { return title }
+        // A label can't hold `]]` or `|`.
+        let label = note.title.replacingOccurrences(of: "]]", with: "] ]").replacingOccurrences(of: "|", with: "-")
+        return note.name + "|" + label
+    }
+
     /// Note titles for completing a `[[wikilink]]`: names starting with the typed text first,
     /// then names with a word starting with it, then names containing it anywhere.
     func titleSuggestions(for partial: String) -> [String] {
@@ -845,7 +905,7 @@ final class VaultStore: ObservableObject {
 
     /// A new template, in the templates folder, opened in the window in front.
     func createTemplate() {
-        guard !settings.templatesFolder.isEmpty, let id = createNote(inFolder: settings.templatesFolder) else { return NSSound.beep() }
+        guard !settings.templatesFolder.isEmpty, let id = createNote(inFolder: settings.templatesFolder, dated: false) else { return NSSound.beep() }
         activeWindow?.selection = id
     }
 

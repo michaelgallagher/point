@@ -49,6 +49,27 @@ public enum NoteFiles {
         return candidate
     }
 
+    /// `folder/2026-11-06-name.md`, or `…-name-2.md` and so on if that's taken: numbered with a
+    /// hyphen, so it stays a name Point made. Compared without regard to case.
+    public static func availableDatedURL(for name: String, in folder: URL, excluding existing: URL? = nil) -> URL {
+        var candidate = folder.appendingPathComponent("\(name).md")
+        var number = 2
+        while FileManager.default.fileExists(atPath: candidate.path), candidate.standardizedFileURL != existing?.standardizedFileURL {
+            candidate = folder.appendingPathComponent("\(name)-\(number).md")
+            number += 1
+        }
+        return candidate
+    }
+
+    /// Creates a note Point names, for `title` (nil: untitled, to be named later), with its
+    /// `title:` set in its text, and returns its URL.
+    public static func createDated(title: String?, text: String = "", in folder: URL, created: Date = Date()) throws -> URL {
+        let url = availableDatedURL(for: NoteNames.name(for: title ?? "", created: created), in: folder)
+        let body = title.map { NoteNames.settingTitle($0, in: text) } ?? text
+        try Data(body.utf8).write(to: url, options: .withoutOverwriting)
+        return url
+    }
+
     /// Creates a note and returns its URL.
     public static func create(title: String, text: String = "", in folder: URL) throws -> URL {
         let title = sanitizedTitle(title)

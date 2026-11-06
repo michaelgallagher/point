@@ -145,3 +145,12 @@ The iPhone app (M4) and the real-vault trial still come first. Dropping side-by-
 - **People** are the notes in the people folder (`.point/types.json`, else a top-level folder called People) and whoever's linked in a person property, most linked first.
 - **`@` in a note:** typing `@` and a name suggests people; picking one writes `[[Name]]`. Not in an email address, code or a link.
 - **Not yet:** the iPhone's properties sheet edits Point's kinds as what they're written as (a choice as text, say). People aren't yet shown as chips in the text.
+
+**3. Titles (built 6 November 2026, branch `titles`):**
+- **Names** (`NoteNames`, VaultKit): a new note is named for its day and its title, `2026-11-06-questions-about-my-vault.md`. Accents and other scripts become plain letters, emoji and punctuation go, and long titles stay long. A name that's taken gets `-2`, `-3` and so on.
+- **The title shown** is the note's `title:` property, but only for a note named this way. Every other note shows its file name, as before, even if it has a `title:` (many clipped notes do).
+- **Retitling** sets `title:` (added first in the frontmatter) and renames the file to match, keeping its day. Links to it follow, and a link's label that was the old title becomes the new one; a label of its own stays.
+- **Links** to these notes are written `[[2026-11-06-questions-about-my-vault|Questions: about my vault?]]`, when picked from suggestions or added to a property.
+- **The `title:` property is hidden** in the Mac's properties strip and the iPhone's properties sheet. It's the title above the note.
+- **New notes only:** linked notes, daily notes and templates are named as before, and existing notes keep their names.
+- **Not yet:** checked on the iPhone only by building it, not by running it. Notes made in Obsidian aren't given titles.

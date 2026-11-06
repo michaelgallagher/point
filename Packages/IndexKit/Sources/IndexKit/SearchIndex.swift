@@ -522,7 +522,7 @@ public actor SearchIndex {
     /// The notes linking to `note`, each with the line the link is on.
     public func backlinks(to note: Note, notes: [Note]) throws -> [Backlink] {
         let candidates = try db.query("SELECT DISTINCT n.id FROM links l JOIN notes n ON n.row = l.note WHERE l.name = ?",
-                                      [note.title.lowercased()]).map { $0[0] as! String }
+                                      [note.name.lowercased()]).map { $0[0] as! String }
         let resolver = LinkResolver(notes: notes)
         let byID = Dictionary(notes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         return candidates.compactMap { id -> Backlink? in

@@ -303,8 +303,10 @@ final class PhoneStore: ObservableObject {
     /// from its first line.
     func createNote(in folder: String = "", text: String = "") -> Note.ID? {
         do {
-            let url = try NoteFiles.create(title: NoteFiles.untitledName(), text: text, in: url(ofFolder: folder))
-            let note = Note(id: id(of: url, in: folder), url: url, title: url.deletingPathExtension().lastPathComponent,
+            // Named for its day, `2026-11-06-untitled.md`, until it's left and named from its first line.
+            let url = try NoteFiles.createDated(title: nil, text: text, in: url(ofFolder: folder))
+            let name = url.deletingPathExtension().lastPathComponent
+            let note = Note(id: id(of: url, in: folder), url: url, title: NoteNames.fallbackTitle(for: name),
                             modified: Date(), created: Date(), isDownloaded: true)
             notes.append(note)
             untitled.insert(note.id)
@@ -336,6 +338,11 @@ final class PhoneStore: ObservableObject {
         }
         untitled.remove(id)
         guard let line = PlainText.firstLine(of: text) else { return }
+        if NoteNames.isDated(note.name) {
+            // A note Point named: its title is the line as written, and its name follows.
+            if (try? retitle(note, to: line, text: text)) == nil { untitled.insert(id) }
+            return
+        }
         let title = NoteFiles.sanitizedTitle(line)
         guard !title.isEmpty, title != note.title else { return }
         let available = NoteFiles.availableURL(for: title, in: note.url.deletingLastPathComponent())
@@ -352,6 +359,10 @@ final class PhoneStore: ObservableObject {
     /// renamed (the note's left as it was).
     func rename(_ id: Note.ID, to title: String) throws -> Note {
         guard let note = note(id) else { throw CocoaError(.fileNoSuchFile) }
+        if NoteNames.isDated(note.name) {
+            untitled.remove(id)
+            return try retitle(note, to: title, text: NoteReader.read(contentsOf: note.url))
+        }
         let vault = notes
         let url = try NoteFiles.rename(note.url, to: title)
         untitled.remove(id)
@@ -359,6 +370,35 @@ final class PhoneStore: ObservableObject {
         let newTitle = renamed.title
         Task.detached(priority: .userInitiated) {
             let result = LinkUpdater.updateLinks(to: note, newTitle: newTitle, notes: vault)
+            if !result.updatedNotes.isEmpty { PhoneVault.log("updated links in \(result.updatedNotes.count) notes") }
+            await self.reload()
+        }
+        return renamed
+    }
+
+    /// Gives a note Point named a new title, as on the Mac: its `title:` is set, its file is
+    /// renamed to match (keeping its day), and links to it follow, with any label that was its
+    /// old title. Throws if the note changed meanwhile or can't be written.
+    @discardableResult
+    private func retitle(_ note: Note, to newTitle: String, text: String) throws -> Note {
+        let title = newTitle.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ")
+        guard !title.isEmpty else { throw NoteFiles.FileError.emptyTitle }
+        guard title != note.title || NoteNames.title(in: text) == nil else { return note }
+        let retitled = NoteNames.settingTitle(title, in: text)
+        guard case .saved = try NoteWriter.write(retitled, to: note.url, expecting: text, ifChanged: .report) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        let vault = notes
+        var url = note.url
+        if let name = NoteNames.renamed(note.name, to: title), name != note.name {
+            let available = NoteFiles.availableDatedURL(for: name, in: note.url.deletingLastPathComponent(), excluding: note.url)
+            // If it can't be renamed, the title's still set; links to its old name still work.
+            url = (try? NoteFiles.rename(note.url, to: available.deletingPathExtension().lastPathComponent)) ?? note.url
+        }
+        let renamed = moved(note, to: url, title: title)
+        let newName = renamed.name, oldTitle = note.title
+        Task.detached(priority: .userInitiated) {
+            let result = LinkUpdater.updateLinks(to: note, newTitle: newName, notes: vault, retitling: (oldTitle, title))
             if !result.updatedNotes.isEmpty { PhoneVault.log("updated links in \(result.updatedNotes.count) notes") }
             await self.reload()
         }
@@ -490,9 +530,11 @@ final class PhoneStore: ObservableObject {
     /// A note's file renamed: the list, and what it was known by (opened, worked on, its
     /// bookmarks), follow it.
     @discardableResult
-    private func moved(_ note: Note, to url: URL, in folder: String? = nil) -> Note {
+    private func moved(_ note: Note, to url: URL, in folder: String? = nil, title: String? = nil) -> Note {
         let newID = id(of: url, in: folder ?? (note.id as NSString).deletingLastPathComponent)
-        let renamed = Note(id: newID, url: url, title: url.deletingPathExtension().lastPathComponent,
+        let name = url.deletingPathExtension().lastPathComponent
+        let shown = title ?? NoteNames.shownTitle(name: name, url: url)
+        let renamed = Note(id: newID, url: url, title: shown,
                            modified: note.modified, created: note.created, isDownloaded: true)
         if let index = notes.firstIndex(where: { $0.id == note.id }) { notes[index] = renamed }
         renamedIDs[note.id] = newID

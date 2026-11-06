@@ -193,7 +193,13 @@ extension MarkdownTextView {
         let text = string as NSString
         let after = NSMaxRange(charRange)
         let hasClose = after + 2 <= text.length && text.substring(with: NSRange(location: after, length: 2)) == "]]"
-        super.insertCompletion(hasClose ? word : word + "]]", forPartialWordRange: charRange, movement: movement, isFinal: flag)
+        let link = linkTextForTitle?(word) ?? word
+        guard link != word else {
+            return super.insertCompletion(hasClose ? word : word + "]]", forPartialWordRange: charRange, movement: movement, isFinal: flag)
+        }
+        // A name and a label: put in as an edit of its own, as AppKit only fills in the word.
+        super.insertCompletion(offered.typed, forPartialWordRange: charRange, movement: movement, isFinal: flag)
+        insertText(hasClose ? link : link + "]]", replacementRange: charRange)
     }
 
     /// Whether a key is being typed (rather than a suggestion clicked), for `insertCompletion`.

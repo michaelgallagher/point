@@ -14,18 +14,20 @@ public enum LinkUpdater {
 
     /// Rewrites every link to `renamed` (identified by its old ID) so it points at `newTitle`.
     /// `notes` is the vault as it was before the rename.
-    public static func updateLinks(to renamed: Note, newTitle: String, notes: [Note]) -> Result {
+    /// `retitling`: for a note Point named, its title changing too: a link's `|label` that was
+    /// the old title becomes the new one.
+    public static func updateLinks(to renamed: Note, newTitle: String, notes: [Note], retitling: (from: String, to: String)? = nil) -> Result {
         let resolver = LinkResolver(notes: notes)
         var result = Result()
-        let needle = renamed.title.lowercased()
-        let encodedNeedle = (renamed.title.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? renamed.title).lowercased()
+        let needle = renamed.name.lowercased()
+        let encodedNeedle = (renamed.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? renamed.name).lowercased()
         for note in notes {
             // The renamed note itself is under its new name now (its links to itself change too).
             let url = note.id == renamed.id ? renamed.url.deletingLastPathComponent().appendingPathComponent(newTitle + ".md") : note.url
             guard let text = try? NoteReader.read(contentsOf: url) else { result.unreadNotes.append(note.id); continue }
             let lowered = text.lowercased()
             guard lowered.contains(needle) || lowered.contains(encodedNeedle) else { continue }
-            guard let rewritten = rewrite(text, in: note.id, renamed: renamed, newTitle: newTitle, resolver: resolver) else { continue }
+            guard let rewritten = rewrite(text, in: note.id, renamed: renamed, newTitle: newTitle, resolver: resolver, retitling: retitling) else { continue }
             switch try? NoteWriter.write(rewritten, to: url, expecting: text, ifChanged: .report) {
             case .saved?: result.updatedNotes.append(note.id)
             default: result.skippedNotes.append(note.id)
@@ -62,7 +64,8 @@ public enum LinkUpdater {
     private static let frontmatterLink = try! NSRegularExpression(pattern: #"\[\[([^\[\]\n|]+)"#)
 
     /// `text` with its links to `renamed` pointing at `newTitle`, or nil if it has none.
-    public static func rewrite(_ text: String, in sourceID: String, renamed: Note, newTitle: String, resolver: LinkResolver) -> String? {
+    public static func rewrite(_ text: String, in sourceID: String, renamed: Note, newTitle: String, resolver: LinkResolver,
+                               retitling: (from: String, to: String)? = nil) -> String? {
         let ns = text as NSString
         var replacements: [(NSRange, String)] = []
         for link in wikiLinks(in: text) {
@@ -78,7 +81,20 @@ public enum LinkUpdater {
             var replacement = folder.isEmpty ? newTitle : folder + "/" + newTitle
             if hadExtension { replacement += ".md" }
             let nameRange = NSRange(location: targetRange.location, length: (subpath as NSString).length)
-            replacements.append((nameRange, replacement))
+            if replacement != subpath { replacements.append((nameRange, replacement)) }
+            // The label after `|`, if it was the old title, follows the new one.
+            if let retitling {
+                let labelStart = NSMaxRange(targetRange)
+                if labelStart < ns.length, ns.character(at: labelStart) == 124 { // "|"
+                    let close = ns.range(of: "]]", range: NSRange(location: labelStart, length: ns.length - labelStart))
+                    if close.location != NSNotFound {
+                        let labelRange = NSRange(location: labelStart + 1, length: close.location - labelStart - 1)
+                        if ns.substring(with: labelRange).lowercased() == retitling.from.lowercased() {
+                            replacements.append((labelRange, retitling.to))
+                        }
+                    }
+                }
+            }
         }
         for token in MarkdownParser.parse(text) {
             switch token.kind {
@@ -119,8 +135,8 @@ public enum LinkUpdater {
     public static func updateLinks(afterMoving moved: Note, to newID: String, notes: [Note], root: URL) -> Result {
         let resolver = LinkResolver(notes: notes)
         var result = Result()
-        let needle = moved.title.lowercased()
-        let encodedNeedle = (moved.title.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? moved.title).lowercased()
+        let needle = moved.name.lowercased()
+        let encodedNeedle = (moved.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? moved.name).lowercased()
         for note in notes where note.id != moved.id {
             guard let text = try? NoteReader.read(contentsOf: note.url) else { result.unreadNotes.append(note.id); continue }
             let lowered = text.lowercased()
