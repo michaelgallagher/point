@@ -132,6 +132,38 @@ enum DebugSnapshots {
                 }
             }
         }
+        // `-PointRenameTest "tag:work|job"` (or `property:name|new`, `value:name|value|new`): renames
+        // across the vault, traces each note's text, undoes, and traces them again.
+        if let spec = UserDefaults.standard.string(forKey: "PointRenameTest") {
+            let parts = spec.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+            let kind = parts[0].split(separator: ":", maxSplits: 1).map(String.init)
+            let rename: VaultStore.VaultRename? = switch kind.first {
+            case "tag": .tag(kind[1])
+            case "property": .property(kind[1])
+            case "value": .value(property: kind[1], value: parts[1])
+            default: nil
+            }
+            func dump(_ label: String) {
+                for note in model.notes.sorted(by: { $0.id < $1.id }) {
+                    let text = (try? NoteReader.read(contentsOf: note.url)) ?? "?"
+                    Trace.mark("\(label) \(note.id): \(text.replacingOccurrences(of: "\n", with: "⏎"))")
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                guard let rename, let new = parts.last else { return }
+                model.store.rename(rename, to: new)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    dump("after")
+                    Trace.mark("notice: \(model.store.vaultChangeNotice?.text ?? "none")")
+                    model.store.undoLastVaultChange()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        dump("undone")
+                        Trace.mark("notice: \(model.store.vaultChangeNotice?.text ?? "none")")
+                        NSApp.terminate(nil)
+                    }
+                }
+            }
+        }
         trashIfAsked(for: model)
         formatIfAsked(for: model)
         guard let folder = UserDefaults.standard.string(forKey: "PointSnapshots") else { return }

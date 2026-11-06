@@ -97,7 +97,48 @@ extension MarkdownTextView {
     }
 
     public override var rangeForUserCompletion: NSRange {
-        wikiLinkPartialRange() ?? super.rangeForUserCompletion
+        wikiLinkPartialRange() ?? mentionPartialRange() ?? super.rangeForUserCompletion
+    }
+
+    // MARK: Mentioning people
+
+    /// The name being typed after an `@`, ending at the cursor: `@Sa` gives the range of `Sa`.
+    /// The `@` starts a word (not `me@example.com`), and the name so far has no spaces. Not in
+    /// code, a link or a web address.
+    func mentionPartialRange() -> NSRange? {
+        guard completePerson != nil else { return nil }
+        let text = string as NSString
+        let cursor = selectedRange()
+        guard cursor.length == 0 else { return nil }
+        let line = text.lineRange(for: NSRange(location: cursor.location, length: 0))
+        var index = cursor.location
+        while index > line.location {
+            let c = text.character(at: index - 1)
+            if c == 64 { // "@"
+                if index - 1 > line.location, let before = Unicode.Scalar(text.character(at: index - 2)),
+                   !CharacterSet.whitespaces.contains(before), !"([{\"'".unicodeScalars.contains(before) { return nil }
+                let range = NSRange(location: index, length: cursor.location - index)
+                guard !tokens.contains(where: { token in
+                    switch token.kind {
+                    case .code, .codeBlock, .wikiLink, .embed, .link, .url, .frontmatter: NSLocationInRange(index - 1, token.range)
+                    default: false
+                    }
+                }) else { return nil }
+                return range
+            }
+            guard let scalar = Unicode.Scalar(c), CharacterSet.alphanumerics.contains(scalar) || c == 45 || c == 46 || c == 39 else { return nil }
+            index -= 1
+        }
+        return nil
+    }
+
+    /// Shows people while a name is typed after `@`.
+    func suggestPeopleIfMentioning() {
+        guard completePerson != nil, mentionPartialRange() != nil else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.mentionPartialRange() != nil else { return }
+            self.complete(nil)
+        }
     }
 
     /// Suggests note titles, with none chosen: AppKit fills in a chosen one as the cursor's
@@ -105,6 +146,13 @@ extension MarkdownTextView {
     /// would have kept whichever note came first (most of all with notes named by date, which
     /// share their start). A suggestion goes in only once picked from the list.
     public override func completions(forPartialWordRange charRange: NSRange, indexOfSelectedItem index: UnsafeMutablePointer<Int>) -> [String]? {
+        if wikiLinkPartialRange() == nil, mentionPartialRange() != nil, let completePerson {
+            index.pointee = -1
+            let typed = (string as NSString).substring(with: charRange)
+            let people = completePerson(typed)
+            offeredCompletion = (typed, people)
+            return people
+        }
         guard wikiLinkPartialRange() != nil, let completeNoteTitle else {
             return super.completions(forPartialWordRange: charRange, indexOfSelectedItem: index)
         }
@@ -119,6 +167,18 @@ extension MarkdownTextView {
     /// brackets. A key typed while the list is open ends it with what was typed, not the
     /// title showing.
     public override func insertCompletion(_ word: String, forPartialWordRange charRange: NSRange, movement: Int, isFinal flag: Bool) {
+        if wikiLinkPartialRange() == nil, mentionPartialRange() != nil, let offered = offeredCompletion {
+            if flag { offeredCompletion = nil }
+            let picked = flag && offered.titles.contains(word) && !((isTypingKey && movement == NSOtherTextMovement) || movement == NSCancelTextMovement)
+            guard picked else {
+                // Nothing filled in while choosing: what was typed stays.
+                return super.insertCompletion(offered.typed, forPartialWordRange: charRange, movement: movement, isFinal: flag)
+            }
+            // The `@` and the name typed become a link to the person's note.
+            let whole = NSRange(location: charRange.location - 1, length: charRange.length + 1)
+            insertText("[[\(word)]]", replacementRange: whole)
+            return
+        }
         guard wikiLinkPartialRange() != nil, let offered = offeredCompletion else {
             return super.insertCompletion(word, forPartialWordRange: charRange, movement: movement, isFinal: flag)
         }

@@ -698,6 +698,21 @@ struct SidebarTable: NSViewRepresentable {
                 if place != .allNotes {
                     menu.addItem(item(model.isPinned(place) ? "Unpin" : "Pin to Sidebar") { $0.togglePin(place) })
                 }
+                // Renamed in every note that has it.
+                let rename: VaultStore.VaultRename? = switch place {
+                case .tag(let tag): .tag(tag)
+                case .property(let name): .property(name)
+                case .propertyValue(let name, let value): .value(property: name, value: value)
+                default: nil
+                }
+                if let rename {
+                    let title = switch rename {
+                    case .tag: "Rename Tag…"
+                    case .property: "Rename Property…"
+                    case .value: "Change Value…"
+                    }
+                    menu.addItem(item(title) { $0.renamingAcrossVault = rename })
+                }
                 let path: String? = switch place {
                 case .folder(let path): path
                 case .allNotes: ""

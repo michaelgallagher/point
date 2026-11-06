@@ -207,6 +207,7 @@ final class VaultStore: ObservableObject {
         notes = []
         settings = ObsidianSettings.load(vault: url)
         propertyTypes = PropertyTypes.load(vault: url)
+        pointTypes = PointTypes.load(vault: url)
         indexedTags = [:]
         propertyValues = [:]
         propertySummaries = []
@@ -561,6 +562,124 @@ final class VaultStore: ObservableObject {
             await Self.report(result, for: note.title)
             await self.announce(result.updatedNotes.filter { $0 != note.id }, to: newTitle)
         }
+    }
+
+    // MARK: Changes across the vault
+
+    /// What's renamed across the vault: a property, one of its values, or a tag.
+    enum VaultRename: Identifiable, Equatable {
+        case property(String)
+        case value(property: String, value: String)
+        case tag(String)
+
+        var id: String {
+            switch self {
+            case .property(let name): "property:" + name
+            case .value(let name, let value): "value:" + name + "\u{1F}" + value
+            case .tag(let tag): "tag:" + tag
+            }
+        }
+
+        /// The name as it is now.
+        var current: String {
+            switch self {
+            case .property(let name): name
+            case .value(_, let value): value
+            case .tag(let tag): tag
+            }
+        }
+
+        /// Which notes it may be in, as the index finds them.
+        var query: NoteQuery {
+            switch self {
+            case .property(let name): NoteQuery([.property(name, .exists)])
+            case .value(let name, let value) where ["tags", "tag"].contains(name.lowercased()): NoteQuery([.tag(value)])
+            case .value(let name, let value): NoteQuery([.property(name, .equals(value))])
+            case .tag(let tag): NoteQuery([.tag(tag)])
+            }
+        }
+    }
+
+    /// The last change made across the vault, until undone or another is made.
+    @Published private(set) var lastVaultChange: VaultChange?
+    /// "Renamed “status” to “state” in 12 notes", shown for a moment, with Undo.
+    @Published var vaultChangeNotice: VaultChangeNotice?
+
+    struct VaultChangeNotice: Identifiable, Equatable {
+        let id = UUID()
+        let text: String
+        /// Whether it can still be undone.
+        var canUndo: Bool
+    }
+
+    /// Renames a property, a value or a tag in every note that has it, as one change that can
+    /// be undone. Open notes are saved first, and pick the change up from their files.
+    func rename(_ rename: VaultRename, to newName: String) {
+        let new = newName.trimmingCharacters(in: .whitespaces)
+        guard let index, !new.isEmpty, new != rename.current else { return }
+        NotificationCenter.default.post(name: .pointSaveNow, object: self)
+        let byID = notesByID
+        let generation = vaultGeneration
+        let label: String = switch rename {
+        case .property: "Renamed the property “\(rename.current)” to “\(new)”"
+        case .value(_, let value): "Changed “\(PropertyValueText.shown(value))” to “\(PropertyValueText.shown(new))”"
+        case .tag(let tag): "Renamed #\(tag) to #\(new)"
+        }
+        Task {
+            // The notes it's in, from the index; each is read again before it's changed.
+            let ids = (try? await index.notes(matching: rename.query)) ?? []
+            let candidates = ids.compactMap { byID[$0] }
+            let change = await Task.detached(priority: .userInitiated) {
+                VaultChanges.apply(label, to: candidates) { text in
+                    switch rename {
+                    case .property(let name): try VaultChanges.renamingProperty(name, to: new, in: text)
+                    case .value(let name, let value) where ["tags", "tag"].contains(name.lowercased()):
+                        VaultChanges.renamingTag(value, to: new, in: text)
+                    case .value(let name, let value): VaultChanges.renamingValue(value, to: new, ofProperty: name, in: text)
+                    case .tag(let tag): VaultChanges.renamingTag(tag, to: new, in: text)
+                    }
+                }
+            }.value
+            guard generation == vaultGeneration else { return }
+            if case .property(let name) = rename, !change.edits.isEmpty { renamePropertyType(name, to: new) }
+            lastVaultChange = change.edits.isEmpty ? nil : change
+            let count = change.edits.count
+            vaultChangeNotice = VaultChangeNotice(text: count == 0 ? "Nothing to change" : "\(label) in \(count == 1 ? "1 note" : "\(count) notes")",
+                                                  canUndo: count > 0)
+            Self.report(change)
+            Task { await reload() }
+        }
+    }
+
+    /// Undoes the last change across the vault, in the notes not changed since.
+    func undoLastVaultChange() {
+        guard let change = lastVaultChange else { return }
+        lastVaultChange = nil
+        NotificationCenter.default.post(name: .pointSaveNow, object: self)
+        Task {
+            let missed = await Task.detached(priority: .userInitiated) { VaultChanges.undo(change) }.value
+            vaultChangeNotice = VaultChangeNotice(text: missed.isEmpty ? "Undone" : "Undone, except in \(missed.count == 1 ? "1 note" : "\(missed.count) notes") changed since",
+                                                  canUndo: false)
+            Task { await reload() }
+        }
+    }
+
+    /// Says which notes a change across the vault left alone, and why.
+    private static func report(_ change: VaultChange) {
+        let missed = change.skippedNotes + change.unreadNotes
+        guard !missed.isEmpty || !change.clashingNotes.isEmpty else { return }
+        func names(_ ids: [String]) -> String {
+            ids.prefix(8).map { "• " + ($0 as NSString).deletingPathExtension }.joined(separator: "\n") + (ids.count > 8 ? "\n…and \(ids.count - 8) more" : "")
+        }
+        var detail = ""
+        if !change.clashingNotes.isEmpty {
+            detail += "These notes already have a property with the new name, so they were left as they are:\n\n\(names(change.clashingNotes))"
+        }
+        if !missed.isEmpty {
+            if !detail.isEmpty { detail += "\n\n" }
+            detail += "These notes were changed while Point was updating them, or aren’t downloaded from iCloud yet:\n\n\(names(missed))"
+        }
+        showProblem("Some notes weren’t changed", detail: detail)
     }
 
     /// Notes whose links were just updated after a rename or move, shown for a moment.
@@ -1181,6 +1300,75 @@ final class VaultStore: ObservableObject {
         let before = propertyTypes
         propertyTypes.rename(key, to: newKey)
         if propertyTypes != before { save(propertyTypes, in: root) }
+        let pointBefore = pointTypes
+        pointTypes.rename(key, to: newKey)
+        if pointTypes != pointBefore { try? pointTypes.save(vault: root) }
+    }
+
+    // MARK: Point's own types, and people
+
+    /// Point's own kinds of property (choice, person, rating, link to note), from the
+    /// vault's `.point/types.json`.
+    @Published private(set) var pointTypes = PointTypes()
+
+    /// Gives a property one of Point's own kinds (nil: back to Obsidian's types alone). It's
+    /// kept in Obsidian's types too, as the type it's written as, for editing alongside.
+    func setPointType(_ definition: PointTypes.Definition?, forKey key: String) {
+        guard let root, pointTypes.definition(forKey: key) != definition else { return }
+        pointTypes.set(definition, forKey: key)
+        do { try pointTypes.save(vault: root) } catch {
+            Self.showProblem("Couldn’t save the property’s type", error)
+        }
+        if let definition, propertyTypes.type(forKey: key) != definition.type.baseType {
+            propertyTypes.set(definition.type.baseType, forKey: key)
+            save(propertyTypes, in: root)
+        }
+        listVersion += 1
+    }
+
+    /// People, by their notes' titles: notes in the people folder, and whoever's linked in a
+    /// property of the person kind, most linked first.
+    var people: [String] {
+        if let cached = peopleCache, cached.version == listVersion { return cached.names }
+        var counts: [String: (name: String, count: Int)] = [:]
+        if let folder = pointTypes.peopleFolder(among: folderTree.subfolders(of: "")) {
+            for note in notes where FolderTree.folder(of: note.id) == folder || note.id.hasPrefix(folder + "/") {
+                counts[note.title.lowercased()] = (note.title, 0)
+            }
+        }
+        let personKeys = pointTypes.properties.filter { $0.value.type == .person }.map { $0.key.lowercased() }
+        for key in personKeys {
+            for entry in propertyValues[key] ?? [] {
+                guard let name = PropertyLink.linkedName(entry.value) else { continue }
+                let existing = counts[name.lowercased()]
+                counts[name.lowercased()] = (existing?.name ?? name, (existing?.count ?? 0) + entry.count)
+            }
+        }
+        let names = counts.values.sorted { $0.count != $1.count ? $0.count > $1.count : $0.name.localizedStandardCompare($1.name) == .orderedAscending }.map(\.name)
+        peopleCache = (listVersion, names)
+        return names
+    }
+    private var peopleCache: (version: Int, names: [String])?
+
+    /// People whose names have a word starting with what's typed (all of them, with nothing
+    /// typed), most linked first.
+    func peopleSuggestions(for typed: String, excluding: [String] = [], limit: Int = 8) -> [String] {
+        let query = typed.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]@ "))
+        let taken = Set(excluding.compactMap { PropertyLink.linkedName($0)?.lowercased() ?? $0.lowercased() })
+        return Array(people.filter { name in
+            !taken.contains(name.lowercased())
+                && (query.isEmpty || name.lowercased().split(separator: " ").contains { $0.hasPrefix(query) } || name.lowercased().hasPrefix(query))
+        }.prefix(limit))
+    }
+
+    /// Notes to link to from a property of the link-to-note kind: those in its folder (any,
+    /// if none) whose titles fit what's typed.
+    func noteSuggestions(inFolder folder: String?, typed: String, limit: Int = 8) -> [String] {
+        let query = typed.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[] "))
+        return Array(notes.lazy.filter { note in
+            (folder == nil || FolderTree.folder(of: note.id) == folder || note.id.hasPrefix(folder! + "/"))
+                && (query.isEmpty || note.title.lowercased().contains(query))
+        }.map(\.title).prefix(limit))
     }
 
     private func save(_ types: PropertyTypes, in root: URL) {

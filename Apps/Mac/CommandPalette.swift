@@ -599,7 +599,19 @@ struct PaletteCommand {
             PaletteCommand(name: "Open Vault…", shortcut: ShortcutStore.shared.label(for: .openVault)) { model.chooseVault() },
             PaletteCommand(name: "All Notes", shortcut: nil) { model.browse(.allNotes) },
             PaletteCommand(name: "Enclosing Folder", shortcut: ShortcutStore.shared.label(for: .enclosingFolder)) { model.goUp() },
+            PaletteCommand(name: "Properties", shortcut: nil) { model.browse(.properties) },
         ]
+        // What's browsed renamed everywhere, and the last such change undone.
+        switch model.place {
+        case .tag(let tag): commands.append(PaletteCommand(name: "Rename Tag…", shortcut: nil) { model.renamingAcrossVault = .tag(tag) })
+        case .property(let name): commands.append(PaletteCommand(name: "Rename Property…", shortcut: nil) { model.renamingAcrossVault = .property(name) })
+        case .propertyValue(let name, let value):
+            commands.append(PaletteCommand(name: "Change Value…", shortcut: nil) { model.renamingAcrossVault = .value(property: name, value: value) })
+        default: break
+        }
+        if let change = model.store.lastVaultChange {
+            commands.append(PaletteCommand(name: "Undo “\(change.name)”", shortcut: nil) { model.store.undoLastVaultChange() })
+        }
         // The two ways of showing dates in the list that aren't the one in use.
         for (style, name) in [(VaultModel.ListDateStyle.beside, "Show Dates Beside Titles"), (.groups, "Group Notes by Date"), (.off, "Hide Dates in List")]
         where style != model.listDateStyle {

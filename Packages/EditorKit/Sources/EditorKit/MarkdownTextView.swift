@@ -35,6 +35,9 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     }
     /// Note titles to suggest while a `[[wikilink]]` is typed, best first.
     public var completeNoteTitle: ((String) -> [String])?
+    /// People (their notes' titles) for an `@mention` being typed: picking one writes a link
+    /// to their note, `[[Name]]`. Nil: `@` is just a character.
+    public var completePerson: ((String) -> [String])?
     /// What was typed when titles were last suggested, and the titles (see +Links).
     var offeredCompletion: (typed: String, titles: [String])?
     /// Set while a key press is handled (see +Links).
@@ -891,6 +894,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         isAdjustingSelection = false
         showLinkBeingTyped()
         suggestCompletionsIfInWikiLink()
+        suggestPeopleIfMentioning()
     }
 
     public override func cut(_ sender: Any?) {

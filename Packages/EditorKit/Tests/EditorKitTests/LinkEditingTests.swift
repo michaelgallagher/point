@@ -131,3 +131,48 @@ struct LinkEditingTests {
         #expect(view.string == "See [[Imprint App]]")
     }
 }
+
+@MainActor
+struct MentionTests {
+    private func editor(_ text: String) -> MarkdownTextView {
+        let view = EditorTestSupport.makeEditor(text, height: 300)
+        view.completePerson = { typed in ["Sam Lee", "Samira Khan"].filter { $0.lowercased().contains(typed.lowercased()) } }
+        view.setSelectionDirectly(NSRange(location: (text as NSString).length, length: 0))
+        return view
+    }
+
+    @Test func knowsWhenANameIsTypedAfterAnAt() {
+        #expect(editor("Met @Sa").mentionPartialRange() == NSRange(location: 5, length: 2))
+        #expect(editor("@").mentionPartialRange() == NSRange(location: 1, length: 0))
+        #expect(editor("(@Sa").mentionPartialRange() == NSRange(location: 2, length: 2))
+    }
+
+    @Test func notInAnEmailAddressOrCodeOrAfterASpace() {
+        #expect(editor("me@exa").mentionPartialRange() == nil)
+        #expect(editor("`@Sa").mentionPartialRange() == nil)
+        #expect(editor("@Sam L").mentionPartialRange() == nil)
+        let off = EditorTestSupport.makeEditor("Met @Sa", height: 300)
+        off.setSelectionDirectly(NSRange(location: 7, length: 0))
+        #expect(off.mentionPartialRange() == nil) // No people to suggest.
+    }
+
+    @Test func pickingAPersonWritesALink() {
+        let view = editor("Met @sa today")
+        view.setSelectionDirectly(NSRange(location: 7, length: 0))
+        let partial = NSRange(location: 5, length: 2)
+        var index = 0
+        #expect(view.completions(forPartialWordRange: partial, indexOfSelectedItem: &index) == ["Sam Lee", "Samira Khan"])
+        #expect(index == -1)
+        view.insertCompletion("Sam Lee", forPartialWordRange: partial, movement: NSReturnTextMovement, isFinal: true)
+        #expect(view.string == "Met [[Sam Lee]] today")
+    }
+
+    @Test func typingOnKeepsTheAt() {
+        let view = editor("Met @sa")
+        let partial = NSRange(location: 5, length: 2)
+        var index = 0
+        _ = view.completions(forPartialWordRange: partial, indexOfSelectedItem: &index)
+        view.insertCompletion("Sam Lee", forPartialWordRange: partial, movement: NSCancelTextMovement, isFinal: true)
+        #expect(view.string == "Met @sa")
+    }
+}
