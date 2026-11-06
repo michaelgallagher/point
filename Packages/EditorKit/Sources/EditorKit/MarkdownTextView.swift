@@ -35,6 +35,9 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     }
     /// Note titles to suggest while a `[[wikilink]]` is typed, best first.
     public var completeNoteTitle: ((String) -> [String])?
+    /// What goes in a link for a title picked from `completeNoteTitle` (a note's name and the
+    /// title as its label, `name|Title`, say). Nil: the title itself.
+    public var linkTextForTitle: ((String) -> String)?
     /// People (their notes' titles) for an `@mention` being typed: picking one writes a link
     /// to their note, `[[Name]]`. Nil: `@` is just a character.
     public var completePerson: ((String) -> [String])?

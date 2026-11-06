@@ -6,7 +6,7 @@ public struct LinkResolver: Sendable {
     private let notesByPath: [String: Note]
 
     public init(notes: [Note]) {
-        notesByTitle = Dictionary(grouping: notes) { $0.title.lowercased() }
+        notesByTitle = Dictionary(grouping: notes) { $0.name.lowercased() }
         notesByPath = Dictionary(notes.map { (Self.pathWithoutExtension($0.id).lowercased(), $0) }, uniquingKeysWith: { a, _ in a })
     }
 

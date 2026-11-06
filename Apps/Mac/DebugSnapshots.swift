@@ -77,6 +77,17 @@ enum DebugSnapshots {
                 }
             }
         }
+        if let spec = UserDefaults.standard.string(forKey: "PointRetitle"), let bar = spec.firstIndex(of: "|") {
+            // `-PointRetitle "note.md|New title"`: renames the note, as its title field does.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                guard let note = model.note(String(spec[..<bar])) else { return Trace.mark("retitle: no note") }
+                model.rename(note, to: String(spec[spec.index(after: bar)...]))
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    Trace.mark("retitle: notes now \(model.notes.map { "\($0.id)=\($0.title)" })")
+                    NSApp.terminate(nil)
+                }
+            }
+        }
         if UserDefaults.standard.bool(forKey: "PointNewNote") {
             // `-PointNewNote YES`: makes a new note (as ⌘N does), three seconds in.
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {

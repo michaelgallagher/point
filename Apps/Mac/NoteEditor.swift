@@ -77,13 +77,13 @@ private struct NoteHeader: View {
                 TitleField(note: session.note, model: model)
             }
             .padding(.top, 16)
-            .padding(.bottom, session.frontmatter == nil || model.showsMarkdown ? 12 : 2)
+            .padding(.bottom, shownFrontmatter == nil || model.showsMarkdown ? 12 : 2)
             .padding(.leading, 5) // Lines up with the text, which is inset a little.
             .frame(maxWidth: model.store.textColumnWidth, alignment: .leading)
             .padding(.horizontal, 28)
             .frame(maxWidth: .infinity)
             // In Markdown mode the properties are in the text, as written, so not shown twice.
-            if let frontmatter = session.frontmatter, !model.showsMarkdown {
+            if let frontmatter = shownFrontmatter, !model.showsMarkdown {
                 PropertiesStrip(frontmatter: frontmatter, session: session,
                                 isExpanded: model.store.propertiesOpen[session.note.id] ?? UserDefaults.standard.bool(forKey: "propertiesExpanded"))
             }
@@ -91,6 +91,19 @@ private struct NoteHeader: View {
                 TemplateChoices()
             }
         }
+    }
+}
+
+extension NoteHeader {
+    /// The properties to show: for a note Point named, all but its `title:`, which is the title
+    /// above them.
+    /// (None at all, if that's its only one.)
+    var shownFrontmatter: Frontmatter? {
+        guard let frontmatter = session.frontmatter else { return nil }
+        guard NoteNames.isDated(session.note.name) else { return frontmatter }
+        var shown = frontmatter
+        shown.properties.removeAll { $0.key.lowercased() == "title" }
+        return shown.properties.isEmpty ? nil : shown
     }
 }
 
@@ -151,8 +164,10 @@ private struct TitleField: View {
     }
 
     private func commit() {
-        // A title on several lines (pasted, say) is one line of a file name.
-        let title = NoteFiles.sanitizedTitle(draft)
+        // A title on several lines (pasted, say) is one line of a file name. A note Point named
+        // can have any title: its name is made from it.
+        let title = NoteNames.isDated(note.name) ? draft.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
+            : NoteFiles.sanitizedTitle(draft)
         guard !title.isEmpty, title != note.title else {
             draft = note.title
             return
@@ -417,6 +432,8 @@ private struct EditorView: NSViewRepresentable {
             DispatchQueue.main.async { model?.activate(pane: paneID) }
         }
         textView.completeNoteTitle = { [weak model] partial in model?.titleSuggestions(for: partial) ?? [] }
+        // A note Point named is linked by its name, labelled with its title.
+        textView.linkTextForTitle = { [weak model] title in model?.store.linkText(forTitle: title) ?? title }
         // `@` and a name: a link to that person's note.
         textView.completePerson = { [weak model] partial in model?.store.peopleSuggestions(for: partial) ?? [] }
         // Typing ends the chance to reopen a just-closed tab with ⌘Z.

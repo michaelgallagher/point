@@ -467,7 +467,11 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     /// line when it's left).
     func commitTitle() {
         guard let field = titleField else { return }
-        let typed = NoteFiles.sanitizedTitle(field.text ?? "")
+        // A note Point named keeps its title as typed (it's in `title:`, not the file name).
+        let raw = field.text ?? ""
+        let typed = NoteNames.isDated(note.name)
+            ? raw.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
+            : NoteFiles.sanitizedTitle(raw)
         let untitled = store.isUntitled(note.id)
         guard !typed.isEmpty else {
             if !untitled { field.text = note.title }

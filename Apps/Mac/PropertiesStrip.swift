@@ -330,7 +330,11 @@ struct PropertiesStrip: View {
             .onEnded { _ in
                 NSCursor.pop()
                 if let destination = dropDestination, let dragging {
-                    withAnimation(.easeOut(duration: 0.15)) { session.moveProperty(dragging, to: destination) }
+                    // Among all the note's properties, a hidden `title:` included.
+                    let all = session.frontmatter?.properties ?? frontmatter.properties
+                    let target = destination < frontmatter.properties.count
+                        ? all.firstIndex { $0.key == frontmatter.properties[destination].key } ?? destination : all.count
+                    withAnimation(.easeOut(duration: 0.15)) { session.moveProperty(dragging, to: target) }
                 }
                 dragging = nil
             }
@@ -432,7 +436,7 @@ private struct PropertyValue: View {
                             choices: kind.choices ?? model.store.propertyValueList(property.key).map(\.value), set: set)
             case .person:
                 TokenEditor(items: Self.items(of: property, as: .list), isTags: false,
-                            suggestions: { typed, items in model.store.peopleSuggestions(for: typed, excluding: items).map { "[[\($0)]]" } },
+                            suggestions: { typed, items in model.store.peopleSuggestions(for: typed, excluding: items).map { "[[\(model.store.linkText(forTitle: $0))]]" } },
                             noteTitles: { model.store.peopleSuggestions(for: $0) + model.titleSuggestions(for: $0) },
                             link: link, commit: { items in set(items.map { PropertyLink.linkedName($0) == nil ? "[[\($0)]]" : $0 }) })
             case .rating:
@@ -442,7 +446,7 @@ private struct PropertyValue: View {
             case .note:
                 TextValue(property: property, isNumber: false, link: link,
                           noteTitles: { model.store.noteSuggestions(inFolder: kind.folder, typed: $0) },
-                          suggestions: { typed in model.store.noteSuggestions(inFolder: kind.folder, typed: typed).map { "[[\($0)]]" } },
+                          suggestions: { typed in model.store.noteSuggestions(inFolder: kind.folder, typed: typed).map { "[[\(model.store.linkText(forTitle: $0))]]" } },
                           set: set)
             }
         } else {
@@ -697,6 +701,7 @@ private struct TakesFirstSuggestion: ViewModifier {
 
 /// Text, or a number, in a field: Return or clicking away saves it.
 private struct TextValue: View {
+    @EnvironmentObject private var model: VaultModel
     let property: Frontmatter.Property
     let isNumber: Bool
     let link: (String) -> PropertyLink?
@@ -775,7 +780,7 @@ private struct TextValue: View {
     /// Finishes the `[[link]]` being typed with a note's title, or takes a value used before.
     private func pick(_ suggestion: String) {
         if let typing = wikiLinkBeingTyped(in: text) {
-            text = String(text[..<typing.start]) + "[[" + suggestion + "]]"
+            text = String(text[..<typing.start]) + "[[" + model.store.linkText(forTitle: suggestion) + "]]"
         } else {
             text = suggestion
             commit()
@@ -883,6 +888,7 @@ private struct DateValue: View {
 /// A list's items as tokens, each with a remove button, then a field to add more: Return or
 /// a comma adds what's typed. Tags complete from the vault's tags.
 private struct TokenEditor: View {
+    @EnvironmentObject private var model: VaultModel
     let items: [String]
     let isTags: Bool
     let suggestions: (String, [String]) -> [String]
@@ -930,7 +936,7 @@ private struct TokenEditor: View {
     private func pick(_ suggestion: String) {
         let isLink = !isTags && wikiLinkBeingTyped(in: draft) != nil
         draft = ""
-        commit(items + [isLink ? "[[" + suggestion + "]]" : suggestion])
+        commit(items + [isLink ? "[[" + model.store.linkText(forTitle: suggestion) + "]]" : suggestion])
     }
 
     @ViewBuilder private var field: some View {

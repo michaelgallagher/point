@@ -14,7 +14,13 @@ struct PropertiesSheet: View {
     @State private var renaming: String?
     @State private var name = ""
 
-    private var properties: [Frontmatter.Property] { session.frontmatter?.properties ?? [] }
+    /// The note's properties, less `title:` for a note Point named: that's its title, shown
+    /// above the note, not a property.
+    private var properties: [Frontmatter.Property] {
+        let all = session.frontmatter?.properties ?? []
+        guard NoteNames.isDated(session.note.name) else { return all }
+        return all.filter { $0.key.lowercased() != "title" }
+    }
 
     var body: some View {
         NavigationStack {

@@ -7,8 +7,11 @@ public struct Note: Identifiable, Hashable, Sendable {
     /// Where the note's contents live. For a note iCloud has evicted, this is where the
     /// file will be once downloaded, not the placeholder.
     public let url: URL
-    /// The filename without its `.md` extension. Obsidian uses this as the note's name.
+    /// The name to show: the file name without `.md`, which Obsidian uses as the note's name,
+    /// or for a note Point named (`2026-11-06-questions`), its `title:` property.
     public let title: String
+    /// The file name without `.md`: what links to it name, and what it's found by.
+    public let name: String
     public let modified: Date
     public let created: Date
     /// False when iCloud has evicted the file and only a placeholder is on disk.
@@ -18,6 +21,8 @@ public struct Note: Identifiable, Hashable, Sendable {
         self.id = id
         self.url = url
         self.title = title
+        let file = (id as NSString).lastPathComponent
+        self.name = file.lowercased().hasSuffix(".md") ? String(file.dropLast(3)) : file
         self.modified = modified
         self.created = created
         self.isDownloaded = isDownloaded

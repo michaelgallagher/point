@@ -47,7 +47,7 @@ public enum VaultScanner {
             notes.append(Note(
                 id: (folders + [fileName]).joined(separator: "/"),
                 url: fileURL,
-                title: String(fileName.dropLast(3)),
+                title: NoteNames.shownTitle(name: String(fileName.dropLast(3)), url: fileURL, isDownloaded: isDownloaded),
                 modified: modified,
                 created: values?.creationDate ?? modified,
                 isDownloaded: isDownloaded
