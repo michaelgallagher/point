@@ -3,6 +3,7 @@ import CryptoKit
 import EditorKit
 import IndexKit
 import MarkdownKit
+import UniformTypeIdentifiers
 import VaultKit
 
 extension Notification.Name {
@@ -47,6 +48,17 @@ final class VaultStore: ObservableObject {
     /// Counts changes to the notes, so editors know to restyle their links.
     private(set) var notesGeneration = 0
     private var noteIDs: Set<Note.ID> = []
+    /// The vault's images, wherever they are.
+    @Published private(set) var images: [VaultImage] = [] {
+        didSet {
+            let byName = VaultImages.byName(images)
+            // Editors restyle when an image comes or goes, as when a note does.
+            if Set(byName.keys) != Set(imagesByName.keys) { notesGeneration += 1 }
+            imagesByName = byName
+        }
+    }
+    /// The images by file name, in lowercase, as embeds find them.
+    private(set) var imagesByName: [String: VaultImage] = [:]
     /// Every note's title, lowercased and in words, for completing links as they're typed
     /// without going through every title again at each keystroke. Built when first needed
     /// after notes come, go or are renamed.
@@ -155,7 +167,7 @@ final class VaultStore: ObservableObject {
         #endif
         do {
             let scanned = try await Task.detached(priority: .userInitiated) {
-                try VaultScanner.scanWithFolders(root)
+                try VaultScanner.scanAll(root)
             }.value
             guard generation == vaultGeneration else { return Trace.mark("scan dropped: another vault opened") }
             Trace.mark("rescanned: \(scanned.notes.count) notes")
@@ -163,6 +175,7 @@ final class VaultStore: ObservableObject {
             debugScans.shown += 1
             #endif
             folders = scanned.folders
+            if scanned.images != images { images = scanned.images }
             notes = scanned.notes.sorted(by: sort)
             forgetDeletedNotes()
             propertyTypes = PropertyTypes.load(vault: root) // Obsidian may have changed them.
@@ -349,6 +362,7 @@ final class VaultStore: ObservableObject {
             return
         }
         EditorSession.release(note.url)
+        renameImages(of: note, to: url)
         // Windows (a tab still holding it, behind) follow it to its new name.
         let folder = FolderTree.folder(of: note.id)
         replace(note, with: folder.isEmpty ? url.lastPathComponent : folder + "/" + url.lastPathComponent, url: url)
@@ -372,6 +386,7 @@ final class VaultStore: ObservableObject {
             let url = try NoteFiles.rename(note.url, to: title)
             EditorSession.release(note.url)
             untitled.remove(note.id)
+            renameImages(of: note, to: url)
             updateLinks(to: note, newTitle: url.deletingPathExtension().lastPathComponent, vault: vaultBeforeRename)
             let folders = note.id.split(separator: "/").dropLast().joined(separator: "/")
             let newID = folders.isEmpty ? url.lastPathComponent : "\(folders)/\(url.lastPathComponent)"
@@ -408,7 +423,10 @@ final class VaultStore: ObservableObject {
                 NSLog("Point: couldn't rename \(note.id) for its new title: \(error.localizedDescription)")
             }
         }
-        if url != note.url { EditorSession.release(note.url) }
+        if url != note.url {
+            EditorSession.release(note.url)
+            renameImages(of: note, to: url)
+        }
         updateLinks(to: note, newTitle: url.deletingPathExtension().lastPathComponent, vault: vaultBefore, retitling: (note.title, title))
         let folder = FolderTree.folder(of: note.id)
         replace(note, with: folder.isEmpty ? url.lastPathComponent : folder + "/" + url.lastPathComponent, url: url, title: title)
@@ -442,10 +460,12 @@ final class VaultStore: ObservableObject {
     func moveToTrash(_ note: Note) -> Bool {
         guard let root, saveBeforeMoving([note], "moved to the trash") else { return false }
         do {
+            let shown = imagesShown(by: note)
             let name = try VaultTrash.move(note.url, vault: root)
             EditorSession.release(note.url)
             untitled.remove(note.id)
             trashRecords[name] = VaultTrash.Record(deleted: Date(), folder: FolderTree.folder(of: note.id), deletedByPoint: true)
+            trashImages(shown, withNote: note, trashedAs: name)
             notes.removeAll { $0.id == note.id }
             refreshTrash()
             return true
@@ -493,6 +513,7 @@ final class VaultStore: ObservableObject {
         for item in VaultTrash.expired(all, before: cutoff) {
             do {
                 try VaultTrash.delete(item)
+                VaultTrash.delete(records[item.name]?.images ?? [], vault: root)
                 removed.insert(item.name)
             } catch {
                 NSLog("Point: couldn't remove \(item.name) from the trash: \(error.localizedDescription)")
@@ -515,6 +536,7 @@ final class VaultStore: ObservableObject {
         guard let root else { return }
         do {
             _ = try VaultTrash.restore(item, vault: root)
+            VaultTrash.restore(trashRecords[item.name]?.images ?? [], vault: root)
             trashRecords[item.name] = nil
             refreshTrash()
             Task { await reload() }
@@ -526,6 +548,7 @@ final class VaultStore: ObservableObject {
     func deleteForever(_ item: VaultTrash.Item) {
         do {
             try VaultTrash.delete(item)
+            if let root { VaultTrash.delete(trashRecords[item.name]?.images ?? [], vault: root) }
             refreshTrash()
         } catch {
             errorMessage = "Couldn't delete “\(item.title)”: \(error.localizedDescription)"
@@ -535,8 +558,12 @@ final class VaultStore: ObservableObject {
     func emptyTrash() {
         var failed: [String] = []
         var firstError: Error?
+        let records = trashRecords
         for item in trashedNotes {
-            do { try VaultTrash.delete(item) } catch {
+            do {
+                try VaultTrash.delete(item)
+                if let root { VaultTrash.delete(records[item.name]?.images ?? [], vault: root) }
+            } catch {
                 failed.append(item.title)
                 firstError = firstError ?? error
             }
@@ -1039,6 +1066,142 @@ final class VaultStore: ObservableObject {
     /// from the search index.
     func listTags(for id: Note.ID) -> [String] {
         tagsByNote[id] ?? indexedTags[id] ?? []
+    }
+
+    // MARK: Images
+
+    /// Where the image an embed in the note `noteID` names is, if it's in the vault and here
+    /// (one still in iCloud is fetched, and shown once it's arrived).
+    func imageURL(for target: String, from noteID: Note.ID) -> URL? {
+        guard let root, let image = VaultImages.resolve(target, from: noteID, images: imagesByName, root: root) else { return nil }
+        guard image.isDownloaded else {
+            try? FileManager.default.startDownloadingUbiquitousItem(at: image.url)
+            return nil
+        }
+        return image.url
+    }
+
+    /// Saves an image pasted or dropped into a note, named after it, in the attachment folder
+    /// Obsidian is set to. Returns its name, for the embed.
+    func saveImage(_ data: Data, type: UTType?, for note: Note) -> String? {
+        guard let root else { return nil }
+        do {
+            let image = try VaultImages.save(data, type: type, forNote: note, vault: root, setting: settings.attachmentFolder)
+            images.append(image)
+            return image.name
+        } catch {
+            Self.showProblem("Couldn’t add the image to “\(note.title)”", error)
+            return nil
+        }
+    }
+
+    /// The images no note embeds or links to, as the index knows them.
+    func unusedImages() async -> [VaultImage] {
+        guard let index, let linked = try? await index.linkedNames() else { return [] }
+        return VaultImages.unused(images, linkedNames: linked)
+    }
+
+    /// Moves images to the Trash (the Finder's, since no note goes with them).
+    func trashUnusedImages(_ unused: [VaultImage]) {
+        var gone = Set<String>()
+        for image in unused {
+            do {
+                try FileManager.default.trashItem(at: image.url, resultingItemURL: nil)
+                gone.insert(image.path)
+            } catch {
+                NSLog("Point: couldn't move \(image.path) to the Trash: \(error.localizedDescription)")
+            }
+        }
+        images.removeAll { gone.contains($0.path) }
+        if gone.count < unused.count {
+            Self.showProblem("Couldn’t move \(unused.count - gone.count) of the images to the Trash")
+        }
+    }
+
+    /// The images a note shows, as they are in the vault.
+    private func imagesShown(by note: Note) -> [VaultImage] {
+        guard let root, let text = try? NoteReader.read(contentsOf: note.url) else { return [] }
+        var found: [VaultImage] = []
+        for embed in VaultImages.embeds(in: text) where !embed.isWeb {
+            if let image = VaultImages.resolve(embed.target, from: note.id, images: imagesByName, root: root), !found.contains(image) {
+                found.append(image)
+            }
+        }
+        return found
+    }
+
+    /// Moves to the trash, with the note trashed as `name`, those of its images no other note
+    /// shows (as the index knows them), and records them, to come back with it.
+    private func trashImages(_ shown: [VaultImage], withNote note: Note, trashedAs name: String) {
+        guard let root, let index, !shown.isEmpty else { return }
+        Task {
+            var onlyHere: [VaultImage] = []
+            for image in shown {
+                let others = ((try? await index.linking(to: image.name)) ?? []).filter { $0.note != note.id }
+                if others.isEmpty { onlyHere.append(image) }
+            }
+            let trashed = VaultTrash.move(onlyHere, vault: root)
+            guard !trashed.isEmpty else { return }
+            let gone = Set(trashed.map(\.path))
+            images.removeAll { gone.contains($0.path) }
+            trashRecords[name]?.images = trashed
+        }
+    }
+
+    /// Renames the images named after a note (`Meeting 1.png`) when the note is renamed (now
+    /// at `url`), and their embeds in it and any other note showing them. An image whose new
+    /// name is taken keeps its old one, which still works.
+    private func renameImages(of note: Note, to url: URL) {
+        let newName = url.deletingPathExtension().lastPathComponent
+        guard newName != note.name else { return }
+        var renamed: [(from: VaultImage, to: VaultImage)] = []
+        for image in images {
+            guard let name = VaultImages.renamed(image.name, fromNote: note.name, toNote: newName) else { continue }
+            let destination = image.url.deletingLastPathComponent().appendingPathComponent(name)
+            guard !FileManager.default.fileExists(atPath: destination.path) else { continue }
+            do {
+                try FileManager.default.moveItem(at: image.url, to: destination)
+            } catch {
+                NSLog("Point: couldn't rename \(image.path): \(error.localizedDescription)")
+                continue
+            }
+            let folder = (image.path as NSString).deletingLastPathComponent
+            renamed.append((image, VaultImage(path: folder.isEmpty ? name : folder + "/" + name, url: destination)))
+        }
+        guard !renamed.isEmpty else { return }
+        let moved = Dictionary(renamed.map { ($0.from.path, $0.to) }, uniquingKeysWith: { first, _ in first })
+        images = images.map { moved[$0.path] ?? $0 }
+        // The note itself, at its new name, now (before it's opened there), then any other the
+        // index says shows them.
+        let itself = Note(id: note.id, url: url, title: note.title, modified: note.modified, created: note.created, isDownloaded: true)
+        Self.renameEmbeds(renamed, in: [itself])
+        guard let index else { return }
+        Task {
+            var ids = Set<Note.ID>()
+            for pair in renamed { ids.formUnion(((try? await index.linking(to: pair.from.name)) ?? []).map(\.note)) }
+            ids.remove(note.id)
+            let others = notes.filter { ids.contains($0.id) }
+            guard !others.isEmpty else { return }
+            NotificationCenter.default.post(name: .pointSaveNow, object: self)
+            Self.renameEmbeds(renamed, in: others)
+        }
+    }
+
+    /// Rewrites embeds of renamed images in notes, each only if unchanged meanwhile.
+    private static func renameEmbeds(_ renamed: [(from: VaultImage, to: VaultImage)], in notes: [Note]) {
+        let change = VaultChanges.apply("Renamed images", to: notes) { text in
+            var result = text, changed = false
+            for pair in renamed {
+                if let rewritten = VaultImages.renamingEmbeds(of: pair.from.name, to: pair.to.name, in: result) {
+                    result = rewritten
+                    changed = true
+                }
+            }
+            return changed ? result : nil
+        }
+        if !change.skippedNotes.isEmpty || !change.unreadNotes.isEmpty {
+            NSLog("Point: couldn't update image embeds in \(change.skippedNotes + change.unreadNotes)")
+        }
     }
 
     // MARK: Search index

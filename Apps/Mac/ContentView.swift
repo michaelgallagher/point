@@ -173,6 +173,9 @@ struct ContentView: View {
         .sheet(item: $model.renamingAcrossVault) { rename in
             RenameAcrossVaultSheet(rename: rename)
         }
+        .sheet(isPresented: $model.isShowingUnusedImages) {
+            UnusedImagesSheet()
+        }
         .sheet(item: $model.creatingFolder) { request in
             NewFolderSheet(parent: request.parent)
         }
@@ -470,6 +473,73 @@ private struct RenameSheet: View {
 }
 
 /// Renames a property, a value or a tag in every note that has it.
+/// The images no note shows, found from the index: each can be shown in the Finder, and all
+/// moved to the Trash, from where the Finder can put them back.
+private struct UnusedImagesSheet: View {
+    @EnvironmentObject private var model: VaultModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var images: [VaultImage]?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Unused images")
+                .font(.headline)
+            Group {
+                if let images, images.isEmpty {
+                    Text("Every image in the vault is shown in a note.")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let images {
+                    List(images) { image in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(image.name)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Text((image.path as NSString).deletingLastPathComponent.isEmpty ? "Top of the vault" : (image.path as NSString).deletingLastPathComponent)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([image.url]) }
+                                .buttonStyle(.link)
+                        }
+                    }
+                    .listStyle(.bordered(alternatesRowBackgrounds: true))
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .frame(width: 440, height: 280)
+            Text(detail)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(width: 440, alignment: .leading)
+            HStack {
+                Spacer()
+                Button("Close", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Move to Trash") {
+                    if let images { model.store.trashUnusedImages(images) }
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(images?.isEmpty ?? true)
+            }
+        }
+        .padding(20)
+        .task { images = await model.store.unusedImages() }
+    }
+
+    private var detail: String {
+        guard let images, !images.isEmpty else { return "No note embeds or links to these." }
+        let count = images.count == 1 ? "This image isn’t" : "These \(images.count) images aren’t"
+        return "\(count) embedded or linked in any note. Moved to the Trash, they can be put back from the Finder."
+    }
+}
+
 private struct RenameAcrossVaultSheet: View {
     @EnvironmentObject private var model: VaultModel
     @Environment(\.dismiss) private var dismiss

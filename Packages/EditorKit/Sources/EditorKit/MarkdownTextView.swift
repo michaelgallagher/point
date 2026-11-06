@@ -1,6 +1,7 @@
 #if canImport(AppKit)
 import AppKit
 import CoreImage
+import UniformTypeIdentifiers
 import MarkdownKit
 
 /// The note editor: plain Markdown text, displayed as rich text with the markers hidden.
@@ -62,6 +63,8 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     var tableDragGhost: TableDragGhostView?
     /// The grids drawn over tables, in the order of the tables (see +TableGrid).
     var tableGrids: [TableGridView] = []
+    /// The views drawing embedded images, in the order of the images (see +Images).
+    var imageViews: [ImageEmbedView] = []
     var isTableSyncQueued = false
     var isSyncingTables = false
     /// Set while the note's selection is moved to follow a table cell's.
@@ -132,6 +135,20 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
             restyleAll()
         }
     }
+
+    /// Where the image an embed names is, if it's in the vault; images it finds are shown above
+    /// their embeds. Set by the app, which knows the vault.
+    public var imageURL: ((String) -> URL?)? {
+        didSet {
+            styler.imageURL = imageURL
+            restyleAll()
+        }
+    }
+
+    /// Saves an image pasted or dropped into the note (its data, and its kind if known) and
+    /// returns the name to embed it by, or nil if it couldn't be saved. Without it, images
+    /// paste as the text view would.
+    public var saveImage: ((Data, UTType?) -> String?)?
 
     /// Characters that highlight a list item when they start it (`- ! Important`, as the List
     /// Callouts plugin for Obsidian does), with their colours. Set by the app, from the vault.
@@ -220,6 +237,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         backgroundColor = .textBackgroundColor
         typingAttributes = styler.baseAttributes
         styler.theme.rendersTables = true
+        styler.theme.rendersImages = true
         isVerticallyResizable = true
         isHorizontallyResizable = false
         autoresizingMask = [.width]
@@ -573,9 +591,14 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     }
 
     func restyleTables() {
-        guard let storage = textStorage, tokens.contains(where: { $0.kind == .table }) else { return }
+        let images = imageURL == nil ? [] : tokens.filter { MarkdownStyler.imageEmbed($0, in: string as NSString) != nil }
+        guard let storage = textStorage, tokens.contains(where: { $0.kind == .table }) || !images.isEmpty else { return }
         storage.beginEditing()
         for token in tokens where token.kind == .table {
+            styler.style(storage, range: token.range, tokens: tokens)
+        }
+        // Images are narrowed to fit the text too.
+        for token in images {
             styler.style(storage, range: token.range, tokens: tokens)
         }
         applyFolds()

@@ -447,6 +447,16 @@ private struct EditorView: NSViewRepresentable {
             guard let model, let session else { return true }
             return model.store.linkResolver.resolve(wikiTarget: target, from: session.note.id) != nil
         }
+        // Images in the vault are shown above their embeds; pasted or dropped ones are saved
+        // in the attachment folder, named after the note.
+        textView.imageURL = { [weak model, weak session] target in
+            guard let model, let session else { return nil }
+            return model.store.imageURL(for: target, from: session.note.id)
+        }
+        textView.saveImage = { [weak model, weak session] data, type in
+            guard let model, let session else { return nil }
+            return model.store.saveImage(data, type: type, for: session.note)
+        }
         // List items starting `! `, `? ` and so on are coloured, in the vault's colours.
         textView.listHighlights = model.settings.listCallouts.map {
             ($0.character, NSColor(srgbRed: CGFloat($0.red) / 255, green: CGFloat($0.green) / 255, blue: CGFloat($0.blue) / 255, alpha: 1))

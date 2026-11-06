@@ -9,7 +9,8 @@ public enum VaultTrash {
         /// Its file name in the trash, such as `Idea.md`.
         public let name: String
         public let url: URL
-        public var title: String { url.deletingPathExtension().lastPathComponent }
+        /// Its name, or for a note Point named, its `title:`.
+        public let title: String
         /// When it was deleted (or first found in the trash, if Point didn't delete it).
         public let deleted: Date
         /// The folder it came from ("" for the vault's top level), if known.
@@ -27,11 +28,14 @@ public enum VaultTrash {
         /// Whether Point deleted it (rather than finding it there). Records kept before this
         /// was known count as found, so nothing is removed that Point may not have put there.
         public var deletedByPoint: Bool
+        /// The images that went to the trash with it (those only it showed), to come back with it.
+        public var images: [TrashedImage]?
 
-        public init(deleted: Date, folder: String, deletedByPoint: Bool) {
+        public init(deleted: Date, folder: String, deletedByPoint: Bool, images: [TrashedImage]? = nil) {
             self.deleted = deleted
             self.folder = folder
             self.deletedByPoint = deletedByPoint
+            self.images = images
         }
 
         public init(from decoder: Decoder) throws {
@@ -39,7 +43,63 @@ public enum VaultTrash {
             deleted = try container.decode(Date.self, forKey: .deleted)
             folder = try container.decode(String.self, forKey: .folder)
             deletedByPoint = try container.decodeIfPresent(Bool.self, forKey: .deletedByPoint) ?? false
+            images = try container.decodeIfPresent([TrashedImage].self, forKey: .images)
         }
+    }
+
+    /// An image in the trash with its note: its name there, and where it was in the vault.
+    public struct TrashedImage: Codable, Hashable, Sendable {
+        public var name: String
+        public var path: String
+        public init(name: String, path: String) {
+            self.name = name
+            self.path = path
+        }
+    }
+
+    /// Where images in the trash go: a folder of their own, so they aren't listed as notes.
+    public static func imageFolder(in root: URL) -> URL { folder(in: root).appendingPathComponent("images") }
+
+    /// Moves images into the trash, returning those moved. One that can't be moved stays.
+    public static func move(_ images: [VaultImage], vault root: URL) -> [TrashedImage] {
+        let folder = imageFolder(in: root)
+        guard !images.isEmpty, (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil else { return [] }
+        var moved: [TrashedImage] = []
+        for image in images {
+            let destination = availableURL(for: image.name, in: folder)
+            guard (try? FileManager.default.moveItem(at: image.url, to: destination)) != nil else { continue }
+            moved.append(TrashedImage(name: destination.lastPathComponent, path: image.path))
+        }
+        return moved
+    }
+
+    /// Puts images back where they were (under a free name, if theirs has been taken since).
+    public static func restore(_ images: [TrashedImage], vault root: URL) {
+        let folder = imageFolder(in: root)
+        for image in images {
+            let source = folder.appendingPathComponent(image.name)
+            let original = root.appendingPathComponent(image.path)
+            let destination = availableURL(for: original.lastPathComponent, in: original.deletingLastPathComponent())
+            try? FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? FileManager.default.moveItem(at: source, to: destination)
+        }
+    }
+
+    /// Removes images in the trash for good.
+    public static func delete(_ images: [TrashedImage], vault root: URL) {
+        for image in images { try? FileManager.default.removeItem(at: imageFolder(in: root).appendingPathComponent(image.name)) }
+    }
+
+    /// `name` in `folder`, or `name 2.ext` and so on if that's taken.
+    private static func availableURL(for name: String, in folder: URL) -> URL {
+        let stem = (name as NSString).deletingPathExtension, ext = (name as NSString).pathExtension
+        var candidate = folder.appendingPathComponent(name)
+        var number = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = folder.appendingPathComponent("\(stem) \(number)" + (ext.isEmpty ? "" : ".\(ext)"))
+            number += 1
+        }
+        return candidate
     }
 
     public static func folder(in root: URL) -> URL { root.appendingPathComponent(".trash") }
@@ -62,7 +122,9 @@ public enum VaultTrash {
         return names.filter { $0.lowercased().hasSuffix(".md") && !$0.hasPrefix(".") }
             .map { name in
                 let record = records[name]
-                return Item(name: name, url: trash.appendingPathComponent(name), deleted: record?.deleted ?? now,
+                let url = trash.appendingPathComponent(name)
+                return Item(name: name, url: url, title: NoteNames.shownTitle(name: String(name.dropLast(3)), url: url),
+                            deleted: record?.deleted ?? now,
                             folder: record?.folder, deletedByPoint: record?.deletedByPoint ?? false)
             }
             .sorted { $0.deleted > $1.deleted }
@@ -74,7 +136,10 @@ public enum VaultTrash {
         var folder = item.folder.map { $0.isEmpty ? root : root.appendingPathComponent($0) } ?? root
         var isDirectory: ObjCBool = false
         if !FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDirectory) || !isDirectory.boolValue { folder = root }
-        let destination = NoteFiles.availableURL(for: item.title, in: folder)
+        // Back under its file name (a note Point named keeps its dated name).
+        let name = (item.name as NSString).deletingPathExtension
+        let destination = NoteNames.isDated(name) ? NoteFiles.availableDatedURL(for: name, in: folder)
+            : NoteFiles.availableURL(for: name, in: folder)
         try FileManager.default.moveItem(at: item.url, to: destination)
         return destination
     }

@@ -956,6 +956,8 @@ final class VaultModel: ObservableObject {
     @Published var renaming: Note?
     /// A property, value or tag being renamed across the vault, while that sheet is showing.
     @Published var renamingAcrossVault: VaultStore.VaultRename?
+    /// Whether the sheet listing the images no note shows is up.
+    @Published var isShowingUnusedImages = false
     /// Where a new folder is being made, while the New Folder sheet is showing.
     @Published var creatingFolder: FolderRequest?
 
