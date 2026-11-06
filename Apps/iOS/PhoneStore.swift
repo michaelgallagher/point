@@ -50,6 +50,10 @@ final class PhoneStore: ObservableObject {
 
     let root = PhoneVault.root
     private var index: SearchIndex?
+    /// The search index, for lists' queries.
+    var searchIndex: SearchIndex? { index }
+    /// Images and lists that notes embed.
+    let embeds = PhoneEmbeds()
 
     /// Where edits that can't be saved are kept, outside the vault.
     let drafts = NoteDrafts(storage: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -57,6 +61,7 @@ final class PhoneStore: ObservableObject {
 
     init() {
         history = Self.loadHistory(from: historyFile)
+        embeds.store = self
         PhoneVault.makeSampleNotes()
         index = try? SearchIndex(url: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Index/vault.sqlite"))
@@ -92,7 +97,7 @@ final class PhoneStore: ObservableObject {
         let early: Task<([Note.ID: [String]]?, [(name: String, count: Int)]?), Never>? = isReady ? nil : index.map { index in
             Task { (try? await index.tagsByNote(), try? await index.propertyNames()) }
         }
-        let result = try? await Task.detached(priority: .userInitiated) { try VaultScanner.scanWithFolders(root) }.value
+        let result = try? await Task.detached(priority: .userInitiated) { try VaultScanner.scanAll(root) }.value
         let scanned = result?.notes ?? []
         if let early {
             let (tags, names) = await early.value
@@ -108,9 +113,11 @@ final class PhoneStore: ObservableObject {
             history.keepOnly(Set(scanned.map(\.id)))
             if history != before { historyFile.save(history) }
         }
+        if let images = result?.images, images != embeds.images { embeds.images = images }
         folders = (result?.folders ?? []).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         bookmarks = ObsidianBookmarks.load(vault: root)
         propertyTypes = PropertyTypes.load(vault: root)
+        pointTypes = PointTypes.load(vault: root)
         settings = ObsidianSettings.load(vault: root)
         templates = Templates.available(in: root, settings: settings)
         refreshTrash()
@@ -266,6 +273,9 @@ final class PhoneStore: ObservableObject {
         let before = propertyTypes
         propertyTypes.rename(key, to: newKey)
         if propertyTypes != before { saveTypes() }
+        let pointBefore = pointTypes
+        pointTypes.rename(key, to: newKey)
+        if pointTypes != pointBefore { try? pointTypes.save(vault: root) }
     }
 
     private func saveTypes() {
@@ -274,6 +284,85 @@ final class PhoneStore: ObservableObject {
         } catch {
             PhoneVault.log("couldn't save property types: \(error.localizedDescription)")
         }
+    }
+
+    // MARK: Point's own kinds, and people
+
+    /// Point's own kinds of property (choice, person, rating, link to note), from the vault's
+    /// `.point/types.json`, as on the Mac.
+    @Published private(set) var pointTypes = PointTypes()
+
+    /// Gives a property one of Point's own kinds (nil: back to Obsidian's types alone). It's
+    /// kept in Obsidian's types too, as the type it's written as.
+    func setPointType(_ definition: PointTypes.Definition?, forKey key: String) {
+        guard pointTypes.definition(forKey: key) != definition else { return }
+        pointTypes.set(definition, forKey: key)
+        do { try pointTypes.save(vault: root) } catch {
+            PhoneVault.log("couldn't save Point's types: \(error.localizedDescription)")
+        }
+        if let definition, propertyTypes.type(forKey: key) != definition.type.baseType {
+            propertyTypes.set(definition.type.baseType, forKey: key)
+            saveTypes()
+        }
+    }
+
+    /// The values each property is given across the vault (by its name, lowercased), most used
+    /// first: read from the index when the properties sheet opens, and again after it changes.
+    @Published private(set) var propertyValues: [String: [(value: String, count: Int)]] = [:]
+    private var propertyValuesUpdate = -1
+
+    func loadPropertyValues() async {
+        guard propertyValuesUpdate != indexUpdates, let index else { return }
+        let update = indexUpdates
+        guard let values = try? await index.propertyValues() else { return }
+        propertyValues = values
+        propertyValuesUpdate = update
+    }
+
+    /// A property's values, each once whatever its case, most used first.
+    func propertyValueList(_ key: String) -> [String] {
+        var seen = Set<String>()
+        return (propertyValues[key.lowercased()] ?? []).map(\.value).filter { seen.insert($0.lowercased()).inserted }
+    }
+
+    /// People, by their notes' titles: notes in the people folder, and whoever's linked in a
+    /// property of the person kind, most linked first.
+    var people: [String] {
+        var counts: [String: (name: String, count: Int)] = [:]
+        if let folder = pointTypes.peopleFolder(among: folders.filter { !$0.contains("/") }) {
+            for note in notes where FolderTree.folder(of: note.id) == folder || note.id.hasPrefix(folder + "/") {
+                counts[note.title.lowercased()] = (note.title, 0)
+            }
+        }
+        for key in pointTypes.properties.filter({ $0.value.type == .person }).map({ $0.key.lowercased() }) {
+            for entry in propertyValues[key] ?? [] {
+                guard let name = PropertyLinks.linkedName(entry.value) else { continue }
+                let existing = counts[name.lowercased()]
+                counts[name.lowercased()] = (existing?.name ?? name, (existing?.count ?? 0) + entry.count)
+            }
+        }
+        return counts.values.sorted { $0.count != $1.count ? $0.count > $1.count : $0.name.localizedStandardCompare($1.name) == .orderedAscending }.map(\.name)
+    }
+
+    /// People whose names have a word starting with what's typed (the most linked, with nothing
+    /// typed), less those already given.
+    func peopleSuggestions(for typed: String, excluding: [String] = [], limit: Int = 8) -> [String] {
+        let query = typed.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]@ "))
+        let taken = Set(excluding.map { (PropertyLinks.linkedName($0) ?? $0).lowercased() })
+        return Array(people.filter { name in
+            !taken.contains(name.lowercased())
+                && (query.isEmpty || name.lowercased().hasPrefix(query) || name.lowercased().split(separator: " ").contains { $0.hasPrefix(query) })
+        }.prefix(limit))
+    }
+
+    /// Notes to link to from a property of the link-to-note kind: those in its folder (any, if
+    /// none) whose titles fit what's typed.
+    func noteSuggestions(inFolder folder: String?, typed: String, limit: Int = 8) -> [String] {
+        let query = typed.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[] "))
+        return Array(notes.lazy.filter { note in
+            (folder == nil || FolderTree.folder(of: note.id) == folder || note.id.hasPrefix(folder! + "/"))
+                && (query.isEmpty || note.title.lowercased().contains(query))
+        }.map(\.title).prefix(limit))
     }
 
     // MARK: New notes
@@ -904,5 +993,22 @@ final class PhoneSearch: ObservableObject {
             guard !Task.isCancelled, let results = await find(query), !Task.isCancelled else { return }
             self?.results = results
         }
+    }
+}
+
+/// Links written in properties, as Obsidian writes them (`[[Sam Lee]]`, `[[Sam Lee|Sam]]`).
+enum PropertyLinks {
+    /// The note a value links to, if it's just one wikilink (`[[Sam Lee]]` gives "Sam Lee").
+    static func linkedName(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("[["), trimmed.hasSuffix("]]"), trimmed.count > 4 else { return nil }
+        let inside = trimmed.dropFirst(2).dropLast(2)
+        guard !inside.contains("[["), !inside.contains("]]") else { return nil }
+        return inside.split(separator: "|", maxSplits: 1).first.map(String.init)
+    }
+
+    /// A name as a link: `Sam Lee` gives `[[Sam Lee]]`; a link stays as it is.
+    static func linked(_ value: String) -> String {
+        linkedName(value) == nil ? "[[\(value)]]" : value
     }
 }

@@ -13,14 +13,13 @@ struct PropertiesSheet: View {
     @State private var isAdding = false
     @State private var renaming: String?
     @State private var name = ""
+    /// The choice property whose choices are being edited, or the link-to-note property whose
+    /// note is being picked.
+    @State private var editingChoices: String?
+    @State private var pickingNote: String?
 
-    /// The note's properties, less `title:` for a note Point named: that's its title, shown
-    /// above the note, not a property.
-    private var properties: [Frontmatter.Property] {
-        let all = session.frontmatter?.properties ?? []
-        guard NoteNames.isDated(session.note.name) else { return all }
-        return all.filter { $0.key.lowercased() != "title" }
-    }
+    /// The note's properties, less `title:` for a note Point named and a list's own keys.
+    private var properties: [Frontmatter.Property] { session.shownProperties }
 
     var body: some View {
         NavigationStack {
@@ -33,10 +32,10 @@ struct PropertiesSheet: View {
                             .symbolRenderingMode(.multicolor)
                     }
                     ForEach(properties) { property in
-                        PropertyRow(property: property, session: session) {
+                        PropertyRow(property: property, session: session, rename: {
                             name = property.key
                             renaming = property.key
-                        }
+                        }, editChoices: { editingChoices = property.key }, pickNote: { pickingNote = property.key })
                         .swipeActions {
                             Button("Delete", systemImage: "trash", role: .destructive) { session.removeProperty(property.key) }
                         }
@@ -59,6 +58,13 @@ struct PropertiesSheet: View {
                 }
             }
             .navigationDestination(isPresented: $isAdding) { AddPropertyScreen(session: session) }
+            .navigationDestination(isPresented: Binding(get: { editingChoices != nil }, set: { if !$0 { editingChoices = nil } })) {
+                if let key = editingChoices { ChoicesScreen(key: key) }
+            }
+            .navigationDestination(isPresented: Binding(get: { pickingNote != nil }, set: { if !$0 { pickingNote = nil } })) {
+                if let key = pickingNote { NotePickerScreen(key: key, session: session) }
+            }
+            .task { await store.loadPropertyValues() }
             .alert("Rename property", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
                 TextField("Name", text: $name)
                     .textInputAutocapitalization(.never)
@@ -149,7 +155,7 @@ private struct AddPropertyScreen: View {
                             add(suggestion.name)
                         } label: {
                             HStack {
-                                Label(suggestion.name, systemImage: type(of: suggestion.name).symbol)
+                                Label(suggestion.name, systemImage: symbol(of: suggestion.name))
                                 Spacer()
                                 if suggestion.count > 0 {
                                     Text("\(suggestion.count)")
@@ -165,7 +171,7 @@ private struct AddPropertyScreen: View {
             }
             if !key.isEmpty, known == nil, !taken.contains(key.lowercased()) {
                 Section {
-                    Button("Add “\(key)” as a new property", systemImage: type(of: key).symbol) { add(key) }
+                    Button("Add “\(key)” as a new property", systemImage: symbol(of: key)) { add(key) }
                 }
             }
         }
@@ -174,6 +180,11 @@ private struct AddPropertyScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .scrollDismissesKeyboard(.interactively)
         .onAppear { isFocused = true }
+    }
+
+    /// The symbol for a name's kind, Point's own if it has one.
+    private func symbol(of name: String) -> String {
+        store.pointTypes.definition(forKey: name)?.type.symbol ?? type(of: name).symbol
     }
 
     /// The vault's type for a name, or one suggested by the name.
@@ -214,16 +225,22 @@ private struct PropertyRow: View {
     let property: Frontmatter.Property
     @ObservedObject var session: NoteSession
     let rename: () -> Void
+    let editChoices: () -> Void
+    let pickNote: () -> Void
     /// A single line's height, whatever's in it: the tallest control, the date picker, sets it.
     @ScaledMetric private var lineHeight: CGFloat = 36
 
     private var type: PropertyType { store.propertyTypes.type(of: property) }
+    /// One of Point's own kinds, if it has one.
+    private var kind: PointTypes.Definition? { store.pointTypes.definition(forKey: property.key) }
+    /// Whether its value is a list, so runs below its name: Point's person kind is one.
+    private var isList: Bool { kind?.type.baseType.isList ?? type.isList }
     /// A value nested under the key, which isn't for editing here.
     private var isNested: Bool { !property.isList && property.values.isEmpty && property.range.length > property.key.count + 3 }
 
     var body: some View {
         Group {
-            if type.isList, !isNested {
+            if isList, !isNested {
                 VStack(alignment: .leading, spacing: 0) {
                     name
                         .frame(minHeight: lineHeight)
@@ -246,19 +263,27 @@ private struct PropertyRow: View {
     private var name: some View {
         HStack(spacing: 8) {
             Menu {
-                ForEach(PropertyType.choosable) { choice in
-                    Button {
-                        changeType(to: choice)
-                    } label: {
-                        if choice == type { Label(choice.name, systemImage: "checkmark") } else { Text(choice.name) }
+                // First, where it's seen: below the types it was off the bottom of the menu.
+                if kind?.type == .choice {
+                    Button("Edit choices", systemImage: "pencil", action: editChoices)
+                    Divider()
+                }
+                Picker("Type", selection: Binding(get: { chosen }, set: changeType)) {
+                    ForEach(PropertyType.choosable) { choice in
+                        Label(choice.name, systemImage: choice.symbol).tag(ChosenType.base(choice))
+                    }
+                }
+                Picker("Point’s own", selection: Binding(get: { chosen }, set: changeType)) {
+                    ForEach(PointTypes.Kind.allCases) { choice in
+                        Label(choice.name, systemImage: choice.symbol).tag(ChosenType.point(choice))
                     }
                 }
             } label: {
-                Image(systemName: type.symbol)
+                Image(systemName: kind?.type.symbol ?? type.symbol)
                     .frame(minWidth: 24)
             }
             .foregroundStyle(.secondary)
-            .accessibilityLabel("Type: \(type.name)")
+            .accessibilityLabel("Type: \(kind?.type.name ?? type.name)")
             Button(property.key, action: rename)
                 .buttonStyle(.plain)
                 .fontWeight(.semibold)
@@ -276,10 +301,30 @@ private struct PropertyRow: View {
         if isNested {
             Text("Edit in the Mac app")
                 .foregroundStyle(.tertiary)
+        } else if let kind {
+            switch kind.type {
+            case .choice:
+                ChoiceValue(value: property.values.first ?? "",
+                            choices: kind.choices ?? store.propertyValueList(property.key), set: set)
+            case .rating:
+                RatingValue(value: property.values.first.flatMap { Double($0) }.map { Int($0.rounded()) } ?? 0, stars: kind.stars) { stars in
+                    set(stars == 0 ? [] : [String(stars)])
+                }
+            case .person:
+                TokenEditor(items: Self.items(of: property, as: .list), placeholder: "Add a person", open: open,
+                            suggest: { typed, items in store.peopleSuggestions(for: typed, excluding: items).map { "[[\($0)]]" } },
+                            commit: { set($0.map(PropertyLinks.linked)) })
+            case .note:
+                NoteValue(value: property.values.first ?? "", open: open, pick: pickNote)
+            }
         } else {
             switch type {
             case .list, .tags, .aliases:
-                TokenEditor(items: Self.items(of: property, as: type), isTags: type == .tags, open: open, commit: set)
+                TokenEditor(items: Self.items(of: property, as: type), isTags: type == .tags,
+                            placeholder: type == .tags ? "Add a tag" : "Add an item", open: open,
+                            suggest: { typed, items in
+                                type == .tags ? store.tagSuggestions(for: typed).filter { !items.contains($0) } : []
+                            }, commit: set)
             case .checkbox:
                 Toggle(property.key, isOn: Binding(
                     get: { property.values.first?.lowercased() == "true" },
@@ -297,16 +342,43 @@ private struct PropertyRow: View {
     private func set(_ values: [String]) {
         // A field saves on leaving, which may be its property being deleted.
         guard session.frontmatter?.properties.contains(where: { $0.key == property.key }) == true else { return }
-        session.setProperty(property.key, to: values, isList: type.isList)
+        session.setProperty(property.key, to: values, isList: isList)
     }
 
-    /// Sets a property's type for the vault, and carries this note's value over to it.
-    private func changeType(to new: PropertyType) {
+    /// One of Obsidian's types, or one of Point's own kinds.
+    private enum ChosenType: Hashable {
+        case base(PropertyType)
+        case point(PointTypes.Kind)
+    }
+
+    private var chosen: ChosenType { kind.map { .point($0.type) } ?? .base(type) }
+
+    /// Sets a property's type for the vault (Obsidian's, and Point's own kinds in Point's
+    /// file), and carries this note's value over to it, as the Mac does.
+    private func changeType(to new: ChosenType) {
         let old = type
-        guard new != old else { return }
-        let values = new.convert(Self.items(of: property, as: old), from: old)
-        store.setPropertyType(new, forKey: property.key)
-        session.setProperty(property.key, to: values, isList: new.isList)
+        guard new != chosen else { return }
+        switch new {
+        case .base(let type):
+            store.setPointType(nil, forKey: property.key)
+            guard type != old else { return }
+            store.setPropertyType(type, forKey: property.key)
+            session.setProperty(property.key, to: type.convert(Self.items(of: property, as: old), from: old), isList: type.isList)
+        case .point(let kind):
+            var definition = PointTypes.Definition(type: kind)
+            switch kind {
+            // The choices start as what the vault gives it already, most used first.
+            case .choice: definition.choices = Array(store.propertyValueList(property.key).prefix(12))
+            case .rating: definition.max = 5
+            case .person, .note: break
+            }
+            store.setPointType(definition, forKey: property.key)
+            let type = kind.baseType
+            var values = type.convert(Self.items(of: property, as: old), from: old)
+            // People are links to their notes.
+            if kind == .person { values = values.map(PropertyLinks.linked) }
+            if type != old || kind == .person { session.setProperty(property.key, to: values, isList: type.isList) }
+        }
     }
 
     /// The items of a list, however the note writes it: tags written on one line (`tags: a b`)
@@ -413,16 +485,22 @@ private struct DateValue: View {
 /// comma adds an item. Links to notes open from their token. Tags offer matching tags from the
 /// vault while typing.
 private struct TokenEditor: View {
-    @EnvironmentObject private var store: PhoneStore
     let items: [String]
-    let isTags: Bool
+    var isTags = false
+    let placeholder: String
     let open: (String) -> Void
+    /// What to offer for what's typed, less the items there already: tags, or people as links.
+    let suggest: (String, [String]) -> [String]
     let commit: ([String]) -> Void
     @State private var text = ""
 
     private var suggestions: [String] {
-        guard isTags else { return [] }
-        return Array(store.tagSuggestions(for: text).filter { !items.contains($0) }.prefix(6))
+        Array(suggest(text, items).prefix(6))
+    }
+
+    /// A suggestion as it shows: a tag with its #, a link without its brackets.
+    private func label(of suggestion: String) -> String {
+        isTags ? "#" + suggestion : WikiLink(suggestion)?.label ?? suggestion
     }
 
     var body: some View {
@@ -434,7 +512,7 @@ private struct TokenEditor: View {
                     }
                 }
             }
-            TextField(isTags ? "Add a tag" : "Add an item", text: $text)
+            TextField(placeholder, text: $text)
                 .autocorrectionDisabled(isTags)
                 .textInputAutocapitalization(isTags ? .never : .sentences)
                 .onSubmit(add)
@@ -443,10 +521,10 @@ private struct TokenEditor: View {
             if !text.isEmpty, !suggestions.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack {
-                        ForEach(suggestions, id: \.self) { tag in
-                            Button("#" + tag) {
+                        ForEach(suggestions, id: \.self) { suggestion in
+                            Button(label(of: suggestion)) {
                                 text = ""
-                                commit(items + [tag])
+                                commit(items + [suggestion])
                             }
                             .buttonStyle(.bordered)
                             .buttonBorderShape(.capsule)
@@ -527,5 +605,189 @@ private struct TokenLayout: Layout {
             x += size.width + spacing
             line = max(line, size.height)
         }
+    }
+}
+
+/// One of a choice property's choices, from a menu. A value that isn't among them still shows.
+private struct ChoiceValue: View {
+    let value: String
+    let choices: [String]
+    let set: ([String]) -> Void
+
+    var body: some View {
+        Menu {
+            Picker(value, selection: Binding(get: { value.lowercased() }, set: { picked in
+                set(picked.isEmpty ? [] : [choices.first { $0.lowercased() == picked } ?? picked])
+            })) {
+                ForEach(choices, id: \.self) { choice in
+                    Text(choice).tag(choice.lowercased())
+                }
+                if !value.isEmpty, !choices.contains(where: { $0.lowercased() == value.lowercased() }) {
+                    Text(value).tag(value.lowercased())
+                }
+            }
+            Divider()
+            Button("None") { set([]) }
+        } label: {
+            HStack(spacing: 4) {
+                Text(value.isEmpty ? "Choose" : value)
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2.weight(.semibold))
+            }
+            .foregroundStyle(value.isEmpty ? .secondary : .primary)
+        }
+    }
+}
+
+/// A rating: stars to tap. Tapping the rating it has clears it.
+private struct RatingValue: View {
+    let value: Int
+    let stars: Int
+    let set: (Int) -> Void
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(1...stars, id: \.self) { star in
+                Button {
+                    set(star == value ? 0 : star)
+                } label: {
+                    Image(systemName: star <= value ? "star.fill" : "star")
+                        .foregroundStyle(star <= value ? Color.accentColor : Color.secondary.opacity(0.6))
+                        .frame(minWidth: 28, minHeight: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(star) of \(stars)")
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityValue(value == 0 ? "No rating" : "\(value) of \(stars)")
+    }
+}
+
+/// A link to a note: the note, tapped to open, and a button to pick another.
+private struct NoteValue: View {
+    let value: String
+    let open: (String) -> Void
+    let pick: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if let link = WikiLink(value) {
+                Button(link.label) { open(link.target) }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color(.link))
+                    .lineLimit(1)
+            } else if !value.isEmpty {
+                Text(value)
+                    .lineLimit(1)
+            }
+            Button(value.isEmpty ? "Choose" : "Change", action: pick)
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// Picks the note a link-to-note property links to: notes in its folder (any, if it has none),
+/// narrowed by searching.
+private struct NotePickerScreen: View {
+    @EnvironmentObject private var store: PhoneStore
+    @Environment(\.dismiss) private var dismiss
+    let key: String
+    @ObservedObject var session: NoteSession
+    @State private var query = ""
+
+    private var folder: String? { store.pointTypes.definition(forKey: key)?.folder }
+
+    private var current: String? {
+        session.frontmatter?.properties.first { $0.key == key }?.values.first.flatMap(PropertyLinks.linkedName)
+    }
+
+    var body: some View {
+        List {
+            ForEach(store.noteSuggestions(inFolder: folder, typed: query, limit: 200), id: \.self) { title in
+                Button {
+                    set(["[[\(title)]]"])
+                } label: {
+                    HStack {
+                        Text(title)
+                        Spacer()
+                        if title.lowercased() == current?.lowercased() {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(.tint)
+                        }
+                    }
+                }
+                .foregroundStyle(.primary)
+            }
+            if current != nil {
+                Section {
+                    Button("None", role: .destructive) { set([]) }
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: folder.map { "Notes in \($0)" } ?? "Notes")
+        .navigationTitle(key)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func set(_ values: [String]) {
+        session.setProperty(key, to: values, isList: false)
+        dismiss()
+    }
+}
+
+/// The choices a choice property offers, in order: reordered by dragging, removed with the
+/// delete button, and added at the end. Saved for the vault as they change.
+private struct ChoicesScreen: View {
+    @EnvironmentObject private var store: PhoneStore
+    let key: String
+    @State private var choices: [String] = []
+    @State private var new = ""
+    @FocusState private var isAdding: Bool
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(choices, id: \.self) { choice in
+                    Text(choice)
+                }
+                .onDelete { choices.remove(atOffsets: $0); save() }
+                .onMove { choices.move(fromOffsets: $0, toOffset: $1); save() }
+                TextField("Add a choice", text: $new)
+                    .focused($isAdding)
+                    .submitLabel(.done)
+                    .onSubmit(add)
+            } footer: {
+                Text("Offered in this order, in every note.")
+            }
+        }
+        .listStyle(.insetGrouped)
+        .environment(\.editMode, .constant(.active))
+        .navigationTitle("Choices for \(key)")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            choices = store.pointTypes.definition(forKey: key)?.choices ?? []
+            if choices.isEmpty { isAdding = true }
+        }
+        .onDisappear(perform: add)
+    }
+
+    private func add() {
+        let choice = new.trimmingCharacters(in: .whitespaces)
+        new = ""
+        guard !choice.isEmpty, !choices.contains(where: { $0.lowercased() == choice.lowercased() }) else { return }
+        choices.append(choice)
+        save()
+        isAdding = true
+    }
+
+    private func save() {
+        guard var definition = store.pointTypes.definition(forKey: key), definition.type == .choice else { return }
+        definition.choices = choices
+        store.setPointType(definition, forKey: key)
     }
 }

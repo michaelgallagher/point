@@ -144,7 +144,7 @@ The iPhone app (M4) and the real-vault trial still come first. Dropping side-by-
 - **Point's own kinds of property** (`.point/types.json`): choice (a menu of its choices, edited with Edit Choices…, starting as the values the vault gives it), person (links to people's notes, suggested), rating (stars), and link to note (suggested from a folder). Each is also kept in Obsidian's types file as what it's written as (text, list, number), so Obsidian goes on reading it the same way.
 - **People** are the notes in the people folder (`.point/types.json`, else a top-level folder called People) and whoever's linked in a person property, most linked first.
 - **`@` in a note:** typing `@` and a name suggests people; picking one writes `[[Name]]`. Not in an email address, code or a link.
-- **Not yet:** the iPhone's properties sheet edits Point's kinds as what they're written as (a choice as text, say). People aren't yet shown as chips in the text.
+- **Not yet:** people aren't yet shown as chips in the text. (The iPhone's properties sheet edits Point's kinds since 6 November, branch `iphone-catchup`.)
 
 **3. Titles (built 6 November 2026, branch `titles`):**
 - **Names** (`NoteNames`, VaultKit): a new note is named for its day and its title, `2026-11-06-questions-about-my-vault.md`. Accents and other scripts become plain letters, emoji and punctuation go, and long titles stay long. A name that's taken gets `-2`, `-3` and so on.
@@ -153,7 +153,7 @@ The iPhone app (M4) and the real-vault trial still come first. Dropping side-by-
 - **Links** to these notes are written `[[2026-11-06-questions-about-my-vault|Questions: about my vault?]]`, when picked from suggestions or added to a property.
 - **The `title:` property is hidden** in the Mac's properties strip and the iPhone's properties sheet. It's the title above the note.
 - **New notes only:** linked notes, daily notes and templates are named as before, and existing notes keep their names.
-- **Not yet:** checked on the iPhone only by building it, not by running it. Notes made in Obsidian aren't given titles.
+- **Not yet:** notes made in Obsidian aren't given titles. (Tried on the phone in the Simulator on 6 November, branch `iphone-catchup`, which fixed titling an open note there: see `m4-iphone.md`.)
 
 **4. Images (built 6 November 2026, branch `images-support`):**
 - **Shown in the Mac's editor:** an image embedded alone on its line (`![[a.png]]`, `![[a.png|300]]`, `![alt](Attachments/a.png)`) is drawn above the line, at its own size (a Retina screenshot at half its pixels), narrowed to fit the text and no taller than 520 points. Its Markdown stays under it as a small grey caption with the file's name, so the cursor, typing and Delete work on it as on any line. An image in a line of text stays a link; a missing one is a faint link.
@@ -163,7 +163,7 @@ The iPhone app (M4) and the real-vault trial still come first. Dropping side-by-
 - **Trashed with their note:** a note's images that no other note shows go to the trash with it (`.trash/images`), and come back when it's put back. They're deleted for good with it.
 - **Find Unused Images…** (palette): lists the images no note embeds or links to, each with Show in Finder, and moves them to the Trash.
 - **Also fixed:** a note Point named was listed in the trash by its file name, and put back under its title.
-- **Not yet:** images on the iPhone; resizing an image by dragging.
+- **Not yet:** resizing an image by dragging. (Images show on the iPhone since 6 November, branch `iphone-catchup`.)
 
 **4b. Web images and browsing images (built 6 November 2026, branch `image-browsing`):**
 - **Web images** (`![](https://…)`, most of a clipped vault's) load from their sites once and are kept in Point's caches, outside the vault (`WebImageCache`), then shown from there, offline too. They're loaded without cookies and with a User-Agent that says what Point is; a site can still tell when its image is loaded. Notes restyle once they arrive. Settings › Notes › Images turns them off.
@@ -190,7 +190,7 @@ The iPhone app (M4) and the real-vault trial still come first. Dropping side-by-
 - **New List** (palette): a list of the folder or tag being browsed, or of every note.
 - **Embedded:** `![[Books to read]]` alone on a line in another note shows the list's first 10 notes, with Show all to open it, and its name under it as a caption. The room is made from what the list finds, and notes restyle when that changes. EditorKit has a general hook for this (`blockEmbedHeight` and `makeBlockEmbedView`).
 - **Also fixed:** notes didn't restyle when web images arrived while they were open (SwiftUI didn't update the editor). Editors now restyle on a notice.
-- **Not yet:** lists on the iPhone (the properties show as written); grouping; a list's results in the sidebar.
+- **Not yet:** editing a list on the iPhone (it shows lists, read only, since 6 November, branch `iphone-catchup`); grouping; a list's results in the sidebar.
 - **The filters window (6 November 2026, branch `list-filters`):**
   - Add filter, or a click on a filter, opens a window that edits all of a list's filters the way macOS edits rules (a Finder smart folder, a Mail rule). It reads "Show notes that match all (or any) of these conditions". Each condition is a row: what it's about (the note's folder, tag, title, dates, links and words, then the vault's properties A to Z, each with its type's symbol), how it compares, and its value. It is laid out in rounded groups, as System Settings is, but with standard Mac pop-up menus, always outlined: what it's about and how it compares are set widths, so they line up down the rows, and each value is one width too. An ✕ removes a row; a row is dragged by its handle, the others sliding aside as it passes; and "Add condition" below adds one.
   - The comparisons and the value's control suit the property's type, from Point's kinds, the vault's types, or how its values read. A date can be on, before or after a day, between two days, this week, month or year, or in the last or next so many days, weeks, months or years. A choice gets its menu, a rating stars, a checkbox ticked or not. Text, lists, tags and links get a combo box that completes from what the vault uses.

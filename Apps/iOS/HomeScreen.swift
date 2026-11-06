@@ -113,6 +113,12 @@ struct HomeScreen: View {
                let long = notes.first(where: { $0.title == PhoneVault.longTitle }) {
                 path = [.note(long.id)]
             }
+            #if DEBUG
+            // `-PhoneOpenNote "Folder/Note.md"` opens that note at launch, for trying it out.
+            if let id = UserDefaults.standard.string(forKey: "PhoneOpenNote"), path.isEmpty, notes.contains(where: { $0.id == id }) {
+                path = [.note(id)]
+            }
+            #endif
         }
     }
 

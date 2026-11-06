@@ -144,7 +144,7 @@ Each ends with a build on the iPhone to try. Free-account builds work for steps 
 
 **On the iPhone 13** (Release, the same vault copy and bookmarks copied into Point's folder): scanning 3,408 notes takes 562 ms; the first index build, 8.4 s.
 
-**Not yet:** the new-note button (step 2), and the real vault (step 5). Notes reach the phone by copying them into Point's folder in Files.
+**Not yet, then:** the new-note button (step 2, built since: New note in the action menu), and the real vault (step 5). Notes reach the phone by copying them into Point's folder in Files.
 
 ## Step 2, writing (27 October 2026)
 
@@ -348,6 +348,21 @@ Mike: the search animation was "still kinda shit", and everything must be smooth
 **Tried:** all of the above in the Simulator, on iOS 27 and 26.1, with a test vault (typography and Deleted Notes on iOS 27 only; Search, titles and folding frame by frame on both). Both bottom bars stay whole on both systems. The package tests pass.
 
 **Not tried:** the iPhone itself, so how the search animation feels there; opening a long note at a backlink further down; dark mode.
+
+## Catching up with the Mac (6 November 2026, branch `iphone-catchup`)
+
+The Mac gained images, lists, Point's own kinds of property and dated titles on 6 November. The phone now has the first three, and the fourth is tried there.
+
+- **Images in notes.** An image embedded alone on its line is drawn above it, as on the Mac: narrowed to the text, no taller than 360 points, with its name as a small caption under it. Vault images (downloaded from iCloud first, if need be) and web images (from the same cache as the Mac's, `WebImageCache`) both show; a note restyles once one arrives. Tapping an image, or its caption, opens it full screen in Quick Look. `PhoneTextView+Embeds`, `PhoneEmbeds`.
+- **Lists.** A list note shows its notes under its title and buttons: how many, then each one's title, with the list's columns on a line under it ("Writer 3 · 10 Mar 2026"). Tap one to open it. Embedded in another note (`![[Reading list]]` alone on its line), a list shows its first 10, then "Show all 12", which opens the list note. The room for it is known before it's drawn: rows are one height. Queries never wait on the index: what a list last found shows at once, and it's asked again when the index has changed. Lists are read on the phone, not edited there: the filters, sort and columns are the Mac's. `PhoneListView`.
+- **The properties sheet knows Point's kinds** (`.point/types.json`), as the Mac's strip does: a choice is a menu of its choices, a rating is stars to tap, a person is tokens of links, with the vault's people suggested while typing, and a link to a note is the note, with Change to pick another from its folder (searchable). The type menu lists Obsidian's types, then Point's kinds, and Edit choices (first, for a choice) opens a list to add, reorder and remove them. Changing a kind carries the value over, as the Mac does.
+- **Hidden, as on the Mac:** a list's own `list-` properties, which show as the list, and the `title:` of a note Point named. Neither is counted on the properties button.
+- **Dated titles, tried.** A new note is `2026-11-06-untitled.md` until it's titled, then `2026-11-06-questions-about-my-vault.md` with `title: "Questions: about my vault?"`. Retitling renames the file, keeping the day, and links follow: a label that was the old title becomes the new one; a label of its own stays.
+  - **Found and fixed:** titling a note Point named wrote `title:` to the file but not to the open editor. The editor's next save found the file changed and put the note's text in a conflict copy, apart from its title. The title is now set in the editor's text and saved with the rest, and the rename finds it there.
+
+**Tried:** all of the above in the Simulator (iOS 26.1), with a test vault: an image and an embedded list in one note, a list note of 12 books, a note with each kind, and a new note titled, written in and retitled with a link to it elsewhere.
+
+**Not tried:** the iPhone itself, dark mode, web images on the phone, a vault image still in iCloud, a list of hundreds of notes. Titles sort as text (Book 10 before Book 2), on the Mac too.
 
 ## Decided (27 October 2026)
 

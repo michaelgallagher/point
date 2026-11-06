@@ -24,7 +24,8 @@ private final class TapFilter: NSObject, UIGestureRecognizerDelegate {
     func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
         guard let textView else { return false }
         let point = recognizer.location(in: textView)
-        return textView.checkboxState(at: point) != nil || (!textView.isFirstResponder && textView.link(at: point) != nil)
+        return textView.checkboxState(at: point) != nil
+            || (!textView.isFirstResponder && (textView.link(at: point) != nil || textView.image(at: point) != nil))
     }
 
     /// Ahead of the text view's own tap, which would place the cursor and raise the keyboard.
@@ -50,8 +51,15 @@ extension PhoneTextView {
         if let state = checkboxState(at: point) {
             UISelectionFeedbackGenerator().selectionChanged()
             apply(MarkdownEdit(range: state.range, replacement: state.done ? " " : "x", selection: selectedRange))
+        } else if let url = image(at: point) {
+            onOpenImage?(url)
         } else if let target = link(at: point) {
-            onOpenLink?(target)
+            // An image's caption opens the image, not a note named after it.
+            if case .note(let name) = target, MarkdownStyler.isImageName(name), let url = styler.imageURL?(name) {
+                onOpenImage?(url)
+            } else {
+                onOpenLink?(target)
+            }
         }
     }
 

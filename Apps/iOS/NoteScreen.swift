@@ -1,5 +1,6 @@
 import EditorKit
 import IndexKit
+import QuickLook
 import SwiftUI
 import VaultKit
 
@@ -12,6 +13,8 @@ import VaultKit
 struct NoteScreen: View {
     @EnvironmentObject private var store: PhoneStore
     @StateObject private var session: NoteSession
+    /// Images, for the one tapped to show full screen.
+    @ObservedObject private var embeds: PhoneEmbeds
     @Environment(\.dismiss) private var dismiss
     @State private var confirmsDelete = false
     @State private var isDeleting = false
@@ -21,6 +24,7 @@ struct NoteScreen: View {
 
     init(note: Note, store: PhoneStore, isNew: Bool = false, newNote: @escaping (String) -> Void) {
         _session = StateObject(wrappedValue: NoteSession(note: note, store: store, isNew: isNew))
+        _embeds = ObservedObject(wrappedValue: store.embeds)
         self.newNote = newNote
     }
 
@@ -77,6 +81,8 @@ struct NoteScreen: View {
             } message: {
                 Text("It moves to Deleted notes, where you can put it back.")
             }
+            // A tapped image, full screen, to zoom, share or save.
+            .quickLookPreview($embeds.shownImage)
             .onAppear { store.noteOpened(session.note.id) }
             .onChange(of: store.showsMarkdown) { _, shows in session.showMarkdown(shows) }
             .onChange(of: store.typography) { _, typography in session.textView?.typography = typography }
@@ -190,14 +196,75 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     private let showsTimings = UserDefaults.standard.bool(forKey: "SpikeTypeTest")
     private var openedTimings = ""
 
+    /// The list this note is, if it is one, shown under its title.
+    private(set) var list: ListDefinition?
+    /// What draws the lists embedded in it, and its own, kept while they show.
+    private var listControllers: [UIViewController] = []
+
     init(note: Note, store: PhoneStore, isNew: Bool) {
         self.note = note
         self.store = store
         self.isNew = isNew
         super.init()
+        NotificationCenter.default.addObserver(self, selector: #selector(embedsChanged), name: .phoneEmbedsChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(resignActive), name: UIApplication.willResignActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(editingChanged), name: UITextView.textDidBeginEditingNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(editingChanged), name: UITextView.textDidEndEditingNotification, object: nil)
+    }
+
+    /// An image arrived, or a list found more or fewer notes: the room for them is made again.
+    @objc private func embedsChanged() {
+        textView?.restyleEmbeds()
+    }
+
+    // MARK: Embeds
+
+    func imageURL(_ target: String) -> URL? { store.embeds.imageURL(for: target, from: note.id) }
+
+    func listEmbedHeight(_ target: String) -> CGFloat? { store.embeds.listEmbedHeight(target, from: note.id) }
+
+    func showImage(_ url: URL) {
+        hideKeyboard()
+        store.embeds.shownImage = url
+    }
+
+    /// The view drawn for a list embedded in the note: its first ten notes, and "Show all".
+    func makeEmbedView(_ target: String) -> UIView {
+        guard let (id, list) = store.embeds.embeddedList(target, from: note.id) else { return UIView() }
+        let store = store
+        let view = PhoneListView(embeds: store.embeds, list: list, limit: PhoneListView.embedLimit) { opened in
+            store.linkedRoute = .note(opened ?? id)
+        }
+        return host(view)
+    }
+
+    private func host(_ view: PhoneListView) -> UIView {
+        let controller = UIHostingController(rootView: view)
+        controller.sizingOptions = []
+        controller.view.backgroundColor = .clear
+        listControllers.append(controller)
+        return controller.view
+    }
+
+    /// Shows the note's own results under its title, if it's a list, as its properties change.
+    private func showList(_ changed: ListDefinition?) {
+        guard changed != list else { return }
+        list = changed
+        guard let header else { return }
+        guard let changed else {
+            header.list = nil
+            return textView?.setNeedsLayout() ?? ()
+        }
+        let store = store
+        let view = PhoneListView(embeds: store.embeds, list: changed, limit: 200, open: { opened in
+            if let opened { store.linkedRoute = .note(opened) }
+        }, onHeight: { [weak self] height in
+            guard let self, let header = self.header, header.listHeight != height else { return }
+            header.listHeight = height
+            self.textView?.setNeedsLayout()
+        })
+        header.list = host(view)
+        textView?.setNeedsLayout()
     }
 
     @objc private func editingChanged(_ notification: Notification) {
@@ -406,7 +473,19 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         let parsed = text.hasPrefix("---") ? Frontmatter.parse(text) : nil
         guard parsed != frontmatter || frontmatter == nil else { return }
         frontmatter = parsed
-        header?.showProperties(count: parsed?.properties.count ?? 0)
+        header?.showProperties(count: shownProperties.count)
+        showList(ListDefinition(frontmatter: parsed))
+    }
+
+    /// The properties to show, as on the Mac: all but the `title:` of a note Point named (that's
+    /// its title, above them), and a list's own keys (shown as the list, under them).
+    var shownProperties: [Frontmatter.Property] {
+        guard let frontmatter else { return [] }
+        let isDated = NoteNames.isDated(note.name)
+        let isList = ListDefinition(frontmatter: frontmatter) != nil
+        return frontmatter.properties.filter { property in
+            !(isDated && property.key.lowercased() == "title") && !(isList && ListDefinition.isListKey(property.key))
+        }
     }
 
     func setProperty(_ key: String, to values: [String], isList: Bool) {
@@ -478,6 +557,14 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
             return
         }
         guard typed != note.title || untitled else { return }
+        // A note Point named: its `title:` is set in the text here first, then saved with the
+        // rest. Set only on disk, the editor's next save found the file changed and put the
+        // note's text in a conflict copy, apart from its title.
+        if NoteNames.isDated(note.name), let textView {
+            let text = textView.text ?? ""
+            let (range, replacement) = NoteNames.edit(settingTitle: typed, in: text)
+            if (text as NSString).substring(with: range) != replacement { textView.applyAboveBody(range, with: replacement) }
+        }
         // Saved first: a rename never leaves edits behind.
         guard save() else {
             field.text = untitled ? "" : note.title
@@ -553,6 +640,21 @@ final class NoteHeader: UIView {
     private static let between: CGFloat = 8
     /// Between the buttons and the note's text.
     private static let below: CGFloat = 12
+    /// A list note's results, under the buttons, and how tall they are.
+    var list: UIView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            if let list { addSubview(list) }
+            setNeedsLayout()
+        }
+    }
+    var listHeight: CGFloat = 0 {
+        didSet { setNeedsLayout() }
+    }
+    private static let listGap: CGFloat = 14
+    /// The list's room, when there is one.
+    private var listRoom: CGFloat { list == nil ? 0 : listHeight + Self.listGap }
+
     /// Off while the note's Markdown shows, when its properties are text like the rest.
     var showsProperties = true {
         didSet {
@@ -612,7 +714,7 @@ final class NoteHeader: UIView {
     override func sizeThatFits(_ size: CGSize) -> CGSize {
         let height = title.sizeThatFits(size).height
         let row = buttons.map { $0.sizeThatFits(size).height }.max()
-        return CGSize(width: size.width, height: height + (row.map { Self.gap + $0 + Self.below } ?? Self.below))
+        return CGSize(width: size.width, height: height + (row.map { Self.gap + $0 + Self.below } ?? Self.below) + listRoom)
     }
 
     override func layoutSubviews() {
@@ -624,6 +726,10 @@ final class NoteHeader: UIView {
             let size = button.sizeThatFits(bounds.size)
             button.frame = CGRect(x: x, y: height + Self.gap, width: min(size.width, bounds.width - x), height: size.height)
             x += size.width + Self.between
+        }
+        if let list {
+            let top = (buttons.map { $0.frame.maxY }.max() ?? height) + Self.listGap
+            list.frame = CGRect(x: 0, y: top, width: bounds.width, height: listHeight)
         }
     }
 }
@@ -729,6 +835,11 @@ struct EditorView: UIViewRepresentable {
         }
         textView.onTextChange = { [weak session] in session?.changed($0) }
         textView.onOpenLink = { [weak session] in session?.open($0) }
+        // Images and lists embedded in the note, drawn over it, as on the Mac.
+        textView.makeBlockEmbedView = { [weak session] in session?.makeEmbedView($0) ?? UIView() }
+        textView.blockEmbedHeight = { [weak session] in session?.listEmbedHeight($0) }
+        textView.imageURL = { [weak session] in session?.imageURL($0) }
+        textView.onOpenImage = { [weak session] in session?.showImage($0) }
         DispatchQueue.main.async { session.open() }
         return textView
     }

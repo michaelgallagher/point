@@ -8,7 +8,7 @@ import UIKit
 /// around hidden Markdown (`HiddenMarkers`), but doesn't yet have its folding.
 public final class PhoneTextView: UITextView {
     public private(set) var tokens: [MarkdownToken] = []
-    private var styler = MarkdownStyler()
+    var styler = MarkdownStyler()
     let pointLayoutManager: PointLayoutManager
     /// Decides which taps are for `PhoneTextView+Links`.
     var tapFilter: NSObject?
@@ -53,6 +53,16 @@ public final class PhoneTextView: UITextView {
     private var heldMarkers: HeldMarkers?
     /// Which load the gradual layout belongs to, so a newer load stops an older run.
     private var layoutRun = 0
+    /// The views drawing images and the app's blocks over the text (`PhoneTextView+Embeds`).
+    var imageViews: [PhoneImageView] = []
+    var blockEmbedViews: [(target: String, view: UIView)] = []
+    /// How tall the text was when they were last placed: as the rest of a note is laid out,
+    /// lines move, and the views with them.
+    var embedsSyncedHeight: CGFloat = 0
+    /// Makes the view the app draws for a block embed (see `blockEmbedHeight`).
+    public var makeBlockEmbedView: ((String) -> UIView)?
+    /// Called when an image is tapped, with its file.
+    public var onOpenImage: ((URL) -> Void)?
 
     public init() {
         // TextKit 1, built by hand so the layout manager can hide markers, as on the Mac.
@@ -72,6 +82,7 @@ public final class PhoneTextView: UITextView {
         styler.theme.keepsTagsInsideMargin = true
         styler.theme.tagSpace = 8
         styler.theme.tagRise = 3
+        styler.theme.imageMaxHeight = 360
         container.tagSpace = styler.theme.tagSpace
         applyTextSize()
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (view: PhoneTextView, _: UITraitCollection) in
@@ -117,6 +128,8 @@ public final class PhoneTextView: UITextView {
     /// Places the header at the top, and starts the text below it.
     public override func layoutSubviews() {
         super.layoutSubviews()
+        noteTextWidth()
+        if styler.theme.rendersImages, abs(contentSize.height - embedsSyncedHeight) > 0.5 { syncEmbedViews() }
         guard let header else { return }
         let width = bounds.width - textContainerInset.left - textContainerInset.right
         let height = header.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
@@ -442,6 +455,7 @@ extension PhoneTextView: @preconcurrency NSTextStorageDelegate {
         if selectedRange != selection { selectedRange = selection }
         lastEditMilliseconds = (CACurrentMediaTime() - start) * 1000
         slowestEditMilliseconds = max(slowestEditMilliseconds, lastEditMilliseconds)
+        if styler.theme.rendersImages || !imageViews.isEmpty || !blockEmbedViews.isEmpty { syncEmbedViews() }
     }
 }
 #endif
