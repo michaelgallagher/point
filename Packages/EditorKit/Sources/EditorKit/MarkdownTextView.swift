@@ -67,6 +67,8 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     var imageViews: [ImageEmbedView] = []
     /// The views drawing embedded blocks, in order, with what each embeds (see +Images).
     var blockEmbedViews: [(target: String, view: NSView)] = []
+    /// Whether the pointer is over one of the app's views in the text, not the text.
+    var isPointerOverSubview = false
     var isTableSyncQueued = false
     var isSyncingTables = false
     /// Set while the note's selection is moved to follow a table cell's.
@@ -478,11 +480,19 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         // Only while the pointer is over the text itself. Mouse moves come to the text view
         // wherever the pointer is (it has the keyboard), and its I-beam replaced the resize
         // pointer over a divider beside it, which then could hardly be found.
-        if let hit = window?.contentView?.superview?.hitTest(event.locationInWindow), hit !== self, !hit.isDescendant(of: self) {
+        if let hit = window?.contentView?.superview?.hitTest(event.locationInWindow), hit !== self {
+            // Over a view of the app's in the text (the header, a list embedded): its own
+            // pointers show (a pointing hand over a link), not the text's I-beam.
+            if hit.isDescendant(of: self), !isPointerOverSubview {
+                isPointerOverSubview = true
+                NSCursor.arrow.set()
+            }
             updateHoveredFoldLine(at: nil)
             updateTableHover(at: nil)
+            if !hit.isDescendant(of: self) { isPointerOverSubview = false }
             return
         }
+        isPointerOverSubview = false
         super.mouseMoved(with: event)
         updateHoveredFoldLine(at: convert(event.locationInWindow, from: nil))
         updateTableHover(at: convert(event.locationInWindow, from: nil))

@@ -127,7 +127,14 @@ extension VaultStore {
             }
         }
         switch propertyTypes.type(forKey: name) ?? guessedType(ofProperty: name) {
-        case .text: return .text
+        case .text:
+            // A few values used again and again (a format, a status): chosen from a menu, like
+            // the others, rather than typed.
+            if let summary = propertySummaries.first(where: { $0.id == name.lowercased() }),
+               summary.distinctValues > 0, summary.distinctValues <= 30, summary.valueCount >= summary.distinctValues * 3 {
+                return .choice(propertyValueList(name).map(\.value))
+            }
+            return .text
         case .list, .aliases: return .list
         case .tags: return .tag
         case .number: return .number
@@ -263,7 +270,8 @@ struct ListFilterRow: Identifiable, Equatable {
 
 /// A list's filters, edited the way macOS edits rules (a Finder smart folder, a Mail rule):
 /// "Show notes that match all of these conditions", then a row for each, each a line of
-/// pop-up menus and fields, with − and + to take one away or add one after it.
+/// pop-up menus and fields, an ✕ to take it away, dragged by its handle to reorder (the others
+/// moving aside as it passes); "Add condition" below.
 struct ListFiltersSheet: View {
     @ObservedObject var store: VaultStore
     let list: ListDefinition
@@ -274,7 +282,7 @@ struct ListFiltersSheet: View {
     /// Note titles, for "Links to", gathered once.
     @State private var titles: [String] = []
 
-    init(store: VaultStore, list: ListDefinition, addsRow: Bool, done: @escaping (ListDefinition?) -> Void) {
+    init(store: VaultStore, list: ListDefinition, done: @escaping (ListDefinition?) -> Void) {
         self.store = store
         self.list = list
         self.done = done
@@ -285,48 +293,60 @@ struct ListFiltersSheet: View {
             var row = ListFilterRow(subject: .tag, kind: .tag); row.text = tag; return row
         }
         rows += list.conditions.map(ListFilterRow.init(condition:))
-        if addsRow || rows.isEmpty { rows.append(ListFilterRow(subject: .folder, kind: .folder)) }
         _rows = State(initialValue: rows)
         _matchesAny = State(initialValue: list.matchesAny)
     }
 
+    /// The row being dragged, faded where it sits while the others move round it.
+    @State private var dragging: ListFilterRow.ID?
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             Text("Filters")
-                .font(.headline)
-            HStack(spacing: 6) {
+                .font(.title3.weight(.semibold))
+            // Rounded groups, as System Settings has, but with standard pop-up menus (always
+            // drawn), since each condition is three choices in a row, not one.
+            HStack {
                 Text("Show notes that match")
-                Picker("", selection: $matchesAny) {
-                    Text("all").tag(false)
-                    Text("any").tag(true)
-                }
-                .labelsHidden()
-                .fixedSize()
-                Text("of these conditions:")
+                Spacer()
+                PopUp(items: [.init("All conditions", false), .init("Any condition", true)], selection: $matchesAny)
+                    .fixedSize()
             }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach($rows) { $row in
-                        FilterRowView(row: $row, store: store, titles: titles,
-                                      remove: { rows.removeAll { $0.id == row.id } },
-                                      add: { add(after: row.id) })
-                    }
-                    if rows.isEmpty {
-                        HStack {
-                            Text("No conditions: the list shows every note.")
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Button { add(after: nil) } label: { Image(systemName: "plus") }
-                                .help("Add a condition")
+            .padding(.horizontal, Self.inset)
+            .frame(height: Self.rowHeight)
+            .modifier(SettingsGroup())
+            VStack(alignment: .leading, spacing: 10) {
+                if rows.isEmpty {
+                    Text("No conditions: the list shows every note.")
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, Self.inset)
+                        .frame(maxWidth: .infinity, minHeight: Self.rowHeight, alignment: .leading)
+                        .modifier(SettingsGroup())
+                } else {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            ForEach(Array($rows.enumerated()), id: \.element.id) { index, $row in
+                                if index > 0 { Divider().padding(.leading, Self.inset + 26) }
+                                FilterRowView(row: $row, store: store, titles: titles,
+                                              remove: { withAnimation(.snappy) { rows.removeAll { $0.id == row.id } } },
+                                              startDrag: { dragging = row.id })
+                                    .padding(.horizontal, Self.inset)
+                                    .frame(height: Self.rowHeight)
+                                    .opacity(dragging == row.id ? 0.35 : 1)
+                                    .onDrop(of: [.text], delegate: RowDrop(target: row.id, rows: $rows, dragging: $dragging))
+                            }
                         }
                     }
+                    .frame(height: min(CGFloat(rows.count) * (Self.rowHeight + 1), 400))
+                    .modifier(SettingsGroup())
+                    // A drag let go outside the rows: the pointer moving again with no button down.
+                    .onContinuousHover { _ in
+                        if dragging != nil, NSEvent.pressedMouseButtons == 0 { dragging = nil }
+                    }
                 }
-                .padding(10)
+                Button { add() } label: { Label("Add condition", systemImage: "plus") }
+                    .controlSize(.large)
             }
-            .frame(minHeight: 120, maxHeight: 360)
-            .fixedSize(horizontal: false, vertical: true)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .controlBackgroundColor)))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(nsColor: .separatorColor)))
             HStack {
                 Spacer()
                 Button("Cancel") { done(nil) }
@@ -335,17 +355,30 @@ struct ListFiltersSheet: View {
                     .keyboardShortcut(.defaultAction)
                     .disabled(!isWhole)
             }
+            .controlSize(.large)
+            .padding(.top, 4)
         }
-        .padding(20)
-        .frame(width: 720)
+        .padding(Self.margin)
+        .frame(width: Self.width)
+        // Nothing has the focus ring until the keyboard is used.
+        .background(NoInitialFocus())
         .onAppear {
             titles = store.notes.map(\.title).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         }
     }
 
-    private func add(after id: ListFilterRow.ID?) {
-        let index = id.flatMap { id in rows.firstIndex { $0.id == id } }.map { $0 + 1 } ?? rows.count
-        rows.insert(ListFilterRow(subject: .folder, kind: .folder), at: index)
+    static let rowHeight: CGFloat = 44, inset: CGFloat = 12, margin: CGFloat = 24
+
+    /// As wide as a row's controls: the handle, the three columns, the ✕, and the space
+    /// between, inside the group's insets and the window's margins.
+    static let width: CGFloat = {
+        let row = FilterRowView.handleWidth + FilterRowView.subjectWidth + FilterRowView.operatorWidth
+            + FilterRowView.valueWidth + FilterRowView.removeWidth + FilterRowView.spacing * 4 + 24
+        return row + inset * 2 + margin * 2
+    }()
+
+    private func add() {
+        withAnimation(.snappy) { rows.append(ListFilterRow(subject: .folder, kind: .folder)) }
     }
 
     private var isWhole: Bool {
@@ -380,55 +413,79 @@ private struct FilterRowView: View {
     @ObservedObject var store: VaultStore
     let titles: [String]
     let remove: () -> Void
-    let add: () -> Void
+    let startDrag: () -> Void
+
+    /// The columns' widths, so each row's menus line up with the rows above and below.
+    static let subjectWidth: CGFloat = 180, operatorWidth: CGFloat = 150, valueWidth: CGFloat = 200, spacing: CGFloat = 10,
+        handleWidth: CGFloat = 16, removeWidth: CGFloat = 16
 
     var body: some View {
         let kind = store.listValueKind(of: row.subject)
-        HStack(spacing: 8) {
+        HStack(spacing: Self.spacing) {
+            handle
+            // The first two menus are set widths, so they line up down the rows.
             subjectPicker
-                .frame(width: 170, alignment: .leading)
-            // The comparisons line up in a column, as do the values after them.
+                .frame(width: Self.subjectWidth)
             Group {
                 if row.subject != .linksTo, row.subject != .hasWords {
-                    Picker("", selection: $row.op) {
-                        ForEach(kind.operators.contains(row.op) ? kind.operators : kind.operators + [row.op], id: \.self) { op in
-                            Text(kind.label(op)).tag(op)
-                        }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
+                    PopUp(items: (kind.operators.contains(row.op) ? kind.operators : kind.operators + [row.op]).map { .init(kind.label($0), $0) },
+                          selection: $row.op)
+                } else {
+                    Color.clear.frame(height: 1)
                 }
             }
-            .frame(width: 150, alignment: .leading)
-            value(kind)
-            Spacer(minLength: 0)
-            Button(action: remove) { Image(systemName: "minus") }
-                .help("Remove this condition")
-            Button(action: add) { Image(systemName: "plus") }
-                .help("Add a condition")
+            .frame(width: Self.operatorWidth)
+            // The value takes what's left, so the ✕ keeps its place on every row.
+            HStack(spacing: 6) { value(kind) }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button(action: remove) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.body)
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.borderless)
+            .frame(width: Self.removeWidth)
+            .help("Remove this condition")
         }
-        .controlSize(.regular)
+        .textFieldStyle(.roundedBorder)
+    }
+
+    /// What a row is dragged by: an open hand under the pointer, and the row itself, lifted, as
+    /// it moves.
+    private var handle: some View {
+        Image(systemName: "line.3.horizontal")
+            .foregroundStyle(.tertiary)
+            .frame(width: Self.handleWidth, height: 28)
+            .contentShape(Rectangle())
+            .onHover { inside in if inside { NSCursor.openHand.push() } else { NSCursor.pop() } }
+            .onDrag {
+                startDrag()
+                return NSItemProvider(object: row.id.uuidString as NSString)
+            } preview: {
+                Label(row.subject.name, systemImage: store.listValueKind(of: row.subject).symbol)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .frame(width: 260, alignment: .leading)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .shadow(radius: 6, y: 2)
+            }
+            .help("Drag to reorder")
     }
 
     /// What it's about: the note's own facts, then the vault's properties, A to Z.
     private var subjectPicker: some View {
-        Picker("", selection: Binding(get: { row.subject }, set: { subject in
+        let facts: [ListFilterSubject] = [.folder, .tag, .field(.title), .field(.created), .field(.modified), .linksTo, .hasWords]
+        var items = facts.map { PopUp.Item($0.name, $0, symbol: store.listValueKind(of: $0).symbol) }
+        items.append(.separator)
+        items += properties.map { PopUp.Item($0.name, $0, symbol: store.listValueKind(of: $0).symbol) }
+        // One written by hand that the vault doesn't use (yet).
+        if case .property = row.subject, !properties.contains(row.subject) {
+            items.append(PopUp.Item(row.subject.name, row.subject, symbol: "questionmark"))
+        }
+        return PopUp(items: items, selection: Binding(get: { row.subject }, set: { subject in
             guard subject != row.subject else { return }
             row = ListFilterRow(subject: subject, kind: store.listValueKind(of: subject))
-        })) {
-            ForEach([ListFilterSubject.folder, .tag, .field(.title), .field(.created), .field(.modified), .linksTo, .hasWords], id: \.self) { subject in
-                Label(subject.name, systemImage: store.listValueKind(of: subject).symbol).tag(subject)
-            }
-            Divider()
-            ForEach(properties, id: \.self) { subject in
-                Label(subject.name, systemImage: store.listValueKind(of: subject).symbol).tag(subject)
-            }
-            // One written by hand that the vault doesn't use (yet).
-            if case .property = row.subject, !properties.contains(row.subject) {
-                Label(row.subject.name, systemImage: "questionmark").tag(row.subject)
-            }
-        }
-        .labelsHidden()
+        }))
     }
 
     private var properties: [ListFilterSubject] {
@@ -448,49 +505,35 @@ private struct FilterRowView: View {
             Text("and")
             datePicker($row.endDate)
         case (.date, .thisPeriod):
-            Picker("", selection: $row.period) {
-                ForEach(ListCondition.Period.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-            }
-            .labelsHidden()
-            .fixedSize()
+            PopUp(items: ListCondition.Period.allCases.map { .init($0.rawValue, $0) }, selection: $row.period)
+                .frame(width: Self.valueWidth)
         case (.date, .inLastDays), (.date, .inNextDays):
             TextField("", value: $row.count, format: .number)
                 .multilineTextAlignment(.trailing)
                 .frame(width: 50)
-            Picker("", selection: $row.unit) {
-                ForEach(ListCondition.Unit.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-            }
-            .labelsHidden()
-            .fixedSize()
+            PopUp(items: ListCondition.Unit.allCases.map { .init($0.rawValue, $0) }, selection: $row.unit)
+                .frame(width: Self.valueWidth - 50 - 6)
         case (.date, _):
             datePicker($row.date)
         case (.folder, _):
-            Picker("", selection: $row.text) {
-                if row.text.isEmpty { Text("Choose a folder").tag("") }
-                ForEach(folders, id: \.self) { Text($0).tag($0) }
-            }
-            .labelsHidden()
-            .fixedSize()
+            PopUp(items: (row.text.isEmpty ? [.init("Choose a folder", "")] : []) + folders.map { .init($0, $0, symbol: "folder") },
+                  selection: $row.text)
+                .frame(width: Self.valueWidth)
         case (.choice(let choices), _):
-            Picker("", selection: $row.text) {
-                if row.text.isEmpty { Text("Choose").tag("") }
-                ForEach(choices.contains(row.text) || row.text.isEmpty ? choices : choices + [row.text], id: \.self) { Text($0).tag($0) }
-            }
-            .labelsHidden()
-            .fixedSize()
+            PopUp(items: (row.text.isEmpty ? [.init("Choose", "")] : [])
+                    + (choices.contains(row.text) || row.text.isEmpty ? choices : choices + [row.text]).map { .init($0, $0) },
+                  selection: $row.text)
+                .frame(width: Self.valueWidth)
         case (.rating(let stars), _):
-            Picker("", selection: $row.text) {
-                if row.text.isEmpty { Text("Choose").tag("") }
-                ForEach(1...stars, id: \.self) { count in Text(String(repeating: "★", count: count)).tag(String(count)) }
-            }
-            .labelsHidden()
-            .fixedSize()
+            PopUp(items: (row.text.isEmpty ? [.init("Choose", "")] : []) + (1...stars).map { .init(String(repeating: "★", count: $0), String($0)) },
+                  selection: $row.text)
+                .frame(width: Self.valueWidth)
         case (.number, _):
             TextField("Number", text: $row.text)
-                .frame(width: 90)
+                .frame(width: Self.valueWidth)
         default:
             ComboBox(text: $row.text, items: suggestions, placeholder: placeholder)
-                .frame(minWidth: 160, maxWidth: 260)
+                .frame(width: Self.valueWidth)
         }
     }
 
@@ -599,6 +642,126 @@ private struct ComboBox: NSViewRepresentable {
             guard let box = notification.object as? NSComboBox, box.indexOfSelectedItem >= 0 else { return }
             let shown = shown
             if shown.indices.contains(box.indexOfSelectedItem) { parent.text = shown[box.indexOfSelectedItem] }
+        }
+    }
+}
+
+/// Moves the dragged row to where the pointer is, as it passes each row, so the others slide
+/// aside and the gap shows where it will land.
+private struct RowDrop: DropDelegate {
+    let target: ListFilterRow.ID
+    @Binding var rows: [ListFilterRow]
+    @Binding var dragging: ListFilterRow.ID?
+
+    func dropEntered(info: DropInfo) {
+        guard let dragging, dragging != target,
+              let from = rows.firstIndex(where: { $0.id == dragging }),
+              let to = rows.firstIndex(where: { $0.id == target }) else { return }
+        withAnimation(.snappy(duration: 0.2)) {
+            rows.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        dragging = nil
+        return true
+    }
+}
+
+/// A rounded group, as System Settings draws one.
+private struct SettingsGroup: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.035)))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.07)))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+/// A Mac pop-up menu button: always drawn with its outline, as wide as it's given (or as its
+/// longest choice, where it's given no width), its choices with symbols and separators.
+struct PopUp<Value: Hashable>: NSViewRepresentable {
+    struct Item {
+        let title: String
+        let value: Value?
+        let symbol: String?
+
+        init(_ title: String, _ value: Value, symbol: String? = nil) {
+            self.title = title
+            self.value = value
+            self.symbol = symbol
+        }
+
+        private init() { title = ""; value = nil; symbol = nil }
+        static var separator: Item { Item() }
+    }
+
+    let items: [Item]
+    @Binding var selection: Value
+
+    func makeNSView(context: Context) -> NSPopUpButton {
+        let button = NSPopUpButton(frame: .zero, pullsDown: false)
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.chose(_:))
+        button.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return button
+    }
+
+    func updateNSView(_ button: NSPopUpButton, context: Context) {
+        context.coordinator.parent = self
+        let signature = items.map { "\($0.title)|\($0.symbol ?? "")|\($0.value == nil)" }
+        if signature != context.coordinator.signature {
+            context.coordinator.signature = signature
+            let menu = NSMenu()
+            for item in items {
+                guard item.value != nil else { menu.addItem(.separator()); continue }
+                let menuItem = NSMenuItem(title: item.title, action: nil, keyEquivalent: "")
+                if let symbol = item.symbol { menuItem.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
+                menu.addItem(menuItem)
+            }
+            button.menu = menu
+        }
+        if let index = items.firstIndex(where: { $0.value == selection }), button.indexOfSelectedItem != index {
+            button.selectItem(at: index)
+        }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView button: NSPopUpButton, context: Context) -> CGSize? {
+        let fitting = button.intrinsicContentSize
+        return CGSize(width: proposal.width ?? fitting.width, height: fitting.height)
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    @MainActor final class Coordinator: NSObject {
+        var parent: PopUp
+        var signature: [String] = []
+
+        init(parent: PopUp) { self.parent = parent }
+
+        @objc func chose(_ button: NSPopUpButton) {
+            let index = button.indexOfSelectedItem
+            guard parent.items.indices.contains(index), let value = parent.items[index].value else { return }
+            parent.selection = value
+        }
+    }
+}
+
+/// Leaves its window with nothing focused when it opens, so no control shows a focus ring until
+/// Tab is pressed.
+private struct NoInitialFocus: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { Clearing() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    final class Clearing: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            window.initialFirstResponder = nil
+            DispatchQueue.main.async { [weak window] in window?.makeFirstResponder(nil) }
         }
     }
 }

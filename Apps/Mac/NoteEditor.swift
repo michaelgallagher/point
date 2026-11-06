@@ -471,7 +471,10 @@ private struct EditorView: NSViewRepresentable {
         }
         textView.makeBlockEmbedView = { [weak model, weak session, paneID] target in
             guard let model, let session, let id = model.store.embeddedListID(target, from: session.note.id) else { return NSView() }
-            return NSHostingView(rootView: ListEmbed(listID: id, model: model, store: model.store, paneID: paneID).environmentObject(model))
+            let view = NSHostingView(rootView: ListEmbed(listID: id, model: model, store: model.store, paneID: paneID).environmentObject(model))
+            // The room the text made for it, not the size SwiftUI would make it.
+            view.sizingOptions = []
+            return view
         }
         textView.saveImage = { [weak model, weak session] data, type in
             guard let model, let session else { return nil }

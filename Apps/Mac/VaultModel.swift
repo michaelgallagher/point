@@ -901,7 +901,7 @@ final class VaultModel: ObservableObject {
         case .tag(let tag): property = "list-tags: [\(Frontmatter.quoted(tag))]"
         default: property = "list-where:"
         }
-        createNote(text: "---\n\(property)\nlist-show: [date edited]\n---\n")
+        createNote(text: "---\n\(property)\n---\n")
     }
 
     /// Opens today's daily note, creating it if needed.

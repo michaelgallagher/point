@@ -22,7 +22,7 @@ struct ListPanel: View {
         VStack(alignment: .leading, spacing: 10) {
             ListFilters(list: list, model: model, store: store, write: write)
             if let ids {
-                ListResults(list: list, ids: ids, limit: shownCount, moreLabel: "Show \(min(ids.count - shownCount, 200)) more",
+                ListResults(list: list, listID: session.note.id, ids: ids, limit: shownCount, moreLabel: "Show \(min(ids.count - shownCount, 200)) more",
                             more: { shownCount += 200 }, model: model, store: store, paneID: paneID, write: write)
             } else {
                 Text("Finding notes…")
@@ -86,6 +86,7 @@ private struct ListFilters: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
+                    .pointingHand()
                     .help(list.matchesAny ? "Notes meeting any of these: click for all" : "Notes meeting all of these: click for any")
                 }
                 ChipLabel(text: shown(condition), systemImage: store.listValueKind(of: subject(of: condition)).symbol,
@@ -98,6 +99,7 @@ private struct ListFilters: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+            .pointingHand()
             Rectangle().fill(Color(nsColor: .separatorColor)).frame(width: 1, height: 16)
             sortMenu
             columnsMenu
@@ -107,8 +109,8 @@ private struct ListFilters: View {
             sheet = (notification.userInfo?["target"] as? String) == "new" ? .add : .edit
         }
         #endif
-        .sheet(item: $sheet) { target in
-            ListFiltersSheet(store: store, list: list, addsRow: target == .add) { changed in
+        .sheet(item: $sheet) { _ in
+            ListFiltersSheet(store: store, list: list) { changed in
                 sheet = nil
                 if let changed { write(changed) }
             }
@@ -182,19 +184,33 @@ private struct ListFilters: View {
         ["title", "date edited", "date created"] + store.propertySummaries.prefix(40).map(\.name)
     }
 
+    /// The vault's properties, A to Z, less the list's own and any named like a note fact.
+    private var columnProperties: [String] {
+        var seen = Set(["title", "folder", "date edited", "date created"])
+        return store.propertySummaries.map(\.name)
+            .filter { !ListDefinition.isListKey($0) && seen.insert($0.lowercased()).inserted }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    private func columnToggle(_ name: String) -> some View {
+        Toggle(ListTable.heading(name), isOn: Binding(
+            get: { list.columns.contains { $0.lowercased() == name.lowercased() } },
+            set: { isOn in
+                var changed = list
+                changed.columns.removeAll { $0.lowercased() == name.lowercased() }
+                if isOn { changed.columns.append(name) }
+                write(changed)
+            }))
+    }
+
     /// Which columns show after the title.
     private var columnsMenu: some View {
         Menu {
-            ForEach(["folder", "date edited", "date created"] + store.propertySummaries.prefix(40).map(\.name), id: \.self) { name in
-                let shown = list.columns.contains { $0.lowercased() == name.lowercased() }
-                Button {
-                    var changed = list
-                    if shown { changed.columns.removeAll { $0.lowercased() == name.lowercased() } } else { changed.columns.append(name) }
-                    write(changed)
-                } label: {
-                    if shown { Label(name, systemImage: "checkmark") } else { Text(name) }
-                }
-            }
+            // Note facts, then properties A to Z; a tick by each shown. One kind of item
+            // throughout, so each click reaches its own column.
+            ForEach(["folder", "date edited", "date created"], id: \.self) { name in columnToggle(name) }
+            Divider()
+            ForEach(columnProperties, id: \.self) { name in columnToggle(name) }
         } label: {
             Label("Columns", systemImage: "tablecells")
                 .foregroundStyle(.secondary)
@@ -236,8 +252,12 @@ private struct ChipLabel: View {
         .onTapGesture { open?() }
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
-        .background(Capsule().fill(Color.primary.opacity(0.07)))
+        // Darker, with a pointing hand, under the pointer: a click opens it.
+        .background(Capsule().fill(Color.primary.opacity(isHovered && open != nil ? 0.16 : 0.07)))
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(isHovered && open != nil ? 0.18 : 0), lineWidth: 1))
         .contentShape(Capsule())
+        .pointingHand()
+        .animation(.easeOut(duration: 0.1), value: isHovered)
     }
 }
 
@@ -254,7 +274,7 @@ struct ListEmbed: View {
 
     var body: some View {
         if let list = store.listDefinition(of: listID), let ids = store.noteIDs(matching: list.query) {
-            ListResults(list: list, ids: ids, limit: Self.rows, moreLabel: "Show all \(ids.count)",
+            ListResults(list: list, listID: listID, ids: ids, limit: Self.rows, moreLabel: "Show all \(ids.count)",
                         more: { model.open(listID, inPane: paneID, as: .here) },
                         model: model, store: store, paneID: paneID, write: nil)
                 .font(.callout)
@@ -264,7 +284,7 @@ struct ListEmbed: View {
 
     /// How tall it is for a list finding `count` notes.
     static func height(count: Int, hasColumns: Bool) -> CGFloat {
-        ListResults.height(showing: min(count, rows), of: count, hasColumns: hasColumns) + 4
+        ListResults.height(showing: min(count, rows), of: count) + 4
     }
 }
 
@@ -274,6 +294,8 @@ struct ListEmbed: View {
 /// A row opens its note (⌘-click in a new tab, ⌥-click on the other side).
 struct ListResults: View {
     let list: ListDefinition
+    /// The list's note, by which its columns' widths are remembered.
+    let listID: Note.ID
     let ids: [Note.ID]
     /// How many rows show, and what shows the rest.
     let limit: Int
@@ -282,11 +304,12 @@ struct ListResults: View {
     @ObservedObject var model: VaultModel
     @ObservedObject var store: VaultStore
     let paneID: VaultModel.NotePane.ID
-    /// Changes the list (sorting by a column clicked); nil where it's shown in another note.
+    /// Changes the list (sorting by a column, moving one); nil where it's shown in another
+    /// note, which shows it as it is, its rows one line each.
     let write: ((ListDefinition) -> Void)?
     /// The shown rows' property values, from the index, as of these rows and columns.
     @State private var values: [Note.ID: [String: [String]]] = [:]
-    @State private var hovered: Note.ID?
+    @State private var tableHeight: CGFloat = ListTable.headerHeight
 
     var body: some View {
         let shown = Array(ids.prefix(limit)).compactMap { store.notesByID[$0] }
@@ -295,49 +318,31 @@ struct ListResults: View {
                 .foregroundStyle(.secondary)
                 .frame(height: Self.countHeight, alignment: .topLeading)
             if !shown.isEmpty {
-                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 16, verticalSpacing: 0) {
-                    if !list.columns.isEmpty {
-                        GridRow {
-                            header("Title", key: .field(.title))
-                            ForEach(list.columns, id: \.self) { column in
-                                header(column, key: ListDefinition.field(named: column).map { .field($0) } ?? .property(column))
-                            }
-                        }
-                        .frame(height: Self.rowHeight)
-                        Divider().gridCellUnsizedAxes(.horizontal)
-                    }
-                    ForEach(shown) { note in
-                        GridRow {
-                            Text(note.title)
-                                .lineLimit(1)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            ForEach(list.columns, id: \.self) { column in
-                                Text(value(of: column, for: note))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                    .frame(maxWidth: 180, alignment: .leading)
-                            }
-                        }
-                        .frame(height: Self.rowHeight)
-                        .background(alignment: .leading) {
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(Color.primary.opacity(hovered == note.id ? 0.06 : 0))
-                                .padding(.horizontal, -5)
-                        }
-                        .contentShape(Rectangle())
-                        .onHover { inside in
-                            if inside { hovered = note.id } else if hovered == note.id { hovered = nil }
-                        }
-                        .onTapGesture { open(note.id) }
-                        .help("Open “\(note.title)”")
-                    }
-                }
+                ListTable(columns: list.columns,
+                          rows: shown.map { note in ListTable.Row(id: note.id, title: note.title, cells: list.columns.map { value(of: $0, for: note) }) },
+                          sort: list.sort.first ?? NoteQuery.Sort(.modified, descending: true),
+                          wraps: write != nil, listID: listID, height: $tableHeight,
+                          open: { id, destination in model.open(id, inPane: paneID, as: destination) },
+                          sortBy: write.map { write in { column, descending in
+                              var changed = list
+                              let key: NoteQuery.Sort.Key = column == ListTable.titleID ? .field(.title)
+                                  : ListDefinition.field(named: column).map { .field($0) } ?? .property(column)
+                              changed.sort = [NoteQuery.Sort(key, descending: descending)]
+                              write(changed)
+                          } },
+                          reorder: write.map { write in { columns in
+                              var changed = list
+                              changed.columns = columns
+                              write(changed)
+                          } })
+                    // Set by what it finds; one line a row where it's embedded, whose room is
+                    // made before it's laid out.
+                    .frame(height: write != nil ? tableHeight : Self.tableHeight(rows: shown.count))
             }
             if ids.count > shown.count {
                 Button(moreLabel, action: more)
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .frame(height: Self.rowHeight)
+                    .buttonStyle(.link)
+                    .frame(height: Self.moreHeight)
             }
         }
         .task(id: ValuesKey(columns: list.columns, ids: Array(ids.prefix(limit)), generation: store.indexGeneration)) {
@@ -346,39 +351,21 @@ struct ListResults: View {
         }
     }
 
-    static let rowHeight: CGFloat = 24, countHeight: CGFloat = 22
+    static let countHeight: CGFloat = 22, moreHeight: CGFloat = 26
 
-    /// How tall it is, showing `count` notes of `total`.
-    static func height(showing count: Int, of total: Int, hasColumns: Bool) -> CGFloat {
-        countHeight + (count > 0 && hasColumns ? rowHeight + 1 : 0) + CGFloat(count) * rowHeight + (total > count ? rowHeight : 0)
+    static func tableHeight(rows: Int) -> CGFloat {
+        ListTable.headerHeight + CGFloat(rows) * (ListTable.rowHeight + ListTable.rowGap)
+    }
+
+    /// How tall it is embedded, showing `count` notes of `total`, a line each.
+    static func height(showing count: Int, of total: Int) -> CGFloat {
+        countHeight + (count > 0 ? tableHeight(rows: count) : 0) + (total > count ? moreHeight : 0)
     }
 
     private struct ValuesKey: Equatable {
         let columns: [String]
         let ids: [Note.ID]
         let generation: Int
-    }
-
-    /// A column's heading: click to sort by it, again to reverse.
-    private func header(_ name: String, key: NoteQuery.Sort.Key) -> some View {
-        let current = list.sort.first
-        let isSorted = current?.key == key || (current == nil && key == .field(.modified))
-        let descending = current?.descending ?? true
-        return Button {
-            var changed = list
-            changed.sort = [NoteQuery.Sort(key, descending: isSorted ? !descending : false)]
-            write?(changed)
-        } label: {
-            HStack(spacing: 3) {
-                Text(name.prefix(1).uppercased() + name.dropFirst())
-                if isSorted { Image(systemName: descending ? "chevron.down" : "chevron.up").font(.caption2) }
-            }
-            .font(.callout.weight(.medium))
-            .foregroundStyle(.secondary)
-        }
-        .buttonStyle(.plain)
-        .allowsHitTesting(write != nil)
-        .help(write == nil ? "" : "Sort by \(name)")
     }
 
     private func value(of column: String, for note: Note) -> String {
@@ -389,6 +376,10 @@ struct ListResults: View {
         case .modified: return note.modified.formatted(date: .abbreviated, time: .omitted)
         case nil:
             let written = values[note.id]?[column.lowercased()] ?? []
+            // Dates as the Mac writes them (6 Nov 2026).
+            if store.listValueKind(ofProperty: column) == .date {
+                return written.map(ListFilters.shownDate).joined(separator: ", ")
+            }
             return written.map { value in
                 // A link shows as its name.
                 guard value.hasPrefix("[["), value.hasSuffix("]]") else { return value }
@@ -397,10 +388,6 @@ struct ListResults: View {
         }
     }
 
-    private func open(_ id: Note.ID) {
-        let flags = NSEvent.modifierFlags
-        model.open(id, inPane: paneID, as: flags.contains(.command) ? .newTab : flags.contains(.option) ? .otherSide : .here)
-    }
 }
 
 /// Lays its views out in rows, wrapping as they fill the width.

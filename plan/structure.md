@@ -192,7 +192,7 @@ The iPhone app (M4) and the real-vault trial still come first. Dropping side-by-
 - **Also fixed:** notes didn't restyle when web images arrived while they were open (SwiftUI didn't update the editor). Editors now restyle on a notice.
 - **Not yet:** lists on the iPhone (the properties show as written); grouping; a list's results in the sidebar.
 - **The filters window (6 November 2026, branch `list-filters`):**
-  - Add filter, or a click on a filter, opens a window that edits all of a list's filters the way macOS edits rules (a Finder smart folder, a Mail rule). It reads "Show notes that match all (or any) of these conditions". Each condition is a row: what it's about (the note's folder, tag, title, dates, links and words, then the vault's properties A to Z, each with its type's symbol), how it compares, and its value, with − and + buttons.
+  - Add filter, or a click on a filter, opens a window that edits all of a list's filters the way macOS edits rules (a Finder smart folder, a Mail rule). It reads "Show notes that match all (or any) of these conditions". Each condition is a row: what it's about (the note's folder, tag, title, dates, links and words, then the vault's properties A to Z, each with its type's symbol), how it compares, and its value. It is laid out in rounded groups, as System Settings is, but with standard Mac pop-up menus, always outlined: what it's about and how it compares are set widths, so they line up down the rows, and each value is one width too. An ✕ removes a row; a row is dragged by its handle, the others sliding aside as it passes; and "Add condition" below adds one.
   - The comparisons and the value's control suit the property's type, from Point's kinds, the vault's types, or how its values read. A date can be on, before or after a day, between two days, this week, month or year, or in the last or next so many days, weeks, months or years. A choice gets its menu, a rating stars, a checkbox ticked or not. Text, lists, tags and links get a combo box that completes from what the vault uses.
   - New in the list's format:
     - `read between 2024-03-01 and 2025-06-30`
@@ -202,3 +202,9 @@ The iPhone app (M4) and the real-vault trial still come first. Dropping side-by-
     - `tag is not draft`
   - "Has a value" and "has no value" mean what they say: a blank `read:` is no value.
   - With "any", a note in one of the folders, or with one of the tags, is listed too, as with any other condition.
+- **The table (6 November 2026, branch `list-filters`):**
+  - A list's notes are shown in a Mac table (`NSTableView`) with headings in sentence case. Click a heading to sort by it, and again to reverse. Drag a heading to reorder the columns: the title stays first, and the order is written to `list-show`. Drag a heading's edge to resize; widths are remembered for each list, on this Mac.
+  - Long text wraps onto more lines in a list note; in an embed, rows stay one line, so the room made for it is right.
+  - Titles turn link blue under the pointer, and the pointer is a pointing hand over rows, filters and buttons. The editor's I-beam no longer overrides the pointers of views in the note.
+  - Date properties show as the Mac writes dates (1 Jan 2024).
+  - A column's heading could show another column's name: the grid's heading row didn't always line up with its rows.
