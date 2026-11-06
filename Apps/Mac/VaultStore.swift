@@ -209,6 +209,9 @@ final class VaultStore: ObservableObject {
         propertyTypes = PropertyTypes.load(vault: url)
         indexedTags = [:]
         propertyValues = [:]
+        propertySummaries = []
+        queryResults = [:]
+        valueListCache = [:]
         tagTree = TagTree(tagsByNote: [])
         pins = (UserDefaults.standard.stringArray(forKey: "pins." + Self.vaultKey(url)) ?? []).compactMap(SidebarPlace.init(key:))
         bookmarks = UserDefaults.standard.stringArray(forKey: "bookmarks." + Self.vaultKey(url)) ?? []
@@ -990,6 +993,9 @@ final class VaultStore: ObservableObject {
             if changed > 0 || propertyValues.isEmpty, let values = try? await index.propertyValues(), generation == vaultGeneration {
                 propertyValues = values
             }
+            if changed > 0 || propertySummaries.isEmpty, let summaries = try? await index.propertySummaries(), generation == vaultGeneration {
+                propertySummaries = summaries
+            }
             if changed > 0 || tagTree.entries.isEmpty {
                 guard let tags = try? await index.tagsByNote(), generation == vaultGeneration else { return }
                 indexedTags = tags
@@ -1010,12 +1016,17 @@ final class VaultStore: ObservableObject {
     /// in a folder, or those with a tag (or a tag under it).
     func notes(in place: SidebarPlace) -> [Note] {
         switch place {
-        case .allNotes: notes.filter { !$0.id.contains("/") }
-        case .everything: notes
-        case .bookmarks: bookmarkedNotes
-        case .trash: []
-        case .folder(let path): notes.filter { FolderTree.folder(of: $0.id) == path }
-        case .tag(let tag): notes.filter { TagTree.tags(indexedTags[$0.id] ?? [], include: tag) }
+        case .allNotes: return notes.filter { !$0.id.contains("/") }
+        case .everything: return notes
+        case .bookmarks: return bookmarkedNotes
+        case .trash, .properties: return []
+        case .folder(let path): return notes.filter { FolderTree.folder(of: $0.id) == path }
+        case .tag(let tag): return notes.filter { TagTree.tags(indexedTags[$0.id] ?? [], include: tag) }
+        case .property, .propertyValue:
+            // From the index, in the list's own order.
+            guard let query = place.query, let ids = noteIDs(matching: query) else { return [] }
+            let found = Set(ids)
+            return notes.filter { found.contains($0.id) }
         }
     }
 
@@ -1023,9 +1034,11 @@ final class VaultStore: ObservableObject {
     func subplaces(of place: SidebarPlace) -> [SidebarPlace] {
         switch place {
         case .allNotes: sortedFolders(folderTree.subfolders(of: "")).map(SidebarPlace.folder)
-        case .everything, .bookmarks, .trash: []
+        case .everything, .bookmarks, .trash, .propertyValue: []
         case .folder(let path): sortedFolders(folderTree.subfolders(of: path)).map(SidebarPlace.folder)
         case .tag(let tag): sortedTags(tagTree.children(of: tag)).map { .tag($0.tag) }
+        case .properties: propertySummaries.map { .property($0.name) }
+        case .property(let name): propertyValueList(name).map { .propertyValue(name, $0.value) }
         }
     }
 
@@ -1084,7 +1097,69 @@ final class VaultStore: ObservableObject {
         case .bookmarks: bookmarkedNotes.count
         case .folder(let path): folderTree.noteCounts[path] ?? 0
         case .tag(let tag): tagTree.entries.first { $0.id == tag.lowercased() }?.count ?? 0
+        case .properties: propertySummaries.count
+        case .property(let name): propertySummaries.first { $0.id == name.lowercased() }?.noteCount ?? 0
+        case .propertyValue(let name, let value):
+            propertyValueList(name).first { $0.value.lowercased() == value.lowercased() }?.count ?? 0
         }
+    }
+
+    // MARK: Properties across the vault
+
+    /// Every property in the vault, most used first, from the index: for the properties view.
+    @Published private(set) var propertySummaries: [SearchIndex.PropertySummary] = [] { didSet { listVersion += 1 } }
+
+    /// A property's values, each once whatever its case (spelled as most notes spell it), with
+    /// how many notes give it, most used first. Short values only, as for suggestions.
+    func propertyValueList(_ name: String) -> [(value: String, count: Int)] {
+        let key = name.lowercased()
+        if let cached = valueListCache[key], cached.generation == indexGeneration { return cached.values }
+        var merged: [String: (value: String, count: Int, best: Int)] = [:]
+        var order: [String] = []
+        for entry in propertyValues[key] ?? [] {
+            let lowered = entry.value.lowercased()
+            if var existing = merged[lowered] {
+                if entry.count > existing.best { (existing.value, existing.best) = (entry.value, entry.count) }
+                existing.count += entry.count
+                merged[lowered] = existing
+            } else {
+                merged[lowered] = (entry.value, entry.count, entry.count)
+                order.append(lowered)
+            }
+        }
+        let values = order.compactMap { merged[$0] }.map { (value: $0.value, count: $0.count) }
+            .sorted { $0.count != $1.count ? $0.count > $1.count : $0.value.localizedStandardCompare($1.value) == .orderedAscending }
+        valueListCache[key] = (indexGeneration, values)
+        return values
+    }
+    private var valueListCache: [String: (generation: Int, values: [(value: String, count: Int)])] = [:]
+
+    // MARK: Queries
+
+    /// What each query asked of the index last found, and as of which change to it.
+    private var queryResults: [NoteQuery: (generation: Int, ids: [Note.ID])] = [:]
+    private var runningQueries: Set<NoteQuery> = []
+
+    /// The notes a query finds, in its order, from the index: what it last found at once (nil
+    /// the first time), and asked again in the background if the index has changed since, the
+    /// list updating when the answer comes. Never waits on the index on the main thread.
+    func noteIDs(matching query: NoteQuery) -> [Note.ID]? {
+        let cached = queryResults[query]
+        if cached?.generation != indexGeneration, let index, runningQueries.insert(query).inserted {
+            let generation = indexGeneration, vault = vaultGeneration
+            Task {
+                let ids = try? await index.notes(matching: query)
+                runningQueries.remove(query)
+                guard vault == vaultGeneration, let ids else { return }
+                let changed = queryResults[query]?.ids != ids
+                queryResults[query] = (generation, ids)
+                if changed {
+                    listVersion += 1
+                    objectWillChange.send()
+                }
+            }
+        }
+        return cached?.ids
     }
 
     func isPinned(_ place: SidebarPlace) -> Bool { pins.contains(place) }
@@ -1117,7 +1192,7 @@ final class VaultStore: ObservableObject {
     /// Tags in the vault starting with (or containing) what's typed, for completing a tag.
     /// The values each property is given across the vault (by its name, lowercased), most
     /// used first, from the index.
-    private(set) var propertyValues: [String: [(value: String, count: Int)]] = [:]
+    private(set) var propertyValues: [String: [(value: String, count: Int)]] = [:] { didSet { listVersion += 1 } }
 
     /// Values given to the property `key` in other notes that fit what's typed, most used
     /// first: a field suggests what's been put in it before ("[[Ann]]" in people, "Design"
@@ -1218,5 +1293,32 @@ final class VaultStore: ObservableObject {
     /// events to monitors added while the app is still starting up.
     func startSwipeTracking() {
         _ = swipe
+    }
+}
+
+extension SidebarPlace {
+    /// What the index is asked for the notes in a place made from properties.
+    var query: NoteQuery? {
+        switch self {
+        case .property(let name): NoteQuery([.property(name, .exists)])
+        case .propertyValue(let name, let value): NoteQuery([.property(name, .equals(value))])
+        default: nil
+        }
+    }
+
+    /// Whether it unfolds in the sidebar to show what's inside it (folders and tags do).
+    var unfolds: Bool {
+        switch self {
+        case .folder, .tag: true
+        default: false
+        }
+    }
+
+    /// Made from properties: shown in their own section, in secondary colour like tags.
+    var isProperty: Bool {
+        switch self {
+        case .properties, .property, .propertyValue: true
+        default: false
+        }
     }
 }

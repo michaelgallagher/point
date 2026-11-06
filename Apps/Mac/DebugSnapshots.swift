@@ -117,6 +117,20 @@ enum DebugSnapshots {
         if let key = UserDefaults.standard.string(forKey: "PointBrowse"), let place = SidebarPlace(key: key) {
             // `-PointBrowse <place key>`: shows that place in the sidebar.
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { model.browse(place) }
+            // With `-PointTrace`, the rows the sidebar shows there, as text (pictures the app
+            // draws of itself leave out the sidebar's table), once the index has answered.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+                for row in model.sidebarRows(collapsed: []) {
+                    switch row {
+                    case .header(let section): Trace.mark("row: [\(section.rawValue)]")
+                    case .place(let place, let depth):
+                        Trace.mark("row: \(String(repeating: "  ", count: depth))\(model.symbol(for: place)) \(place.title) \(model.noteCount(of: place))")
+                    case .note(let id): Trace.mark("row: note \(id)")
+                    case .divider: Trace.mark("row: ---")
+                    default: Trace.mark("row: \(row)")
+                    }
+                }
+            }
         }
         trashIfAsked(for: model)
         formatIfAsked(for: model)

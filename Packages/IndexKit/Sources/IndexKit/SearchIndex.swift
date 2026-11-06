@@ -50,7 +50,7 @@ public struct Mention: Sendable, Identifiable, Equatable {
 /// The vault's search index: full-text search that forgives typos and partial words,
 /// plus tags and links, kept in a SQLite file outside the vault.
 public actor SearchIndex {
-    static let schemaVersion = "7" // 7: property values, for suggesting in each field.
+    static let schemaVersion = "8" // 8: typed property values, kinds of link, folders and dates, for queries.
 
     private let db: Database
     /// Notes the last update couldn't read: kept as they were last indexed (or by title only,
@@ -78,7 +78,8 @@ public actor SearchIndex {
                 """)
         }
         try db.execute("""
-            CREATE TABLE IF NOT EXISTS notes(row INTEGER PRIMARY KEY, id TEXT UNIQUE NOT NULL, title TEXT NOT NULL, modified REAL NOT NULL, body TEXT NOT NULL, properties TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS notes(row INTEGER PRIMARY KEY, id TEXT UNIQUE NOT NULL, title TEXT NOT NULL, modified REAL NOT NULL, body TEXT NOT NULL, properties TEXT NOT NULL, folder TEXT NOT NULL, created REAL NOT NULL, edited REAL NOT NULL);
+            CREATE INDEX IF NOT EXISTS notes_folder ON notes(folder);
             CREATE VIRTUAL TABLE IF NOT EXISTS words USING fts5(title, body, properties, content = 'notes', content_rowid = 'row', tokenize = 'porter unicode61 remove_diacritics 2');
             CREATE VIRTUAL TABLE IF NOT EXISTS grams USING fts5(title, body, properties, content = 'notes', content_rowid = 'row', tokenize = 'trigram');
             CREATE VIRTUAL TABLE IF NOT EXISTS vocab USING fts5vocab(words, 'row');
@@ -86,10 +87,19 @@ public actor SearchIndex {
             CREATE VIRTUAL TABLE IF NOT EXISTS spellings USING fts5vocab(spelled, 'row');
             CREATE TABLE IF NOT EXISTS tags(note INTEGER NOT NULL, tag TEXT NOT NULL, lowered TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS tags_lowered ON tags(lowered);
-            CREATE TABLE IF NOT EXISTS links(note INTEGER NOT NULL, name TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS tags_note ON tags(note);
+            CREATE TABLE IF NOT EXISTS links(note INTEGER NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL, property TEXT);
             CREATE INDEX IF NOT EXISTS links_name ON links(name);
-            CREATE TABLE IF NOT EXISTS property_names(note INTEGER NOT NULL, name TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS property_values(note INTEGER NOT NULL, name TEXT NOT NULL, value TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS links_note ON links(note);
+            CREATE TABLE IF NOT EXISTS property_names(note INTEGER NOT NULL, name TEXT NOT NULL, lowered TEXT NOT NULL, list INTEGER NOT NULL);
+            CREATE INDEX IF NOT EXISTS property_names_lowered ON property_names(lowered);
+            CREATE INDEX IF NOT EXISTS property_names_note ON property_names(note);
+            CREATE TABLE IF NOT EXISTS property_values(note INTEGER NOT NULL, name TEXT NOT NULL, value TEXT NOT NULL, number REAL, date REAL, link TEXT);
+            CREATE INDEX IF NOT EXISTS property_values_name ON property_values(name, value COLLATE NOCASE);
+            CREATE INDEX IF NOT EXISTS property_values_note ON property_values(note, name);
+            CREATE INDEX IF NOT EXISTS property_values_date ON property_values(name, date) WHERE date IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS property_values_number ON property_values(name, number) WHERE number IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS property_values_link ON property_values(link) WHERE link IS NOT NULL;
             """)
         try db.query("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', ?)", [Self.schemaVersion])
         titles = try Self.loadTitles(db)
@@ -168,8 +178,9 @@ public actor SearchIndex {
         let body = text.map { PlainText.strippingMarkers(from: $0, includingFrontmatter: false) } ?? ""
         let frontmatter = text.flatMap(Frontmatter.parse)
         let properties = frontmatter?.body ?? ""
-        try db.query("INSERT INTO notes(id, title, modified, body, properties) VALUES (?, ?, ?, ?, ?)",
-                     [note.id, note.title, modified, body, properties])
+        let folder = (note.id as NSString).deletingLastPathComponent
+        try db.query("INSERT INTO notes(id, title, modified, body, properties, folder, created, edited) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                     [note.id, note.title, modified, body, properties, folder, note.created.timeIntervalSince1970, note.modified.timeIntervalSince1970])
         let row = db.lastInsertedRow
         for table in Self.textTables {
             try db.query("INSERT INTO \(table)(rowid, title, body, properties) VALUES (?, ?, ?, ?)", [row, note.title, body, properties])
@@ -178,21 +189,67 @@ public actor SearchIndex {
         for tag in NoteTags.tags(in: text) {
             try db.query("INSERT INTO tags(note, tag, lowered) VALUES (?, ?, ?)", [row, tag, tag.lowercased()])
         }
-        for name in Set(Self.linkedNames(in: text)) {
-            try db.query("INSERT INTO links(note, name) VALUES (?, ?)", [row, name])
+        var seenLinks = Set<String>()
+        for link in Self.links(in: text, frontmatter: frontmatter) where seenLinks.insert("\(link.name)\n\(link.kind.rawValue)\n\(link.property ?? "")").inserted {
+            try db.query("INSERT INTO links(note, name, kind, property) VALUES (?, ?, ?, ?)", [row, link.name, link.kind.rawValue, link.property])
         }
-        for name in Set(frontmatter?.properties.map(\.key) ?? []) {
-            try db.query("INSERT INTO property_names(note, name) VALUES (?, ?)", [row, name])
+        var names = Set<String>()
+        for property in frontmatter?.properties ?? [] where names.insert(property.key.lowercased()).inserted {
+            try db.query("INSERT INTO property_names(note, name, lowered, list) VALUES (?, ?, ?, ?)",
+                         [row, property.key, property.key.lowercased(), property.isList ? 1 : 0])
         }
-        // Short values only: a long one is prose, not something to pick again.
+        // Each value once per note and name, typed where it reads as a number or a date, and
+        // with the name it links to if it's a link, so queries compare them as they are.
         var values = Set<String>()
         for property in frontmatter?.properties ?? [] {
-            for value in property.values.map({ $0.trimmingCharacters(in: .whitespaces) }) where !value.isEmpty && value.count <= 80 {
-                guard values.insert(property.key.lowercased() + "\n" + value).inserted else { continue }
-                try db.query("INSERT INTO property_values(note, name, value) VALUES (?, ?, ?)", [row, property.key.lowercased(), value])
+            let name = property.key.lowercased()
+            for value in property.values.map({ $0.trimmingCharacters(in: .whitespaces) }) where !value.isEmpty {
+                guard values.insert(name + "\n" + value).inserted else { continue }
+                try db.query("INSERT INTO property_values(note, name, value, number, date, link) VALUES (?, ?, ?, ?, ?, ?)",
+                             [row, name, value, PropertyValueKinds.number(value), PropertyValueKinds.date(value), LinkName.onlyLink(in: value)])
             }
         }
     }
+
+    /// How a note links to another.
+    public enum LinkKind: String, Sendable, CaseIterable {
+        /// `[[Note]]` or `[text](Note.md)` in the text.
+        case text
+        /// `![[Note]]` or `![[image.png]]`.
+        case embed
+        /// A link in a property (`people: "[[Ann]]"`).
+        case property
+    }
+
+    /// Each link in a note, by the name it links to (lowercased, as `linkedNames`), with its kind
+    /// and, for one in a property, the property's name.
+    static func links(in text: String, frontmatter: Frontmatter?) -> [(name: String, kind: LinkKind, property: String?)] {
+        var links: [(name: String, kind: LinkKind, property: String?)] = []
+        for token in MarkdownParser.parse(text) {
+            switch token.kind {
+            case .wikiLink(let target): links.append((LinkName.normalised(target), .text, nil))
+            case .embed(let target): links.append((LinkName.normalised(target), .embed, nil))
+            case .image(let destination):
+                let decoded = destination.removingPercentEncoding ?? destination
+                if !decoded.contains("://") { links.append((LinkName.normalised(decoded), .embed, nil)) }
+            case .link(let destination):
+                let decoded = destination.removingPercentEncoding ?? destination
+                if !decoded.contains("://"), decoded.lowercased().contains(".md") { links.append((LinkName.normalised(decoded), .text, nil)) }
+            default: continue
+            }
+        }
+        if let frontmatter {
+            let ns = text as NSString
+            for property in frontmatter.properties {
+                for match in propertyLink.matches(in: text, range: property.range) {
+                    links.append((LinkName.normalised(ns.substring(with: match.range(at: 1))), .property, property.key.lowercased()))
+                }
+            }
+        }
+        return links
+    }
+
+    private static let propertyLink = try! NSRegularExpression(pattern: #"\[\[([^\[\]\n|]+)"#)
 
     /// The lowercased note names a text links to, for finding backlinks quickly.
     static func linkedNames(in text: String) -> [String] {
@@ -317,8 +374,13 @@ public actor SearchIndex {
     }
 
     /// A LIKE pattern for the tags nested under `tag` (`work/…` under `work`).
-    private static func likePattern(under tag: String) -> String {
-        tag.replacingOccurrences(of: "%", with: "\\%").replacingOccurrences(of: "_", with: "\\_") + "/%"
+    static func likePattern(under tag: String) -> String {
+        escapedLike(tag) + "/%"
+    }
+
+    /// Text for a LIKE pattern, with its own `%` and `_` (and the escape) taken literally.
+    static func escapedLike(_ text: String) -> String {
+        text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "%", with: "\\%").replacingOccurrences(of: "_", with: "\\_")
     }
 
     /// Every tag in the vault with how many notes use it, most used first.
@@ -337,10 +399,11 @@ public actor SearchIndex {
     }
 
     /// Every value given to each property (by its name, lowercased), with how many notes give
-    /// it, most used first: to suggest in that field again.
+    /// it, most used first: to suggest in that field again. Short values only: a long one is
+    /// prose, not something to pick again.
     public func propertyValues() throws -> [String: [(value: String, count: Int)]] {
         var result: [String: [(value: String, count: Int)]] = [:]
-        for row in try db.query("SELECT name, value, COUNT(DISTINCT note) FROM property_values GROUP BY name, value ORDER BY COUNT(DISTINCT note) DESC, value") {
+        for row in try db.query("SELECT name, value, COUNT(DISTINCT note) FROM property_values WHERE length(value) <= 80 GROUP BY name, value ORDER BY COUNT(DISTINCT note) DESC, value") {
             result[row[0] as! String, default: []].append((row[1] as! String, row[2] as! Int))
         }
         return result
@@ -361,6 +424,97 @@ public actor SearchIndex {
             }
         }
         return names.sorted { $0.count != $1.count ? $0.count > $1.count : $0.name < $1.name }
+    }
+
+    // MARK: Queries
+
+    /// The notes a query finds, in its order.
+    public func notes(matching query: NoteQuery, now: Date = Date()) throws -> [Note.ID] {
+        let (sql, bindings) = query.sql(now: now)
+        return try db.query(sql, bindings).map { $0[0] as! String }
+    }
+
+    /// How many notes a query finds.
+    public func count(matching query: NoteQuery, now: Date = Date()) throws -> Int {
+        var counting = query
+        counting.sort = []
+        counting.limit = nil
+        let (sql, bindings) = counting.sql(now: now)
+        return try db.query("SELECT COUNT(*) FROM (\(sql))", bindings).first?.first as? Int ?? 0
+    }
+
+    /// A property as the vault uses it: for the properties view.
+    public struct PropertySummary: Sendable, Equatable, Identifiable {
+        /// As most notes spell it.
+        public var name: String
+        /// Spellings differing only in case, other than `name`, as notes write them.
+        public var otherSpellings: [String]
+        public var noteCount: Int
+        /// Notes writing it as a list, of `noteCount`.
+        public var listCount: Int
+        /// Of its values, how many read as numbers and as dates, and how many there are in all,
+        /// to tell its type, or notice values that don't fit it.
+        public var numberValues: Int
+        public var dateValues: Int
+        public var linkValues: Int
+        public var valueCount: Int
+        /// Different values.
+        public var distinctValues: Int
+        public var id: String { name.lowercased() }
+    }
+
+    /// Every property in the vault, most used first.
+    public func propertySummaries() throws -> [PropertySummary] {
+        var summaries: [String: PropertySummary] = [:]
+        var spellings: [String: [(String, Int)]] = [:]
+        for row in try db.query("SELECT lowered, name, COUNT(*), SUM(list) FROM property_names GROUP BY lowered, name") {
+            let lowered = row[0] as! String, name = row[1] as! String, count = row[2] as! Int, lists = row[3] as? Int ?? 0
+            spellings[lowered, default: []].append((name, count))
+            var summary = summaries[lowered] ?? PropertySummary(name: name, otherSpellings: [], noteCount: 0, listCount: 0, numberValues: 0,
+                                                                dateValues: 0, linkValues: 0, valueCount: 0, distinctValues: 0)
+            summary.noteCount += count
+            summary.listCount += lists
+            summaries[lowered] = summary
+        }
+        for (lowered, names) in spellings {
+            let sorted = names.sorted { $0.1 != $1.1 ? $0.1 > $1.1 : $0.0 < $1.0 }.map(\.0)
+            summaries[lowered]?.name = sorted[0]
+            summaries[lowered]?.otherSpellings = Array(sorted.dropFirst())
+        }
+        for row in try db.query("SELECT name, COUNT(*), COUNT(number), COUNT(date), COUNT(link), COUNT(DISTINCT value COLLATE NOCASE) FROM property_values GROUP BY name") {
+            let lowered = row[0] as! String
+            summaries[lowered]?.valueCount = row[1] as! Int
+            summaries[lowered]?.numberValues = row[2] as! Int
+            summaries[lowered]?.dateValues = row[3] as! Int
+            summaries[lowered]?.linkValues = row[4] as! Int
+            summaries[lowered]?.distinctValues = row[5] as! Int
+        }
+        return summaries.values.sorted { $0.noteCount != $1.noteCount ? $0.noteCount > $1.noteCount : $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// A property's values, each with how many notes give it, most used first. Values differing
+    /// only in case are one, spelled as most notes spell it.
+    public func values(ofProperty name: String) throws -> [(value: String, count: Int)] {
+        var merged: [String: (value: String, count: Int, best: Int)] = [:]
+        for row in try db.query("SELECT value, COUNT(DISTINCT note) FROM property_values WHERE name = ? GROUP BY value", [name.lowercased()]) {
+            let value = row[0] as! String, count = row[1] as! Int
+            let key = value.lowercased()
+            if var existing = merged[key] {
+                if count > existing.best { existing.value = value; existing.best = count }
+                existing.count += count
+                merged[key] = existing
+            } else {
+                merged[key] = (value, count, count)
+            }
+        }
+        return merged.values.map { ($0.value, $0.count) }
+            .sorted { $0.count != $1.count ? $0.count > $1.count : $0.value.localizedStandardCompare($1.value) == .orderedAscending }
+    }
+
+    /// The notes that link to a name, with how (in the text, as an embed, from a property).
+    public func linking(to name: String) throws -> [(note: Note.ID, kind: LinkKind, property: String?)] {
+        try db.query("SELECT DISTINCT n.id, l.kind, l.property FROM links l JOIN notes n ON n.row = l.note WHERE l.name = ?", [LinkName.normalised(name)])
+            .map { ($0[0] as! String, LinkKind(rawValue: $0[1] as! String) ?? .text, $0[2] as? String) }
     }
 
     // MARK: Links between notes

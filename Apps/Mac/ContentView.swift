@@ -279,13 +279,30 @@ private struct NoteList: View {
         SidebarTable(model: model, content: content, bottomInset: Self.fieldHeight + Self.fieldPadding * 2)
             .overlay {
                 if model.notes(in: model.place).isEmpty, !includesPlaces || model.subplaces(of: model.place).isEmpty, model.place != .allNotes {
-                    Text(model.place.isTag ? "No notes have this tag." : "This folder has no notes.")
-                        .foregroundStyle(.secondary)
+                    if let message = emptyMessage {
+                        Text(message)
+                            .foregroundStyle(.secondary)
+                    }
                 } else if !model.noteFilter.isEmpty, !model.sidebarRows(collapsed: [], content: content).contains(where: \.isItem) {
                     Text("No matches")
                         .foregroundStyle(.secondary)
                 }
             }
+    }
+}
+
+extension NoteList {
+    /// What an empty place says, or nothing while the index is still being asked.
+    fileprivate var emptyMessage: String? {
+        switch model.place {
+        case .tag: return "No notes have this tag."
+        case .properties: return "No notes have properties."
+        case .property, .propertyValue:
+            guard let query = model.place.query, model.store.noteIDs(matching: query) != nil else { return nil }
+            if case .property = model.place { return "No notes have this property." }
+            return "No notes have this value."
+        default: return "This folder has no notes."
+        }
     }
 }
 
@@ -356,6 +373,9 @@ extension SidebarPlace {
         case .everything: "All notes"
         case .bookmarks: "Bookmarks"
         case .trash: "Trash"
+        case .properties: "Properties"
+        case .property(let name): name
+        case .propertyValue(_, let value): PropertyValueText.shown(value)
         }
     }
 
@@ -655,5 +675,15 @@ enum SearchTags {
 
     static func removing(_ tag: String, from query: String) -> String {
         query.split(whereSeparator: \.isWhitespace).filter { $0 != "#" + tag }.joined(separator: " ")
+    }
+}
+
+/// A property value as the sidebar names it: a link without its brackets.
+enum PropertyValueText {
+    static func shown(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("[["), trimmed.hasSuffix("]]"), trimmed.count > 4 else { return trimmed.isEmpty ? "Empty" : trimmed }
+        let inside = String(trimmed.dropFirst(2).dropLast(2))
+        return inside.split(separator: "|", maxSplits: 1).last.map(String.init) ?? inside
     }
 }
