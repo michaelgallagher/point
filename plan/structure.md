@@ -128,3 +128,12 @@ As recommended in [Images: where to store them](images.md):
 **Comparing drafts can come at any point.** It depends mostly on the editor and a diff engine, not on the index. `draft-of:` only needs a property.
 
 The iPhone app (M4) and the real-vault trial still come first. Dropping side-by-side editing with Obsidian waits until the iPhone app is in daily use.
+
+## Progress
+
+**1. The typed index and the query model (built 6 November 2026, branch `typed-index`):**
+- **The index (schema 8)** keeps each property value with its number or date, and the name it links to if it's a link. Links have a kind (text, embed, property, with the property's name). Notes have their folder, and their dates created and edited.
+- **`NoteQuery`** (IndexKit) describes which notes, sorted how: filters for tags, folders, properties (exists, missing, empty, is, contains, less, greater, within the last or next so many days), the note's own title, folder and dates, links to a note, and words. They combine with all, any and not. It's turned into one SQL statement, and saved as JSON. `property is Sam Lee` finds `people: ["[[Sam Lee]]"]`, numbers compare as numbers, and "on or before 6 November" takes in the whole of the 6th.
+- **Fast:** on a real vault of a few thousand notes, a query takes 1 to 4 ms, and summarising every property takes 8 ms.
+- **The properties view** (Mac): Properties in the sidebar, beside All notes and Trash, once the vault has any. It lists each property with its type's symbol and how many notes have it. A property shows its values, each with how many notes give it, and its notes. A value shows its notes. Values differing only in case are one, and a link shows as its name. The notes come from the index in the background, in the list's own order, and are never waited for on the main thread.
+- **Not yet:** renaming a property and fixing its type across the vault from there. That comes with the changes across the vault, in the next step.

@@ -121,6 +121,12 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
     case bookmarks
     /// Notes deleted, kept for a while before they go for good.
     case trash
+    /// Every property in the vault, each with the notes that have it.
+    case properties
+    /// A property, by name: its values, and the notes that have it.
+    case property(String)
+    /// The notes giving a property this value.
+    case propertyValue(String, String)
 
     /// For storing pins: `folder:Work`, `tag:work/imprint`.
     public var key: String {
@@ -131,6 +137,9 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
         case .everything: "everything"
         case .bookmarks: "bookmarks"
         case .trash: "trash"
+        case .properties: "properties"
+        case .property(let name): "property:" + name
+        case .propertyValue(let name, let value): "value:" + name + "\u{1F}" + value
         }
     }
 
@@ -139,15 +148,23 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
         else if key == "everything" { self = .everything }
         else if key == "bookmarks" { self = .bookmarks }
         else if key == "trash" { self = .trash }
+        else if key == "properties" { self = .properties }
+        else if key.hasPrefix("property:") { self = .property(String(key.dropFirst(9))) }
+        else if key.hasPrefix("value:"), let split = key.dropFirst(6).firstIndex(of: "\u{1F}") {
+            self = .propertyValue(String(key.dropFirst(6)[..<split]), String(key.dropFirst(6)[key.index(after: split)...]))
+        }
         else if key.hasPrefix("folder:") { self = .folder(String(key.dropFirst(7))) }
         else if key.hasPrefix("tag:") { self = .tag(String(key.dropFirst(4))) }
         else { return nil }
     }
 
-    /// Where the back arrow goes: a folder's parent folder, a tag's parent tag, else All Notes.
+    /// Where the back arrow goes: a folder's parent folder, a tag's parent tag, a value's
+    /// property, a property's list of properties, else All Notes.
     public var parent: SidebarPlace {
         switch self {
-        case .allNotes, .everything, .bookmarks, .trash: .allNotes
+        case .allNotes, .everything, .bookmarks, .trash, .properties: .allNotes
+        case .property: .properties
+        case .propertyValue(let name, _): .property(name)
         case .folder(let path):
             FolderTree.parent(of: path).isEmpty ? .allNotes : .folder(FolderTree.parent(of: path))
         case .tag(let tag):

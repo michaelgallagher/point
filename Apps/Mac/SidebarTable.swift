@@ -35,7 +35,7 @@ enum SidebarRow: Hashable {
 
 /// The sidebar's sections at the vault's top level, each of which can be folded away.
 enum SidebarSection: String, CaseIterable {
-    case pinned = "Pinned", folders = "Folders", tags = "Tags", notes = "Notes"
+    case pinned = "Pinned", folders = "Folders", tags = "Tags", properties = "Properties", values = "Values", notes = "Notes"
 }
 
 extension VaultModel {
@@ -45,7 +45,7 @@ extension VaultModel {
         switch place {
         case .folder(let path): path
         case .tag(let tag): "#" + tag
-        case .allNotes, .everything, .bookmarks, .trash: ""
+        case .allNotes, .everything, .bookmarks, .trash, .properties, .property, .propertyValue: ""
         }
     }
 
@@ -86,7 +86,9 @@ extension VaultModel {
             // between folders and tags, if they show one at a time: below these, which it
             // doesn't change.
             let oneAtATime = treeLayout == .toggle
-            let special: [SidebarPlace] = store.showsBookmarksInSidebar ? [.everything, .bookmarks, .trash] : [.everything, .trash]
+            // Properties only once the vault has some.
+            let special: [SidebarPlace] = [.everything] + (store.showsBookmarksInSidebar ? [.bookmarks] : [])
+                + (store.propertySummaries.isEmpty ? [] : [.properties]) + [.trash]
             sections.append(places(special.map { .place($0, depth: 0) })
                             + (oneAtATime && filter.isEmpty ? [.treeSwitch] : []))
             if !pins.isEmpty { sections.append(section(.pinned, places(pins.map { .place($0, depth: 0) }))) }
@@ -117,8 +119,14 @@ extension VaultModel {
             }
         } else if !subplaces.isEmpty {
             // Inside a folder (or tag) with folders (or tags) in it: labelled, as at the top.
-            let rows = place.isTag ? subplaces.map { SidebarRow.place($0, depth: 0) } : folderRows(subplaces, depth: 0)
-            sections.append(section(place.isTag ? .tags : .folders, places(rows)))
+            let rows = place.unfolds && !place.isTag ? folderRows(subplaces, depth: 0) : subplaces.map { SidebarRow.place($0, depth: 0) }
+            let label: SidebarSection = switch place {
+            case .tag: .tags
+            case .properties: .properties
+            case .property: .values
+            default: .folders
+            }
+            sections.append(section(label, places(rows)))
         }
         // The notes, always under their label, which holds the sort menu.
         let notes = content == .places ? [] : notes(in: place).filter { shows($0.title) }
@@ -349,7 +357,9 @@ struct SidebarTable: NSViewRepresentable {
             func depth(_ place: SidebarPlace) -> Int {
                 switch place {
                 case .allNotes: 0
-                case .everything, .bookmarks, .trash: 1
+                case .everything, .bookmarks, .trash, .properties: 1
+                case .property: 2
+                case .propertyValue: 3
                 case .folder(let path), .tag(let path): path.split(separator: "/").count
                 }
             }
@@ -600,7 +610,7 @@ struct SidebarTable: NSViewRepresentable {
                     entry.state = model.tagOrder == order ? .on : .off
                     menu.addItem(entry)
                 }
-            case .pinned:
+            case .pinned, .properties, .values:
                 return nil
             }
             return menu
@@ -987,16 +997,16 @@ struct SidebarRowView: View {
                 .frame(maxHeight: .infinity, alignment: .bottom)
         case .place(let place, let depth):
             HStack(spacing: 6) {
-                Image(systemName: place.symbol)
+                Image(systemName: model.symbol(for: place))
                     // White on the selection's blue (the tree's); otherwise blue, as in Finder.
                     .foregroundStyle(isEmphasized ? AnyShapeStyle(.primary)
-                                     : place.isTag ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.accentColor))
+                                     : place.isTag || (place.isProperty && place != .properties) ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.accentColor))
                     .frame(width: Self.iconWidth)
                 Text(name(of: place, depth: depth))
                     .lineLimit(1)
                 // A folder with folders in it, or a tag with tags under it, unfolds from the
                 // arrow after its name, as a section does from the arrow after its label.
-                if place != .allNotes, !model.subplaces(of: place).isEmpty {
+                if place != .allNotes, place.unfolds, !model.subplaces(of: place).isEmpty {
                     Image(systemName: "chevron.right")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
@@ -1152,7 +1162,7 @@ extension VaultModel {
             }
         case .folders, .tags:
             tagOrder == .name ? "Name" : "Date modified"
-        case .pinned:
+        case .pinned, .properties, .values:
             nil
         }
     }
@@ -1168,7 +1178,31 @@ extension SidebarPlace {
         case .everything: "tray.full"
         case .bookmarks: "bookmark"
         case .trash: "trash"
+        case .properties: "list.bullet.rectangle"
+        case .property: "text.alignleft"
+        case .propertyValue: "equal"
         }
+    }
+}
+
+extension VaultModel {
+    /// A place's symbol: a property's says its type, as in the properties strip.
+    func symbol(for place: SidebarPlace) -> String {
+        switch place {
+        case .property(let name): store.propertyTypes.type(forKey: name)?.symbol ?? guessedSymbol(name)
+        default: place.symbol
+        }
+    }
+
+    /// For a property with no type set: from how its values read.
+    private func guessedSymbol(_ name: String) -> String {
+        guard let summary = store.propertySummaries.first(where: { $0.id == name.lowercased() }) else { return PropertyType.text.symbol }
+        if name.lowercased() == "tags" { return PropertyType.tags.symbol }
+        if name.lowercased() == "aliases" { return PropertyType.aliases.symbol }
+        if summary.listCount * 2 > summary.noteCount { return PropertyType.list.symbol }
+        if summary.valueCount > 0, summary.dateValues * 2 > summary.valueCount { return PropertyType.date.symbol }
+        if summary.valueCount > 0, summary.numberValues * 2 > summary.valueCount { return PropertyType.number.symbol }
+        return PropertyType.text.symbol
     }
 }
 

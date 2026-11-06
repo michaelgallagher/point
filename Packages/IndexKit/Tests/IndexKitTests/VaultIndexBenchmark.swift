@@ -30,6 +30,22 @@ struct VaultIndexBenchmark {
             let results = try await index.search(query)
             print("SEARCH \"\(query)\": \(results.count) results in \(Int(Date().timeIntervalSince(start) * 1000)) ms")
         }
+        start = Date()
+        let summaries = try await index.propertySummaries()
+        print("PROPERTIES: \(summaries.count) in \(Int(Date().timeIntervalSince(start) * 1000)) ms")
+        let busiestProperty = summaries.first?.name ?? "tags"
+        let queries: [(String, NoteQuery)] = [
+            ("has \(busiestProperty)", NoteQuery([.property(busiestProperty, .exists)])),
+            ("edited this week", NoteQuery([.field(.modified, .withinLastDays(7))])),
+            ("by \(busiestProperty), any of two tags", NoteQuery([.any([.tag("work"), .tag("blog")])], sort: [NoteQuery.Sort(.property(busiestProperty), descending: true)])),
+            ("date before 2026, not empty", NoteQuery([.property("date", .less("2026-01-01")), .not(.property("status", .empty))])),
+            ("text and folder", NoteQuery([.text("design"), .not(.folder("Archive"))])),
+        ]
+        for (name, query) in queries {
+            start = Date()
+            let found = try await index.notes(matching: query)
+            print("QUERY \(name): \(found.count) notes in \(String(format: "%.1f", Date().timeIntervalSince(start) * 1000)) ms")
+        }
         let tags = try await index.allTags()
         print("TAGS: \(tags.count) distinct")
         if let busiest = notes.max(by: { $0.title.count > $1.title.count ? false : true }) {
