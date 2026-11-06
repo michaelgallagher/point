@@ -114,6 +114,23 @@ enum DebugSnapshots {
                 }
             }
         }
+        if let path = UserDefaults.standard.string(forKey: "PointOpenImage") {
+            // `-PointOpenImage <path>`: opens the image at that path from the vault's root in the tab.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                Trace.mark("open image: \(model.store.image(path) == nil ? "not found" : "found")")
+                model.selection = path
+                // With `-PointRenameImageTo <name>`: renames it, as the viewer's Rename does.
+                if let name = UserDefaults.standard.string(forKey: "PointRenameImageTo"), let image = model.store.image(path) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        let renamed = model.store.renameImage(image, to: name)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            Trace.mark("rename image: now \(renamed?.path ?? "not renamed"), tab shows \(model.selection ?? "nothing")")
+                            NSApp.terminate(nil)
+                        }
+                    }
+                }
+            }
+        }
         if UserDefaults.standard.bool(forKey: "PointUnusedImages") {
             // `-PointUnusedImages YES`: notes the images no note shows, once the index is up.
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) {

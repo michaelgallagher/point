@@ -196,7 +196,7 @@ struct PaneTabs: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let titles = pane.tabs.map { model.note($0.noteID)?.title ?? "New tab" }
+            let titles = pane.tabs.map { model.note($0.noteID)?.title ?? model.store.image($0.noteID)?.name ?? "New tab" }
             let widths = Self.widths(of: titles, in: geometry.size.width)
             let rowWidth = widths.reduce(0, +) + Self.spacing * CGFloat(widths.count - 1) + Self.inset * 2
             ScrollViewReader { proxy in

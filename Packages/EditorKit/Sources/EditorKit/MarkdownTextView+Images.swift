@@ -72,7 +72,7 @@ extension MarkdownTextView {
                 }
                 count += 1
                 let indent = style?.firstLineHeadIndent ?? 0
-                let frame = CGRect(x: origin.x + container.lineFragmentPadding + indent,
+                let frame = CGRect(x: origin.x + container.lineFragmentPadding + indent + decoration.x,
                                    y: origin.y + line.minY + decoration.spaceAbove,
                                    width: decoration.size.width, height: decoration.size.height)
                 if view.frame != frame { view.frame = frame }

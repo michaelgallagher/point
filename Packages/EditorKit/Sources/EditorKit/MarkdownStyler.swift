@@ -86,9 +86,12 @@ struct MarkdownStyler {
         }
         // Images last too, once their lines' own room above is set.
         if theme.rendersImages, imageURL != nil {
-            for token in tokens where intersects(token.range, range) {
-                layOutImage(token, storage: storage, text: text)
+            // By line: images side by side share one.
+            var lines: [Int: [MarkdownToken]] = [:]
+            for token in tokens where intersects(token.range, range) && Self.imageEmbed(token, in: text) != nil {
+                lines[text.lineRange(for: NSRange(location: token.range.location, length: 0)).location, default: []].append(token)
             }
+            for (_, images) in lines { layOutImages(images.sorted { $0.range.location < $1.range.location }, storage: storage, text: text) }
         }
         return range
     }
@@ -133,42 +136,66 @@ struct MarkdownStyler {
         return CGFloat(value)
     }
 
-    /// Makes room above an image embed that's alone on its line, for the image, drawn there by
-    /// a view (see `ImageEmbedView`), and shows its Markdown small and quiet, as a caption.
-    /// Nothing changes for an image that isn't in the vault, or one in a line of text.
-    private func layOutImage(_ token: MarkdownToken, storage: NSTextStorage, text: NSString) {
-        guard let embed = Self.imageEmbed(token, in: text), let url = imageURL?(embed.target),
-              let natural = EditorImages.shared.size(of: url) else { return }
+    /// Makes room above a line of nothing but image embeds (in a quote or list item too) for
+    /// the images, drawn there by views (see `ImageEmbedView`), side by side at one height, and
+    /// shows the embeds' Markdown small and quiet, as captions. Nothing changes for a line with
+    /// text on it, or with an image that can't be shown (not in the vault, or not loaded yet).
+    private func layOutImages(_ tokens: [MarkdownToken], storage: NSTextStorage, text: NSString) {
+        guard let first = tokens.first else { return }
         var start = 0, end = 0, contentsEnd = 0
-        text.getLineStart(&start, end: &end, contentsEnd: &contentsEnd, for: token.range)
-        let line = NSRange(location: start, length: contentsEnd - start)
-        guard text.substring(with: line).trimmingCharacters(in: .whitespaces) == text.substring(with: token.range),
-              storage.attribute(.pointCollapsed, at: token.range.location, effectiveRange: nil) == nil else { return }
-        var width = min(embed.width ?? natural.width, max(theme.textWidth, 40))
-        var height = (width * natural.height / natural.width).rounded()
-        if height > theme.imageMaxHeight {
-            height = theme.imageMaxHeight
-            width = (height * natural.width / natural.height).rounded()
+        text.getLineStart(&start, end: &end, contentsEnd: &contentsEnd, for: first.range)
+        guard storage.attribute(.pointCollapsed, at: first.range.location, effectiveRange: nil) == nil else { return }
+        // Nothing else to read on the line: what isn't an image is space or hidden (`> `, `- `).
+        for k in start..<contentsEnd where !tokens.contains(where: { NSLocationInRange(k, $0.range) }) {
+            let c = text.character(at: k)
+            if c == 32 || c == 9 || storage.attribute(.pointHidden, at: k, effectiveRange: nil) != nil { continue }
+            return
+        }
+        var images: [(token: MarkdownToken, url: URL, size: CGSize)] = []
+        for token in tokens {
+            guard let embed = Self.imageEmbed(token, in: text), let url = imageURL?(embed.target),
+                  let natural = EditorImages.shared.size(of: url), natural.width > 0, natural.height > 0 else { return }
+            // As wide as asked, keeping its shape.
+            let width = embed.width ?? natural.width
+            images.append((token, url, CGSize(width: width, height: width * natural.height / natural.width)))
         }
         let existing = storage.attribute(.paragraphStyle, at: start, effectiveRange: nil) as? NSParagraphStyle ?? baseParagraphStyle
+        let gap = theme.imageGap * 3
+        let room = max(theme.textWidth - existing.firstLineHeadIndent, 40) - gap * CGFloat(images.count - 1)
+        // One height for them all: no taller than any is, or than the most an image is shown,
+        // and low enough that they fit across the text.
+        let aspects = images.map { $0.size.width / $0.size.height }
+        let height = min(theme.imageMaxHeight, images.map(\.size.height).min()!, room / aspects.reduce(0, +)).rounded(.down)
+        guard height >= 1 else { return }
         let style = existing.mutableCopy() as! NSMutableParagraphStyle
         let above = existing.paragraphSpacingBefore
         style.paragraphSpacingBefore = above + height + theme.imageGap
         storage.addAttribute(.paragraphStyle, value: style, range: NSRange(location: start, length: end - start))
-        storage.addAttributes([
-            .pointImage: ImageDecoration(url: url, size: CGSize(width: width, height: height), spaceAbove: above),
-            .font: PlatformFont.systemFont(ofSize: (theme.bodySize * 0.75).rounded()),
-            .foregroundColor: PlatformColor.secondaryLabelColor,
-        ], range: token.range)
-        storage.removeAttribute(.pointWebLink, range: token.range)
-        storage.removeAttribute(.kern, range: token.range)
-        // The caption is the file's name, never a width (`|300`), which isn't a label.
-        if case .embed = token.kind {
-            let inside = NSRange(location: token.range.location + 3, length: token.range.length - 5)
-            let name = (text.substring(with: inside) as NSString).range(of: "|")
-            let nameLength = name.location == NSNotFound ? inside.length : name.location
-            storage.addAttribute(.pointHidden, value: true, range: token.range)
-            storage.removeAttribute(.pointHidden, range: NSRange(location: inside.location, length: nameLength))
+        var x: CGFloat = 0
+        for (index, image) in images.enumerated() {
+            let size = CGSize(width: (height * aspects[index]).rounded(), height: height)
+            let range = image.token.range
+            storage.addAttributes([
+                .pointImage: ImageDecoration(url: image.url, size: size, spaceAbove: above, x: x),
+                .font: PlatformFont.systemFont(ofSize: (theme.bodySize * 0.75).rounded()),
+                .foregroundColor: PlatformColor.secondaryLabelColor,
+            ], range: range)
+            storage.removeAttribute(.pointWebLink, range: range)
+            storage.removeAttribute(.kern, range: range)
+            x += size.width + gap
+            // The caption is the file's name, never a width (`|300`), which isn't a label.
+            if case .embed = image.token.kind {
+                let inside = NSRange(location: range.location + 3, length: range.length - 5)
+                let bar = (text.substring(with: inside) as NSString).range(of: "|")
+                storage.addAttribute(.pointHidden, value: true, range: range)
+                storage.removeAttribute(.pointHidden, range: NSRange(location: inside.location, length: bar.location == NSNotFound ? inside.length : bar.location))
+            }
+            // Captions side by side are kept apart.
+            if index < images.count - 1 {
+                var last = NSMaxRange(range) - 1
+                while last > range.location, storage.attribute(.pointHidden, at: last, effectiveRange: nil) != nil { last -= 1 }
+                storage.addAttribute(.kern, value: 12, range: NSRange(location: last, length: 1))
+            }
         }
     }
 
