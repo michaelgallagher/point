@@ -148,7 +148,7 @@ public struct Frontmatter: Equatable, Sendable {
 
     /// A value in quotes, if `quote` is given (as the note wrote the value before) or YAML
     /// would misread it plain.
-    static func quoted(_ value: String, preferring quote: Character? = nil) -> String {
+    public static func quoted(_ value: String, preferring quote: Character? = nil) -> String {
         switch quote ?? (needsQuotes(value) ? "\"" : nil) {
         case "'": return "'" + value.replacingOccurrences(of: "'", with: "''") + "'"
         case "\"": return "\"" + value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""

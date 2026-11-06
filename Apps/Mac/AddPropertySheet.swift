@@ -6,6 +6,10 @@ extension Notification.Name {
     static let pointAddProperty = Notification.Name("PointAddProperty")
     /// Asks the open note to set a property: `userInfo` has "key", "values" and "isList".
     static let pointSetProperty = Notification.Name("PointSetProperty")
+    /// Writes a list's properties: `noteID`, and `list`, a `ListDefinition`.
+    static let pointWriteList = Notification.Name("PointWriteList")
+    /// What notes embed has changed (an image loaded, a list found more notes): they restyle.
+    static let pointEmbedsChanged = Notification.Name("PointEmbedsChanged")
     /// Asks a note's editor to do a Format menu command: `userInfo` has "noteID" and
     /// "action" (the command's selector, by name).
     static let pointEditorCommand = Notification.Name("PointEditorCommand")

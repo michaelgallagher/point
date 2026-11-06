@@ -1136,7 +1136,10 @@ final class VaultStore: ObservableObject {
     }
 
     /// Restyles open notes, once, for images that have just arrived.
-    private func imagesArrived() {
+    private func imagesArrived() { embedsChanged() }
+
+    /// Restyles notes, soon, for what they embed: images loaded, lists that need more room.
+    private func embedsChanged() {
         guard !isRestyleQueued else { return }
         isRestyleQueued = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
@@ -1144,6 +1147,7 @@ final class VaultStore: ObservableObject {
             isRestyleQueued = false
             objectWillChange.send()
             notesGeneration += 1
+            NotificationCenter.default.post(name: .pointEmbedsChanged, object: self)
         }
     }
 
@@ -1608,8 +1612,13 @@ final class VaultStore: ObservableObject {
                 let ids = try? await index.notes(matching: query)
                 runningQueries.remove(query)
                 guard vault == vaultGeneration, let ids else { return }
-                let changed = queryResults[query]?.ids != ids
+                let before = queryResults[query]?.ids
+                let changed = before != ids
                 queryResults[query] = (generation, ids)
+                // An embedded list needs more or less room.
+                if embeddedQueries.contains(query), before.map({ min($0.count, ListEmbed.rows + 1) }) != min(ids.count, ListEmbed.rows + 1) {
+                    embedsChanged()
+                }
                 if changed {
                     listVersion += 1
                     objectWillChange.send()
@@ -1617,6 +1626,58 @@ final class VaultStore: ObservableObject {
             }
         }
         return cached?.ids
+    }
+
+    // MARK: Lists
+
+    /// What each note read as a list is (nil: not one), as of its file's date.
+    private var listsRead: [Note.ID: (modified: Date, list: ListDefinition?)] = [:]
+    private var readingLists: Set<Note.ID> = []
+    /// The queries of lists embedded in notes: when what they find changes, notes restyle,
+    /// so the room made for them fits.
+    private var embeddedQueries: Set<NoteQuery> = []
+
+    /// The list a note is, if it is one: what was last read at once, and read again off the
+    /// main thread if the note has changed since, notes restyling when that changes it.
+    func listDefinition(of id: Note.ID) -> ListDefinition? {
+        guard let note = notesByID[id] else { return nil }
+        let read = listsRead[id]
+        if read?.modified != note.modified, readingLists.insert(id).inserted {
+            let url = note.url, modified = note.modified, generation = vaultGeneration
+            Task {
+                let list = await Task.detached(priority: .userInitiated) {
+                    (try? NoteReader.read(contentsOf: url)).flatMap { ListDefinition(frontmatter: Frontmatter.parse($0)) }
+                }.value
+                readingLists.remove(id)
+                guard generation == vaultGeneration else { return }
+                let changed = listsRead[id]?.list != list || listsRead[id] == nil
+                listsRead[id] = (modified, list)
+                if changed, list != nil { embedsChanged() }
+            }
+        }
+        return read?.list
+    }
+
+    /// How tall the block drawn for `![[target]]` in a note is, if the target is a list: nil
+    /// until it's known to be one and what it finds is known.
+    func listEmbedHeight(_ target: String, from sourceID: Note.ID) -> CGFloat? {
+        guard let note = linkResolver.resolve(wikiTarget: target, from: sourceID), note.id != sourceID,
+              let list = listDefinition(of: note.id) else { return nil }
+        embeddedQueries.insert(list.query)
+        guard let ids = noteIDs(matching: list.query) else { return nil }
+        return ListEmbed.height(count: ids.count, hasColumns: !list.columns.isEmpty)
+    }
+
+    /// The note an embed names, if it's a list.
+    func embeddedListID(_ target: String, from sourceID: Note.ID) -> Note.ID? {
+        linkResolver.resolve(wikiTarget: target, from: sourceID)?.id
+    }
+
+    /// Some properties' values for some notes, from the index, for a list's columns: by note,
+    /// then by property name in lowercase. Empty if there's no index.
+    func propertyValues(_ names: [String], of ids: [Note.ID]) async -> [Note.ID: [String: [String]]] {
+        guard let index, !names.isEmpty, !ids.isEmpty else { return [:] }
+        return (try? await index.propertyValues(names, of: ids)) ?? [:]
     }
 
     func isPinned(_ place: SidebarPlace) -> Bool { pins.contains(place) }

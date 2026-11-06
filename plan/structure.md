@@ -177,3 +177,17 @@ The iPhone app (M4) and the real-vault trial still come first. Dropping side-by-
   - An image could stay blurred: a small picture decoded before the note was laid out could arrive after the sharp one and replace it.
   - Captions have no spelling marks.
   - A wrapped title in the list could take more lines than its row had room for: titles now wrap at the width their row's height was measured for.
+
+**5. Lists (built 6 November 2026, branch `lists`):**
+- **A list is a note** whose properties say what it lists (`ListDefinition`, IndexKit), so it reads the same in Obsidian, as properties:
+  - `list-from`: folders, with the folders inside them
+  - `list-tags`: tags, with the tags nested under them
+  - `list-where`: conditions, one short line each, such as `format is Book`, `read is not set`, `rating > 3`, `published before 2020`, `date edited in last 7 days`, `links to [[Service design]]` or `has words org design`
+  - `list-match: any`: to list notes meeting any condition, not all of them
+  - `list-sort`: such as `published descending`
+  - `list-show`: the columns after the title
+- **Opened on the Mac:** under its other properties (the `list-` ones are hidden from the strip), the list's choices show as a line of tokens. Add filter adds a folder, a tag or a condition, made in a small editor. "and" or "or" between conditions switches them. The sort and columns menus choose from the vault's properties. Under the tokens is a table of the notes it finds, 50 at first, then more on request. A heading click sorts, and a row click opens its note (⌘-click in a new tab, ⌥-click on the other side). Each change is one undoable edit to the note's properties, writing only what changed.
+- **New List** (palette): a list of the folder or tag being browsed, or of every note.
+- **Embedded:** `![[Books to read]]` alone on a line in another note shows the list's first 10 notes, with Show all to open it, and its name under it as a caption. The room is made from what the list finds, and notes restyle when that changes. EditorKit has a general hook for this (`blockEmbedHeight` and `makeBlockEmbedView`).
+- **Also fixed:** notes didn't restyle when web images arrived while they were open (SwiftUI didn't update the editor). Editors now restyle on a notice.
+- **Not yet:** lists on the iPhone (the properties show as written); grouping; a list's results in the sidebar.

@@ -30,6 +30,18 @@ extension NSAttributedString.Key {
     static let pointLineHeight = NSAttributedString.Key("point.lineHeight")
     /// An embedded image (an `ImageDecoration`), drawn by a view in the room made above its line.
     static let pointImage = NSAttributedString.Key("point.image")
+    /// A note embedded as a block the app draws (a `BlockEmbedDecoration`), in the room made
+    /// above its line: a list's table, say.
+    static let pointBlockEmbed = NSAttributedString.Key("point.blockEmbed")
+}
+
+/// An embed (`![[Books to read]]`) alone on its line that the app draws as a block above it,
+/// its Markdown kept, small, as a caption.
+struct BlockEmbedDecoration: Hashable {
+    let target: String
+    let height: CGFloat
+    /// The room above the line that was there before the block's: the block is drawn below it.
+    let spaceAbove: CGFloat
 }
 
 /// An image embed alone on its line, drawn above it: its Markdown stays, small, as a caption.

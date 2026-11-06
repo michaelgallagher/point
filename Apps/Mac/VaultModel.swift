@@ -892,6 +892,18 @@ final class VaultModel: ObservableObject {
         if selection == nil { selection = id } else { newTab(noteID: id) }
     }
 
+    /// Creates a list and opens it: of the folder or tag being browsed, or of every note, to
+    /// narrow down from there with its menus.
+    func createList() {
+        let property: String
+        switch place {
+        case .folder(let path) where !path.isEmpty: property = "list-from: \(Frontmatter.quoted(path))"
+        case .tag(let tag): property = "list-tags: [\(Frontmatter.quoted(tag))]"
+        default: property = "list-where:"
+        }
+        createNote(text: "---\n\(property)\nlist-show: [date edited]\n---\n")
+    }
+
     /// Opens today's daily note, creating it if needed.
     func openTodaysNote() {
         if let id = store.todaysNote() { selection = id }
@@ -918,16 +930,19 @@ final class VaultModel: ObservableObject {
         selection = id
     }
 
+    /// Opens a note from one in a pane: there, in a new tab, or on the other side.
+    func open(_ id: Note.ID, inPane paneID: NotePane.ID, as destination: LinkDestination) {
+        if let pane = paneIndex(paneID) { activePane = pane }
+        switch destination {
+        case .here: selection = id
+        case .newTab: newTab(noteID: id)
+        case .otherSide: openToTheSide(id)
+        }
+    }
+
     func open(_ link: LinkTarget, from sourceID: Note.ID, inPane paneID: NotePane.ID, as destination: LinkDestination = .here) {
         let resolver = LinkResolver(notes: notes)
-        func show(_ id: Note.ID) {
-            if let pane = paneIndex(paneID) { activePane = pane }
-            switch destination {
-            case .here: selection = id
-            case .newTab: newTab(noteID: id)
-            case .otherSide: openToTheSide(id)
-            }
-        }
+        func show(_ id: Note.ID) { open(id, inPane: paneID, as: destination) }
         // An image (its caption, under it, or a link to it) opens in the image's viewer. One
         // that isn't in the vault is never made a note.
         let imageTarget: String? = switch link {

@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import IndexKit
 import UniformTypeIdentifiers
 import EditorKit
 import SwiftUI
@@ -196,6 +197,38 @@ enum DebugSnapshots {
                         model.window?.firstResponder?.undoManager?.undo()
                     } else {
                         model.createNote(fromTemplate: template.url, titled: "From \(name)")
+                    }
+                }
+            }
+        }
+        if let spec = UserDefaults.standard.string(forKey: "PointListTest") {
+            // `-PointListTest "note id"`: opens a list and changes it as its menus do, in steps,
+            // tracing the note's properties after each; then undoes them all.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                model.selection = spec
+                guard let note = model.note(spec) else { return }
+                func list() -> ListDefinition? {
+                    (try? NoteReader.read(contentsOf: note.url)).flatMap { ListDefinition(frontmatter: Frontmatter.parse($0)) }
+                }
+                let steps: [(String, (inout ListDefinition) -> Void)] = [
+                    ("add condition", { $0.conditions.append(ListCondition("rating", .greater, "3")) }),
+                    ("match any", { $0.matchesAny = true }),
+                    ("remove folder and tags", { $0.folders = []; $0.tags = [] }),
+                    ("sort by title", { $0.sort = [NoteQuery.Sort(.field(.title))] }),
+                    ("remove columns", { $0.columns = [] }),
+                    ("remove all conditions", { $0.conditions = []; $0.matchesAny = false }),
+                    ("add folder", { $0.folders = ["Elsewhere"] }),
+                ]
+                for (index, step) in steps.enumerated() {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1 + Double(index) * 2.5) {
+                        guard var current = list() else { return Trace.mark("list test: not a list before \(step.0)") }
+                        step.1(&current)
+                        NotificationCenter.default.post(name: .pointWriteList, object: nil, userInfo: ["noteID": spec, "list": current])
+                        NotificationCenter.default.post(name: .pointSaveNow, object: nil)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            let text = (try? NoteReader.read(contentsOf: note.url)) ?? ""
+                            Trace.mark("list test: \(step.0)\n\(Frontmatter.parse(text).map { (text as NSString).substring(with: $0.range) } ?? "none")")
+                        }
                     }
                 }
             }

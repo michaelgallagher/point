@@ -24,6 +24,9 @@ struct MarkdownStyler {
     /// Where the image an embed names is (`a.png`, or a path), if it's in the vault. Without
     /// it, no images are shown.
     var imageURL: ((String) -> URL?)?
+    /// How tall a block the app draws for an embed of a note (`![[Books to read]]`) alone on
+    /// its line, if it draws one: nil for an embed shown as it's written.
+    var blockEmbedHeight: ((String) -> CGFloat?)?
     /// Characters that highlight a list item when they start it, with their colours.
     var listHighlights: [Character: PlatformColor] = [:]
 
@@ -92,6 +95,13 @@ struct MarkdownStyler {
                 lines[text.lineRange(for: NSRange(location: token.range.location, length: 0)).location, default: []].append(token)
             }
             for (_, images) in lines { layOutImages(images.sorted { $0.range.location < $1.range.location }, storage: storage, text: text) }
+        }
+        if theme.rendersImages, blockEmbedHeight != nil {
+            for token in tokens where intersects(token.range, range) {
+                if case .embed(let target) = token.kind, Self.imageEmbed(token, in: text) == nil {
+                    layOutBlockEmbed(token, target: target, storage: storage, text: text)
+                }
+            }
         }
         return range
     }
@@ -197,6 +207,38 @@ struct MarkdownStyler {
                 storage.addAttribute(.kern, value: 12, range: NSRange(location: last, length: 1))
             }
         }
+    }
+
+    /// An embed the app draws as a block (see `blockEmbedHeight`), alone on its line: room
+    /// for the block above the line, and the embed's name under it, small, as a caption.
+    private func layOutBlockEmbed(_ token: MarkdownToken, target: String, storage: NSTextStorage, text: NSString) {
+        var start = 0, end = 0, contentsEnd = 0
+        text.getLineStart(&start, end: &end, contentsEnd: &contentsEnd, for: token.range)
+        guard storage.attribute(.pointCollapsed, at: token.range.location, effectiveRange: nil) == nil else { return }
+        for k in start..<contentsEnd where !NSLocationInRange(k, token.range) {
+            let c = text.character(at: k)
+            if c == 32 || c == 9 || storage.attribute(.pointHidden, at: k, effectiveRange: nil) != nil { continue }
+            return
+        }
+        let name = target.split(separator: "|", maxSplits: 1).first.map { String($0).trimmingCharacters(in: .whitespaces) } ?? target
+        guard let height = blockEmbedHeight?(name), height > 0 else { return }
+        let existing = storage.attribute(.paragraphStyle, at: start, effectiveRange: nil) as? NSParagraphStyle ?? baseParagraphStyle
+        let style = existing.mutableCopy() as! NSMutableParagraphStyle
+        let above = existing.paragraphSpacingBefore
+        style.paragraphSpacingBefore = above + height + theme.imageGap
+        storage.addAttribute(.paragraphStyle, value: style, range: NSRange(location: start, length: end - start))
+        let range = token.range
+        storage.addAttributes([
+            .pointBlockEmbed: BlockEmbedDecoration(target: name, height: height, spaceAbove: above),
+            .font: PlatformFont.systemFont(ofSize: (theme.bodySize * 0.75).rounded()),
+            .foregroundColor: PlatformColor.secondaryLabelColor,
+        ], range: range)
+        // The caption is the note's name: `![[`, `]]` and anything after a `|` are hidden.
+        guard range.length > 5 else { return }
+        let inside = NSRange(location: range.location + 3, length: range.length - 5)
+        let bar = (text.substring(with: inside) as NSString).range(of: "|")
+        storage.addAttribute(.pointHidden, value: true, range: range)
+        storage.removeAttribute(.pointHidden, range: NSRange(location: inside.location, length: bar.location == NSNotFound ? inside.length : bar.location))
     }
 
     private func intersects(_ a: NSRange, _ b: NSRange) -> Bool {
@@ -507,7 +549,7 @@ struct MarkdownStyler {
         collapseLine(line, storage: storage, text: text, height: 0.1)
         // Nothing drawn for it either: no bullet, checkbox, tag pill or block background.
         let full = text.lineRange(for: line)
-        for key: NSAttributedString.Key in [.pointListMarker, .pointTag, .pointWebLink, .pointRule, .pointBlock, .pointImage] {
+        for key: NSAttributedString.Key in [.pointListMarker, .pointTag, .pointWebLink, .pointRule, .pointBlock, .pointImage, .pointBlockEmbed] {
             storage.removeAttribute(key, range: full)
         }
     }

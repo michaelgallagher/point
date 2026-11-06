@@ -65,6 +65,8 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     var tableGrids: [TableGridView] = []
     /// The views drawing embedded images, in the order of the images (see +Images).
     var imageViews: [ImageEmbedView] = []
+    /// The views drawing embedded blocks, in order, with what each embeds (see +Images).
+    var blockEmbedViews: [(target: String, view: NSView)] = []
     var isTableSyncQueued = false
     var isSyncingTables = false
     /// Set while the note's selection is moved to follow a table cell's.
@@ -144,6 +146,17 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
             restyleAll()
         }
     }
+
+    /// How tall a block the app draws for an embed of a note alone on its line (a list's
+    /// table, say), if it draws one; and the view that draws it, made for the embed's target.
+    /// Set by the app, which knows the vault.
+    public var blockEmbedHeight: ((String) -> CGFloat?)? {
+        didSet {
+            styler.blockEmbedHeight = blockEmbedHeight
+            restyleAll()
+        }
+    }
+    public var makeBlockEmbedView: ((String) -> NSView)?
 
     /// Saves an image pasted or dropped into the note (its data, and its kind if known) and
     /// returns the name to embed it by, or nil if it couldn't be saved. Without it, images

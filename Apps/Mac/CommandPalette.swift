@@ -584,6 +584,7 @@ struct PaletteCommand {
             PaletteCommand(name: "New Note", shortcut: ShortcutStore.shared.label(for: .newNote), isSuggested: true) { model.createNote() },
             PaletteCommand(name: "Today's Note", shortcut: nil) { model.openTodaysNote() },
             PaletteCommand(name: "New Note from Template…", shortcut: nil) { model.isCreatingFromTemplate = true },
+            PaletteCommand(name: "New List", shortcut: nil) { model.createList() },
             PaletteCommand(name: "New Folder…", shortcut: ShortcutStore.shared.label(for: .newFolder)) { model.newFolder() },
             PaletteCommand(name: model.showsNoteList ? "Hide Note List" : "Show Note List", shortcut: ShortcutStore.shared.label(for: .toggleNoteList)) { model.showsNoteList.toggle() },
             PaletteCommand(name: "Bigger Text", shortcut: ShortcutStore.shared.label(for: .biggerText)) { model.makeTextBigger() },

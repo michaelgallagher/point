@@ -434,6 +434,26 @@ public actor SearchIndex {
         return try db.query(sql, bindings).map { $0[0] as! String }
     }
 
+    /// Some properties' values for some notes, as a list's columns show them: by note, then by
+    /// property name (in lowercase), each value as written, in order.
+    public func propertyValues(_ names: [String], of ids: [Note.ID]) throws -> [Note.ID: [String: [String]]] {
+        let names = Array(Set(names.map { $0.lowercased() }))
+        guard !names.isEmpty, !ids.isEmpty else { return [:] }
+        var result: [Note.ID: [String: [String]]] = [:]
+        // In batches, within SQLite's limit on bindings.
+        for start in stride(from: 0, to: ids.count, by: 400) {
+            let batch = Array(ids[start..<min(start + 400, ids.count)])
+            let sql = "SELECT n.id, v.name, v.value FROM property_values v JOIN notes n ON n.row = v.note "
+                + "WHERE v.name IN (\(names.map { _ in "?" }.joined(separator: ","))) AND n.id IN (\(batch.map { _ in "?" }.joined(separator: ","))) "
+                + "ORDER BY v.rowid"
+            for row in try db.query(sql, names + batch) {
+                guard let id = row[0] as? String, let name = row[1] as? String, let value = row[2] as? String else { continue }
+                result[id, default: [:]][name, default: []].append(value)
+            }
+        }
+        return result
+    }
+
     /// How many notes a query finds.
     public func count(matching query: NoteQuery, now: Date = Date()) throws -> Int {
         var counting = query
