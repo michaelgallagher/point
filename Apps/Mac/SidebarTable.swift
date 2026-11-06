@@ -297,6 +297,8 @@ struct SidebarTable: NSViewRepresentable {
                 context.duration = 0
                 table.noteHeightOfRows(withIndexesChanged: notes)
             }
+            // Their titles are broken to the new width too.
+            table.reloadData(forRowIndexes: notes, columnIndexes: [0])
             shownHeights = rows.indices.map { tableView(table, heightOfRow: $0) }
         }
 
@@ -546,7 +548,7 @@ struct SidebarTable: NSViewRepresentable {
             let cell = tableView.makeView(withIdentifier: identifier, owner: nil) as? HostingCell ?? HostingCell()
             cell.identifier = identifier
             cell.show(SidebarRowView(row: rows[row], model: model, collapsed: parent.collapsed, expanded: parent.expanded,
-                                     wrapsTitles: wrapsTitles))
+                                     wrapsTitles: wrapsTitles, rowWidth: tableView.bounds.width - SidebarTableView.rowInset * 2))
             return cell
         }
 
@@ -934,6 +936,9 @@ struct SidebarRowView: View {
     var expanded: Set<String> = []
     /// Notes' titles on as many lines as they take.
     var wrapsTitles = false
+    /// How wide the row is, which a wrapped title's lines are broken to fit, exactly as its
+    /// height was measured (so a title never wraps onto more lines than its row has room for).
+    var rowWidth: CGFloat?
     /// Selected, on the blue highlight: text and icons go white.
     var isEmphasized = false
     /// Where a folder's or tag's row starts (its icon), indented by depth.
@@ -1053,7 +1058,7 @@ struct SidebarRowView: View {
             .frame(maxHeight: .infinity)
         case .note(let id):
             if let note = model.notes.first(where: { $0.id == id }) {
-                SidebarNoteRow(note: note, model: model, wrapsTitle: wrapsTitles)
+                SidebarNoteRow(note: note, model: model, wrapsTitle: wrapsTitles, rowWidth: rowWidth)
             }
         case .treeSwitch:
             CapsuleToggle(selection: .constant(model.treeKind))
@@ -1087,6 +1092,8 @@ struct SidebarNoteRow: View {
     @ObservedObject var model: VaultModel
     /// On as many lines as it takes, rather than cut short.
     var wrapsTitle = false
+    /// The row's width, which a wrapped title's lines are broken to fit.
+    var rowWidth: CGFloat?
 
     /// Between a wrapped title's lines: the system's own spacing was too tight to read.
     static let wrappedLineSpacing: CGFloat = 3
@@ -1133,6 +1140,8 @@ struct SidebarNoteRow: View {
                     .lineLimit(wrapsTitle ? nil : 1)
                     .lineSpacing(wrapsTitle ? Self.wrappedLineSpacing : 0)
                     .fixedSize(horizontal: false, vertical: wrapsTitle)
+                    // Broken at the width the row's height was measured for.
+                    .frame(width: wrapsTitle ? rowWidth.map { Self.titleWidth(of: note, model: model, rowWidth: $0) } : nil, alignment: .leading)
                 Spacer(minLength: 4)
                 if !note.isDownloaded {
                     Image(systemName: "icloud.and.arrow.down")

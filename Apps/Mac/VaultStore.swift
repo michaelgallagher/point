@@ -1084,6 +1084,12 @@ final class VaultStore: ObservableObject {
 
     /// Where the image an embed in the note `noteID` names is, if it's in the vault and here
     /// (one still in iCloud is fetched, and shown once it's arrived).
+    /// The vault's image an embed or link in the note `noteID` names.
+    func resolveImage(_ target: String, from noteID: Note.ID) -> VaultImage? {
+        guard let root else { return nil }
+        return VaultImages.resolve(target, from: noteID, images: imagesByName, root: root)
+    }
+
     func imageURL(for target: String, from noteID: Note.ID) -> URL? {
         if WebImageCache.isWeb(target) { return webImageURL(target) }
         guard let root, let image = VaultImages.resolve(target, from: noteID, images: imagesByName, root: root) else { return nil }

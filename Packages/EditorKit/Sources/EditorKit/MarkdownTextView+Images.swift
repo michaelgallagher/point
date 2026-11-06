@@ -9,6 +9,8 @@ import UniformTypeIdentifiers
 final class ImageEmbedView: NSView {
     private(set) var url: URL?
     private var pixels = 0
+    /// The embed it shows, in the note's text.
+    var range = NSRange(location: NSNotFound, length: 0)
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -41,13 +43,27 @@ final class ImageEmbedView: NSView {
         }
         if isNew { layer?.contents = nil }
         EditorImages.shared.picture(of: url, pixels: wanted) { [weak self] image in
-            guard let self, self.url == url else { return }
+            // Only the picture last asked for: a smaller one asked for earlier (before the note
+            // was laid out at its width) that arrives later mustn't replace it, blurred.
+            guard let self, self.url == url, self.pixels == wanted else { return }
             self.layer?.contents = image
         }
     }
 }
 
 extension MarkdownTextView {
+    /// Captions are file names, not words: no spelling marks on them.
+    public override func setSpellingState(_ value: Int, range charRange: NSRange) {
+        guard value != 0, let storage = textStorage, NSMaxRange(charRange) <= storage.length, charRange.length > 0 else {
+            return super.setSpellingState(value, range: charRange)
+        }
+        var touchesImage = false
+        storage.enumerateAttribute(.pointImage, in: charRange) { found, _, stop in
+            if found != nil { touchesImage = true; stop.pointee = true }
+        }
+        if !touchesImage { super.setSpellingState(value, range: charRange) }
+    }
+
     /// Puts a view over the room above each image embed, where its line is laid out.
     func syncImageViews() {
         guard let storage = textStorage, let layoutManager, let container = textContainer else { return }
@@ -76,12 +92,90 @@ extension MarkdownTextView {
                                    y: origin.y + line.minY + decoration.spaceAbove,
                                    width: decoration.size.width, height: decoration.size.height)
                 if view.frame != frame { view.frame = frame }
+                view.range = range
                 view.show(decoration.url, size: decoration.size, name: text.substring(with: range))
             }
         }
         while imageViews.count > count {
             imageViews.removeLast().removeFromSuperview()
         }
+    }
+
+    // MARK: An image's commands
+
+    /// The image drawn at a point in the view, with its embed.
+    private func image(at point: NSPoint) -> (view: ImageEmbedView, target: String, isWeb: Bool)? {
+        guard let view = imageViews.first(where: { $0.frame.contains(point) }), view.range.location != NSNotFound,
+              let token = tokens.first(where: { $0.range == view.range }),
+              let embed = MarkdownStyler.imageEmbed(token, in: string as NSString) else { return nil }
+        let isWeb = embed.target.lowercased().hasPrefix("http://") || embed.target.lowercased().hasPrefix("https://")
+        return (view, embed.target, isWeb)
+    }
+
+    /// Opens an image as a link to it would: in its viewer (or a web image's page).
+    private func openImage(_ target: String, isWeb: Bool) {
+        if isWeb, let url = URL(string: target) { onOpenLink?(.web(url)); return }
+        onOpenLink?(.note(target))
+    }
+
+    /// A double-click on an image opens it. Returns whether it was one.
+    func openImageOnDoubleClick(_ event: NSEvent, at point: NSPoint) -> Bool {
+        guard event.clickCount == 2, let found = image(at: point) else { return false }
+        openImage(found.target, isWeb: found.isWeb)
+        return true
+    }
+
+    /// Right-clicking an image: open, replace, copy, show or remove it.
+    func imageMenu(at point: NSPoint) -> NSMenu? {
+        guard let found = image(at: point) else { return nil }
+        let menu = NSMenu()
+        let range = found.view.range, url = found.view.url
+        menu.addItem(ImageMenuItem("Open Image") { [weak self] in self?.openImage(found.target, isWeb: found.isWeb) })
+        if saveImage != nil {
+            menu.addItem(ImageMenuItem("Replace Image…") { [weak self] in self?.replaceImage(at: range) })
+        }
+        menu.addItem(ImageMenuItem("Copy Image") {
+            guard let url, let image = NSImage(contentsOf: url) else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.writeObjects([image])
+        })
+        if found.isWeb {
+            menu.addItem(ImageMenuItem("Copy Image Address") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(found.target, forType: .string)
+            })
+        } else if let url {
+            menu.addItem(ImageMenuItem("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) })
+        }
+        menu.addItem(.separator())
+        menu.addItem(ImageMenuItem("Remove Image") { [weak self] in self?.removeImage(at: range) })
+        return menu
+    }
+
+    /// Asks for an image and puts it in place of the one embedded at `range`, as wide as that
+    /// one was asked to be. The old image stays in the vault (Find Unused Images finds it).
+    private func replaceImage(at range: NSRange) {
+        guard let window else { return }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.message = "Choose an image to show here instead"
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard let self, response == .OK, let file = panel.url, let data = try? Data(contentsOf: file),
+                  let name = saveImage?(data, UTType(filenameExtension: file.pathExtension)),
+                  NSMaxRange(range) <= (string as NSString).length else { return }
+            let old = (string as NSString).substring(with: range)
+            let width = old.hasPrefix("![[") ? old.dropFirst(3).dropLast(2).split(separator: "|", maxSplits: 1).dropFirst().first.map { "|" + $0 } ?? "" : ""
+            insertText("![[\(name)\(width)]]", replacementRange: range)
+        }
+    }
+
+    /// Takes the embed out of the note, and its line if it had one to itself.
+    private func removeImage(at range: NSRange) {
+        let text = string as NSString
+        guard NSMaxRange(range) <= text.length else { return }
+        let line = text.lineRange(for: range)
+        let alone = text.substring(with: line).trimmingCharacters(in: .whitespacesAndNewlines) == text.substring(with: range)
+        insertText("", replacementRange: alone ? line : range)
     }
 
     // MARK: Pasting and dropping images
@@ -151,5 +245,16 @@ extension MarkdownTextView {
         for type in Self.imagePasteboardTypes.reversed() where !types.contains(type) { types.insert(type, at: 0) }
         return types
     }
+}
+/// A menu item that runs a closure.
+final class ImageMenuItem: NSMenuItem {
+    private let run: () -> Void
+    init(_ title: String, _ run: @escaping () -> Void) {
+        self.run = run
+        super.init(title: title, action: #selector(runCommand), keyEquivalent: "")
+        target = self
+    }
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    @objc private func runCommand() { run() }
 }
 #endif

@@ -928,6 +928,17 @@ final class VaultModel: ObservableObject {
             case .otherSide: openToTheSide(id)
             }
         }
+        // An image (its caption, under it, or a link to it) opens in the image's viewer. One
+        // that isn't in the vault is never made a note.
+        let imageTarget: String? = switch link {
+        case .note(let target): target.split(separator: "|", maxSplits: 1).first.map(String.init)
+        case .file(let destination): destination.removingPercentEncoding ?? destination
+        default: nil
+        }
+        if let imageTarget, VaultImages.isImage((imageTarget as NSString).lastPathComponent) {
+            if let image = store.resolveImage(imageTarget, from: sourceID) { show(image.path) } else { NSSound.beep() }
+            return
+        }
         switch link {
         case .note(let target):
             if let note = resolver.resolve(wikiTarget: target, from: sourceID) {
