@@ -1,6 +1,6 @@
 # Point — plan
 
-A simple, fast, native Markdown notes app for Mac and iPhone that feels like Apple Notes and Things. It's backward compatible with Obsidian: it opens an existing vault and works alongside Obsidian on the same files, without being a copy of it.
+A simple, fast, native Markdown notes app for Mac and iPhone that feels like Apple Notes and Things. Its notes are plain Markdown files, readable anywhere. It opens an existing Obsidian vault and, until the iPhone app is in daily use, works alongside Obsidian on the same files. From 6 November 2026 it goes its own way where that's better (see [Beyond text](plan/structure.md)).
 
 The plan is in several documents, in [`plan/`](plan/). This page says where things stand and what's in each.
 
@@ -34,6 +34,7 @@ On `main`, which has everything so far, including search that learns.
 - [Milestones](plan/milestones.md): M0 to M6.
 
 **Work, newest first**
+- [Beyond text: structure, names and Obsidian](plan/structure.md) (6 November): how images, comparing drafts, lists from properties, and people and types fit together. Decided: plain files readable anywhere, not Obsidian compatibility; titles from a `title:` property, with dated file names; a typed index under it all; lists as notes; and the order of work.
 - [Images: where to store them](plan/images.md) (6 November): the options, from Obsidian's one attachment folder to a folder for each note, and a recommendation: one folder, images named after their note, and Point looking after them as notes are renamed and deleted.
 - [Search that learns](plan/search-learning.md) (3 November, merged): ranking the notes you open and pick higher, kept on each device, outside the vault.
 - [Tables: where things stand](plan/tables-status-2026-11-03.md) (3 November): why tables became a grid view over hidden Markdown, how it works, the rough edges fixed, and the limits left.

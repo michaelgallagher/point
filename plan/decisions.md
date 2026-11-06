@@ -5,6 +5,7 @@ Part of [the plan](../PLAN.md).
 # Principles
 
 1. **The file is the truth.** Notes are plain `.md` files in a folder that is also an Obsidian vault. Every unchanged byte stays unchanged, including frontmatter key order, whitespace, and syntax we don't render.
+   - **Plain files, readable anywhere** (6 November 2026). Point no longer aims to be compatible with Obsidian. Point can add things of its own, but each must still read sensibly, and lose nothing, in a text editor, Obsidian or Claude. No bundles, no properties outside the note, no database in the vault. Editing side by side with Obsidian stays supported until the iPhone app is in daily use. See [Beyond text](structure.md).
 2. **Never see Markdown.** Editing feels like rich text. Markdown decides what formatting is possible. A raw-source toggle exists for emergencies.
 3. **The Markdown Point writes is well formed.** Whatever the editing, the file reads as a person would have written it by hand: one `**bold run**`, not `**a** **b**`; no empty or stray markers; tables neat. It's valid at every keystroke, not only once typing stops. Feeling like rich text never excuses messy Markdown underneath.
 4. **Little filing.** Search, links and tags do most of the finding. Folders exist for the few broad areas that need them (as in Obsidian), but filing is never required.
@@ -40,6 +41,7 @@ Part of [the plan](../PLAN.md).
 - **Daily notes:** compatible with Obsidian. Read the folder, date format and template from `.obsidian/daily-notes.json`.
 - **Templates:** compatible with Obsidian's core Templates plugin. Read the template folder from `.obsidian/templates.json`, and support `{{title}}`, `{{date}}` and `{{time}}`, including custom date formats. New notes and daily notes can start from a template.
 - **Note names:** the title is the filename. An untitled note gets a timestamp name until it has a first line, and is renamed to that first line when you leave the note. Never rename while typing.
+  - **Changing (6 November 2026, not built yet):** new notes take their title from a `title:` property and are named from the creation date and the title, such as `2026-11-06-questions-about-my-vault.md`. Links are written as `[[file|Title]]`. Existing notes keep their names. See [Beyond text](structure.md).
 - **Links:** `[[wikilinks]]` everywhere. New links are always wikilinks.
 - **Renames:** update all `[[links]]` to the note across the vault, honouring Obsidian's link-format settings.
 - **Side by side with Obsidian:** Obsidian edits the same files concurrently. The app watches the vault and reloads externally changed notes without losing your cursor. iCloud conflict versions are surfaced, never silently dropped.
