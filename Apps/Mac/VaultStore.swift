@@ -417,7 +417,7 @@ final class VaultStore: ObservableObject {
         guard !title.isEmpty, title != note.title || NoteNames.title(in: text) == nil else { return }
         let retitled = NoteNames.settingTitle(title, in: text)
         do {
-            switch try NoteWriter.write(retitled, to: note.url, expecting: text, ifChanged: .report) {
+            switch try NoteWriter.write(retitled, to: note.url, expecting: text, ifChanged: .report, keepingDate: true) {
             case .saved: break
             default: return Self.showProblem("Couldn’t rename “\(note.title)”", detail: "The note changed while Point was renaming it. Try again.")
             }

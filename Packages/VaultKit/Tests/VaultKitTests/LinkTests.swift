@@ -90,6 +90,25 @@ struct FrontmatterLinkTests {
         try? FileManager.default.removeItem(at: root)
     }
 
+    /// A note whose links follow a rename wasn't edited by the user: it keeps its date.
+    @Test func linkUpdatesKeepTheLinkingNotesDate() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let oldURL = root.appendingPathComponent("Old.md"), linking = root.appendingPathComponent("Linking.md")
+        try Data("Old.\n".utf8).write(to: oldURL)
+        try Data("See [[Old]].\n".utf8).write(to: linking)
+        let earlier = Date(timeIntervalSince1970: 1_700_000_000)
+        try FileManager.default.setAttributes([.modificationDate: earlier], ofItemAtPath: linking.path)
+        let notes = try VaultScanner.scan(root)
+        let old = try #require(notes.first { $0.id == "Old.md" })
+        _ = try NoteFiles.rename(oldURL, to: "New")
+        let result = LinkUpdater.updateLinks(to: old, newTitle: "New", notes: notes)
+        #expect(result.updatedNotes == ["Linking.md"])
+        #expect(try String(contentsOf: linking, encoding: .utf8) == "See [[New]].\n")
+        #expect(try FileManager.default.attributesOfItem(atPath: linking.path)[.modificationDate] as? Date == earlier.addingTimeInterval(1))
+    }
+
     /// A note iCloud hasn't downloaded (only its placeholder is there) can't be checked for
     /// links, so it's reported rather than passed over.
     @Test func notesThatCantBeReadAreReported() throws {

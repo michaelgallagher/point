@@ -474,7 +474,7 @@ final class PhoneStore: ObservableObject {
         guard !title.isEmpty else { throw NoteFiles.FileError.emptyTitle }
         guard title != note.title || NoteNames.title(in: text) == nil else { return note }
         let retitled = NoteNames.settingTitle(title, in: text)
-        guard case .saved = try NoteWriter.write(retitled, to: note.url, expecting: text, ifChanged: .report) else {
+        guard case .saved = try NoteWriter.write(retitled, to: note.url, expecting: text, ifChanged: .report, keepingDate: true) else {
             throw CocoaError(.fileWriteUnknown)
         }
         let vault = notes

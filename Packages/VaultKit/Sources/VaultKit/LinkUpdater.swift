@@ -28,7 +28,7 @@ public enum LinkUpdater {
             let lowered = text.lowercased()
             guard lowered.contains(needle) || lowered.contains(encodedNeedle) else { continue }
             guard let rewritten = rewrite(text, in: note.id, renamed: renamed, newTitle: newTitle, resolver: resolver, retitling: retitling) else { continue }
-            switch try? NoteWriter.write(rewritten, to: url, expecting: text, ifChanged: .report) {
+            switch try? NoteWriter.write(rewritten, to: url, expecting: text, ifChanged: .report, keepingDate: true) {
             case .saved?: result.updatedNotes.append(note.id)
             default: result.skippedNotes.append(note.id)
             }
@@ -142,7 +142,7 @@ public enum LinkUpdater {
             let lowered = text.lowercased()
             guard lowered.contains(needle) || lowered.contains(encodedNeedle),
                   let rewritten = rewrite(text, in: note.id, moved: moved, newID: newID, resolver: resolver) else { continue }
-            switch try? NoteWriter.write(rewritten, to: note.url, expecting: text, ifChanged: .report) {
+            switch try? NoteWriter.write(rewritten, to: note.url, expecting: text, ifChanged: .report, keepingDate: true) {
             case .saved?: result.updatedNotes.append(note.id)
             default: result.skippedNotes.append(note.id)
             }
@@ -150,7 +150,7 @@ public enum LinkUpdater {
         let movedURL = root.appendingPathComponent(newID)
         if let text = try? NoteReader.read(contentsOf: movedURL),
            let rewritten = rewriteOwnLinks(text, from: moved.id, to: newID, root: root) {
-            switch try? NoteWriter.write(rewritten, to: movedURL, expecting: text, ifChanged: .report) {
+            switch try? NoteWriter.write(rewritten, to: movedURL, expecting: text, ifChanged: .report, keepingDate: true) {
             case .saved?: result.updatedNotes.append(newID)
             default: result.skippedNotes.append(newID)
             }

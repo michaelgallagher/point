@@ -38,7 +38,14 @@ public enum NoteWriter {
     ///
     /// The file is rewritten in place, as Obsidian does, so it keeps its creation date.
     /// Someone else's newer version (from Obsidian, or another device) is never overwritten.
-    public static func write(_ text: String, to url: URL, expecting expected: String, ifChanged policy: ConflictPolicy = .saveCopy) throws -> Outcome {
+    ///
+    /// `keepingDate`: the file keeps its modification date, one second on. For writes that
+    /// aren't the user changing this note (a property renamed across the vault, links
+    /// following a rename, a title set), so "last modified" stays the last time they changed
+    /// it. The second matters: Point's index, Obsidian's cache and other devices notice a
+    /// change by the date moving, so it must move, however little (whole seconds, as some
+    /// file systems and sync keep no finer).
+    public static func write(_ text: String, to url: URL, expecting expected: String, ifChanged policy: ConflictPolicy = .saveCopy, keepingDate: Bool = false) throws -> Outcome {
         var coordinationError: NSError?
         var result: Result<Outcome, Error>?
         NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: url, options: [], error: &coordinationError) { url in
@@ -60,7 +67,12 @@ public enum NoteWriter {
                         return .savedAsConflictCopy(try writeConflictCopy(text, beside: url))
                     }
                 }
+                let modified = keepingDate ? (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date : nil
                 try Data(text.utf8).write(to: url)
+                if let modified {
+                    let kept = min(modified.addingTimeInterval(1), Date())
+                    try? FileManager.default.setAttributes([.modificationDate: kept], ofItemAtPath: url.path)
+                }
                 return .saved
             }
         }

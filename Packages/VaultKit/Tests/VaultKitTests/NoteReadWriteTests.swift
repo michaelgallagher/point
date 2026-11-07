@@ -34,6 +34,23 @@ struct NoteReadWriteTests {
         #expect(attributes[.creationDate] as? Date == created)
     }
 
+    /// A save is the user changing the note, so its date moves to now. A write that isn't
+    /// (a rename across the vault, say) keeps the date, one second on, so caches that watch
+    /// dates still see a change.
+    @Test func keepsTheModificationDateOnlyWhenAsked() throws {
+        let earlier = Date(timeIntervalSince1970: 1_700_000_000)
+        let url = try file(Data("a".utf8))
+        defer { try? FileManager.default.removeItem(at: url) }
+        try FileManager.default.setAttributes([.modificationDate: earlier], ofItemAtPath: url.path)
+        #expect(try NoteWriter.write("b", to: url, expecting: "a", keepingDate: true) == .saved)
+        #expect(try String(contentsOf: url, encoding: .utf8) == "b")
+        let kept = try #require(FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date)
+        #expect(kept == earlier.addingTimeInterval(1))
+        _ = try NoteWriter.write("c", to: url, expecting: "b")
+        let saved = try #require(FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date)
+        #expect(saved.timeIntervalSinceNow > -60)
+    }
+
     @Test func changesMadeElsewhereAreNeverOverwritten() throws {
         let url = try file(Data("changed in Obsidian".utf8))
         defer { try? FileManager.default.removeItem(at: url) }

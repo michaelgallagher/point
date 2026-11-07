@@ -364,6 +364,17 @@ The Mac gained images, lists, Point's own kinds of property and dated titles on 
 
 **Not tried:** the iPhone itself, dark mode, web images on the phone, a vault image still in iCloud, a list of hundreds of notes. Titles sort as text (Book 10 before Book 2), on the Mac too.
 
+## Home, simplified (decided 7 November 2026, not built)
+
+From a conversation with Mike about keeping Point clear and focused. The phone is for taking notes (in meetings, workshops, on the way to work) and for browsing only when needed.
+
+- **Top:** a compact panel of Folders, Tags and Bookmarks, the ways in for browsing.
+- **Below it:** the 10 most recently viewed notes.
+- **The search field stays.** Before typing, the search view shows only recent searches (search learning has them); recent notes are already on home, so they aren't repeated. Once you type, results show as now.
+- **The sort button goes,** from home only.
+- **Bottom left: Add,** a blue (tinted glass) `plus` that makes a new note in the vault's top level, which is Mike's inbox. A long press could offer a new meeting note (to try, not decided).
+- **Inside folders,** the bottom bar stays as now: sort, search and actions.
+
 ## Decided (27 October 2026)
 
 1. **Bookmarks are Obsidian's** (`.obsidian/bookmarks.json`): the phone shows the notes in it, in its order, and bookmarking or reordering on the phone writes it back, keeping everything else in the file (folders, searches and headings Obsidian bookmarks too, which the phone doesn't show). The Mac can move to the same file later.

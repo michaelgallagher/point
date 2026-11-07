@@ -15,6 +15,15 @@ Today, each meeting gets its own note, because finding things inside daily notes
 
 - **Auto-hide the list in narrow windows:** shrinking a window below a set width hides the note list (filed 18 October 2026, not started).
 
+## Bug: the Mac app doesn't work in full screen (filed 7 November 2026)
+Found by Mike while writing a blog post. Blog writing usually happens in full screen, so this matters. Not started.
+
+- The top bar is moved to the bottom of the screen.
+- The note can't be scrolled.
+- The sidebar doesn't work at all.
+
+Full screen has never been tested: the 25 October app review couldn't enter it from a debug hook, and the sidebar plan lists it under "not yet tried". Check it alongside focus mode, the split view and a second display.
+
 # Open questions
 
 1. **Templater:** do you use the Templater community plugin (`<% %>` syntax), or only Obsidian's core Templates? Templater scripts can't be run outside Obsidian. We'd preserve them, but they wouldn't expand.

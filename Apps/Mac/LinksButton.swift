@@ -52,7 +52,7 @@ final class Connections: ObservableObject {
         guard let source = model?.notes.first(where: { $0.id == mention.noteID }),
               let text = try? NoteReader.read(contentsOf: source.url),
               let linked = mention.linking(in: text, to: note.title),
-              case .saved? = try? NoteWriter.write(linked, to: source.url, expecting: text, ifChanged: .report) else {
+              case .saved? = try? NoteWriter.write(linked, to: source.url, expecting: text, ifChanged: .report, keepingDate: true) else {
             NSSound.beep()
             return refresh()
         }

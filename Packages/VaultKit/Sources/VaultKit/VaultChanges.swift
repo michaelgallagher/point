@@ -42,7 +42,7 @@ public enum VaultChanges {
             let changed: String?
             do { changed = try transform(text) } catch { change.clashingNotes.append(note.id); continue }
             guard let changed, changed != text else { continue }
-            switch try? NoteWriter.write(changed, to: note.url, expecting: text, ifChanged: .report) {
+            switch try? NoteWriter.write(changed, to: note.url, expecting: text, ifChanged: .report, keepingDate: true) {
             case .saved?: change.edits.append(VaultChange.Edit(noteID: note.id, url: note.url, before: text, after: changed))
             default: change.skippedNotes.append(note.id)
             }
@@ -56,7 +56,7 @@ public enum VaultChanges {
     public static func undo(_ change: VaultChange) -> [String] {
         var missed: [String] = []
         for edit in change.edits {
-            switch try? NoteWriter.write(edit.before, to: edit.url, expecting: edit.after, ifChanged: .report) {
+            switch try? NoteWriter.write(edit.before, to: edit.url, expecting: edit.after, ifChanged: .report, keepingDate: true) {
             case .saved?: continue
             default: missed.append(edit.noteID)
             }

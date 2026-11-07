@@ -79,6 +79,22 @@ struct VaultChangeTests {
         #expect(try String(contentsOf: root.appendingPathComponent("A.md"), encoding: .utf8) == "---\nstatus: a\n---\n")
     }
 
+    /// Renaming across the vault, and undoing it, isn't editing the notes: each keeps its
+    /// date (one second on, so the index sees the change).
+    @Test func keepsEachNotesModificationDate() throws {
+        let (root, _) = try vault(["A.md": "---\nstatus: a\n---\n"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("A.md")
+        let earlier = Date(timeIntervalSince1970: 1_700_000_000)
+        try FileManager.default.setAttributes([.modificationDate: earlier], ofItemAtPath: url.path)
+        let modified = { try #require(FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date) }
+        let change = VaultChanges.apply("Renamed", to: try VaultScanner.scan(root)) { try VaultChanges.renamingProperty("status", to: "state", in: $0) }
+        #expect(change.updatedNotes == ["A.md"])
+        #expect(try modified() == earlier.addingTimeInterval(1))
+        #expect(VaultChanges.undo(change).isEmpty)
+        #expect(try modified() == earlier.addingTimeInterval(2))
+    }
+
     @Test func undoLeavesANoteChangedSince() throws {
         let (root, notes) = try vault(["A.md": "---\nstatus: a\n---\n"])
         defer { try? FileManager.default.removeItem(at: root) }
