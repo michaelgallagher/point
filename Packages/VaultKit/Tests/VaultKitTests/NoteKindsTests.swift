@@ -49,7 +49,7 @@ struct NoteKindsTests {
     @Test func setsTheKindOnANewNoteUnlessTheTemplateDoes() {
         // Added after the template's properties, which keep their order.
         #expect(kinds.text(for: meeting, from: "---\ndate: 2026-11-07\npeople:\n---\n## Notes\n")
-                == "---\ndate: 2026-11-07\npeople:\ntype: Meeting\n---\n## Notes\n")
+                == "---\ntype: Meeting\ndate: 2026-11-07\npeople:\n---\n## Notes\n")
         // An empty value is filled in.
         #expect(kinds.text(for: book, from: "---\ntitle:\ntype:\ngenre:\n---\n") == "---\ntitle:\ntype: Book\ngenre:\n---\n")
         // A template that says its kind keeps it.

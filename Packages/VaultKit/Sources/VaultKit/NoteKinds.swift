@@ -107,15 +107,20 @@ public struct NoteKinds: Sendable, Equatable {
     }
 
     /// A new note's text, from a template filled in (or nothing): with `property` set to the
-    /// kind, unless the template sets it already, everything else as the template has it.
+    /// kind, unless the template sets it already, everything else as the template has it. A
+    /// `property` Point adds goes first, where the vault keeps it.
     public func text(for kind: Kind, from rendered: String = "") -> String {
         guard let frontmatter = Frontmatter.parse(rendered) else {
             return Frontmatter.edit(adding: property, values: [kind.name], isList: false).1 + rendered
         }
         let existing = frontmatter.properties.first { $0.key.caseInsensitiveCompare(property) == .orderedSame }
         if let existing, !(existing.values.first ?? "").trimmingCharacters(in: .whitespaces).isEmpty { return rendered }
-        let (range, replacement) = frontmatter.edit(setting: existing?.key ?? property, to: [kind.name], isList: false)
-        return (rendered as NSString).replacingCharacters(in: range, with: replacement)
+        let key = existing?.key ?? property
+        let (range, replacement) = frontmatter.edit(setting: key, to: [kind.name], isList: false)
+        let set = (rendered as NSString).replacingCharacters(in: range, with: replacement)
+        guard existing == nil, let added = Frontmatter.parse(set),
+              let (moveRange, moved) = added.edit(moving: key, to: 0, in: set) else { return set }
+        return (set as NSString).replacingCharacters(in: moveRange, with: moved)
     }
 
     /// `type` as a choice of the kinds, for the properties to offer them. Nil if there are none.
