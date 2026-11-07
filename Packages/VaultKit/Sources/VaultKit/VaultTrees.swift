@@ -129,6 +129,8 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
     case propertyValue(String, String)
     /// The vault's kinds of note (`.point/kinds.json`), each with its notes.
     case types
+    /// Every tag, to choose one from (in one column; two columns list them under folders).
+    case tags
     /// A kind's notes: those whose property (`type`, usually) is its name.
     case kind(String, String)
 
@@ -145,6 +147,7 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
         case .property(let name): "property:" + name
         case .propertyValue(let name, let value): "value:" + name + "\u{1F}" + value
         case .types: "types"
+        case .tags: "tags"
         case .kind(let property, let name): "kind:" + property + "\u{1F}" + name
         }
     }
@@ -156,6 +159,7 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
         else if key == "trash" { self = .trash }
         else if key == "properties" { self = .properties }
         else if key == "types" { self = .types }
+        else if key == "tags" { self = .tags }
         else if key.hasPrefix("kind:"), let split = key.dropFirst(5).firstIndex(of: "\u{1F}") {
             self = .kind(String(key.dropFirst(5)[..<split]), String(key.dropFirst(5)[key.index(after: split)...]))
         }
@@ -172,14 +176,14 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
     /// property, a property's list of properties, a kind's list of types, else All Notes.
     public var parent: SidebarPlace {
         switch self {
-        case .allNotes, .everything, .bookmarks, .trash, .properties, .types: .allNotes
+        case .allNotes, .everything, .bookmarks, .trash, .properties, .types, .tags: .allNotes
         case .kind: .types
         case .property: .properties
         case .propertyValue(let name, _): .property(name)
         case .folder(let path):
             FolderTree.parent(of: path).isEmpty ? .allNotes : .folder(FolderTree.parent(of: path))
         case .tag(let tag):
-            tag.contains("/") ? .tag(FolderTree.parent(of: tag)) : .allNotes
+            tag.contains("/") ? .tag(FolderTree.parent(of: tag)) : .tags
         }
     }
 }

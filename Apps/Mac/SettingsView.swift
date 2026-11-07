@@ -163,8 +163,22 @@ struct SettingsView: View {
                     Text("Folders above tags").tag(VaultModel.TreeLayout.stacked)
                     Text("One at a time").tag(VaultModel.TreeLayout.toggle)
                 }
-                Toggle("Show bookmarks", isOn: $store.showsBookmarksInSidebar)
+                .disabled(store.browsingStyle != .twoColumns)
             }
+
+            Section {
+                Toggle("Bookmarks", isOn: $store.showsBookmarksInSidebar)
+                Toggle("Tags", isOn: $store.showsTagsInSidebar)
+                Toggle("Types", isOn: $store.showsTypesInSidebar)
+                    .disabled(store.kinds.isEmpty)
+            } header: {
+                Text("Shown in the sidebar")
+            } footer: {
+                Text(store.kinds.isEmpty ? "Types shows once the vault has kinds of note (.point/kinds.json)." : "In one column, these are at the top, each opening its own list. In two, tags and types are listed under folders.")
+                    .foregroundStyle(.secondary)
+            }
+
+            SidebarPropertiesSection()
 
             Section("Showing and hiding") {
                 Toggle("Swipe sideways with two fingers to show and hide", isOn: $store.swipesSidebar)
@@ -551,6 +565,45 @@ private struct Setting<Content: View>: View {
                 .font(isHeading ? .body.weight(.bold) : nil)
                 .foregroundStyle(isHeading ? .primary : .secondary)
             content
+        }
+    }
+}
+
+/// The vault's properties, most used first: each can be listed in the sidebar with its values
+/// (none are, at first), and renamed in every note.
+private struct SidebarPropertiesSection: View {
+    @EnvironmentObject private var store: VaultStore
+    @State private var renaming: VaultStore.VaultRename?
+
+    var body: some View {
+        Section {
+            if store.propertySummaries.isEmpty {
+                Text("No notes have properties.")
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(store.propertySummaries) { summary in
+                HStack {
+                    Toggle(isOn: Binding(get: { store.showsInSidebar(property: summary.name) },
+                                         set: { store.setShowsInSidebar(property: summary.name, $0) })) {
+                        HStack(spacing: 6) {
+                            Text(summary.name)
+                            Text(summary.noteCount == 1 ? "1 note" : "\(summary.noteCount) notes")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    Button("Rename…") { renaming = .property(summary.name) }
+                        .buttonStyle(.borderless)
+                }
+            }
+        } header: {
+            Text("Properties in the sidebar")
+        } footer: {
+            Text("A property turned on is listed with its values, each opening the notes that give it. Renaming one renames it in every note.")
+                .foregroundStyle(.secondary)
+        }
+        .sheet(item: $renaming) { rename in
+            RenameAcrossVaultSheet(rename: rename, store: store)
         }
     }
 }

@@ -38,9 +38,37 @@ enum SidebarRow: Hashable {
     }
 }
 
-/// The sidebar's sections at the vault's top level, each of which can be folded away.
-enum SidebarSection: String, CaseIterable {
-    case pinned = "Pinned", folders = "Folders", tags = "Tags", types = "Types", properties = "Properties", values = "Values", notes = "Notes", images = "Images"
+/// The sidebar's sections, each of which can be folded away.
+enum SidebarSection: Hashable {
+    case pinned, folders, tags, types, properties, values, notes, images
+    /// The note a property's value links to (a topic's own note), above the notes giving it.
+    case linkedNote
+    /// A property the sidebar lists, by name, with its values (in two columns).
+    case property(String)
+
+    /// Its label.
+    var title: String {
+        switch self {
+        case .pinned: "Pinned"
+        case .folders: "Folders"
+        case .tags: "Tags"
+        case .types: "Types"
+        case .properties: "Properties"
+        case .values: "Values"
+        case .notes: "Notes"
+        case .images: "Images"
+        case .linkedNote: "Linked note"
+        case .property(let name): name.prefix(1).uppercased() + name.dropFirst()
+        }
+    }
+
+    /// How its folding is remembered: by its label (as always), a property's by its name.
+    var key: String {
+        if case .property(let name) = self { return "property:" + name.lowercased() }
+        return title
+    }
+
+    static let fixed: [SidebarSection] = [.pinned, .folders, .tags, .types, .properties, .values, .notes, .images, .linkedNote]
 }
 
 extension VaultModel {
@@ -50,7 +78,7 @@ extension VaultModel {
         switch place {
         case .folder(let path): path
         case .tag(let tag): "#" + tag
-        case .allNotes, .everything, .bookmarks, .trash, .properties, .property, .propertyValue, .types, .kind: ""
+        case .allNotes, .everything, .bookmarks, .trash, .properties, .property, .propertyValue, .types, .kind, .tags: ""
         }
     }
 
@@ -90,15 +118,29 @@ extension VaultModel {
             }
         }
         let subplaces = subplaces(of: place)
+        // Tags, nested ones beneath a tag that's unfolded, as subfolders are.
+        func tagRows() -> [SidebarRow] {
+            sortedTagEntries.filter { entry in
+                let parts = entry.tag.split(separator: "/")
+                return (1..<max(parts.count, 1)).allSatisfy { expanded.contains(Self.expansionKey(.tag(parts.prefix($0).joined(separator: "/")))) }
+            }.map { .place(.tag($0.tag), depth: $0.depth) }
+        }
+        let twoColumns = content == .places
+        let showsTags = store.showsTagsInSidebar && !tagTree.entries.isEmpty
+        let showsTypes = store.showsTypesInSidebar && !store.kinds.isEmpty
         if place == .allNotes {
-            // Special places first, with no heading: every note, and the trash. Then the switch
-            // between folders and tags, if they show one at a time: below these, which it
-            // doesn't change.
-            let oneAtATime = treeLayout == .toggle
-            // Types only once the vault has kinds, and properties once it has some.
-            let special: [SidebarPlace] = [.everything] + (store.showsBookmarksInSidebar ? [.bookmarks] : [])
-                + (store.kinds.isEmpty ? [] : [.types])
-                + (store.propertySummaries.isEmpty ? [] : [.properties]) + [.trash]
+            // Special places first, with no heading: every note, bookmarks, and the trash; in
+            // one column, Tags, Types and the properties chosen too, each opening its own list
+            // (in two, they're sections of the tree, under folders). Then the switch between
+            // folders and tags, if they show one at a time: below these, which it doesn't change.
+            let oneAtATime = twoColumns && treeLayout == .toggle
+            var special: [SidebarPlace] = [.everything] + (store.showsBookmarksInSidebar ? [.bookmarks] : [])
+            if !twoColumns {
+                if showsTags { special.append(.tags) }
+                if showsTypes { special.append(.types) }
+                special += store.shownSidebarProperties.map { .property($0) }
+            }
+            special.append(.trash)
             sections.append(places(special.map { .place($0, depth: 0) })
                             + (oneAtATime && filter.isEmpty ? [.treeSwitch] : []))
             if !pins.isEmpty { sections.append(section(.pinned, places(pins.map { .place($0, depth: 0) }))) }
@@ -119,25 +161,36 @@ extension VaultModel {
                 let top: [SidebarRow] = content == .places ? [.place(.allNotes, depth: 0)] : []
                 if !subplaces.isEmpty || !top.isEmpty { addTree(.folders, places(top + folderRows(subplaces, depth: 0))) }
             }
-            if !tagTree.entries.isEmpty, !oneAtATime || treeKind == .tags {
-                // Nested tags show beneath a tag that's unfolded, as subfolders do.
-                let tags = sortedTagEntries.filter { entry in
-                    let parts = entry.tag.split(separator: "/")
-                    return (1..<max(parts.count, 1)).allSatisfy { expanded.contains(Self.expansionKey(.tag(parts.prefix($0).joined(separator: "/")))) }
-                }
-                addTree(.tags, places(tags.map { .place(.tag($0.tag), depth: $0.depth) }))
+            if twoColumns, showsTags, !oneAtATime || treeKind == .tags {
+                addTree(.tags, places(tagRows()))
             }
+            if twoColumns {
+                // Each kind, and each value of a property chosen, lists its notes beside.
+                if showsTypes {
+                    sections.append(section(.types, places(store.kinds.kinds.map { .place(.kind(store.kinds.property, $0.name), depth: 0) })))
+                }
+                for name in store.shownSidebarProperties {
+                    sections.append(section(.property(name), places(store.sidebarValues(of: name).map { .place(.propertyValue(name, $0), depth: 0) })))
+                }
+            }
+        } else if place == .tags {
+            sections.append(section(.tags, places(tagRows())))
         } else if !subplaces.isEmpty {
             // Inside a folder (or tag) with folders (or tags) in it: labelled, as at the top.
             let rows = place.unfolds && !place.isTag ? folderRows(subplaces, depth: 0) : subplaces.map { SidebarRow.place($0, depth: 0) }
             let label: SidebarSection = switch place {
             case .tag: .tags
             case .properties: .properties
-            case .property: .values
+            case .property(let name): .property(name)
             case .types: .types
             default: .folders
             }
             sections.append(section(label, places(rows)))
+        }
+        // A value that links to a note (a topic, say): that note, to open it, above those
+        // giving the value.
+        if case .propertyValue(_, let value) = place, let linked = store.linkedNote(ofValue: value), shows(linked.title) {
+            sections.append(section(.linkedNote, [.note(linked.id)]))
         }
         // The notes, always under their label, which holds the sort menu.
         let notes = content == .places ? [] : notes(in: place).filter { shows($0.title) }
@@ -180,7 +233,7 @@ struct SidebarTable: NSViewRepresentable {
     private var collapsedEntries: [String] { collapsedSections.split(separator: ",").map(String.init) }
 
     private static func entry(_ section: SidebarSection, in place: SidebarPlace) -> String {
-        place.key + "|" + section.rawValue
+        place.key + "|" + section.key
     }
 
     /// Where the sidebar is: the top level, always, for the two-column view's tree.
@@ -190,8 +243,8 @@ struct SidebarTable: NSViewRepresentable {
     var collapsed: Set<SidebarSection> {
         let entries = Set(collapsedEntries)
         let place = shownPlace
-        return Set(SidebarSection.allCases.filter { section in
-            entries.contains(Self.entry(section, in: place)) || (place == .allNotes && entries.contains(section.rawValue))
+        return Set((SidebarSection.fixed + model.store.sidebarProperties.map { .property($0) }).filter { section in
+            entries.contains(Self.entry(section, in: place)) || (place == .allNotes && entries.contains(section.key))
         })
     }
 
@@ -212,7 +265,7 @@ struct SidebarTable: NSViewRepresentable {
         let entry = Self.entry(section, in: place)
         let wasCollapsed = collapsed.contains(section)
         // Drops this section's entries here, including the old form at the top level.
-        var entries = collapsedEntries.filter { $0 != entry && !(place == .allNotes && $0 == section.rawValue) }
+        var entries = collapsedEntries.filter { $0 != entry && !(place == .allNotes && $0 == section.key) }
         if !wasCollapsed { entries.append(entry) }
         collapsedSections = entries.joined(separator: ",")
     }
@@ -374,7 +427,7 @@ struct SidebarTable: NSViewRepresentable {
             func depth(_ place: SidebarPlace) -> Int {
                 switch place {
                 case .allNotes: 0
-                case .everything, .bookmarks, .trash, .properties, .types: 1
+                case .everything, .bookmarks, .trash, .properties, .types, .tags: 1
                 case .property, .kind: 2
                 case .propertyValue: 3
                 case .folder(let path), .tag(let path): path.split(separator: "/").count
@@ -627,7 +680,7 @@ struct SidebarTable: NSViewRepresentable {
                     entry.state = model.tagOrder == order ? .on : .off
                     menu.addItem(entry)
                 }
-            case .pinned, .types, .properties, .values, .images:
+            case .pinned, .types, .properties, .values, .images, .linkedNote, .property:
                 return nil
             }
             return menu
@@ -987,7 +1040,7 @@ struct SidebarRowView: View {
         case .header(let section):
             let isOpen = !collapsed.contains(section)
             HStack(spacing: 4) {
-                Text(section.rawValue)
+                Text(section.title)
                     .lineLimit(1)
                 Image(systemName: "chevron.right")
                     .font(.caption2.weight(.semibold))
@@ -1002,7 +1055,7 @@ struct SidebarRowView: View {
                     }
                     // On one line, however narrow the column: the label is cut short instead.
                     .fixedSize()
-                    .help("How \(section.rawValue.lowercased()) are sorted")
+                    .help("How \(section.title.lowercased()) are sorted")
                 }
             }
             .font(.caption.weight(.semibold))
@@ -1013,7 +1066,7 @@ struct SidebarRowView: View {
             .padding(.trailing, 7.5)
             // As much room below the label as above it, down to the line when it's folded.
             .padding(.bottom, 5)
-            .help(isOpen ? "Hide \(section.rawValue.lowercased())" : "Show \(section.rawValue.lowercased())")
+            .help(isOpen ? "Hide \(section.title.lowercased())" : "Show \(section.title.lowercased())")
         case .dateGroup(let label, _):
             // As a section's label, without its arrow: it doesn't fold.
             Text(label)
@@ -1035,7 +1088,7 @@ struct SidebarRowView: View {
                 Image(systemName: model.symbol(for: place))
                     // White on the selection's blue (the tree's); otherwise blue, as in Finder.
                     .foregroundStyle(isEmphasized ? AnyShapeStyle(.primary)
-                                     : place.isTag || (place.isProperty && place != .properties) ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.accentColor))
+                                     : place.isTag || place.isPropertyValue ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.accentColor))
                     .frame(width: Self.iconWidth)
                 Text(name(of: place, depth: depth))
                     .lineLimit(1)
@@ -1205,7 +1258,7 @@ extension VaultModel {
             }
         case .folders, .tags:
             tagOrder == .name ? "Name" : "Date modified"
-        case .pinned, .types, .properties, .values, .images:
+        case .pinned, .types, .properties, .values, .images, .linkedNote, .property:
             nil
         }
     }
@@ -1225,6 +1278,7 @@ extension SidebarPlace {
         case .property: "text.alignleft"
         case .propertyValue: "equal"
         case .types: "square.grid.2x2"
+        case .tags: "number"
         case .kind: "doc.text"
         }
     }

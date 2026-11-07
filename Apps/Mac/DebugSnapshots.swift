@@ -264,7 +264,7 @@ enum DebugSnapshots {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
                 for row in model.sidebarRows(collapsed: []) {
                     switch row {
-                    case .header(let section): Trace.mark("row: [\(section.rawValue)]")
+                    case .header(let section): Trace.mark("row: [\(section.title)]")
                     case .place(let place, let depth):
                         Trace.mark("row: \(String(repeating: "  ", count: depth))\(model.symbol(for: place)) \(place.title) \(model.noteCount(of: place))")
                     case .note(let id): Trace.mark("row: note \(id)")

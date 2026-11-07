@@ -988,6 +988,47 @@ final class VaultStore: ObservableObject {
     @Published var showsBookmarksInSidebar = UserDefaults.standard.object(forKey: "showsBookmarksInSidebar") == nil || UserDefaults.standard.bool(forKey: "showsBookmarksInSidebar") {
         didSet { UserDefaults.standard.set(showsBookmarksInSidebar, forKey: "showsBookmarksInSidebar") }
     }
+    @Published var showsTagsInSidebar = UserDefaults.standard.object(forKey: "showsTagsInSidebar") == nil || UserDefaults.standard.bool(forKey: "showsTagsInSidebar") {
+        didSet { UserDefaults.standard.set(showsTagsInSidebar, forKey: "showsTagsInSidebar") }
+    }
+    /// Types, once the vault has kinds of note.
+    @Published var showsTypesInSidebar = UserDefaults.standard.object(forKey: "showsTypesInSidebar") == nil || UserDefaults.standard.bool(forKey: "showsTypesInSidebar") {
+        didSet { UserDefaults.standard.set(showsTypesInSidebar, forKey: "showsTypesInSidebar") }
+    }
+    /// The properties the sidebar lists, each with its values, in the order they were chosen:
+    /// none at first.
+    @Published var sidebarProperties = UserDefaults.standard.stringArray(forKey: "sidebarProperties") ?? [] {
+        didSet { UserDefaults.standard.set(sidebarProperties, forKey: "sidebarProperties") }
+    }
+
+    /// Whether the sidebar lists a property, whatever its case.
+    func showsInSidebar(property name: String) -> Bool {
+        sidebarProperties.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+    }
+
+    /// Lists a property in the sidebar, or stops.
+    func setShowsInSidebar(property name: String, _ shows: Bool) {
+        sidebarProperties.removeAll { $0.caseInsensitiveCompare(name) == .orderedSame }
+        if shows { sidebarProperties.append(name) }
+    }
+
+    /// The properties the sidebar lists that notes still have, as most notes spell them.
+    var shownSidebarProperties: [String] {
+        sidebarProperties.compactMap { name in propertySummaries.first { $0.id == name.lowercased() }?.name }
+    }
+
+    /// A property's values for the sidebar: by name, as they're shown, each once.
+    func sidebarValues(of name: String) -> [String] {
+        propertyValueList(name).map(\.value)
+            .filter { !PropertyValueText.shown($0).trimmingCharacters(in: .whitespaces).isEmpty }
+            .sorted { PropertyValueText.shown($0).localizedStandardCompare(PropertyValueText.shown($1)) == .orderedAscending }
+    }
+
+    /// The note a property's value links to (`[[Topic]]`), if it's a link to one.
+    func linkedNote(ofValue value: String) -> Note? {
+        guard let target = PropertyLink.linkedName(value) else { return nil }
+        return linkResolver.resolve(wikiTarget: target, from: "")
+    }
     @Published var showsTagsInList = UserDefaults.standard.bool(forKey: "showsTagsInList") {
         didSet {
             UserDefaults.standard.set(showsTagsInList, forKey: "showsTagsInList")
@@ -1485,7 +1526,7 @@ final class VaultStore: ObservableObject {
         case .allNotes: return notes.filter { !$0.id.contains("/") }
         case .everything: return notes
         case .bookmarks: return bookmarkedNotes
-        case .trash, .properties, .types: return []
+        case .trash, .properties, .types, .tags: return []
         case .folder(let path): return notes.filter { FolderTree.folder(of: $0.id) == path }
         case .tag(let tag): return notes.filter { TagTree.tags(indexedTags[$0.id] ?? [], include: tag) }
         case .property, .propertyValue, .kind:
@@ -1502,10 +1543,11 @@ final class VaultStore: ObservableObject {
         case .allNotes: sortedFolders(folderTree.subfolders(of: "")).map(SidebarPlace.folder)
         case .everything, .bookmarks, .trash, .propertyValue, .kind: []
         case .types: kinds.kinds.map { .kind(kinds.property, $0.name) }
+        case .tags: sortedTags(tagTree.entries.filter { $0.depth == 0 }).map { .tag($0.tag) }
         case .folder(let path): sortedFolders(folderTree.subfolders(of: path)).map(SidebarPlace.folder)
         case .tag(let tag): sortedTags(tagTree.children(of: tag)).map { .tag($0.tag) }
         case .properties: propertySummaries.map { .property($0.name) }
-        case .property(let name): propertyValueList(name).map { .propertyValue(name, $0.value) }
+        case .property(let name): sidebarValues(of: name).map { .propertyValue(name, $0) }
         }
     }
 
@@ -1569,6 +1611,7 @@ final class VaultStore: ObservableObject {
         case .propertyValue(let name, let value), .kind(let name, let value):
             propertyValueList(name).first { $0.value.lowercased() == value.lowercased() }?.count ?? 0
         case .types: kinds.kinds.count
+        case .tags: tagTree.entries.count
         }
     }
 
@@ -1925,6 +1968,12 @@ extension SidebarPlace {
         case .folder, .tag: true
         default: false
         }
+    }
+
+    /// A property's value: drawn in secondary colour, like a tag.
+    var isPropertyValue: Bool {
+        if case .propertyValue = self { return true }
+        return false
     }
 
     /// Made from properties: shown in their own section, in secondary colour like tags.

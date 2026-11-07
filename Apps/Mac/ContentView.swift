@@ -171,7 +171,7 @@ struct ContentView: View {
             RenameSheet(note: note)
         }
         .sheet(item: $model.renamingAcrossVault) { rename in
-            RenameAcrossVaultSheet(rename: rename)
+            RenameAcrossVaultSheet(rename: rename, store: model.store, model: model)
         }
         .sheet(isPresented: $model.isShowingUnusedImages) {
             UnusedImagesSheet()
@@ -314,6 +314,7 @@ extension NoteList {
         case .tag: return "No notes have this tag."
         case .properties: return "No notes have properties."
         case .types: return "No notes have a type."
+        case .tags: return "No notes have tags."
         case .property, .propertyValue, .kind:
             guard let query = model.place.query, model.store.noteIDs(matching: query) != nil else { return nil }
             if case .property = model.place { return "No notes have this property." }
@@ -395,6 +396,7 @@ extension SidebarPlace {
         case .property(let name): name
         case .propertyValue(_, let value): PropertyValueText.shown(value)
         case .types: "Types"
+        case .tags: "Tags"
         case .kind(_, let name): name
         }
     }
@@ -544,10 +546,13 @@ private struct UnusedImagesSheet: View {
     }
 }
 
-private struct RenameAcrossVaultSheet: View {
-    @EnvironmentObject private var model: VaultModel
+/// Renames a tag or property, or changes a value, in every note: from the sidebar, or a
+/// property from Settings (with no window to follow it in).
+struct RenameAcrossVaultSheet: View {
     @Environment(\.dismiss) private var dismiss
     let rename: VaultStore.VaultRename
+    let store: VaultStore
+    var model: VaultModel?
     @State private var name = ""
 
     var body: some View {
@@ -597,7 +602,7 @@ private struct RenameAcrossVaultSheet: View {
     }
 
     private var detail: String {
-        let count = model.noteCount(of: place)
+        let count = store.noteCount(of: place)
         let notes = count == 1 ? "1 note" : "\(count) notes"
         return switch rename {
         case .property: "Renamed in \(notes). Their values stay as they are."
@@ -610,8 +615,13 @@ private struct RenameAcrossVaultSheet: View {
         let new = name.trimmingCharacters(in: .whitespaces)
         guard !new.isEmpty, new != rename.current else { return }
         dismiss()
-        model.store.rename(rename, to: new)
+        store.rename(rename, to: new)
+        // Listed in the sidebar: listed by its new name.
+        if case .property(let old) = rename, store.showsInSidebar(property: old) {
+            store.sidebarProperties = store.sidebarProperties.map { $0.caseInsensitiveCompare(old) == .orderedSame ? new : $0 }
+        }
         // Still browsing what was renamed: follow it to its new name.
+        guard let model else { return }
         switch (rename, model.place) {
         case (.property(let old), .property(let current)) where old == current: model.browse(.property(new))
         case (.value(let property, let old), .propertyValue(let name, let current)) where old == current && property == name:

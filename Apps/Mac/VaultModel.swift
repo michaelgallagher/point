@@ -13,6 +13,7 @@ final class VaultModel: ObservableObject {
     let store: VaultStore
     private var storeChanges: AnyCancellable?
     private var bookmarksHidden: AnyCancellable?
+    private var sidebarListsHidden: AnyCancellable?
 
     init(store: VaultStore) {
         self.store = store
@@ -23,6 +24,20 @@ final class VaultModel: ObservableObject {
             guard let self, !shown, place == .bookmarks else { return }
             place = browsingStyle == .twoColumns ? .everything : .allNotes
         }
+        // Tags, Types or a property taken out of the sidebar while in them: back to the top.
+        sidebarListsHidden = Publishers.CombineLatest3(store.$showsTagsInSidebar, store.$showsTypesInSidebar, store.$sidebarProperties)
+            .sink { [weak self] tags, types, properties in
+                guard let self else { return }
+                let isHidden = switch place {
+                case .tags, .tag: !tags
+                case .types, .kind: !types
+                case .property(let name), .propertyValue(let name, _):
+                    !properties.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+                case .properties: true
+                default: false
+                }
+                if isHidden { place = browsingStyle == .twoColumns ? .everything : .allNotes }
+            }
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(noteMoved(_:)), name: .pointNoteMoved, object: nil)
         center.addObserver(self, selector: #selector(folderMoved(_:)), name: .pointFolderMoved, object: nil)
@@ -1248,10 +1263,17 @@ final class VaultModel: ObservableObject {
         self.place = place
     }
 
-    /// Back up to the enclosing folder or parent tag.
+    /// Back up to the enclosing folder or parent tag. In two columns, from a kind, tag or
+    /// value at the top of its section, to the top: Tags, Types and a property's values aren't
+    /// places of their own there, but sections of the tree.
     func goUp() {
         guard place != .allNotes else { return NSSound.beep() }
-        browse(place.parent)
+        let up = place.parent
+        let isSection = switch up {
+        case .tags, .types, .property, .properties: true
+        default: false
+        }
+        browse(browsingStyle == .twoColumns && isSection ? .allNotes : up)
     }
 
     /// Opens the previous (-1) or next (+1) note in the list showing (⌥⌘↑ / ⌥⌘↓).

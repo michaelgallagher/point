@@ -19,6 +19,6 @@ Part of [the plan](../PLAN.md).
 
 **Not tried:** the Mac's menu and palette by hand (both build; running a second copy of Point beside Mike's would share its settings and search history). The iPhone itself.
 
-**Types (7 November, branch `types-and-tidying`):** on the Mac, Types sits above Properties in the sidebar, listing the kinds with their symbols and counts; a kind lists its notes (`SidebarPlace.types` and `.kind`). On the iPhone, a Types tile on home does the same. In two columns, kinds, properties and values list in the notes column (Properties used to show nothing there).
+**Types, tags and properties in the sidebar (7 November, branch `types-and-tidying`):** one pattern for all three. In two columns, Tags, Types and each property chosen are sections of the tree under Folders, folding like Tags; a tag, kind or value lists its notes beside. In one column, they're in the top set (All notes, Bookmarks, Tags, Types, the properties chosen, Trash), each opening its own list, then Folders, then the notes in the vault root. Settings › Sidebar shows or hides Bookmarks, Tags and Types, and lists the vault's properties: none is in the sidebar until turned on there, and each can be renamed there. The Properties item (every property) is gone. A value that links to a note (a topic) shows that note first, under "Linked note", above the notes giving the value. Built and tested by build only: running a second copy beside Mike's would share its settings.
 
 **Next, maybe:** a kind's symbol in note lists.

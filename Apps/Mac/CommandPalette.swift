@@ -600,7 +600,6 @@ struct PaletteCommand {
             PaletteCommand(name: "Open Vault…", shortcut: ShortcutStore.shared.label(for: .openVault)) { model.chooseVault() },
             PaletteCommand(name: "All Notes", shortcut: nil) { model.browse(.allNotes) },
             PaletteCommand(name: "Enclosing Folder", shortcut: ShortcutStore.shared.label(for: .enclosingFolder)) { model.goUp() },
-            PaletteCommand(name: "Properties", shortcut: nil) { model.browse(.properties) },
             PaletteCommand(name: "Find Unused Images…", shortcut: nil) { model.isShowingUnusedImages = true },
         ]
         // A new note of each kind ("New Meeting"), and of each of its templates after the
