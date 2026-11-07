@@ -109,7 +109,7 @@ struct PropertiesStrip: View {
                     .transition(.opacity)
             }
         }
-        .font(.callout)
+        .font(.body)
         // Opens to show a property being highlighted.
         .onChange(of: session.revealedProperty) { key in
             if key != nil, !isExpanded { withAnimation(.easeOut(duration: 0.15)) { isExpanded = true } }
@@ -150,7 +150,7 @@ struct PropertiesStrip: View {
     /// The keys' column, with the space after it: as wide as the longest key, within reason.
     /// (The space was taken out of the key's own width, which cut long keys short.)
     private var keyWidth: CGFloat {
-        let font = NSFont.preferredFont(forTextStyle: .callout)
+        let font = NSFont.preferredFont(forTextStyle: .body)
         let widest = frontmatter.properties.map { ($0.key as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
         return min(max(ceil(widest) + 4, 60), 240) + Self.columnSpacing
     }
@@ -1070,7 +1070,7 @@ private struct FlowLayout: Layout {
         return bounds.minY + row.height / 2 + (Self.font.ascender + Self.font.descender) / 2
     }
 
-    nonisolated(unsafe) private static let font = NSFont.preferredFont(forTextStyle: .callout)
+    nonisolated(unsafe) private static let font = NSFont.preferredFont(forTextStyle: .body)
 
     private struct Row { var indices: [Int] = []; var width: CGFloat = 0; var height: CGFloat = 0 }
 

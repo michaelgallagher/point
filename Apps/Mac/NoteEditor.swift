@@ -137,7 +137,9 @@ private struct NotePath: View {
                         .help("Show “\(names[index])”")
                 }
             }
-            .font(.system(size: 13 * model.textScale * model.store.typography.bodySize / 15))
+            // The same size as the properties below, and the menus and date pickers in them,
+            // which AppKit draws at 13pt whatever the text size.
+            .font(.body)
             .lineLimit(1)
         }
     }
