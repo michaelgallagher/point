@@ -105,7 +105,7 @@ struct PropertiesStrip: View {
             }
             // What came before it: under the summary, or the rows when open.
             if let recall = model.store.recall(of: session.frontmatter, name: session.note.name) {
-                RecallLine(model: model, recall: recall, paneID: paneID)
+                RecallLine(model: model, recall: recall, noteID: session.note.id, paneID: paneID)
             }
             // Drawn like a horizontal rule in the note: one point, the separator colour.
             if isExpanded {

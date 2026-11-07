@@ -313,8 +313,9 @@ final class PhoneStore: ObservableObject {
     /// `.point/types.json`, as on the Mac.
     @Published private(set) var pointTypes = PointTypes()
 
-    /// What came before a note (its earlier meetings with the same people, say), as on the Mac:
-    /// people are in the properties of Point's person kind, else in `people`.
+    /// What came before a note (its earlier meetings with the same people, or the notes on a
+    /// post's topics), as on the Mac: people are in the properties of Point's person kind, else
+    /// in `people`.
     func recall(of frontmatter: Frontmatter?, name: String) -> Recall? {
         let personKeys = pointTypes.properties.filter { $0.value.type == .person }.map(\.key)
         return Recall(frontmatter: frontmatter, name: name, typeProperty: kinds.property,

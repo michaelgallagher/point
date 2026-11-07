@@ -11,6 +11,9 @@ Part of [the plan](../PLAN.md).
 
 **Tried:** the tests (types, people, days, the summary, and the query against an index). On the iPhone Simulator with test meetings: the count, the sheet, opening one, and the earlier one's own count. **Not tried:** the Mac by hand (it builds; running a second copy would share Mike's settings).
 
-**Next:**
-- **Blog posts:** the same while writing a post, from its topics or links: earlier posts and notes on the same topics.
-- **Maybe:** show the last one's text, not just its first line; a meeting with many people (165 with one person) might want the overlap ranked first.
+**Blog posts, by topics (built the same day):** a note with topics and no people (a post, a source) recalls by its topics instead: every other note with any of the same topics, of whatever type, newest first, in groups by type with the note's own type first ("23 notes on Org design and Service design"; on the iPhone, "23 on its topics"). Each row says which of the topics it shares. A meeting has people, so it still recalls by people. In the vault, 78 of 134 posts have topics, and 2,567 notes use `topics` (80 on Org design). Tried in the tests and on the iPhone Simulator with a post, an older post, a book and a meeting.
+
+**Maybe next:**
+- Posts that link to the same notes, not only those with the same topics.
+- The last one's text, not just its first line.
+- A meeting with many people (165 with one person) might want those sharing the most people first.

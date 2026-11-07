@@ -11,7 +11,7 @@ struct RecallTests {
     @Test func readsTypePeopleAndDay() throws {
         let recall = try #require(Recall(frontmatter: Frontmatter.parse(meeting("2026-11-07", ["Sam Lee", "Ann|Annie"])), name: "Sync"))
         #expect(recall.type == "Meeting")
-        #expect(recall.people == ["Sam Lee", "Ann"])
+        #expect(recall.names == ["Sam Lee", "Ann"])
         #expect(recall.day == "2026-11-07")
     }
 
@@ -21,7 +21,7 @@ struct RecallTests {
         #expect(Recall(frontmatter: Frontmatter.parse(text), name: "Team Compass") == nil)
     }
 
-    @Test func needsATypeAndPeople() {
+    @Test func needsATypeAndPeopleOrTopics() {
         #expect(Recall(frontmatter: Frontmatter.parse("---\ndate: 2026-11-07\npeople: [\"[[Sam]]\"]\n---\n"), name: "x") == nil)
         #expect(Recall(frontmatter: Frontmatter.parse("---\ntype: Meeting\ndate: 2026-11-07\npeople:\n---\n"), name: "x") == nil)
         #expect(Recall(frontmatter: nil, name: "2026-11-07 - x") == nil)
@@ -66,5 +66,49 @@ struct RecallTests {
         let byID = Dictionary(uniqueKeysWithValues: notes.map { ($0.id, $0.title) })
         let found = try await index.notes(matching: recall.query).map { byID[$0]! }
         #expect(found == ["Sam a", "Ann b", "Old"])
+    }
+
+    @Test func byTopicsWithoutPeople() throws {
+        let text = "---\ntype: Blog post\ntopics:\n  - \"[[Org design]]\"\n  - \"[[Service design]]\"\n---\n"
+        let recall = try #require(Recall(frontmatter: Frontmatter.parse(text), name: "Draft"))
+        #expect(recall.basis == .topics)
+        #expect(recall.names == ["Org design", "Service design"])
+        #expect(recall.summary(count: 23, lastDay: nil) == "23 notes on Org design and Service design")
+        #expect(recall.heading == "On Org design and Service design")
+        // With people too, it's by people: a meeting's topics don't change what it recalls.
+        let meeting = "---\ntype: Meeting\ndate: 2026-11-07\npeople: [\"[[Sam]]\"]\ntopics: [\"[[Org design]]\"]\n---\n"
+        #expect(Recall(frontmatter: Frontmatter.parse(meeting), name: "x")?.basis == .people)
+    }
+
+    @Test func findsEveryNoteOnAnyOfTheTopics() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Recall-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = [
+            "Draft.md": "---\ntype: Blog post\ntopics: [\"[[Org design]]\", \"[[Service design]]\"]\n---\n",
+            "Old post.md": "---\ntype: Blog post\ndate: 2025-01-01\ntopics: [\"[[Org design]]\"]\n---\n",
+            "Book.md": "---\ntype: Media\ntopics:\n  - \"[[service design]]\"\n---\n",
+            "Sync.md": "---\ntype: Meeting\ndate: 2026-10-01\npeople: [\"[[Sam]]\"]\ntopics: [\"[[Org design]]\"]\n---\n",
+            "Other.md": "---\ntype: Blog post\ntopics: [\"[[Cooking]]\"]\n---\n",
+        ]
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        for (path, text) in files { try Data(text.utf8).write(to: root.appendingPathComponent(path)) }
+        let notes = try VaultScanner.scan(root)
+        let index = try SearchIndex(url: nil)
+        try await index.update(notes: notes)
+        let recall = try #require(Recall(frontmatter: Frontmatter.parse(files["Draft.md"]!), name: "Draft"))
+        let byID = Dictionary(uniqueKeysWithValues: notes.map { ($0.id, $0.title) })
+        let found = try await index.notes(matching: recall.query).map { byID[$0]! }
+        #expect(Set(found) == ["Draft", "Old post", "Book", "Sync"])
+        #expect(found.firstIndex(of: "Sync")! < found.firstIndex(of: "Old post")!)
+    }
+
+    @Test func groupsByTypeOwnFirst() throws {
+        let text = "---\ntype: Blog post\ntopics: [\"[[Org design]]\"]\n---\n"
+        let recall = try #require(Recall(frontmatter: Frontmatter.parse(text), name: "Draft"))
+        var details = RecallDetails()
+        details.types = ["a": "Meeting", "b": "Media", "c": "Blog post", "d": "Media", "e": ""]
+        let groups = details.groups(of: ["a", "b", "c", "d", "e"], recall: recall)
+        #expect(groups.map(\.title) == ["Blog post", "Media", "Meeting", "Other"])
+        #expect(groups[1].ids == ["b", "d"])
     }
 }

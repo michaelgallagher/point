@@ -504,8 +504,9 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
             earlier = []
             return showEarlier()
         }
+        let id = note.id
         Task { [weak self] in
-            let found = (try? await index.notes(matching: recall.query)) ?? []
+            let found = ((try? await index.notes(matching: recall.query)) ?? []).filter { $0 != id }
             guard let self, self.recall == recall, found != earlier else { return }
             earlier = found
             showEarlier()
@@ -513,7 +514,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     }
 
     private func showEarlier() {
-        header?.showEarlier(count: earlier.count)
+        header?.showEarlier(count: earlier.count, byTopics: recall?.basis == .topics)
         textView?.setNeedsLayout()
     }
 
@@ -754,14 +755,14 @@ final class NoteHeader: UIView {
     }
 
     /// "4 earlier": how many notes came before this one (earlier meetings with the same
-    /// people). None, and the button goes.
-    func showEarlier(count: Int) {
+    /// people), or "23 on its topics". None, and the button goes.
+    func showEarlier(count: Int, byTopics: Bool = false) {
         var configuration = earlier.configuration
-        configuration?.title = "\(count.formatted()) earlier"
-        configuration?.image = UIImage(systemName: "clock.arrow.circlepath", withConfiguration: UIImage.SymbolConfiguration(textStyle: .footnote))
+        configuration?.title = byTopics ? "\(count.formatted()) on its topics" : "\(count.formatted()) earlier"
+        configuration?.image = UIImage(systemName: byTopics ? "rectangle.stack" : "clock.arrow.circlepath", withConfiguration: UIImage.SymbolConfiguration(textStyle: .footnote))
         configuration?.imagePadding = 4
         earlier.configuration = configuration
-        earlier.accessibilityHint = "Shows the earlier notes with the same people."
+        earlier.accessibilityHint = byTopics ? "Shows the notes on the same topics." : "Shows the earlier notes with the same people."
         earlier.isHidden = count == 0
         setNeedsLayout()
     }
@@ -828,36 +829,46 @@ private struct BacklinksSheet: View {
     }
 }
 
-/// The notes that came before one (its earlier meetings with the same people), newest first,
-/// as on the Mac: each with its day and who of those people were in it, and its first line.
+/// The notes that came before one (its earlier meetings with the same people, or those on a
+/// post's topics, in groups by type), newest first, as on the Mac: each with its day and who or
+/// what it shares, and its first line.
 private struct RecallSheet: View {
     @EnvironmentObject private var store: PhoneStore
     @Environment(\.dismiss) private var dismiss
     let recall: Recall
     let ids: [Note.ID]
     let open: (Note.ID) -> Void
-    @State private var days: [Note.ID: String] = [:]
-    @State private var people: [Note.ID: [String]] = [:]
-    @State private var lines: [Note.ID: String] = [:]
-
-    /// How many are listed; more are rarely wanted.
-    private static let shown = 100
+    @State private var details = RecallDetails()
 
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    ForEach(ids.prefix(Self.shown), id: \.self) { id in
-                        Button { open(id) } label: { row(id) }
-                            .foregroundStyle(.primary)
+                let groups = details.groups(of: ids, recall: recall)
+                ForEach(Array(groups.enumerated()), id: \.element.title) { index, group in
+                    Section {
+                        ForEach(group.ids, id: \.self) { id in
+                            Button { open(id) } label: { row(id) }
+                                .foregroundStyle(.primary)
+                        }
+                    } header: {
+                        if group.title.isEmpty {
+                            Text(recall.heading)
+                        } else if index == 0 {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(recall.heading).textCase(nil)
+                                Text(group.title)
+                            }
+                        } else {
+                            Text(group.title)
+                        }
+                    } footer: {
+                        if index == groups.count - 1, ids.count > RecallDetails.shown {
+                            Text("And \((ids.count - RecallDetails.shown).formatted()) more")
+                        }
                     }
-                } header: {
-                    Text("With \(ListFormatter.localizedString(byJoining: recall.people))")
-                } footer: {
-                    if ids.count > Self.shown { Text("And \((ids.count - Self.shown).formatted()) more") }
                 }
             }
-            .navigationTitle(Recall.summary(count: ids.count, type: recall.type, lastDay: nil))
+            .navigationTitle(recall.basis == .topics ? "\(ids.count.formatted()) on its topics" : recall.summary(count: ids.count, lastDay: nil))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -873,15 +884,13 @@ private struct RecallSheet: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(store.note(id)?.title ?? id)
                 .lineLimit(1)
-            let detail = [days[id].map { Recall.shown(day: $0) }, people[id].flatMap { $0.isEmpty ? nil : ListFormatter.localizedString(byJoining: $0) }]
-                .compactMap { $0 }.joined(separator: " · ")
-            if !detail.isEmpty {
+            if let detail = details.detail(id) {
                 Text(detail)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            if let line = lines[id] {
+            if let line = details.lines[id] {
                 Text(line)
                     .font(.subheadline)
                     .foregroundStyle(.tertiary)
@@ -891,17 +900,12 @@ private struct RecallSheet: View {
     }
 
     private func load() async {
-        let shown = Array(ids.prefix(Self.shown))
-        let values = await store.embeds.propertyValues(["date"] + recall.personPropertyNames, of: shown)
-        let wanted = Set(recall.people.map { $0.lowercased() })
-        for id in shown {
-            let row = values[id] ?? [:]
-            days[id] = row["date"]?.lazy.compactMap(Recall.day).first ?? store.note(id).flatMap { Recall.day($0.name) }
-            people[id] = recall.personPropertyNames.flatMap { row[$0.lowercased()] ?? [] }
-                .compactMap(Recall.personName).filter { wanted.contains($0.lowercased()) }
-        }
+        let shown = Array(ids.prefix(RecallDetails.shown))
+        let typeProperty = store.kinds.property
+        let values = await store.embeds.propertyValues(RecallDetails.keys(for: recall, typeProperty: typeProperty), of: shown)
+        details.take(values, for: shown, recall: recall, typeProperty: typeProperty) { store.note($0)?.name }
         let notes = shown.compactMap { store.note($0) }
-        lines = await Task.detached(priority: .userInitiated) {
+        details.lines = await Task.detached(priority: .userInitiated) {
             var lines: [Note.ID: String] = [:]
             for note in notes {
                 if let text = try? NoteReader.read(note), let line = PlainText.firstLine(of: text) { lines[note.id] = line }

@@ -3,36 +3,39 @@ import IndexKit
 import SwiftUI
 import VaultKit
 
-/// Under a note's properties, what came before it: "4 earlier meetings · last on 21 October",
-/// for a note with a type, people and a day. Clicking it lists them, newest first, each with who
-/// was in it and its first line; clicking one opens it (⌘-click: in a new tab). Nothing while
-/// there are none, or while the index is still being asked.
+/// Under a note's properties, what came before it (see `Recall`): "4 earlier meetings · last on
+/// 21 October", or "23 notes on Org design". Clicking it lists them, newest first (by topics,
+/// in groups by type, the note's own first), each with who or what it shares and its first
+/// line; clicking one opens it (⌘-click: in a new tab). Nothing while there are none, or while
+/// the index is still being asked.
 struct RecallLine: View {
     @ObservedObject var model: VaultModel
     let recall: Recall
+    let noteID: Note.ID
     let paneID: VaultModel.NotePane.ID
     @State private var isShowingList = false
     /// The newest one's day, from its `date:` (else its name).
     @State private var lastDay: String?
 
     var body: some View {
-        if let ids = model.store.noteIDs(matching: recall.query), let newest = ids.first {
+        if let ids = model.store.noteIDs(matching: recall.query)?.filter({ $0 != noteID }), let newest = ids.first {
             Button { isShowingList.toggle() } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: "clock.arrow.circlepath")
+                    Image(systemName: recall.basis == .topics ? "rectangle.stack" : "clock.arrow.circlepath")
                         .frame(width: PropertiesStrip.chevronWidth)
-                    Text(Recall.summary(count: ids.count, type: recall.type, lastDay: lastDay))
+                    Text(recall.summary(count: ids.count, lastDay: lastDay))
                         .lineLimit(1)
                 }
                 .foregroundStyle(.secondary)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Show the earlier \(recall.type.lowercased())s with \(ListFormatter.localizedString(byJoining: recall.people))")
+            .help("List them")
             .popover(isPresented: $isShowingList, arrowEdge: .bottom) {
                 RecallList(model: model, recall: recall, ids: ids, paneID: paneID) { isShowingList = false }
             }
             .task(id: newest) {
+                guard recall.basis == .people else { return lastDay = nil }
                 let dates = await model.store.propertyValues(["date"], of: [newest])
                 lastDay = dates[newest]?["date"]?.lazy.compactMap(Recall.day).first
                     ?? model.note(newest).flatMap { Recall.day($0.name) }
@@ -41,24 +44,20 @@ struct RecallLine: View {
     }
 }
 
-/// The earlier notes, newest first: each one's day and who of this note's people were in it,
-/// its title, and its first line.
+/// The notes, newest first: by topics, in groups by type, the note's own type first, then the
+/// biggest. Each has its day and who or what it shares with this note, its title, and its first
+/// line.
 private struct RecallList: View {
     @ObservedObject var model: VaultModel
     let recall: Recall
     let ids: [Note.ID]
     let paneID: VaultModel.NotePane.ID
     let close: () -> Void
-    @State private var days: [Note.ID: String] = [:]
-    @State private var people: [Note.ID: [String]] = [:]
-    @State private var lines: [Note.ID: String] = [:]
-
-    /// How many are read at once for their details, and listed; more are rarely wanted.
-    private static let shown = 100
+    @State private var details = RecallDetails()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("With \(ListFormatter.localizedString(byJoining: recall.people))")
+            Text(recall.heading)
                 .font(.headline)
                 .lineLimit(2)
                 .padding(.horizontal, 14)
@@ -66,11 +65,21 @@ private struct RecallList: View {
                 .padding(.bottom, 6)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(ids.prefix(Self.shown), id: \.self) { id in
-                        row(id)
+                    ForEach(details.groups(of: ids, recall: recall), id: \.title) { group in
+                        if !group.title.isEmpty {
+                            Text("\(group.title) · \(group.ids.count.formatted())")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 14)
+                                .padding(.top, 10)
+                                .padding(.bottom, 2)
+                        }
+                        ForEach(group.ids, id: \.self) { id in
+                            row(id)
+                        }
                     }
-                    if ids.count > Self.shown {
-                        Text("And \((ids.count - Self.shown).formatted()) more")
+                    if ids.count > RecallDetails.shown {
+                        Text("And \((ids.count - RecallDetails.shown).formatted()) more")
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 8)
@@ -83,17 +92,10 @@ private struct RecallList: View {
         .frame(maxHeight: 440)
         .fixedSize(horizontal: false, vertical: ids.count < 6)
         .task {
-            let shown = Array(ids.prefix(Self.shown))
-            let keys = ["date"] + recall.personPropertyNames
-            let values = await model.store.propertyValues(keys, of: shown)
-            let wanted = Set(recall.people.map { $0.lowercased() })
-            for id in shown {
-                let row = values[id] ?? [:]
-                days[id] = row["date"]?.lazy.compactMap(Recall.day).first ?? model.note(id).flatMap { Recall.day($0.name) }
-                people[id] = recall.personPropertyNames.flatMap { row[$0.lowercased()] ?? [] }
-                    .compactMap(Recall.personName).filter { wanted.contains($0.lowercased()) }
-            }
-            lines = await model.store.firstLines(of: shown)
+            let shown = Array(ids.prefix(RecallDetails.shown))
+            let values = await model.store.propertyValues(RecallDetails.keys(for: recall, typeProperty: model.store.kinds.property), of: shown)
+            details.take(values, for: shown, recall: recall, typeProperty: model.store.kinds.property) { model.note($0)?.name }
+            details.lines = await model.store.firstLines(of: shown)
         }
     }
 
@@ -106,15 +108,13 @@ private struct RecallList: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(model.note(id)?.title ?? id)
                     .lineLimit(1)
-                let detail = [days[id].map { Recall.shown(day: $0) }, people[id].flatMap { $0.isEmpty ? nil : ListFormatter.localizedString(byJoining: $0) }]
-                    .compactMap { $0 }.joined(separator: " · ")
-                if !detail.isEmpty {
+                if let detail = details.detail(id) {
                     Text(detail)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
-                if let line = lines[id] {
+                if let line = details.lines[id] {
                     Text(line)
                         .font(.subheadline)
                         .foregroundStyle(.tertiary)
