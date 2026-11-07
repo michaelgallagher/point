@@ -6,14 +6,17 @@ struct PropertiesStrip: View {
     @EnvironmentObject private var model: VaultModel
     let frontmatter: Frontmatter
     @ObservedObject var session: EditorSession
+    /// The side it's on, for opening what came before it there.
+    let paneID: VaultModel.NotePane.ID
     /// Open or closed for this note only (two notes side by side open and close on their
     /// own). A note not seen yet this session starts the way properties were last left.
     @State private var isExpanded: Bool
     @AppStorage("propertiesExpanded") private var lastExpanded = false
 
-    init(frontmatter: Frontmatter, session: EditorSession, isExpanded: Bool) {
+    init(frontmatter: Frontmatter, session: EditorSession, paneID: VaultModel.NotePane.ID, isExpanded: Bool) {
         self.frontmatter = frontmatter
         self.session = session
+        self.paneID = paneID
         _isExpanded = State(initialValue: isExpanded)
     }
     /// The property being dragged to a new place, and where the pointer is.
@@ -100,6 +103,10 @@ struct PropertiesStrip: View {
                 // The rows' backgrounds reach into the margin; their text lines up with the summary.
                 .padding(.leading, -Self.rowInset)
             }
+            // What came before it: under the summary, or the rows when open.
+            if let recall = model.store.recall(of: session.frontmatter, name: session.note.name) {
+                RecallLine(model: model, recall: recall, paneID: paneID)
+            }
             // Drawn like a horizontal rule in the note: one point, the separator colour.
             if isExpanded {
                 Rectangle()
@@ -126,7 +133,7 @@ struct PropertiesStrip: View {
     }
 
     private static let space = "properties"
-    private static let chevronWidth: CGFloat = 12
+    static let chevronWidth: CGFloat = 12
     /// The type icon's column, and the gap between columns.
     private static let iconWidth: CGFloat = 18
     private static let columnSpacing: CGFloat = 8

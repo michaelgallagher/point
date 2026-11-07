@@ -20,7 +20,7 @@ On `main`, which has everything so far, including search that learns.
 **Next, as of 7 November 2026** (each on its own branch from `main`):
 1. **`iphone-home`:** the simpler phone home screen. See "Home, simplified" in [M4, the iPhone app](plan/m4-iphone.md).
 2. **`kinds`:** kinds of note defined in Point (template, folder, properties), with New meeting offering its templates, and `type` filled in once where the folder makes it plain. Built, and the real vault has its kinds and `type` filled in: see [Kinds of note](plan/kinds.md).
-3. **`recall`:** what happened before, in meeting notes first ("4 earlier · last on 21 October"), then while writing blog posts.
+3. **`recall`:** what happened before, in meeting notes first ("4 earlier · last on 21 October"), then while writing blog posts. Meetings built on both: see [Recall](plan/recall.md).
 4. **`clipper`:** a Chrome extension for Dia on the Mac and a share-sheet extension on the iPhone; Point extracts the article and sets its kind.
 5. **`mac-full-screen`:** the full-screen bug (see [Investigations](plan/investigations.md)). Not blocking anything.
 
@@ -41,6 +41,7 @@ On `main`, which has everything so far, including search that learns.
 - [Milestones](plan/milestones.md): M0 to M6.
 
 **Work, newest first**
+- [Recall: what came before](plan/recall.md) (7 November): earlier notes of a type with the same people, under a meeting's properties.
 - [Beyond text: structure, names and Obsidian](plan/structure.md) (6 November): how images, comparing drafts, lists from properties, and people and types fit together. Decided: plain files readable anywhere, not Obsidian compatibility; titles from a `title:` property, with dated file names; a typed index under it all; lists as notes; and the order of work.
 - [Images: where to store them](plan/images.md) (6 November): the options, from Obsidian's one attachment folder to a folder for each note, and a recommendation: one folder, images named after their note, and Point looking after them as notes are renamed and deleted.
 - [Search that learns](plan/search-learning.md) (3 November, merged): ranking the notes you open and pick higher, kept on each device, outside the vault.

@@ -86,7 +86,7 @@ private struct NoteHeader: View {
             .frame(maxWidth: .infinity)
             // In Markdown mode the properties are in the text, as written, so not shown twice.
             if let frontmatter = shownFrontmatter, !model.showsMarkdown {
-                PropertiesStrip(frontmatter: frontmatter, session: session,
+                PropertiesStrip(frontmatter: frontmatter, session: session, paneID: paneID,
                                 isExpanded: model.store.propertiesOpen[session.note.id] ?? UserDefaults.standard.bool(forKey: "propertiesExpanded"))
             }
             if let list = ListDefinition(frontmatter: session.frontmatter) {
