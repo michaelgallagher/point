@@ -603,6 +603,17 @@ struct PaletteCommand {
             PaletteCommand(name: "Properties", shortcut: nil) { model.browse(.properties) },
             PaletteCommand(name: "Find Unused Images…", shortcut: nil) { model.isShowingUnusedImages = true },
         ]
+        // A new note of each kind ("New Meeting"), and of each of its templates after the
+        // first ("New Meeting: 1-1").
+        for kind in model.store.kinds.offered {
+            let templates = model.store.templates(of: kind)
+            commands.append(PaletteCommand(name: "New \(kind.name)", shortcut: nil) { model.createNote(kind: kind) })
+            for template in templates.dropFirst() {
+                commands.append(PaletteCommand(name: "New \(kind.name): \(template.label)", shortcut: nil) {
+                    model.createNote(kind: kind, template: template.url)
+                })
+            }
+        }
         // What's browsed renamed everywhere, and the last such change undone.
         switch model.place {
         case .tag(let tag): commands.append(PaletteCommand(name: "Rename Tag…", shortcut: nil) { model.renamingAcrossVault = .tag(tag) })

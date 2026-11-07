@@ -45,7 +45,7 @@ struct HomeScreen: View {
                         Button("Settings", systemImage: "gear") { showsSettings = true }
                     }
                 }
-                .pageBar(.add { createNote() }) { newFolderButton(in: "") }
+                .pageBar(.add({ createNote() }, more: store.kinds.offered.isEmpty ? nil : AnyView(kindsMenu))) { newFolderButton(in: "") }
         }
         // Search, over the bars and pages, opening out from the bar's field. Nothing under it moves.
         .overlay { SearchLayerHost() }
@@ -124,6 +124,22 @@ struct HomeScreen: View {
     @ViewBuilder private var topLevelActions: some View {
         newNoteButton(in: "")
         newFolderButton(in: "")
+    }
+
+    /// New note's long press: a note of each kind, and of each of a kind's templates.
+    @ViewBuilder private var kindsMenu: some View {
+        ForEach(store.kinds.offered) { kind in
+            let templates = store.templates(of: kind)
+            if templates.count > 1 {
+                Menu(kind.name, systemImage: kind.shownSymbol) {
+                    ForEach(templates, id: \.url) { template in
+                        Button(template.label) { createNote(kind: kind, template: template.url) }
+                    }
+                }
+            } else {
+                Button(kind.name, systemImage: kind.shownSymbol) { createNote(kind: kind) }
+            }
+        }
     }
 
     private func newNoteButton(in folder: String) -> some View {
@@ -234,6 +250,13 @@ struct HomeScreen: View {
         guard let id = store.createNote(in: folder, text: text) else { return }
         newNote = id
         if case .note(let below)? = path.last, store.isUntitled(store.currentID(below)) { path.removeLast() }
+        path.append(.note(id))
+    }
+
+    /// Makes a note of a kind and opens it, as New note does.
+    private func createNote(kind: NoteKinds.Kind, template: URL? = nil) {
+        guard let id = store.createNote(kind: kind, template: template) else { return }
+        newNote = id
         path.append(.note(id))
     }
 
@@ -523,8 +546,9 @@ func symbol(_ name: String, or older: String) -> String {
 enum PageTool {
     case none, sort
     case find(() -> Void)
-    /// Home's New note, the bar's one blue button.
-    case add(() -> Void)
+    /// Home's New note, the bar's one blue button. `more`, if given, is what a long press
+    /// offers (new notes of each kind).
+    case add(() -> Void, more: AnyView? = nil)
 }
 
 /// What every page has along the bottom, as Apple's own apps have it: at the left, Sort or Find
@@ -559,11 +583,28 @@ private struct PageBar<Actions: View>: ViewModifier {
                         ToolbarItem(placement: .bottomBar) { SortMenu() }
                         ToolbarSpacer(.fixed, placement: .bottomBar)
                     }
-                    if case .add(let add) = tool {
-                        ToolbarItem(placement: .bottomBar) {
-                            Button("New note", systemImage: "plus", action: add)
-                                .buttonStyle(.glassProminent)
-                                .tint(.blue)
+                    if case .add(let add, let more) = tool {
+                        if let more {
+                            // A tap makes a note; a long press offers the kinds. The bar draws
+                            // a menu plain whatever its style, so this one draws its own blue.
+                            ToolbarItem(placement: .bottomBar) {
+                                Menu { more } label: {
+                                    Image(systemName: "plus")
+                                        .font(.title3.weight(.semibold))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 48, height: 48)
+                                        .glassEffect(.regular.tint(.blue).interactive(), in: .circle)
+                                } primaryAction: { add() }
+                                    .menuOrder(.fixed)
+                                    .accessibilityLabel("New note")
+                            }
+                            .sharedBackgroundVisibility(.hidden)
+                        } else {
+                            ToolbarItem(placement: .bottomBar) {
+                                Button("New note", systemImage: "plus", action: add)
+                                    .buttonStyle(.glassProminent)
+                                    .tint(.blue)
+                            }
                         }
                         ToolbarSpacer(.fixed, placement: .bottomBar)
                     }

@@ -111,7 +111,11 @@ final class VaultStore: ObservableObject {
                 Task { @MainActor in self?.missedChanges() }
             },
             NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: nil) { [weak self] _ in
-                Task { @MainActor in if self?.watcher?.isWatching == false { self?.missedChanges() } }
+                Task { @MainActor in
+                    if self?.watcher?.isWatching == false { self?.missedChanges() }
+                    // Kinds are edited by hand, in another app, so they're read again on coming back.
+                    self?.loadKinds()
+                }
             },
         ]
     }
@@ -233,6 +237,7 @@ final class VaultStore: ObservableObject {
         settings = ObsidianSettings.load(vault: url)
         propertyTypes = PropertyTypes.load(vault: url)
         pointTypes = PointTypes.load(vault: url)
+        loadKinds()
         indexedTags = [:]
         propertyValues = [:]
         propertySummaries = []
@@ -1702,6 +1707,25 @@ final class VaultStore: ObservableObject {
         let pointBefore = pointTypes
         pointTypes.rename(key, to: newKey)
         if pointTypes != pointBefore { try? pointTypes.save(vault: root) }
+    }
+
+    // MARK: Kinds of note
+
+    /// What notes can be (`.point/kinds.json`): offered for new notes, and as `type`'s choices.
+    @Published private(set) var kinds = NoteKinds()
+
+    /// Reads the kinds again, and offers them as `type`'s choices.
+    func loadKinds() {
+        guard let root else { return }
+        let loaded = NoteKinds.load(vault: root)
+        if loaded != kinds { kinds = loaded }
+        let implied = kinds.choice.map { [kinds.property: $0] } ?? [:]
+        if pointTypes.implied != implied { pointTypes.implied = implied }
+    }
+
+    /// A kind's templates in the templates folder, each with a short label.
+    func templates(of kind: NoteKinds.Kind) -> [(label: String, url: URL)] {
+        NoteKinds.templates(of: kind, among: templates)
     }
 
     // MARK: Point's own types, and people

@@ -92,6 +92,10 @@ public struct PointTypes: Sendable, Equatable {
     /// By key, as written.
     public private(set) var properties: [String: Definition] = [:]
     public var people = People()
+    /// Definitions that come from elsewhere, not the file: `type` as a choice of the vault's
+    /// kinds of note (`NoteKinds.choice`). Used where the file has none for the key, and never
+    /// saved, so the file keeps only what was chosen.
+    public var implied: [String: Definition] = [:]
 
     public init(properties: [String: Definition] = [:], people: People = People()) {
         self.properties = properties
@@ -120,8 +124,12 @@ public struct PointTypes: Sendable, Equatable {
         try encoder.encode(file).write(to: url, options: .atomic)
     }
 
-    /// A key's definition, matched regardless of case.
+    /// A key's definition, matched regardless of case: the file's, else one implied.
     public func definition(forKey key: String) -> Definition? {
+        explicitDefinition(forKey: key) ?? implied[key] ?? implied.first { $0.key.lowercased() == key.lowercased() }?.value
+    }
+
+    private func explicitDefinition(forKey key: String) -> Definition? {
         properties[key] ?? properties.first { $0.key.lowercased() == key.lowercased() }?.value
     }
 
@@ -133,7 +141,7 @@ public struct PointTypes: Sendable, Equatable {
 
     /// A key renamed: its definition goes with it, unless the new name has one already.
     public mutating func rename(_ key: String, to newKey: String) {
-        guard let definition = definition(forKey: key), self.definition(forKey: newKey) == nil else { return }
+        guard let definition = explicitDefinition(forKey: key), explicitDefinition(forKey: newKey) == nil else { return }
         set(nil, forKey: key)
         properties[newKey] = definition
     }

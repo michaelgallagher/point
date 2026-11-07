@@ -147,6 +147,25 @@ struct AppCommands: Commands {
             Button("New Note from Template…") { model?.isCreatingFromTemplate = true }
                 .shortcut(.newNoteFromTemplate, in: shortcuts)
                 .disabled(model == nil || store.root == nil)
+            // The vault's kinds of note (`.point/kinds.json`); one with several templates
+            // offers each.
+            if !store.kinds.offered.isEmpty {
+                Menu("New Note of Kind") {
+                    ForEach(store.kinds.offered) { kind in
+                        let templates = store.templates(of: kind)
+                        if templates.count > 1 {
+                            Menu(kind.name) {
+                                ForEach(templates, id: \.url) { template in
+                                    Button(template.label) { model?.createNote(kind: kind, template: template.url) }
+                                }
+                            }
+                        } else {
+                            Button(kind.name) { model?.createNote(kind: kind) }
+                        }
+                    }
+                }
+                .disabled(model == nil || store.root == nil)
+            }
             Button("New Folder…") { model?.newFolder() }
                 .shortcut(.newFolder, in: shortcuts)
                 .disabled(model == nil || store.root == nil)

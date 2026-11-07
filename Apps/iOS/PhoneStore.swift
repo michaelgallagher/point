@@ -120,6 +120,8 @@ final class PhoneStore: ObservableObject {
         pointTypes = PointTypes.load(vault: root)
         settings = ObsidianSettings.load(vault: root)
         templates = Templates.available(in: root, settings: settings)
+        kinds = NoteKinds.load(vault: root)
+        pointTypes.implied = kinds.choice.map { [kinds.property: $0] } ?? [:]
         refreshTrash()
         // Notes left untitled when the app last stopped (none is open yet): named, or removed.
         if !isLaunched {
@@ -284,6 +286,25 @@ final class PhoneStore: ObservableObject {
         } catch {
             PhoneVault.log("couldn't save property types: \(error.localizedDescription)")
         }
+    }
+
+    // MARK: Kinds of note
+
+    /// What notes can be (`.point/kinds.json`), as on the Mac: offered for new notes from
+    /// home's New note, and as `type`'s choices.
+    @Published private(set) var kinds = NoteKinds()
+
+    /// A kind's templates in the templates folder, each with a short label.
+    func templates(of kind: NoteKinds.Kind) -> [(label: String, url: URL)] {
+        NoteKinds.templates(of: kind, among: templates)
+    }
+
+    /// A new note of a kind, from one of its templates (its first, if not given), in the
+    /// kind's folder (the vault root, if it has none), with `type` set to the kind.
+    func createNote(kind: NoteKinds.Kind, template url: URL? = nil) -> Note.ID? {
+        let url = url ?? templates(of: kind).first?.url
+        let template = url.flatMap { try? NoteReader.read(contentsOf: $0) } ?? ""
+        return createNote(in: kind.folder ?? "", text: kinds.text(for: kind, from: Templates.render(template, title: "", settings: settings)))
     }
 
     // MARK: Point's own kinds, and people

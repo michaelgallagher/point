@@ -1010,6 +1010,17 @@ final class VaultModel: ObservableObject {
     /// Whether the New Note from Template sheet is showing.
     @Published var isCreatingFromTemplate = false
 
+    /// A new note of a kind, from one of its templates (its first, if not given), in the
+    /// kind's folder (the vault root, if it has none), with `type` set to the kind.
+    func createNote(kind: NoteKinds.Kind, template url: URL? = nil) {
+        let url = url ?? store.templates(of: kind).first?.url
+        let template = url.flatMap { try? NoteReader.read(contentsOf: $0) } ?? ""
+        let text = store.kinds.text(for: kind, from: Templates.render(template, title: "", settings: settings))
+        guard let id = store.createNote(text: text, inFolder: kind.folder ?? "") else { return NSSound.beep() }
+        freshNoteID = nil
+        if selection == nil { selection = id } else { newTab(noteID: id) }
+    }
+
     /// A new note that starts as a template, filled in (with the name given, if any, as its
     /// title), in the folder being browsed.
     func createNote(fromTemplate url: URL, titled title: String?) {
