@@ -1848,7 +1848,7 @@ final class VaultStore: ObservableObject {
     /// Tags in the vault starting with (or containing) what's typed, for completing a tag.
     /// The values each property is given across the vault (by its name, lowercased), most
     /// used first, from the index.
-    private(set) var propertyValues: [String: [(value: String, count: Int)]] = [:] { didSet { listVersion += 1 } }
+    private(set) var propertyValues: [String: [(value: String, count: Int)]] = [:] { didSet { valueListCache = [:]; listVersion += 1 } }
 
     /// Values given to the property `key` in other notes that fit what's typed, most used
     /// first: a field suggests what's been put in it before ("[[Ann]]" in people, "Design"

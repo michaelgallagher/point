@@ -70,9 +70,16 @@ struct NoteListTopBar: View {
 
     var body: some View {
         HStack(spacing: TopBar.buttonSpacing) {
-            Text(model.place == .allNotes ? (model.root?.lastPathComponent ?? "Notes") : model.place.title)
-                .font(.headline)
-                .lineLimit(1)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(model.place == .allNotes ? (model.root?.lastPathComponent ?? "Notes") : model.place.title)
+                    .font(.headline)
+                    .lineLimit(1)
+                Text(countLabel)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+            }
             Spacer(minLength: 0)
             if model.place == .trash { EmptyTrashButton() }
         }
@@ -82,6 +89,19 @@ struct NoteListTopBar: View {
         .padding(.trailing, TopBar.buttonSpacing + TopBar.sidebarButtonWidth)
         .frame(height: model.topBarHeight)
         .background(WindowDragArea())
+    }
+
+    /// How much is here, under the name, as the sidebar counts it: notes, or for the lists
+    /// of tags and types, how many there are.
+    private var countLabel: String {
+        let count = model.noteCount(of: model.place)
+        let noun = switch model.place {
+        case .trash: count == 1 ? "item" : "items"
+        case .types: count == 1 ? "type" : "types"
+        case .tags: count == 1 ? "tag" : "tags"
+        default: count == 1 ? "note" : "notes"
+        }
+        return "\(count.formatted()) \(noun)"
     }
 }
 

@@ -290,11 +290,15 @@ private struct NoteList: View {
 
     private var content: SidebarTable.Content { includesPlaces ? .everything : .notes }
 
+    /// Whether the list shows places as well as notes: always in one column, and in two for the
+    /// lists of tags and types, which are places.
+    private var listsPlaces: Bool { includesPlaces || model.place == .types || model.place == .tags }
+
     /// Pins, folders (or nested tags), tags and notes for the current place.
     private var browser: some View {
         SidebarTable(model: model, content: content, bottomInset: Self.fieldHeight + Self.fieldPadding * 2)
             .overlay {
-                if model.notes(in: model.place).isEmpty, model.store.images(in: model.place).isEmpty, !includesPlaces || model.subplaces(of: model.place).isEmpty, model.place != .allNotes {
+                if model.place == .trash ? model.store.trashedNotes.isEmpty : model.notes(in: model.place).isEmpty, model.store.images(in: model.place).isEmpty, !listsPlaces || model.subplaces(of: model.place).isEmpty, model.place != .allNotes {
                     if let message = emptyMessage {
                         Text(message)
                             .foregroundStyle(.secondary)
@@ -315,6 +319,7 @@ extension NoteList {
         case .properties: return "No notes have properties."
         case .types: return "No notes have a type."
         case .tags: return "No notes have tags."
+        case .trash: return "The trash is empty."
         case .property, .propertyValue, .kind:
             guard let query = model.place.query, model.store.noteIDs(matching: query) != nil else { return nil }
             if case .property = model.place { return "No notes have this property." }
