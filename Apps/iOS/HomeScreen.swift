@@ -45,7 +45,7 @@ struct HomeScreen: View {
                         Button("Settings", systemImage: "gear") { showsSettings = true }
                     }
                 }
-                .pageBar(.add({ createNote() }, more: store.kinds.offered.isEmpty ? nil : AnyView(kindsMenu))) { newFolderButton(in: "") }
+                .pageBar(add { createNote() }) { newFolderButton(in: "") }
         }
         // Search, over the bars and pages, opening out from the bar's field. Nothing under it moves.
         .overlay { SearchLayerHost() }
@@ -120,10 +120,9 @@ struct HomeScreen: View {
         }
     }
 
-    /// At the top level, and on the pages that aren't a place of their own.
-    @ViewBuilder private var topLevelActions: some View {
-        newNoteButton(in: "")
-        newFolderButton(in: "")
+    /// The blue New note, making a note with `create`; a long press offers the kinds.
+    private func add(_ create: @escaping () -> Void) -> PageTool {
+        .add(create, more: store.kinds.offered.isEmpty ? nil : AnyView(kindsMenu))
     }
 
     /// New note's long press: a note of each kind, and of each of a kind's templates.
@@ -140,10 +139,6 @@ struct HomeScreen: View {
                 Button(kind.name, systemImage: kind.shownSymbol) { createNote(kind: kind) }
             }
         }
-    }
-
-    private func newNoteButton(in folder: String) -> some View {
-        Button("New note", systemImage: "square.and.pencil") { createNote(in: folder) }
     }
 
     private func newFolderButton(in parent: String) -> some View {
@@ -184,26 +179,22 @@ struct HomeScreen: View {
             if let note = store.note(store.currentID(id)) {
                 NoteScreen(note: note, store: store, isNew: id == newNote) { folder in createNote(in: folder) }
             }
-        case .notes: NotesScreen().pageBar(.sort) { topLevelActions }
-        case .bookmarks: BookmarksScreen().pageBar { topLevelActions }
-        case .recent: RecentScreen().pageBar { topLevelActions }
-        case .folders: FoldersScreen().pageBar { topLevelActions }
-        case .tags: TagsScreen().pageBar { newNoteButton(in: "") }
+        case .notes: NotesScreen().pageBar(add { createNote() }, sorts: true) { newFolderButton(in: "") }
+        case .bookmarks: BookmarksScreen().pageBar(add { createNote() })
+        case .recent: RecentScreen().pageBar(add { createNote() })
+        case .folders: FoldersScreen().pageBar(add { createNote() }) { newFolderButton(in: "") }
+        case .tags: TagsScreen().pageBar(add { createNote() })
         case .tag(let tag):
-            TagScreen(tag: tag).pageBar(.sort) {
-                Button("New note", systemImage: "square.and.pencil") {
-                    createNote(text: Frontmatter.edit(adding: "tags", values: [tag], isList: true).1)
-                }
+            TagScreen(tag: tag).pageBar(add { createNote(text: Frontmatter.edit(adding: "tags", values: [tag], isList: true).1) }, sorts: true) {
                 FavouriteButton(favourite: .tag(tag))
             }
         case .folder(""):
-            FolderScreen(folder: "").pageBar(.sort) {
-                topLevelActions
+            FolderScreen(folder: "").pageBar(add { createNote() }, sorts: true) {
+                newFolderButton(in: "")
                 FavouriteButton(favourite: .folder(""))
             }
         case .folder(let folder):
-            FolderScreen(folder: folder).pageBar(.sort) {
-                newNoteButton(in: folder)
+            FolderScreen(folder: folder).pageBar(add { createNote(in: folder) }, sorts: true) {
                 newFolderButton(in: folder)
                 Button("Move folder", systemImage: "folder") { movingFolder = folder }
                 FavouriteButton(favourite: .folder(folder))
@@ -541,23 +532,27 @@ func symbol(_ name: String, or older: String) -> String {
     UIImage(systemName: name) == nil ? older : name
 }
 
-/// What goes at the left of a page's bottom bar: on a list that can be sorted, Sort; in a note,
-/// finding in it, in place of search.
+/// What a page's bottom bar has besides search: in a note, finding in it; on a list, the
+/// blue New note.
 enum PageTool {
-    case none, sort
+    case none
     case find(() -> Void)
-    /// Home's New note, the bar's one blue button. `more`, if given, is what a long press
-    /// offers (new notes of each kind).
+    /// New note, the bar's one blue button, at its right. `more`, if given, is what a long
+    /// press offers (new notes of each kind).
     case add(() -> Void, more: AnyView? = nil)
 }
 
-/// What every page has along the bottom, as Apple's own apps have it: at the left, Sort or Find
-/// (`PageTool`); on a list, the system's search field, with Search over the page while it's in
-/// use, and in a note, a map that opens Search; and at the right, a menu of what can be done here.
+/// What every page has, as Apple's own apps have it. A list: the search field along the bottom,
+/// with Search over the page while it's in use, and New note at its right; at the top right,
+/// Sort (on a list of notes) and a menu of what can be done here. A note: finding in it, a map
+/// that opens Search, and the menu, along the bottom.
 private struct PageBar<Actions: View>: ViewModifier {
     @EnvironmentObject private var search: PhoneSearch
     let tool: PageTool
+    let sorts: Bool
     @ViewBuilder let actions: Actions
+    private var hasActions: Bool { Actions.self != EmptyView.self }
+
     func body(content: Content) -> some View {
         switch tool {
         case .find(let find):
@@ -571,17 +566,23 @@ private struct PageBar<Actions: View>: ViewModifier {
                         Button("Search", systemImage: "map") { search.present(from: nil) }
                     }
                     ToolbarSpacer(.flexible, placement: .bottomBar)
-                    ToolbarItem(placement: .bottomBar) { menu }
+                    ToolbarItem(placement: .bottomBar) { menu(symbol: symbol("text.menu", or: "line.3.horizontal")) }
                 }
-        case .none, .sort, .add:
+        case .none, .add:
             content
                 // The page stays its size under the keyboard: shrunk, the rows below were left
                 // undrawn, and showed blank as the keyboard went down.
                 .ignoresSafeArea(.keyboard)
                 .toolbar {
-                    if case .sort = tool {
-                        ToolbarItem(placement: .bottomBar) { SortMenu() }
-                        ToolbarSpacer(.fixed, placement: .bottomBar)
+                    if sorts {
+                        ToolbarItem(placement: .topBarTrailing) { SortMenu() }
+                    }
+                    if hasActions {
+                        ToolbarItem(placement: .topBarTrailing) { menu(symbol: "ellipsis") }
+                    }
+                    // Point's own search field, not the system's: Search opens out from it.
+                    ToolbarItem(placement: .bottomBar) {
+                        SearchCapsule(besides: { if case .add = tool { 1 } else { 0 } }())
                     }
                     if case .add(let add, let more) = tool {
                         if let more {
@@ -606,20 +607,13 @@ private struct PageBar<Actions: View>: ViewModifier {
                                     .tint(.blue)
                             }
                         }
-                        ToolbarSpacer(.fixed, placement: .bottomBar)
                     }
-                    // Point's own search field, not the system's: Search opens out from it.
-                    ToolbarItem(placement: .bottomBar) {
-                        SearchCapsule(besides: { if case .none = tool { 1 } else { 2 } }())
-                    }
-                    ToolbarSpacer(.fixed, placement: .bottomBar)
-                    ToolbarItem(placement: .bottomBar) { menu }
                 }
         }
     }
 
-    private var menu: some View {
-        Menu("Actions", systemImage: symbol("text.menu", or: "line.3.horizontal")) { actions }
+    private func menu(symbol: String) -> some View {
+        Menu("Actions", systemImage: symbol) { actions }
             // In the order given, top to bottom: from the bottom bar, the system would turn it
             // over, putting the first item nearest the thumb.
             .menuOrder(.fixed)
@@ -676,9 +670,14 @@ private struct PageTitle: ViewModifier {
 extension View {
     func pageTitle(_ title: String) -> some View { modifier(PageTitle(title: title)) }
 
-    /// `tool` is what goes at the bar's left.
-    func pageBar<Actions: View>(_ tool: PageTool = .none, @ViewBuilder actions: () -> Actions) -> some View {
-        modifier(PageBar(tool: tool, actions: actions))
+    /// `tool` is what the bottom bar has besides search; `sorts`, whether the page lists notes
+    /// to sort; `actions`, the menu of what can be done here.
+    func pageBar<Actions: View>(_ tool: PageTool = .none, sorts: Bool = false, @ViewBuilder actions: () -> Actions) -> some View {
+        modifier(PageBar(tool: tool, sorts: sorts, actions: actions))
+    }
+
+    func pageBar(_ tool: PageTool = .none, sorts: Bool = false) -> some View {
+        modifier(PageBar(tool: tool, sorts: sorts) { EmptyView() })
     }
 }
 
