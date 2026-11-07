@@ -6,6 +6,8 @@ import VaultKit
 struct PointApp: App {
     /// The vault, shared by every window and tab.
     @StateObject private var store = VaultStore()
+    /// Takes `point://clip` links from the browser extension.
+    @NSApplicationDelegateAdaptor private var appDelegate: PointAppDelegate
 
     init() {
         // Point has its own tabs, inside each side of a window; no window tabs.
@@ -63,6 +65,9 @@ struct WindowRoot: View {
             ))
             .onAppear {
                 model.openWindowHandler = { noteID in openWindow(id: "main", value: TabRequest(noteID: noteID)) }
+                if ClipInbox.shared.handler == nil {
+                    ClipInbox.shared.handler = { [weak store] request in store?.clip(request) }
+                }
                 #if DEBUG
                 DebugSnapshots.runIfAsked(for: model)
                 #endif

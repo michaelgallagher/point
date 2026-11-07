@@ -19,6 +19,8 @@ packages:
     path: Packages/MarkdownKit
   IndexKit:
     path: Packages/IndexKit
+  ClipKit:
+    path: Packages/ClipKit
 targets:
   Point-Mac:
     type: application
@@ -49,6 +51,7 @@ targets:
       - package: EditorKit
       - package: MarkdownKit
       - package: IndexKit
+      - package: ClipKit
     settings:
       base:
         PRODUCT_NAME: Point
@@ -59,7 +62,8 @@ targets:
         ENABLE_HARDENED_RUNTIME: YES
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Point
-        # Keys the build settings can't give (the Dock tile plug-in), merged in.
+        # Keys the build settings can't give (the Dock tile plug-in, the point:// links the
+        # browser extension opens to clip a page), merged in.
         INFOPLIST_FILE: Apps/Mac/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: Ink Sage

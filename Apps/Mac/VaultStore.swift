@@ -703,6 +703,9 @@ final class VaultStore: ObservableObject {
         let text: String
         /// Whether it can still be undone.
         var canUndo: Bool
+        var symbol = "checkmark.circle"
+        /// Still under way (clipping a page): shown with a spinner until replaced.
+        var isWorking = false
     }
 
     /// Renames a property, a value or a tag in every note that has it, as one change that can

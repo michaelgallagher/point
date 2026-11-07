@@ -845,7 +845,12 @@ private struct VaultChangeNoticeView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Label(notice.text, systemImage: "checkmark.circle")
+            if notice.isWorking {
+                ProgressView().controlSize(.small)
+                Text(notice.text)
+            } else {
+                Label(notice.text, systemImage: notice.symbol)
+            }
             if notice.canUndo, store.lastVaultChange != nil {
                 Button("Undo") { store.undoLastVaultChange() }
                     .buttonStyle(.link)
@@ -856,6 +861,7 @@ private struct VaultChangeNoticeView: View {
         .modifier(NoticeBackground())
         .onHover { isHovering = $0 }
         .task(id: notice.id) {
+            if notice.isWorking { return } // Replaced when the work is done.
             try? await Task.sleep(nanoseconds: notice.canUndo ? 8_000_000_000 : 3_000_000_000)
             while isHovering {
                 try? await Task.sleep(nanoseconds: 500_000_000)

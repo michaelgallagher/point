@@ -8,6 +8,9 @@
 	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
+	<!-- To fetch a page the browser extension asks Point to clip. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
 	<!-- The app icon chosen in Settings, kept where the Dock's tile plug-in can read it. -->
 	<key>com.apple.security.temporary-exception.shared-preference.read-write</key>
 	<array>
