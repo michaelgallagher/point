@@ -370,6 +370,8 @@ The Mac gained images, lists, Point's own kinds of property and dated titles on 
 
 **Tried:** in the Simulator (iOS 27), light and dark: each tile, the Folders and Tags pages, New note, a search picked and then offered again and rerun. **Not tried:** the iPhone itself, the largest text sizes, Mike's vault.
 
+**Revised (7 November, branch `types-and-tidying`):** every list page keeps the blue New note, now at the bar's right after search (a note made from a folder goes in it; from a tag, it has the tag; its long press offers the kinds). Sort, on pages that list notes, and the actions menu (New folder, Move folder, Favourite; New note left it) moved to the top right; a page with no actions has no menu. The panel's tiles are 4pt apart and can each be turned off in Settings › Home; a fourth, Types, lists the vault's kinds, each opening its notes, and four tiles go two by two. Tried in the Simulator: home, Folders, All notes, Types and a kind, Settings. Beside the plus, the search field is as wide as the bar allows: 6pt wider and the system folded it into an overflow menu.
+
 **As decided:**
 
 From a conversation with Mike about keeping Point clear and focused. The phone is for taking notes (in meetings, workshops, on the way to work) and for browsing only when needed.

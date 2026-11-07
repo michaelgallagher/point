@@ -19,4 +19,6 @@ Part of [the plan](../PLAN.md).
 
 **Not tried:** the Mac's menu and palette by hand (both build; running a second copy of Point beside Mike's would share its settings and search history). The iPhone itself.
 
-**Next, maybe:** a kind's symbol in note lists; a kind's own page (all its notes), which lists can already do with a `type` filter.
+**Types (7 November, branch `types-and-tidying`):** on the Mac, Types sits above Properties in the sidebar, listing the kinds with their symbols and counts; a kind lists its notes (`SidebarPlace.types` and `.kind`). On the iPhone, a Types tile on home does the same. In two columns, kinds, properties and values list in the notes column (Properties used to show nothing there).
+
+**Next, maybe:** a kind's symbol in note lists.

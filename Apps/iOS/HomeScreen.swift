@@ -5,7 +5,9 @@ import VaultKit
 /// Where the app can go: a note, or one of the lists of notes.
 enum Route: Hashable {
     case note(Note.ID)
-    case notes, bookmarks, recent, folders, tags
+    case notes, bookmarks, recent, folders, tags, types
+    /// A kind's notes: those whose `type` is its name.
+    case kind(String)
     case tag(String)
     case folder(String)
     case deleted
@@ -184,6 +186,11 @@ struct HomeScreen: View {
         case .recent: RecentScreen().pageBar(add { createNote() })
         case .folders: FoldersScreen().pageBar(add { createNote() }) { newFolderButton(in: "") }
         case .tags: TagsScreen().pageBar(add { createNote() })
+        case .types: TypesScreen().pageBar(add { createNote() })
+        case .kind(let name):
+            KindScreen(name: name).pageBar(add {
+                if let kind = store.kinds.kind(named: name) { createNote(kind: kind) } else { createNote() }
+            }, sorts: true)
         case .tag(let tag):
             TagScreen(tag: tag).pageBar(add { createNote(text: Frontmatter.edit(adding: "tags", values: [tag], isList: true).1) }, sorts: true) {
                 FavouriteButton(favourite: .tag(tag))
@@ -318,27 +325,50 @@ struct RecentScreen: View {
     }
 }
 
-/// Home's panel: Folders, Tags and Bookmarks, side by side, each opening its page. Stacked at
-/// the largest text sizes, where three wouldn't fit across.
+/// Home's panel: Folders, Tags, Bookmarks and Types, each opening its page, as many as
+/// Settings shows. Side by side, or two by two when there are four; stacked at the largest text
+/// sizes, where three wouldn't fit across.
 private struct HomePanel: View {
     @EnvironmentObject private var store: PhoneStore
     @Environment(\.dynamicTypeSize) private var typeSize
+    @AppStorage(HomeTile.folders.key) private var showsFolders = true
+    @AppStorage(HomeTile.tags.key) private var showsTags = true
+    @AppStorage(HomeTile.bookmarks.key) private var showsBookmarks = true
+    @AppStorage(HomeTile.types.key) private var showsTypes = true
     let open: (Route) -> Void
 
+    private static let spacing: CGFloat = 4
+
+    private var tiles: [HomeTile] {
+        [showsFolders ? .folders : nil, showsTags ? .tags : nil, showsBookmarks ? .bookmarks : nil,
+         showsTypes && !store.kinds.isEmpty ? .types : nil].compactMap { $0 }
+    }
+
     var body: some View {
-        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
-        layout {
-            tile("Folders", symbol: "folder", count: store.subfolders(of: "").count, route: .folders)
-            tile("Tags", symbol: symbol("number.sign.circle", or: "number.circle"), count: store.tags.count, route: .tags)
-            tile("Bookmarks", symbol: "bookmark", count: store.bookmarks.count, route: .bookmarks)
+        let tiles = tiles
+        if typeSize.isAccessibilitySize {
+            VStack(spacing: Self.spacing) { ForEach(tiles, id: \.self, content: tile) }
+        } else if tiles.count == 4 {
+            Grid(horizontalSpacing: Self.spacing, verticalSpacing: Self.spacing) {
+                GridRow { tile(tiles[0]); tile(tiles[1]) }
+                GridRow { tile(tiles[2]); tile(tiles[3]) }
+            }
+        } else if !tiles.isEmpty {
+            HStack(spacing: Self.spacing) { ForEach(tiles, id: \.self, content: tile) }
         }
     }
 
-    private func tile(_ title: String, symbol: String, count: Int, route: Route) -> some View {
-        Button { open(route) } label: {
+    private func tile(_ tile: HomeTile) -> some View {
+        let (title, glyph, count, route): (String, String, Int, Route) = switch tile {
+        case .folders: ("Folders", "folder", store.subfolders(of: "").count, .folders)
+        case .tags: ("Tags", symbol("number.sign.circle", or: "number.circle"), store.tags.count, .tags)
+        case .bookmarks: ("Bookmarks", "bookmark", store.bookmarks.count, .bookmarks)
+        case .types: ("Types", "square.grid.2x2", store.kinds.kinds.count, .types)
+        }
+        return Button { open(route) } label: {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline) {
-                    Image(systemName: symbol)
+                    Image(systemName: glyph)
                         .font(.title3)
                         .foregroundStyle(Color.accentColor)
                     Spacer(minLength: 4)
@@ -362,6 +392,76 @@ private struct HomePanel: View {
         .accessibilityLabel(title)
         .accessibilityValue("\(count)")
         .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// What home's panel can show, each turned on or off in Settings.
+enum HomeTile: CaseIterable {
+    case folders, tags, bookmarks, types
+
+    var key: String {
+        switch self {
+        case .folders: "homeShowsFolders"
+        case .tags: "homeShowsTags"
+        case .bookmarks: "homeShowsBookmarks"
+        case .types: "homeShowsTypes"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .folders: "Folders"
+        case .tags: "Tags"
+        case .bookmarks: "Bookmarks"
+        case .types: "Types"
+        }
+    }
+}
+
+/// The vault's kinds of note (`.point/kinds.json`), each with how many notes are of it.
+struct TypesScreen: View {
+    @EnvironmentObject private var store: PhoneStore
+
+    var body: some View {
+        let counts = Dictionary((store.propertyValues[store.kinds.property.lowercased()] ?? []).map { ($0.value.lowercased(), $0.count) },
+                                uniquingKeysWith: +)
+        List {
+            ForEach(store.kinds.kinds) { kind in
+                NavigationLink(value: Route.kind(kind.name)) {
+                    PlaceRow(title: kind.name, symbol: kind.shownSymbol, count: counts[kind.name.lowercased()] ?? 0)
+                }
+            }
+        }
+        .pageTitle("Types")
+        .task { await store.loadPropertyValues() }
+        .overlay { if store.kinds.isEmpty { ContentUnavailableView("No types", systemImage: "square.grid.2x2",
+            description: Text("Kinds of note are set in the vault’s .point/kinds.json.")) } }
+    }
+}
+
+/// A kind's notes, in the chosen order.
+struct KindScreen: View {
+    @EnvironmentObject private var store: PhoneStore
+    let name: String
+
+    var body: some View {
+        KindNotes(name: name, embeds: store.embeds)
+    }
+}
+
+/// Watches the query, which runs in the background, and lists what it finds.
+private struct KindNotes: View {
+    @EnvironmentObject private var store: PhoneStore
+    let name: String
+    @ObservedObject var embeds: PhoneEmbeds
+
+    var body: some View {
+        let ids = embeds.noteIDs(matching: NoteQuery([.property(store.kinds.property, .equals(name))]))
+        let found = Set(ids ?? [])
+        let notes = store.notes.filter { found.contains($0.id) }.sorted(by: store.sort)
+        List { NoteSections(notes: notes) }
+            .pageTitle(name)
+            .overlay { if ids != nil, notes.isEmpty { ContentUnavailableView("No notes", systemImage: "doc.text") } }
     }
 }
 

@@ -11,6 +11,7 @@ struct SettingsScreen: View {
     var body: some View {
         NavigationStack {
             Form {
+                HomeSettings()
                 TypographySettings(typography: $store.typography)
                 Section {
                     LabeledContent("Notes", value: "\(store.notes.count)")
@@ -42,6 +43,29 @@ struct SettingsScreen: View {
                     Button("Done") { dismiss() }
                 }
             }
+        }
+    }
+}
+
+/// What home's panel shows.
+private struct HomeSettings: View {
+    @EnvironmentObject private var store: PhoneStore
+    @AppStorage(HomeTile.folders.key) private var showsFolders = true
+    @AppStorage(HomeTile.tags.key) private var showsTags = true
+    @AppStorage(HomeTile.bookmarks.key) private var showsBookmarks = true
+    @AppStorage(HomeTile.types.key) private var showsTypes = true
+
+    var body: some View {
+        Section {
+            Toggle("Folders", isOn: $showsFolders)
+            Toggle("Tags", isOn: $showsTags)
+            Toggle("Bookmarks", isOn: $showsBookmarks)
+            Toggle("Types", isOn: $showsTypes)
+                .disabled(store.kinds.isEmpty)
+        } header: {
+            Text("Home")
+        } footer: {
+            Text(store.kinds.isEmpty ? "Types shows once the vault has kinds of note." : "Four show two by two.")
         }
     }
 }
