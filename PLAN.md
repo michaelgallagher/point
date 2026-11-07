@@ -17,7 +17,14 @@ On `main`, which has everything so far, including search that learns.
 - **The Mac:** tabs rebuilt in Liquid Glass and hidden while only one note is open, revised headers and breadcrumb, the properties UI, and a new icon. In the explorer (⌘E), commands that match better than any note's title come first, and Run Command (⇧⌘E) lists only commands.
 - **The iPhone:** three rounds of Mike's notes (30 October to 1 November): the system's search field, a menu of actions for each page, moving notes and folders, templates, the properties sheet and adding a property, the bar above the keyboard, and the note being worked on reopening the same day. See [M4, the iPhone app](plan/m4-iphone.md).
 
-**Next:**
+**Next, as of 7 November 2026** (each on its own branch from `main`):
+1. **`iphone-home`:** the simpler phone home screen. See "Home, simplified" in [M4, the iPhone app](plan/m4-iphone.md).
+2. **`kinds`:** kinds of note defined in Point (template, folder, properties), with New meeting offering its templates, and `type` filled in once where the folder makes it plain.
+3. **`recall`:** what happened before, in meeting notes first ("4 earlier · last on 21 October"), then while writing blog posts.
+4. **`clipper`:** a Chrome extension for Dia on the Mac and a share-sheet extension on the iPhone; Point extracts the article and sets its kind.
+5. **`mac-full-screen`:** the full-screen bug (see [Investigations](plan/investigations.md)). Not blocking anything.
+
+**Next, as of 3 November** (older list):
 1. **The real-vault trial goes on.** Anything it turns up comes first, including how search that learns (so far checked only by tests) and tables do on real notes. The [27 October review](plan/app-review-2026-10-27.md)'s findings are fixed except 5 (iCloud conflict versions, to fix against a real one) and 13–15 (performance, to measure first).
 2. **The iPhone app (M4):** finish step 3, editing through the day, then step 4, making it feel right. The bold and italic rules and search that learns are shared with the iPhone but haven't been tried on one yet.
 3. **The properties view** across the vault, the last item of the [25 October batch](plan/batch-2026-10-25.md).

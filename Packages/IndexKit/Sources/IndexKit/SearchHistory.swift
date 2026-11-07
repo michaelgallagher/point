@@ -84,6 +84,18 @@ public struct SearchHistory: Codable, Equatable, Sendable {
         opens.sorted { ($0.value.last ?? .distantPast) > ($1.value.last ?? .distantPast) }.map(\.key)
     }
 
+    /// What was searched for, newest first, as typed when a result was picked: for Search
+    /// to offer again before anything's typed. A search that's the start of a newer one, or
+    /// the other way round ("movi", then "movies"), shows once, as the newer.
+    public func recentQueries(limit: Int) -> [String] {
+        var kept: [String] = []
+        for pick in picks.reversed() where kept.count < limit {
+            guard !kept.contains(where: { $0.hasPrefix(pick.query) || pick.query.hasPrefix($0) }) else { continue }
+            kept.append(pick.query)
+        }
+        return kept
+    }
+
     /// The note picked for `query`, or for text that `query` and it start alike. A pick is
     /// kept under what was typed when it was made, often part of a word, so both less and more
     /// than that find it: "mov" and "movies" both find the note picked after typing "movi".

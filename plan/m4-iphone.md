@@ -364,7 +364,13 @@ The Mac gained images, lists, Point's own kinds of property and dated titles on 
 
 **Not tried:** the iPhone itself, dark mode, web images on the phone, a vault image still in iCloud, a list of hundreds of notes. Titles sort as text (Book 10 before Book 2), on the Mac too.
 
-## Home, simplified (decided 7 November 2026, not built)
+## Home, simplified (decided and built 7 November 2026, branch `iphone-home`)
+
+**Built:** the panel is three tiles (Folders, Tags, Bookmarks, each with its count) opening pages of their own (`HomePanel`, `FoldersScreen`, `TagsScreen`); stacked at the largest text sizes. Folders holds All notes, the vault root, the folders and Deleted notes, which used to be on home. Favourites stay, under the panel, when there are any. Recent is the 10 notes last opened on this phone, then Show all (the Recent page: opened or edited). The bar is New note (`plus`, blue glass), the search field and the actions (New folder). Search before typing shows recent searches (`SearchHistory.recentQueries`: the text typed when a result was picked, newest first, a search that starts a newer one shown once); tapping one runs it again.
+
+**Tried:** in the Simulator (iOS 27), light and dark: each tile, the Folders and Tags pages, New note, a search picked and then offered again and rerun. **Not tried:** the iPhone itself, the largest text sizes, Mike's vault.
+
+**As decided:**
 
 From a conversation with Mike about keeping Point clear and focused. The phone is for taking notes (in meetings, workshops, on the way to work) and for browsing only when needed.
 

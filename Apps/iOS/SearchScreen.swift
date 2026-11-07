@@ -309,19 +309,17 @@ private struct SearchList: View {
         .contentMargins(.bottom, 72, for: .scrollContent)
     }
 
+    /// Before typing: recent searches, to run again. Recent notes and bookmarks are on home, so
+    /// they aren't repeated here.
     @ViewBuilder private var lists: some View {
-        let recent = store.recentlyOpened(limit: 5, excluding: nil)
-        if !recent.isEmpty {
-            Section("Recent") {
-                ForEach(recent) { note in row(note.id) { NoteRow(title: note.title) } }
-            }
-        }
-        if !store.bookmarks.isEmpty {
-            Section("Bookmarks") {
-                ForEach(store.bookmarks, id: \.path) { bookmark in
-                    if let note = store.note(bookmark.path) {
-                        row(note.id) { NoteRow(title: bookmark.title ?? note.title) }
+        let searches = store.recentSearches(limit: 8)
+        if !searches.isEmpty {
+            Section("Recent searches") {
+                ForEach(searches, id: \.self) { query in
+                    Button { search.text = query } label: {
+                        Label(query, systemImage: "magnifyingglass")
                     }
+                    .foregroundStyle(.primary)
                 }
             }
         }

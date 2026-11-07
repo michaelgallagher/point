@@ -840,6 +840,9 @@ final class PhoneStore: ObservableObject {
         return Array(ids.lazy.compactMap { self.note($0) }.prefix(limit))
     }
 
+    /// What was searched for on this phone, newest first, for Search to offer before typing.
+    func recentSearches(limit: Int) -> [String] { history.recentQueries(limit: limit) }
+
     /// `recent`, under date headings, as a sorted list's are.
     var recentGroups: [(label: String, notes: [Note])] {
         var groups: [(label: String, notes: [Note])] = []

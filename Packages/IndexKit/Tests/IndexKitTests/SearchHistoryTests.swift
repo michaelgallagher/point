@@ -17,6 +17,18 @@ struct SearchHistoryTests {
         ids(history.rank(items, for: query, now: now, id: \.id, titleQuality: \.quality))
     }
 
+    @Test func recentQueriesAreNewestFirstAndOncePerSearch() {
+        var history = SearchHistory()
+        history.picked("a", for: "movi", at: now)
+        history.picked("b", for: "Recipes", at: now + 1)
+        history.picked("a", for: "movies", at: now + 2)
+        history.picked("c", for: "  ", at: now + 3)
+        history.picked("d", for: "travel", at: now + 4)
+        #expect(history.recentQueries(limit: 10) == ["travel", "movies", "recipes"])
+        #expect(history.recentQueries(limit: 2) == ["travel", "movies"])
+        #expect(SearchHistory().recentQueries(limit: 5).isEmpty)
+    }
+
     @Test func withNothingLearnedTheOrderIsUnchanged() {
         let items = [Item(id: "b", quality: 1), Item(id: "a", quality: 0), Item(id: "c", quality: nil), Item(id: "d", quality: nil)]
         #expect(rank(SearchHistory(), items) == ["b", "a", "c", "d"])

@@ -5,16 +5,16 @@ import VaultKit
 /// Where the app can go: a note, or one of the lists of notes.
 enum Route: Hashable {
     case note(Note.ID)
-    case notes, bookmarks, recent
+    case notes, bookmarks, recent, folders, tags
     case tag(String)
     case folder(String)
     case deleted
 }
 
-/// Home, as the Notes app's list of folders: All notes, Bookmarks and Recent, each a page of its
-/// own; the vault's folders; then its tags; then Deleted Notes. Settings at the top right; along the bottom, on every
-/// list, Sort (where the list can be sorted), the system's search field and the actions for
-/// where you are.
+/// Home, for writing first and browsing when needed: a panel of Folders, Tags and Bookmarks,
+/// each a page of its own; Favourites, if any; then the notes last opened on this phone.
+/// Settings at the top right. Along the bottom: New note (blue), the search field and the
+/// actions. Every other list has Sort (where it can be sorted) in New note's place.
 struct HomeScreen: View {
     @EnvironmentObject private var store: PhoneStore
     @ObservedObject private var quickActions = QuickActions.shared
@@ -31,10 +31,8 @@ struct HomeScreen: View {
     /// The folder being moved, while choosing where to.
     @State private var movingFolder: String?
     @State private var moveProblem: String?
-    /// Whether Folders and Tags are open on home. Folding one keeps it folded next time. Kept
-    /// as state, not app storage, which folded them without animating.
-    @State private var showsFolders = UserDefaults.standard.object(forKey: "showsFolders") as? Bool ?? true
-    @State private var showsTags = UserDefaults.standard.object(forKey: "showsTags") as? Bool ?? true
+    /// How many of the notes last opened home shows.
+    static let recentOnHome = 10
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -47,7 +45,7 @@ struct HomeScreen: View {
                         Button("Settings", systemImage: "gear") { showsSettings = true }
                     }
                 }
-                .pageBar(.sort) { topLevelActions }
+                .pageBar(.add { createNote() }) { newFolderButton(in: "") }
         }
         // Search, over the bars and pages, opening out from the bar's field. Nothing under it moves.
         .overlay { SearchLayerHost() }
@@ -142,52 +140,22 @@ struct HomeScreen: View {
     private var home: some View {
         List {
             Section {
-                NavigationLink(value: Route.notes) { PlaceRow(title: "All notes", symbol: "doc.text", count: store.notes.count) }
-                NavigationLink(value: Route.bookmarks) { PlaceRow(title: "Bookmarks", symbol: "bookmark", count: store.bookmarks.count) }
-                NavigationLink(value: Route.recent) { PlaceRow(title: "Recent", symbol: "clock", count: nil) }
+                HomePanel(open: { path.append($0) })
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
             }
-            let allTags = store.tags
-            let tagCounts = Dictionary(allTags.map { ($0.tag, $0.count) }, uniquingKeysWith: { first, _ in first })
+            let tagCounts = Dictionary(store.tags.map { ($0.tag, $0.count) }, uniquingKeysWith: { first, _ in first })
             FavouritesSection(tagCounts: tagCounts)
-            let folders = store.sorted(folders: store.subfolders(of: ""))
-            if !folders.isEmpty {
-                Section(isExpanded: $showsFolders) {
-                    // The notes in no folder.
-                    NavigationLink(value: Route.folder("")) {
-                        PlaceRow(title: "Vault root", symbol: "tray", count: store.notes(in: "").count)
+            let recent = store.recentlyOpened(limit: Self.recentOnHome, excluding: nil)
+            if !recent.isEmpty {
+                Section("Recent") {
+                    ForEach(recent) { note in NoteLink(note: note) }
+                    NavigationLink(value: Route.recent) {
+                        Text("Show all").foregroundStyle(Color.accentColor)
                     }
-                    .favouriteMenu(.folder(""))
-                    ForEach(folders, id: \.self) { folder in
-                        NavigationLink(value: Route.folder(folder)) { FolderRow(folder: folder) }
-                            .favouriteMenu(.folder(folder))
-                    }
-                } header: {
-                    FoldingHeader(title: "Folders", isExpanded: $showsFolders)
                 }
-            }
-            let tags = store.sorted(tags: allTags)
-            if !tags.isEmpty {
-                // Nested tags under their parents.
-                Section(isExpanded: $showsTags) {
-                    ForEach(tags, id: \.tag) { entry in
-                        NavigationLink(value: Route.tag(entry.tag)) {
-                            let depth = entry.tag.split(separator: "/").count - 1
-                            PlaceRow(title: depth > 0 ? String(entry.tag.split(separator: "/").last ?? "") : entry.tag,
-                                     symbol: symbol("number.sign.circle", or: "number.circle"), count: entry.count)
-                                .padding(.leading, CGFloat(depth) * 20)
-                        }
-                        .favouriteMenu(.tag(entry.tag))
-                    }
-                } header: {
-                    FoldingHeader(title: "Tags", isExpanded: $showsTags)
-                }
-            }
-            Section {
-                NavigationLink(value: Route.deleted) { PlaceRow(title: "Deleted notes", symbol: "trash", count: store.deletedNotes.count, tint: .red) }
             }
         }
-        .onChange(of: showsFolders) { UserDefaults.standard.set($1, forKey: "showsFolders") }
-        .onChange(of: showsTags) { UserDefaults.standard.set($1, forKey: "showsTags") }
         // Not until the vault's been read: at launch, it showed for a moment before the notes.
         .overlay { if store.hasScanned, store.notes.isEmpty { ContentUnavailableView("No notes", systemImage: "doc.text",
             description: Text("Copy notes into Point’s folder in the Files app.")) } }
@@ -203,6 +171,8 @@ struct HomeScreen: View {
         case .notes: NotesScreen().pageBar(.sort) { topLevelActions }
         case .bookmarks: BookmarksScreen().pageBar { topLevelActions }
         case .recent: RecentScreen().pageBar { topLevelActions }
+        case .folders: FoldersScreen().pageBar { topLevelActions }
+        case .tags: TagsScreen().pageBar { newNoteButton(in: "") }
         case .tag(let tag):
             TagScreen(tag: tag).pageBar(.sort) {
                 Button("New note", systemImage: "square.and.pencil") {
@@ -334,6 +304,106 @@ struct RecentScreen: View {
     }
 }
 
+/// Home's panel: Folders, Tags and Bookmarks, side by side, each opening its page. Stacked at
+/// the largest text sizes, where three wouldn't fit across.
+private struct HomePanel: View {
+    @EnvironmentObject private var store: PhoneStore
+    @Environment(\.dynamicTypeSize) private var typeSize
+    let open: (Route) -> Void
+
+    var body: some View {
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
+        layout {
+            tile("Folders", symbol: "folder", count: store.subfolders(of: "").count, route: .folders)
+            tile("Tags", symbol: symbol("number.sign.circle", or: "number.circle"), count: store.tags.count, route: .tags)
+            tile("Bookmarks", symbol: "bookmark", count: store.bookmarks.count, route: .bookmarks)
+        }
+    }
+
+    private func tile(_ title: String, symbol: String, count: Int, route: Route) -> some View {
+        Button { open(route) } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline) {
+                    Image(systemName: symbol)
+                        .font(.title3)
+                        .foregroundStyle(Color.accentColor)
+                    Spacer(minLength: 4)
+                    Text("\(count)")
+                        .font(.title3.weight(.semibold))
+                        .monospacedDigit()
+                }
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 16, style: .continuous))
+            .contentShape(.rect(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityValue("\(count)")
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// Browsing by folder: All notes and the vault root, the vault's folders, then Deleted notes.
+struct FoldersScreen: View {
+    @EnvironmentObject private var store: PhoneStore
+
+    var body: some View {
+        let folders = store.sorted(folders: store.subfolders(of: ""))
+        List {
+            Section {
+                NavigationLink(value: Route.notes) { PlaceRow(title: "All notes", symbol: "doc.text", count: store.notes.count) }
+                // The notes in no folder.
+                NavigationLink(value: Route.folder("")) {
+                    PlaceRow(title: "Vault root", symbol: "tray", count: store.notes(in: "").count)
+                }
+                .favouriteMenu(.folder(""))
+            }
+            if !folders.isEmpty {
+                Section {
+                    ForEach(folders, id: \.self) { folder in
+                        NavigationLink(value: Route.folder(folder)) { FolderRow(folder: folder) }
+                            .favouriteMenu(.folder(folder))
+                    }
+                }
+            }
+            Section {
+                NavigationLink(value: Route.deleted) { PlaceRow(title: "Deleted notes", symbol: "trash", count: store.deletedNotes.count, tint: .red) }
+            }
+        }
+        .pageTitle("Folders")
+    }
+}
+
+/// Every tag, nested tags under their parents.
+struct TagsScreen: View {
+    @EnvironmentObject private var store: PhoneStore
+
+    var body: some View {
+        let tags = store.sorted(tags: store.tags)
+        List {
+            ForEach(tags, id: \.tag) { entry in
+                NavigationLink(value: Route.tag(entry.tag)) {
+                    let depth = entry.tag.split(separator: "/").count - 1
+                    PlaceRow(title: depth > 0 ? String(entry.tag.split(separator: "/").last ?? "") : entry.tag,
+                             symbol: symbol("number.sign.circle", or: "number.circle"), count: entry.count)
+                        .padding(.leading, CGFloat(depth) * 20)
+                }
+                .favouriteMenu(.tag(entry.tag))
+            }
+        }
+        .pageTitle("Tags")
+        .overlay { if tags.isEmpty { ContentUnavailableView("No tags", systemImage: "number") } }
+    }
+}
+
 /// A tag's notes, in the chosen order.
 struct TagScreen: View {
     @EnvironmentObject private var store: PhoneStore
@@ -453,38 +523,13 @@ func symbol(_ name: String, or older: String) -> String {
 enum PageTool {
     case none, sort
     case find(() -> Void)
+    /// Home's New note, the bar's one blue button.
+    case add(() -> Void)
 }
 
 /// What every page has along the bottom, as Apple's own apps have it: at the left, Sort or Find
 /// (`PageTool`); on a list, the system's search field, with Search over the page while it's in
 /// use, and in a note, a map that opens Search; and at the right, a menu of what can be done here.
-/// A section's header that folds the section up, and opens it again: the whole header is the
-/// button, with a chevron at the end that turns down when it's open.
-private struct FoldingHeader: View {
-    let title: String
-    @Binding var isExpanded: Bool
-
-    var body: some View {
-        Button {
-            withAnimation(.snappy(duration: 0.3)) { isExpanded.toggle() }
-        } label: {
-            HStack {
-                Text(title)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .accessibilityLabel(title)
-        .accessibilityValue(isExpanded ? "Open" : "Folded")
-        .accessibilityHint(isExpanded ? "Folds it up" : "Opens it")
-    }
-}
-
 private struct PageBar<Actions: View>: ViewModifier {
     @EnvironmentObject private var search: PhoneSearch
     let tool: PageTool
@@ -504,7 +549,7 @@ private struct PageBar<Actions: View>: ViewModifier {
                     ToolbarSpacer(.flexible, placement: .bottomBar)
                     ToolbarItem(placement: .bottomBar) { menu }
                 }
-        case .none, .sort:
+        case .none, .sort, .add:
             content
                 // The page stays its size under the keyboard: shrunk, the rows below were left
                 // undrawn, and showed blank as the keyboard went down.
@@ -514,9 +559,17 @@ private struct PageBar<Actions: View>: ViewModifier {
                         ToolbarItem(placement: .bottomBar) { SortMenu() }
                         ToolbarSpacer(.fixed, placement: .bottomBar)
                     }
+                    if case .add(let add) = tool {
+                        ToolbarItem(placement: .bottomBar) {
+                            Button("New note", systemImage: "plus", action: add)
+                                .buttonStyle(.glassProminent)
+                                .tint(.blue)
+                        }
+                        ToolbarSpacer(.fixed, placement: .bottomBar)
+                    }
                     // Point's own search field, not the system's: Search opens out from it.
                     ToolbarItem(placement: .bottomBar) {
-                        SearchCapsule(besides: { if case .sort = tool { 2 } else { 1 } }())
+                        SearchCapsule(besides: { if case .none = tool { 1 } else { 2 } }())
                     }
                     ToolbarSpacer(.fixed, placement: .bottomBar)
                     ToolbarItem(placement: .bottomBar) { menu }
