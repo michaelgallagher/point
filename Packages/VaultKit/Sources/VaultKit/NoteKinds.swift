@@ -7,8 +7,7 @@ import Foundation
 /// {
 ///   "kinds": [
 ///     {"name": "Meeting", "symbol": "person.2", "templates": ["Meeting template", "1-1 template"]},
-///     {"name": "Book", "symbol": "book", "folder": "Sources", "templates": ["Book template"]},
-///     {"name": "Article", "symbol": "doc.richtext", "folder": "Clippings", "templates": ["Media template"]}
+///     {"name": "Media", "symbol": "books.vertical", "folder": "Clippings", "templates": ["Media template", "Book template"]}
 ///   ]
 /// }
 /// ```

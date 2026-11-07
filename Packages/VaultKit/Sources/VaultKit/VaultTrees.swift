@@ -127,6 +127,10 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
     case property(String)
     /// The notes giving a property this value.
     case propertyValue(String, String)
+    /// The vault's kinds of note (`.point/kinds.json`), each with its notes.
+    case types
+    /// A kind's notes: those whose property (`type`, usually) is its name.
+    case kind(String, String)
 
     /// For storing pins: `folder:Work`, `tag:work/imprint`.
     public var key: String {
@@ -140,6 +144,8 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
         case .properties: "properties"
         case .property(let name): "property:" + name
         case .propertyValue(let name, let value): "value:" + name + "\u{1F}" + value
+        case .types: "types"
+        case .kind(let property, let name): "kind:" + property + "\u{1F}" + name
         }
     }
 
@@ -149,6 +155,10 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
         else if key == "bookmarks" { self = .bookmarks }
         else if key == "trash" { self = .trash }
         else if key == "properties" { self = .properties }
+        else if key == "types" { self = .types }
+        else if key.hasPrefix("kind:"), let split = key.dropFirst(5).firstIndex(of: "\u{1F}") {
+            self = .kind(String(key.dropFirst(5)[..<split]), String(key.dropFirst(5)[key.index(after: split)...]))
+        }
         else if key.hasPrefix("property:") { self = .property(String(key.dropFirst(9))) }
         else if key.hasPrefix("value:"), let split = key.dropFirst(6).firstIndex(of: "\u{1F}") {
             self = .propertyValue(String(key.dropFirst(6)[..<split]), String(key.dropFirst(6)[key.index(after: split)...]))
@@ -159,10 +169,11 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
     }
 
     /// Where the back arrow goes: a folder's parent folder, a tag's parent tag, a value's
-    /// property, a property's list of properties, else All Notes.
+    /// property, a property's list of properties, a kind's list of types, else All Notes.
     public var parent: SidebarPlace {
         switch self {
-        case .allNotes, .everything, .bookmarks, .trash, .properties: .allNotes
+        case .allNotes, .everything, .bookmarks, .trash, .properties, .types: .allNotes
+        case .kind: .types
         case .property: .properties
         case .propertyValue(let name, _): .property(name)
         case .folder(let path):

@@ -313,9 +313,11 @@ extension NoteList {
         switch model.place {
         case .tag: return "No notes have this tag."
         case .properties: return "No notes have properties."
-        case .property, .propertyValue:
+        case .types: return "No notes have a type."
+        case .property, .propertyValue, .kind:
             guard let query = model.place.query, model.store.noteIDs(matching: query) != nil else { return nil }
             if case .property = model.place { return "No notes have this property." }
+            if case .kind = model.place { return "No notes are of this type." }
             return "No notes have this value."
         default: return "This folder has no notes."
         }
@@ -392,6 +394,8 @@ extension SidebarPlace {
         case .properties: "Properties"
         case .property(let name): name
         case .propertyValue(_, let value): PropertyValueText.shown(value)
+        case .types: "Types"
+        case .kind(_, let name): name
         }
     }
 

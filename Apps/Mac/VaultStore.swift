@@ -1485,10 +1485,10 @@ final class VaultStore: ObservableObject {
         case .allNotes: return notes.filter { !$0.id.contains("/") }
         case .everything: return notes
         case .bookmarks: return bookmarkedNotes
-        case .trash, .properties: return []
+        case .trash, .properties, .types: return []
         case .folder(let path): return notes.filter { FolderTree.folder(of: $0.id) == path }
         case .tag(let tag): return notes.filter { TagTree.tags(indexedTags[$0.id] ?? [], include: tag) }
-        case .property, .propertyValue:
+        case .property, .propertyValue, .kind:
             // From the index, in the list's own order.
             guard let query = place.query, let ids = noteIDs(matching: query) else { return [] }
             let found = Set(ids)
@@ -1500,7 +1500,8 @@ final class VaultStore: ObservableObject {
     func subplaces(of place: SidebarPlace) -> [SidebarPlace] {
         switch place {
         case .allNotes: sortedFolders(folderTree.subfolders(of: "")).map(SidebarPlace.folder)
-        case .everything, .bookmarks, .trash, .propertyValue: []
+        case .everything, .bookmarks, .trash, .propertyValue, .kind: []
+        case .types: kinds.kinds.map { .kind(kinds.property, $0.name) }
         case .folder(let path): sortedFolders(folderTree.subfolders(of: path)).map(SidebarPlace.folder)
         case .tag(let tag): sortedTags(tagTree.children(of: tag)).map { .tag($0.tag) }
         case .properties: propertySummaries.map { .property($0.name) }
@@ -1565,8 +1566,9 @@ final class VaultStore: ObservableObject {
         case .tag(let tag): tagTree.entries.first { $0.id == tag.lowercased() }?.count ?? 0
         case .properties: propertySummaries.count
         case .property(let name): propertySummaries.first { $0.id == name.lowercased() }?.noteCount ?? 0
-        case .propertyValue(let name, let value):
+        case .propertyValue(let name, let value), .kind(let name, let value):
             propertyValueList(name).first { $0.value.lowercased() == value.lowercased() }?.count ?? 0
+        case .types: kinds.kinds.count
         }
     }
 
@@ -1912,7 +1914,7 @@ extension SidebarPlace {
     var query: NoteQuery? {
         switch self {
         case .property(let name): NoteQuery([.property(name, .exists)])
-        case .propertyValue(let name, let value): NoteQuery([.property(name, .equals(value))])
+        case .propertyValue(let name, let value), .kind(let name, let value): NoteQuery([.property(name, .equals(value))])
         default: nil
         }
     }

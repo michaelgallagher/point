@@ -40,7 +40,7 @@ enum SidebarRow: Hashable {
 
 /// The sidebar's sections at the vault's top level, each of which can be folded away.
 enum SidebarSection: String, CaseIterable {
-    case pinned = "Pinned", folders = "Folders", tags = "Tags", properties = "Properties", values = "Values", notes = "Notes", images = "Images"
+    case pinned = "Pinned", folders = "Folders", tags = "Tags", types = "Types", properties = "Properties", values = "Values", notes = "Notes", images = "Images"
 }
 
 extension VaultModel {
@@ -50,7 +50,7 @@ extension VaultModel {
         switch place {
         case .folder(let path): path
         case .tag(let tag): "#" + tag
-        case .allNotes, .everything, .bookmarks, .trash, .properties, .property, .propertyValue: ""
+        case .allNotes, .everything, .bookmarks, .trash, .properties, .property, .propertyValue, .types, .kind: ""
         }
     }
 
@@ -64,7 +64,10 @@ extension VaultModel {
         func shows(_ name: String) -> Bool { filter.isEmpty || name.localizedStandardContains(filter) }
         if content != .places, place == .trash { return trashedNotes.filter { shows($0.title) }.map { .trashed($0) } }
         let images = content == .places ? [] : store.images(in: place).filter { shows($0.name) }
-        guard content != .notes else { return noteRows(notes(in: place).filter { shows($0.title) }) + images.map { .image($0.path) } }
+        // In two columns, the notes column has only notes, except under Types and Properties:
+        // the left column has no kinds, properties or values to show, so they're listed here,
+        // above the notes.
+        guard content != .notes || place.isProperty || place == .types else { return noteRows(notes(in: place).filter { shows($0.title) }) + images.map { .image($0.path) } }
         // Filtering, folded sections open, so what matches in them shows.
         let collapsed = filter.isEmpty ? collapsed : []
         var sections: [[SidebarRow]] = []
@@ -92,8 +95,9 @@ extension VaultModel {
             // between folders and tags, if they show one at a time: below these, which it
             // doesn't change.
             let oneAtATime = treeLayout == .toggle
-            // Properties only once the vault has some.
+            // Types only once the vault has kinds, and properties once it has some.
             let special: [SidebarPlace] = [.everything] + (store.showsBookmarksInSidebar ? [.bookmarks] : [])
+                + (store.kinds.isEmpty ? [] : [.types])
                 + (store.propertySummaries.isEmpty ? [] : [.properties]) + [.trash]
             sections.append(places(special.map { .place($0, depth: 0) })
                             + (oneAtATime && filter.isEmpty ? [.treeSwitch] : []))
@@ -130,6 +134,7 @@ extension VaultModel {
             case .tag: .tags
             case .properties: .properties
             case .property: .values
+            case .types: .types
             default: .folders
             }
             sections.append(section(label, places(rows)))
@@ -369,8 +374,8 @@ struct SidebarTable: NSViewRepresentable {
             func depth(_ place: SidebarPlace) -> Int {
                 switch place {
                 case .allNotes: 0
-                case .everything, .bookmarks, .trash, .properties: 1
-                case .property: 2
+                case .everything, .bookmarks, .trash, .properties, .types: 1
+                case .property, .kind: 2
                 case .propertyValue: 3
                 case .folder(let path), .tag(let path): path.split(separator: "/").count
                 }
@@ -622,7 +627,7 @@ struct SidebarTable: NSViewRepresentable {
                     entry.state = model.tagOrder == order ? .on : .off
                     menu.addItem(entry)
                 }
-            case .pinned, .properties, .values, .images:
+            case .pinned, .types, .properties, .values, .images:
                 return nil
             }
             return menu
@@ -1200,7 +1205,7 @@ extension VaultModel {
             }
         case .folders, .tags:
             tagOrder == .name ? "Name" : "Date modified"
-        case .pinned, .properties, .values, .images:
+        case .pinned, .types, .properties, .values, .images:
             nil
         }
     }
@@ -1219,6 +1224,8 @@ extension SidebarPlace {
         case .properties: "list.bullet.rectangle"
         case .property: "text.alignleft"
         case .propertyValue: "equal"
+        case .types: "square.grid.2x2"
+        case .kind: "doc.text"
         }
     }
 }
@@ -1228,6 +1235,7 @@ extension VaultModel {
     func symbol(for place: SidebarPlace) -> String {
         switch place {
         case .property(let name): store.propertyTypes.type(forKey: name)?.symbol ?? guessedSymbol(name)
+        case .kind(_, let name): store.kinds.kind(named: name)?.shownSymbol ?? place.symbol
         default: place.symbol
         }
     }

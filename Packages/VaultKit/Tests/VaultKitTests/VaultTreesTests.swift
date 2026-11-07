@@ -62,7 +62,7 @@ struct TagTreeTests {
 struct SidebarPlaceTests {
     @Test func keysRoundTrip() {
         for place in [SidebarPlace.allNotes, .folder("Work/Projects"), .tag("work/imprint"), .properties, .property("status"),
-                      .propertyValue("people", "[[Sam: Lee]]"), .propertyValue("a", "")] {
+                      .propertyValue("people", "[[Sam: Lee]]"), .propertyValue("a", ""), .types, .kind("type", "Blog post")] {
             #expect(SidebarPlace(key: place.key) == place)
         }
     }
@@ -74,5 +74,7 @@ struct SidebarPlaceTests {
         #expect(SidebarPlace.propertyValue("status", "draft").parent == .property("status"))
         #expect(SidebarPlace.property("status").parent == .properties)
         #expect(SidebarPlace.properties.parent == .allNotes)
+        #expect(SidebarPlace.kind("type", "Meeting").parent == .types)
+        #expect(SidebarPlace.types.parent == .allNotes)
     }
 }
