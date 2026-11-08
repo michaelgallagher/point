@@ -998,6 +998,27 @@ final class VaultStore: ObservableObject {
     @Published var showsTypesInSidebar = UserDefaults.standard.object(forKey: "showsTypesInSidebar") == nil || UserDefaults.standard.bool(forKey: "showsTypesInSidebar") {
         didSet { UserDefaults.standard.set(showsTypesInSidebar, forKey: "showsTypesInSidebar") }
     }
+    /// Whether Lists (every list note) is in the sidebar, under Bookmarks.
+    @Published var showsListsInSidebar = UserDefaults.standard.object(forKey: "showsListsInSidebar") == nil || UserDefaults.standard.bool(forKey: "showsListsInSidebar") {
+        didSet { UserDefaults.standard.set(showsListsInSidebar, forKey: "showsListsInSidebar") }
+    }
+    /// The types chosen in Settings to have a place of their own in the sidebar, under
+    /// Bookmarks. Until chosen, those with no folder of their own (a type with one is reached
+    /// through its folder): Meeting, say, which is spread across many.
+    @Published var sidebarKindNames: [String]? = UserDefaults.standard.stringArray(forKey: "sidebarKinds") {
+        didSet { UserDefaults.standard.set(sidebarKindNames, forKey: "sidebarKinds") }
+    }
+    var shownSidebarKinds: [NoteKinds.Kind] {
+        guard let names = sidebarKindNames else { return kinds.kinds.filter { $0.folder == nil } }
+        let chosen = Set(names.map { $0.lowercased() })
+        return kinds.kinds.filter { chosen.contains($0.name.lowercased()) }
+    }
+    func showsInSidebar(_ kind: NoteKinds.Kind) -> Bool { shownSidebarKinds.contains(kind) }
+    func setShowsInSidebar(_ kind: NoteKinds.Kind, _ shows: Bool) {
+        var names = shownSidebarKinds.map(\.name).filter { $0.lowercased() != kind.name.lowercased() }
+        if shows { names.append(kind.name) }
+        sidebarKindNames = names
+    }
     /// The properties the sidebar lists, each with its values, in the order they were chosen:
     /// none at first.
     @Published var sidebarProperties = UserDefaults.standard.stringArray(forKey: "sidebarProperties") ?? [] {
@@ -1504,6 +1525,11 @@ final class VaultStore: ObservableObject {
                 propertyValues = values
             }
             if changed > 0 || personNoteIDs == nil, generation == vaultGeneration { await loadPersonNotes() }
+            if changed > 0 || !listsLoaded, let lists = try? await index.listNotes(), generation == vaultGeneration {
+                let found = Set(lists)
+                if found != listNoteIDs { listNoteIDs = found }
+                listsLoaded = true
+            }
             if changed > 0 || propertySummaries.isEmpty, let summaries = try? await index.propertySummaries(), generation == vaultGeneration {
                 propertySummaries = summaries
             }
@@ -1530,6 +1556,7 @@ final class VaultStore: ObservableObject {
         case .allNotes: return notes.filter { !$0.id.contains("/") }
         case .everything: return notes
         case .bookmarks: return bookmarkedNotes
+        case .lists: return notes.filter { listNoteIDs.contains($0.id) }
         case .trash, .properties, .types, .tags: return []
         case .folder(let path): return notes.filter { FolderTree.folder(of: $0.id) == path }
         case .tag(let tag): return notes.filter { TagTree.tags(indexedTags[$0.id] ?? [], include: tag) }
@@ -1545,7 +1572,7 @@ final class VaultStore: ObservableObject {
     func subplaces(of place: SidebarPlace) -> [SidebarPlace] {
         switch place {
         case .allNotes: sortedFolders(folderTree.subfolders(of: "")).map(SidebarPlace.folder)
-        case .everything, .bookmarks, .trash, .propertyValue, .kind: []
+        case .everything, .bookmarks, .trash, .propertyValue, .kind, .lists: []
         case .types: kinds.kinds.map { .kind(kinds.property, $0.name) }
         case .tags: sortedTags(tagTree.entries.filter { $0.depth == 0 }).map { .tag($0.tag) }
         case .folder(let path): sortedFolders(folderTree.subfolders(of: path)).map(SidebarPlace.folder)
@@ -1608,6 +1635,7 @@ final class VaultStore: ObservableObject {
         case .allNotes, .everything: notes.count
         case .trash: trashedNotes.count
         case .bookmarks: bookmarkedNotes.count
+        case .lists: listNoteIDs.count
         case .folder(let path): folderTree.noteCounts[path] ?? 0
         case .tag(let tag): tagTree.entries.first { $0.id == tag.lowercased() }?.count ?? 0
         case .properties: propertySummaries.count
@@ -1801,6 +1829,10 @@ final class VaultStore: ObservableObject {
         }
         listVersion += 1
     }
+
+    /// The notes that are lists, marked as such in note lists and gathered under Lists.
+    @Published private(set) var listNoteIDs: Set<Note.ID> = [] { didSet { listVersion += 1 } }
+    private var listsLoaded = false
 
     /// The notes of the person kind (`type: Person`), if the vault has one.
     private var personNoteIDs: [Note.ID]? { didSet { peopleCache = nil } }

@@ -78,7 +78,7 @@ extension VaultModel {
         switch place {
         case .folder(let path): path
         case .tag(let tag): "#" + tag
-        case .allNotes, .everything, .bookmarks, .trash, .properties, .property, .propertyValue, .types, .kind, .tags: ""
+        case .allNotes, .everything, .bookmarks, .trash, .properties, .property, .propertyValue, .types, .kind, .tags, .lists: ""
         }
     }
 
@@ -135,6 +135,9 @@ extension VaultModel {
             // folders and tags, if they show one at a time: below these, which it doesn't change.
             let oneAtATime = twoColumns && treeLayout == .toggle
             var special: [SidebarPlace] = [.everything] + (store.showsBookmarksInSidebar ? [.bookmarks] : [])
+            // The types chosen in Settings, then every list, under Bookmarks.
+            special += store.shownSidebarKinds.map { .kind(store.kinds.property, $0.name) }
+            if store.showsListsInSidebar, !store.listNoteIDs.isEmpty { special.append(.lists) }
             if !twoColumns {
                 if showsTags { special.append(.tags) }
                 if showsTypes { special.append(.types) }
@@ -427,7 +430,7 @@ struct SidebarTable: NSViewRepresentable {
             func depth(_ place: SidebarPlace) -> Int {
                 switch place {
                 case .allNotes: 0
-                case .everything, .bookmarks, .trash, .properties, .types, .tags: 1
+                case .everything, .bookmarks, .trash, .properties, .types, .tags, .lists: 1
                 case .property, .kind: 2
                 case .propertyValue: 3
                 case .folder(let path), .tag(let path): path.split(separator: "/").count
@@ -1166,6 +1169,17 @@ struct SidebarNoteRow: View {
 
     private var indent: CGFloat { model.listDateStyle == .groups && model.sort != .title ? 12 : 0 }
 
+    /// A list note is marked: with "List" at the row's right where that's free (under date
+    /// headings, or with dates off), else with a symbol before its title.
+    private var isList: Bool { model.store.listNoteIDs.contains(note.id) }
+    private var listMark: ListMark? { isList ? (showsDate ? .symbol : .label) : nil }
+    enum ListMark { case symbol, label }
+    private static let listSymbolWidth: CGFloat = 14
+    @MainActor private static var listLabelWidth: CGFloat = {
+        let font = NSFont.preferredFont(forTextStyle: .caption1)
+        return ceil(("List" as NSString).size(withAttributes: [.font: font]).width) + 12
+    }()
+
     /// Each date label's width, measured once (the same dates come up again and again).
     @MainActor private static var dateWidths: [String: CGFloat] = [:]
 
@@ -1174,6 +1188,11 @@ struct SidebarNoteRow: View {
         let row = SidebarNoteRow(note: note, model: model)
         var width = rowWidth - padding * 2 - row.indent
         if !note.isDownloaded { width -= iCloudWidth + spacing }
+        switch row.listMark {
+        case .symbol: width -= listSymbolWidth + spacing
+        case .label: width -= listLabelWidth + spacing
+        case nil: break
+        }
         if row.showsDate {
             let label = row.dateLabel
             let labelWidth = dateWidths[label] ?? {
@@ -1183,9 +1202,10 @@ struct SidebarNoteRow: View {
                 return measured
             }()
             width -= labelWidth + spacing
-        } else {
-            width -= 4 // The spacer's least.
         }
+        // The spacer's least, and the gap before it (left out before, which squeezed a date
+        // at the right onto two lines).
+        width -= 4 + spacing
         return max(width, 20)
     }
 
@@ -1194,6 +1214,13 @@ struct SidebarNoteRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             HStack(alignment: .firstTextBaseline, spacing: Self.spacing) {
+                if listMark == .symbol {
+                    Image(systemName: "list.bullet")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: Self.listSymbolWidth)
+                        .help("A list")
+                }
                 Text(note.title)
                     .lineLimit(wrapsTitle ? nil : 1)
                     .lineSpacing(wrapsTitle ? Self.wrappedLineSpacing : 0)
@@ -1207,9 +1234,19 @@ struct SidebarNoteRow: View {
                         .frame(width: Self.iCloudWidth)
                         .help("In iCloud, not yet downloaded")
                 }
+                if listMark == .label {
+                    Text("List")
+                        .font(.caption)
+                        .fixedSize()
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .background(Capsule().fill(Color.primary.opacity(0.07)))
+                        .help("A list")
+                }
                 if showsDate {
                     Text(dateLabel)
                         .font(.caption)
+                        .fixedSize()
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
@@ -1280,6 +1317,7 @@ extension SidebarPlace {
         case .types: "square.grid.2x2"
         case .tags: "number"
         case .kind: "doc.text"
+        case .lists: "list.bullet.rectangle.portrait"
         }
     }
 }

@@ -169,6 +169,7 @@ struct SettingsView: View {
 
             Section {
                 Toggle("Bookmarks", isOn: $store.showsBookmarksInSidebar)
+                Toggle("Lists", isOn: $store.showsListsInSidebar)
                 Toggle("Tags", isOn: $store.showsTagsInSidebar)
                 Toggle("Types", isOn: $store.showsTypesInSidebar)
                     .disabled(store.kinds.isEmpty)
@@ -177,6 +178,21 @@ struct SettingsView: View {
             } footer: {
                 Text(store.kinds.isEmpty ? "Types shows once the vault has kinds of note (.point/kinds.json)." : "In one column, these are at the top, each opening its own list. In two, tags and types are listed under folders.")
                     .foregroundStyle(.secondary)
+            }
+
+            if !store.kinds.isEmpty {
+                Section {
+                    ForEach(store.kinds.kinds) { kind in
+                        Toggle(isOn: Binding(get: { store.showsInSidebar(kind) }, set: { store.setShowsInSidebar(kind, $0) })) {
+                            Label(kind.name, systemImage: kind.shownSymbol)
+                        }
+                    }
+                } header: {
+                    Text("Types at the top")
+                } footer: {
+                    Text("Each type chosen is under Bookmarks, listing its notes wherever they are. A type kept in one folder is easier to reach through the folder.")
+                        .foregroundStyle(.secondary)
+                }
             }
 
             SidebarPropertiesSection()

@@ -538,6 +538,12 @@ public actor SearchIndex {
             .sorted { $0.count != $1.count ? $0.count > $1.count : $0.value.localizedStandardCompare($1.value) == .orderedAscending }
     }
 
+    /// The notes that are lists: those with `list-from`, `list-tags` or `list-where`.
+    public func listNotes() throws -> [Note.ID] {
+        try db.query("SELECT DISTINCT n.id FROM property_names p JOIN notes n ON n.row = p.note WHERE p.lowered IN (?, ?, ?)",
+                     [ListDefinition.Key.from, ListDefinition.Key.tags, ListDefinition.Key.conditions]).compactMap { $0[0] as? String }
+    }
+
     /// Every name any note links to or embeds, in lowercase: for finding images no note shows.
     public func linkedNames() throws -> Set<String> {
         Set(try db.query("SELECT DISTINCT name FROM links", []).compactMap { $0[0] as? String })

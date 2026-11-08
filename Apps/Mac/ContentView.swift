@@ -320,6 +320,7 @@ extension NoteList {
         case .types: return "No notes have a type."
         case .tags: return "No notes have tags."
         case .trash: return "The trash is empty."
+        case .lists: return "No notes are lists."
         case .property, .propertyValue, .kind:
             guard let query = model.place.query, model.store.noteIDs(matching: query) != nil else { return nil }
             if case .property = model.place { return "No notes have this property." }
@@ -403,6 +404,7 @@ extension SidebarPlace {
         case .types: "Types"
         case .tags: "Tags"
         case .kind(_, let name): name
+        case .lists: "Lists"
         }
     }
 
