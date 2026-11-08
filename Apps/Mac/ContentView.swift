@@ -403,7 +403,7 @@ extension SidebarPlace {
         case .propertyValue(_, let value): PropertyValueText.shown(value)
         case .types: "Types"
         case .tags: "Tags"
-        case .kind(_, let name): name
+        case .kind(_, let name): NoteKinds.plural(name)
         case .lists: "Lists"
         }
     }
