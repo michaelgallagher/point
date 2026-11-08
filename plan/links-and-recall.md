@@ -1,4 +1,4 @@
-# Links and recall: to work on (8 November 2026)
+# Links and recall: to work on (8 November 2026; decided the same day)
 
 Part of [the plan](../PLAN.md). Follows [Types, links and lists](types-and-links.md) and [Recall](recall.md).
 
@@ -13,11 +13,36 @@ Part of [the plan](../PLAN.md). Follows [Types, links and lists](types-and-links
 - Two entry points (a line at the top, a button at the bottom), two list designs, and two ways to open a note from them.
 - The links have two layouts to keep right; recall has a third.
 
-**Layout and UI to work on (both placements):** the header and its close button, the type chips, the group headings and folding, the rows (what each shows, and how wide titles, types and dates share the room), the panel's width or height, and the empty state. Mike to say what isn't working.
+**Layout and UI to work on (both placements):** the header and its close button, the type chips, the group headings and folding, the rows (what each shows, and how wide titles, types and dates share the room), the panel's width or height, and the empty state. Mike's answers are under Decided, below.
 
-**Ways it could go (to decide with Mike):**
+**Ways it could go:**
 1. **One "Related" place:** recall becomes the first section of the links panel ("Before": earlier meetings with these people; or "On the same topics"), above the notes linking here. The line under the properties stays as a summary that opens the panel at that section.
 2. **Keep them apart, make them alike:** recall keeps its line and list but uses the links panel's rows, chips and opening, so they read as one family.
 3. **Recall replaces part of links:** for notes with people or topics, the panel's groups come from what's shared as well as what links, and the separate recall list goes.
 
-**Also:** the iPhone has recall (as a sheet) but its links are still one list; whatever's decided should land on both.
+**How 1 and 3 differ** (Mike asked): both make one panel. In 1, recall is a section of its own at the top ("On the same topics", "Before"), and the groups below it list only notes that link here, as now; a note can appear in both. In 3 there's no recall section: what a note shares is folded into the groups themselves (a note on the same topics joins "About" though it never links here), so each note appears once, but you can no longer tell a note that links here from one that only shares something with it.
+
+## Decided (Mike, 8 November)
+
+**One function, not two: way 3.** Links and recall become one panel, and recall stops being a thing of its own: what a note shares with this one (topics, people) is folded into the panel's groups alongside what links here. Way 1 would still have left two functions doing nearly the same job.
+
+**Ranked by how much is shared.** A note sharing all of this note's topics comes first, then those sharing all but one, and so on down to those sharing one. So for a note with three topics: all three, then two of the three, then one. (The same for people on a meeting, presumably: all the same people first.) Within each tier, newest first.
+
+**How it looks: the slide-up from the bottom**, as the main way. None of today's layouts is liked.
+- The side panel is good for focused writing but no use in a narrow window, which is how Mike takes notes at work. It may stay as an option.
+- Recall's current pop-out is too small to filter in comfortably.
+- **The note above stays scrollable** while the panel is up; otherwise it may as well take the whole window, which Mike doesn't want.
+- **Width:** the panel's content can be wider than the note's column, up to a limit. Simplest: the same maximum width as the note's content.
+- **Section headings** (Mentioned, Media, By and so on) easier to see: bold, in the text colour (not grey), and the same size as the panel's heading.
+- **A divider** under the panel's heading once its content scrolls: a plain line, as wide as the content.
+- **The type chips move up**, beside the panel's title.
+
+**One button or readout, not two.** Start with today's recall line under the properties ("9 earlier meetings · last on 9 September"): it's discreet, and clicking it opens the panel. Where it finally goes isn't settled.
+
+**What's shared comes first in the panel**, above the notes that only link here. With way 3 there's no separate recall section, so this means the notes found by what they share (most shared first) lead, and the relation groups (By, About, Mentioned…) follow.
+
+**Expect to try a few versions** of both the readout's place and the panel's order before settling. Build them so they're easy to change, and show Mike each.
+
+**Still open:** whether a note that both links here and shares topics shows among the shared notes or in its relation group (it appears once either way), Then the iPhone follows.
+
+**The readout with nothing shared** (Mike, 8 November): it counts the links and says what kinds they are, for example "12 links (articles by this author, mentions, and with)", built from the groups the note actually has. The wording to try out with the rest.

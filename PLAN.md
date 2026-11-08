@@ -24,8 +24,9 @@ On `main`, which has everything so far, including search that learns.
 4. **`clipper`:** a Chrome extension for Dia on the Mac and the share sheet on the iPhone; Point extracts the article and sets its kind. Built on both: the Mac with the extension, and the iPhone with a share-sheet Shortcut opening `point://clip` (steps in `Clipper/iPhone`) and Clip copied link. Tried in the Simulator; not yet on Mike's iPhone or from Dia. A share extension waits for the paid account. See [The clipper](plan/clipper.md).
 5. **Types, links and lists** (8 November, merged): links grouped by what they are to a note (By, About, With, Mentioned) and narrowed by type, at the side or the bottom; Person and Project kinds; types chosen for the sidebar's top; Lists, and list notes marked. A second round moved types to the sidebar's top only (plural), properties to Settings, the links side panel beside the whole pane and the strip to the bottom left, and smoothed the sidebar in a window too wide for the screen. See [Types, links and lists](plan/types-and-links.md).
 6. **The iPhone on the real vault:** choosing the vault in iCloud Drive, notes not yet downloaded, changes from the Mac, and the safety tests again on the phone. After the iPhone clipper. See [The iPhone on the real vault](plan/iphone-real-vault.md).
-7. **Links and recall, together:** the links panels' layout and UI, and how they relate to recall, which overlaps them confusingly. To decide with Mike. See [Links and recall](plan/links-and-recall.md).
-8. **`mac-full-screen`:** the full-screen bug (see [Investigations](plan/investigations.md)). Not blocking anything.
+7. **Links and recall, together:** decided 8 November: one function (recall folded into the links' groups, way 3), opened from today's recall line under the properties, notes sharing the most topics or people first, sliding up from the bottom with the note still scrollable, as wide as the note's content, bolder section headings, the type chips beside its title. See [Links and recall](plan/links-and-recall.md).
+8. **The 8 November batch:** Mike's list. On the Mac: swap the search and explorer keys, the explorer's left side to match the sidebar, an easier way to make a list note, clips opening in a tab not a window, a bolder icon in Dia, the list line stopping at gaps, Markdown mode for one side of a split, a word count, and which side of a split a note opens in. On the iPhone: no New folder on Home, sorting in the ••• menu. See [The 8 November batch](plan/batch-2026-11-08.md).
+9. **`mac-full-screen`:** the full-screen bug (see [Investigations](plan/investigations.md)). Not blocking anything.
 
 **Next, as of 3 November** (older list):
 1. **The real-vault trial goes on.** Anything it turns up comes first, including how search that learns (so far checked only by tests) and tables do on real notes. The [27 October review](plan/app-review-2026-10-27.md)'s findings are fixed except 5 (iCloud conflict versions, to fix against a real one) and 13–15 (performance, to measure first).
@@ -44,8 +45,9 @@ On `main`, which has everything so far, including search that learns.
 - [Milestones](plan/milestones.md): M0 to M6.
 
 **Work, newest first**
+- [The 8 November batch](plan/batch-2026-11-08.md): Mike's list of fixes and changes for the Mac and the iPhone.
 - [The iPhone on the real vault](plan/iphone-real-vault.md) (8 November): what's needed to use the iPhone app on the real notes, and in what order.
-- [Links and recall: to work on](plan/links-and-recall.md) (8 November): the links panels' layout, and how they and recall fit together, with three ways it could go.
+- [Links and recall](plan/links-and-recall.md) (8 November): links and recall become one function, a panel sliding up from the bottom opened from the recall line; what's decided and what's left.
 - [Types, links and lists](plan/types-and-links.md) (8 November): links grouped by relation and type, Person and Project kinds, types and Lists in the sidebar, properties in Settings.
 - [Recall: what came before](plan/recall.md) (7 November): under a note's properties, its earlier meetings with the same people, or the notes on a post's topics.
 - [Beyond text: structure, names and Obsidian](plan/structure.md) (6 November): how images, comparing drafts, lists from properties, and people and types fit together. Decided: plain files readable anywhere, not Obsidian compatibility; titles from a `title:` property, with dated file names; a typed index under it all; lists as notes; and the order of work.
