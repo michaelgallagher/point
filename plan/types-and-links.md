@@ -27,3 +27,18 @@ Part of [the plan](../PLAN.md). Follows [Kinds of note](kinds.md).
 - Mike checks the topics sorting; then `type` is written into those notes.
 - Links grouped on the iPhone too.
 - Maybe: "Save as list" from the links (a list of a person's articles), and a type of its own for organisations and products (the NHS App and the like), if Topic isn't enough.
+
+## Second round (8 November 2026, branch `sidebar-and-links`)
+
+**Mike's notes:** types only at the top of the sidebar, not again below the folders; type names plural there; properties out of the sidebar and into Settings; no explanations under Links and Images; the side panel beside the whole pane (tabs and menu included), with its own title and close button, resizable, sliding in, and not jumping when notes change; the strip's button in the note's bottom-left corner, sized to its summary, opening a plain (not glass) panel that slides up, can be resized and keeps its height; and the sidebar stuttering as it opens in a window too wide for the screen.
+
+**Built:**
+- **Sidebar:** the types chosen in Settings are the only place types show (the Types section and its option are gone; a type's place sits under All notes). Names are plural (`NoteKinds.plural`: Meetings, Daily notes, Reviews, People; Media unchanged). Properties are no longer in the sidebar.
+- **Settings:** "Shown in the sidebar" lists Bookmarks, each type, Lists and Tags, each with its symbol. A Properties tab lists every property with its type, how many notes use it, and Rename… (the rename across the vault). Links and Images have no explanations.
+- **Side panel:** part of the pane, beside the page and its tab bar, so the tabs and menu end at the panel. Its title sits in the bar, with a glass close button. 320 points to start, dragged wider or narrower from its edge (240–640), kept. It slides in from the right. Each note's links are kept by the window (the last twelve), so changing notes keeps the panel and its width, with no full-width note first.
+- **Bottom strip:** a glass button in the note's bottom-left corner, inset like the sidebar's filter and sort buttons, with the count and summary, or the count alone when there isn't room. It opens a plain panel with a thin divider, sliding up over the note; its height (360 to start) is dragged from the divider and kept, so choosing a type doesn't change it.
+- **The sidebar in a wide window:** when the screen can't take the whole sidebar, the notes give up part of their width. That used to happen at once: the sidebar opened at the notes' share, the notes jumped narrower and re-wrapped, then the rest slid in (and the reverse, with a jump at the end, on hiding). Now the sidebar's collapse animates with the window's frame, so the window, the sidebar and the notes move together.
+
+**Tried:** traces of the sidebar opening and closing three times in a window of 1,700 points on a 1,800-point screen, and 1,000 points for comparison: each frame's positions move together with no jump, and the window ends exactly where it began. Snapshots of the side panel and strip (no glass in snapshots). The iPhone builds; VaultKit and IndexKit tests pass.
+
+**Not tried:** the sidebar's opening watched on screen (by Mike, or a screen recording); dragging the panel's and strip's edges by hand.

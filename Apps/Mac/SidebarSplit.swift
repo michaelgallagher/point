@@ -493,7 +493,40 @@ final class SidebarSplitController: NSSplitViewController {
         Trace.mark("sidebar \(shown ? "show" : "hide"): width \(width), window \(from) → \(frame), adjustment \(newAdjustment), slide \(newSlide)")
 
         // Its contents at the width it shows at, even when hidden partway through showing.
+        let wasResizing = isResizing
         let count = begin(holding: max(width, savedWidth))
+        // The screen too narrow for the whole sidebar (showing), or giving the notes back what
+        // they gave up (hiding): the notes' width changes too, so the sidebar's collapse
+        // animates with the window's frame. Done in steps (the sidebar opened at the notes'
+        // share at once, or collapsed from it at the end), the notes jumped and re-wrapped.
+        if !wasResizing, shown ? newAdjustment > 0 : adjustment > 0 {
+            afterHolding(count) { [self] in
+                if window.minSize.width > frame.width { window.minSize.width = frame.width }
+                if window.contentMinSize.width > frame.width { window.contentMinSize.width = frame.width }
+                if shown { sidebarItem.minimumThickness = width }
+                window.contentView?.layoutSubtreeIfNeeded()
+                window.displayIfNeeded()
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = Self.duration
+                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                    window.animator().setFrame(frame, display: true)
+                    sidebarItem.animator().isCollapsed = !shown
+                } completionHandler: {
+                    MainActor.assumeIsolated {
+                        guard self.animationCount == count, self.isResizing else { return }
+                        self.settle(count, shown: shown, width: width, adjustment: newAdjustment, slide: newSlide, frame: frame)
+                    }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.duration + 0.75) { [self] in
+                    guard animationCount == count, isResizing else { return }
+                    Trace.mark("sidebar resize didn't complete; setting the frame")
+                    window.setFrame(frame, display: true)
+                    sidebarItem.isCollapsed = !shown
+                    settle(count, shown: shown, width: width, adjustment: newAdjustment, slide: newSlide, frame: frame)
+                }
+            }
+            return
+        }
         afterHolding(count) { [self] in
             // The window's minimum is the one for the sidebar it's leaving until SwiftUI catches
             // up; it mustn't stop the resize. (SwiftUI sets the content's minimum, which wins
@@ -558,6 +591,17 @@ final class SidebarSplitController: NSSplitViewController {
                 finish()
             }
         }
+    }
+
+    /// Ends a resize that animated the sidebar's collapse with the window.
+    private func settle(_ count: Int, shown: Bool, width: CGFloat, adjustment newAdjustment: CGFloat, slide newSlide: CGFloat, frame: NSRect) {
+        guard let window = view.window else { return end(count) }
+        sidebarItem.minimumThickness = widths.min
+        if shown, !sidebarItem.isCollapsed { splitView.setPosition(width, ofDividerAt: 0) }
+        adjustment = newAdjustment
+        slide = newSlide
+        frameAfterResize = window.frame
+        end(count)
     }
 
     /// Starts an animation: holds the sidebar's contents at its width while it moves.
