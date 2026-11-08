@@ -20,7 +20,7 @@ On `main`, which has everything so far, including search that learns.
 **Next, as of 7 November 2026** (each on its own branch from `main`):
 1. **`iphone-home`:** the simpler phone home screen. See "Home, simplified" in [M4, the iPhone app](plan/m4-iphone.md).
 2. **`kinds`:** kinds of note defined in Point (template, folder, properties), with New meeting offering its templates, and `type` filled in once where the folder makes it plain. Built, and the real vault has its kinds and `type` filled in: see [Kinds of note](plan/kinds.md).
-3. **`recall`:** what happened before, in meeting notes first ("4 earlier · last on 21 October"), then while writing blog posts.
+3. **`recall`** (merged 8 November; built 7 November but left unmerged until then): what happened before, in meeting notes first ("4 earlier · last on 21 October"), then while writing blog posts. Built on both, meetings by people and posts by topics: see [Recall](plan/recall.md).
 4. **`clipper`:** a Chrome extension for Dia on the Mac and a share-sheet extension on the iPhone; Point extracts the article and sets its kind. The Mac and the extension are built: see [The clipper](plan/clipper.md). The iPhone is next.
 5. **Types, links and lists** (8 November, merged): links grouped by what they are to a note (By, About, With, Mentioned) and narrowed by type, at the side or the bottom; Person and Project kinds; types chosen for the sidebar's top; Lists, and list notes marked. A second round moved types to the sidebar's top only (plural), properties to Settings, the links side panel beside the whole pane and the strip to the bottom left, and smoothed the sidebar in a window too wide for the screen. See [Types, links and lists](plan/types-and-links.md).
 6. **`mac-full-screen`:** the full-screen bug (see [Investigations](plan/investigations.md)). Not blocking anything.
@@ -42,6 +42,7 @@ On `main`, which has everything so far, including search that learns.
 - [Milestones](plan/milestones.md): M0 to M6.
 
 **Work, newest first**
+- [Recall: what came before](plan/recall.md) (7 November): under a note's properties, its earlier meetings with the same people, or the notes on a post's topics.
 - [Beyond text: structure, names and Obsidian](plan/structure.md) (6 November): how images, comparing drafts, lists from properties, and people and types fit together. Decided: plain files readable anywhere, not Obsidian compatibility; titles from a `title:` property, with dated file names; a typed index under it all; lists as notes; and the order of work.
 - [Images: where to store them](plan/images.md) (6 November): the options, from Obsidian's one attachment folder to a folder for each note, and a recommendation: one folder, images named after their note, and Point looking after them as notes are renamed and deleted.
 - [Search that learns](plan/search-learning.md) (3 November, merged): ranking the notes you open and pick higher, kept on each device, outside the vault.

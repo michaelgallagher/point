@@ -1710,6 +1710,28 @@ final class VaultStore: ObservableObject {
         return cached?.ids
     }
 
+    // MARK: Recall
+
+    /// What came before a note (its earlier meetings with the same people, or the notes on a
+    /// post's topics): people are in the properties of Point's person kind, else in `people`.
+    func recall(of frontmatter: Frontmatter?, name: String) -> Recall? {
+        let personKeys = pointTypes.properties.filter { $0.value.type == .person }.map(\.key)
+        return Recall(frontmatter: frontmatter, name: name, typeProperty: kinds.property,
+                      personProperties: personKeys.isEmpty ? ["people"] : personKeys.sorted())
+    }
+
+    /// The first line of each of some notes' text, read off the main thread.
+    func firstLines(of ids: [Note.ID]) async -> [Note.ID: String] {
+        let urls = ids.compactMap { id in notesByID[id].map { (id, $0.url) } }
+        return await Task.detached(priority: .userInitiated) {
+            var lines: [Note.ID: String] = [:]
+            for (id, url) in urls {
+                if let text = try? NoteReader.read(contentsOf: url), let line = PlainText.firstLine(of: text) { lines[id] = line }
+            }
+            return lines
+        }.value
+    }
+
     // MARK: Lists
 
     /// What each note read as a list is (nil: not one), as of its file's date.

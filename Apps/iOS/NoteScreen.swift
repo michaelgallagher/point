@@ -1,5 +1,6 @@
 import EditorKit
 import IndexKit
+import MarkdownKit
 import QuickLook
 import SwiftUI
 import VaultKit
@@ -66,6 +67,15 @@ struct NoteScreen: View {
             }
             .sheet(isPresented: $session.showsBacklinks) {
                 BacklinksSheet(session: session).environmentObject(store)
+            }
+            .sheet(isPresented: $session.showsEarlier) {
+                if let recall = session.recall {
+                    RecallSheet(recall: recall, ids: session.earlier) { id in
+                        session.showsEarlier = false
+                        store.linkedRoute = .note(id)
+                    }
+                    .environmentObject(store)
+                }
             }
             .sheet(isPresented: $showsMove) {
                 FolderPicker(title: "Move note", current: FolderTree.folder(of: session.note.id)) { session.move(to: $0) }
@@ -181,6 +191,11 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     /// The notes linking to this one, by title.
     @Published private(set) var backlinks: [Backlink] = []
     @Published var showsBacklinks = false
+    /// What came before this note (earlier meetings with the same people), and those notes,
+    /// newest first.
+    @Published private(set) var recall: Recall?
+    @Published private(set) var earlier: [Note.ID] = []
+    @Published var showsEarlier = false
     /// Writing in the note, when the format bar takes the bottom of the screen.
     @Published private(set) var isWriting = false
     /// Why a title couldn't be used (the name's taken, say), until dismissed.
@@ -336,6 +351,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     /// Reads which notes link here, from the search index.
     func refreshBacklinks() {
         let note = note
+        refreshEarlier()
         Task { [weak self] in
             guard let self else { return }
             let found = await store.backlinks(to: note)
@@ -475,6 +491,31 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         frontmatter = parsed
         header?.showProperties(count: shownProperties.count)
         showList(ListDefinition(frontmatter: parsed))
+        let changed = store.recall(of: parsed, name: note.name)
+        if changed != recall {
+            recall = changed
+            refreshEarlier()
+        }
+    }
+
+    /// Asks the index for the notes that came before this one.
+    func refreshEarlier() {
+        guard let recall, let index = store.searchIndex else {
+            earlier = []
+            return showEarlier()
+        }
+        let id = note.id
+        Task { [weak self] in
+            let found = ((try? await index.notes(matching: recall.query)) ?? []).filter { $0 != id }
+            guard let self, self.recall == recall, found != earlier else { return }
+            earlier = found
+            showEarlier()
+        }
+    }
+
+    private func showEarlier() {
+        header?.showEarlier(count: earlier.count, byTopics: recall?.basis == .topics)
+        textView?.setNeedsLayout()
     }
 
     /// The properties to show, as on the Mac: all but the `title:` of a note Point named (that's
@@ -633,8 +674,10 @@ final class NoteHeader: UIView {
     let title = TitleView()
     var onProperties: (() -> Void)?
     var onLinks: (() -> Void)?
+    var onEarlier: (() -> Void)?
     private let properties = NoteHeader.button()
     private let links = NoteHeader.button()
+    private let earlier = NoteHeader.button()
     private static let gap: CGFloat = 8
     /// Between the buttons, side by side.
     private static let between: CGFloat = 8
@@ -668,10 +711,13 @@ final class NoteHeader: UIView {
         addSubview(title)
         addSubview(properties)
         addSubview(links)
+        addSubview(earlier)
+        earlier.addAction(UIAction { [weak self] _ in self?.onEarlier?() }, for: .touchUpInside)
         properties.addAction(UIAction { [weak self] _ in self?.onProperties?() }, for: .touchUpInside)
         links.addAction(UIAction { [weak self] _ in self?.onLinks?() }, for: .touchUpInside)
         showProperties(count: 0)
         showLinks(count: 0)
+        showEarlier(count: 0)
     }
 
     @available(*, unavailable)
@@ -708,8 +754,21 @@ final class NoteHeader: UIView {
         setNeedsLayout()
     }
 
+    /// "4 earlier": how many notes came before this one (earlier meetings with the same
+    /// people), or "23 on its topics". None, and the button goes.
+    func showEarlier(count: Int, byTopics: Bool = false) {
+        var configuration = earlier.configuration
+        configuration?.title = byTopics ? "\(count.formatted()) on its topics" : "\(count.formatted()) earlier"
+        configuration?.image = UIImage(systemName: byTopics ? "rectangle.stack" : "clock.arrow.circlepath", withConfiguration: UIImage.SymbolConfiguration(textStyle: .footnote))
+        configuration?.imagePadding = 4
+        earlier.configuration = configuration
+        earlier.accessibilityHint = byTopics ? "Shows the notes on the same topics." : "Shows the earlier notes with the same people."
+        earlier.isHidden = count == 0
+        setNeedsLayout()
+    }
+
     /// The buttons showing, in order.
-    private var buttons: [UIButton] { [properties, links].filter { !$0.isHidden } }
+    private var buttons: [UIButton] { [properties, links, earlier].filter { !$0.isHidden } }
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
         let height = title.sizeThatFits(size).height
@@ -770,6 +829,92 @@ private struct BacklinksSheet: View {
     }
 }
 
+/// The notes that came before one (its earlier meetings with the same people, or those on a
+/// post's topics, in groups by type), newest first, as on the Mac: each with its day and who or
+/// what it shares, and its first line.
+private struct RecallSheet: View {
+    @EnvironmentObject private var store: PhoneStore
+    @Environment(\.dismiss) private var dismiss
+    let recall: Recall
+    let ids: [Note.ID]
+    let open: (Note.ID) -> Void
+    @State private var details = RecallDetails()
+
+    var body: some View {
+        NavigationStack {
+            List {
+                let groups = details.groups(of: ids, recall: recall)
+                ForEach(Array(groups.enumerated()), id: \.element.title) { index, group in
+                    Section {
+                        ForEach(group.ids, id: \.self) { id in
+                            Button { open(id) } label: { row(id) }
+                                .foregroundStyle(.primary)
+                        }
+                    } header: {
+                        if group.title.isEmpty {
+                            Text(recall.heading)
+                        } else if index == 0 {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(recall.heading).textCase(nil)
+                                Text(group.title)
+                            }
+                        } else {
+                            Text(group.title)
+                        }
+                    } footer: {
+                        if index == groups.count - 1, ids.count > RecallDetails.shown {
+                            Text("And \((ids.count - RecallDetails.shown).formatted()) more")
+                        }
+                    }
+                }
+            }
+            .navigationTitle(recall.basis == .topics ? "\(ids.count.formatted()) on its topics" : recall.summary(count: ids.count, lastDay: nil))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close", systemImage: "xmark") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .task { await load() }
+    }
+
+    private func row(_ id: Note.ID) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(store.note(id)?.title ?? id)
+                .lineLimit(1)
+            if let detail = details.detail(id) {
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            if let line = details.lines[id] {
+                Text(line)
+                    .font(.subheadline)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(2)
+            }
+        }
+    }
+
+    private func load() async {
+        let shown = Array(ids.prefix(RecallDetails.shown))
+        let typeProperty = store.kinds.property
+        let values = await store.embeds.propertyValues(RecallDetails.keys(for: recall, typeProperty: typeProperty), of: shown)
+        details.take(values, for: shown, recall: recall, typeProperty: typeProperty) { store.note($0)?.name }
+        let notes = shown.compactMap { store.note($0) }
+        details.lines = await Task.detached(priority: .userInitiated) {
+            var lines: [Note.ID: String] = [:]
+            for note in notes {
+                if let text = try? NoteReader.read(note), let line = PlainText.firstLine(of: text) { lines[note.id] = line }
+            }
+            return lines
+        }.value
+    }
+}
+
 /// A note's title: as many lines as it needs, scrolling with the note rather than by itself.
 final class TitleView: UITextView {
     override var text: String! {
@@ -826,6 +971,7 @@ struct EditorView: UIViewRepresentable {
         session.header = header
         header.onProperties = { [weak session] in session?.showsProperties = true }
         header.onLinks = { [weak session] in session?.showsBacklinks = true }
+        header.onEarlier = { [weak session] in session?.showsEarlier = true }
         textView.header = header
         let bar = FormatBar(textView: textView)
         textView.inputAccessoryView = bar
