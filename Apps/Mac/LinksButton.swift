@@ -259,7 +259,8 @@ private struct FlowLayout: Layout {
 /// ("3 links"), opening the panel. Hidden while the panel is open.
 struct LinksButton: View {
     @ObservedObject var connections: Connections
-    @AppStorage(LinksPlacement.sidePanelKey) private var isPanelOpen = false
+    let paneID: VaultModel.NotePane.ID
+    @EnvironmentObject private var model: VaultModel
 
     /// How far it sits in from the note's bottom and right edges, and how much room the note
     /// leaves below its text for it.
@@ -267,9 +268,9 @@ struct LinksButton: View {
     static let roomBelowText: CGFloat = 36 + inset * 2
 
     var body: some View {
-        if connections.count > 0, !isPanelOpen {
+        if connections.count > 0, !model.isLinksPanelOpen(paneID) {
             Button {
-                withAnimation(LinksSidePanel.animation) { isPanelOpen = true }
+                withAnimation(LinksSidePanel.animation) { model.setLinksPanelOpen(true, for: paneID) }
             } label: {
                 Text(connections.label)
                     .font(.callout)
@@ -285,7 +286,7 @@ struct LinksButton: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             #if DEBUG
             .onAppear {
-                if UserDefaults.standard.bool(forKey: "PointShowLinks") { isPanelOpen = true }
+                if UserDefaults.standard.bool(forKey: "PointShowLinks") { model.setLinksPanelOpen(true, for: paneID) }
             }
             #endif
         }
@@ -298,16 +299,25 @@ struct LinksButton: View {
 /// edge drags to make it wider or narrower. Stays open from note to note until closed.
 struct LinksSidePanel: View {
     @ObservedObject var connections: Connections
+    let paneID: VaultModel.NotePane.ID
+    /// The width of the side it's on: it never takes the note below `noteRoom`.
+    let roomBeside: CGFloat
     @EnvironmentObject private var model: VaultModel
-    @AppStorage(LinksPlacement.sidePanelKey) private var isPanelOpen = false
     @AppStorage(LinksPlacement.sidePanelWidthKey) private var storedWidth: Double = 320
     /// The width while its edge is dragged; kept until let go.
     @State private var dragWidth: CGFloat?
     @State private var dragStart: CGFloat?
     static let widths: ClosedRange<CGFloat> = 240...640
+    /// What the note keeps beside it, at least; past that, the panel narrows (to 200 at most).
+    static let noteRoom: CGFloat = 320
+
+    /// The widest it can be beside the note.
+    private var widest: CGFloat {
+        roomBeside > 0 ? max(200, min(Self.widths.upperBound, roomBeside - Self.noteRoom)) : Self.widths.upperBound
+    }
 
     var body: some View {
-        let width = dragWidth ?? CGFloat(storedWidth)
+        let width = min(dragWidth ?? CGFloat(storedWidth), widest)
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: TopBar.buttonSpacing) {
                 Text(connections.isLoaded ? connections.label : " ")
@@ -315,7 +325,7 @@ struct LinksSidePanel: View {
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 BarButton("Close links", systemImage: "xmark", help: "Close links") {
-                    withAnimation(LinksSidePanel.animation) { isPanelOpen = false }
+                    withAnimation(LinksSidePanel.animation) { model.setLinksPanelOpen(false, for: paneID) }
                 }
             }
             .padding(.leading, 16)
@@ -352,7 +362,7 @@ struct LinksSidePanel: View {
                         .onChanged { drag in
                             let start = dragStart ?? width
                             dragStart = start
-                            dragWidth = min(max(start - drag.translation.width, Self.widths.lowerBound), Self.widths.upperBound)
+                            dragWidth = min(max(start - drag.translation.width, Self.widths.lowerBound), min(Self.widths.upperBound, widest))
                         }
                         .onEnded { _ in
                             if let dragWidth { storedWidth = Double(dragWidth) }
@@ -530,11 +540,13 @@ private struct ConnectionRow: View {
                             .fontWeight(.medium)
                             .lineLimit(2)
                         Spacer(minLength: 4)
+                        // The type and date whole, the title wrapping instead.
                         if let type {
                             Text(type)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
+                                .fixedSize()
                         }
                         if let date {
                             Text(date, format: .dateTime.day().month(.abbreviated).year())
@@ -542,6 +554,7 @@ private struct ConnectionRow: View {
                                 .monospacedDigit()
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
+                                .fixedSize()
                         }
                     }
                     if let context, !context.isEmpty {

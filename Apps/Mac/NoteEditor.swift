@@ -32,7 +32,7 @@ struct NoteEditor: View {
             // strip growing up into them.
             .overlay {
                 switch linksPlacement {
-                case .side: LinksButton(connections: connections)
+                case .side: LinksButton(connections: connections, paneID: paneID)
                 case .bottom: LinksStrip(connections: connections)
                 }
             }

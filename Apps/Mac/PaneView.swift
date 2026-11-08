@@ -11,9 +11,10 @@ struct PaneView: View {
     let paneID: VaultModel.NotePane.ID
     /// Where a tab dragged over the page would go.
     @State private var dropZone: PaneDropZone?
+    /// This side's width, so the links panel leaves the note room.
+    @State private var paneWidth: CGFloat = 0
 
     @AppStorage(LinksPlacement.key) private var linksPlacement = LinksPlacement.side
-    @AppStorage(LinksPlacement.sidePanelKey) private var showsLinksPanel = false
 
     var body: some View {
         if let index = model.paneIndex(paneID) {
@@ -35,11 +36,16 @@ struct PaneView: View {
                         }
                     }
                     if let linksNote {
-                        LinksSidePanel(connections: model.connections(for: linksNote))
+                        LinksSidePanel(connections: model.connections(for: linksNote), paneID: paneID, roomBeside: paneWidth)
                             .transition(.move(edge: .trailing))
                     }
                 }
                 .clipped()
+                .background(GeometryReader { geometry in
+                    Color.clear
+                        .onAppear { paneWidth = geometry.size.width }
+                        .onChange(of: geometry.size.width) { paneWidth = $0 }
+                })
                 .animation(LinksSidePanel.animation, value: linksNote != nil)
             }
         }
@@ -47,7 +53,7 @@ struct PaneView: View {
 
     /// The note whose links show beside this side, if the panel's open: only for a note.
     private func linksPanelNote(_ pane: VaultModel.NotePane) -> Note? {
-        guard linksPlacement == .side, showsLinksPanel else { return nil }
+        guard linksPlacement == .side, model.isLinksPanelOpen(paneID) else { return nil }
         return model.note(pane.tab.noteID)
     }
 

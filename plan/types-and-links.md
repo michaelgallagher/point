@@ -42,3 +42,5 @@ Part of [the plan](../PLAN.md). Follows [Kinds of note](kinds.md).
 **Tried:** traces of the sidebar opening and closing three times in a window of 1,700 points on a 1,800-point screen, and 1,000 points for comparison: each frame's positions move together with no jump, and the window ends exactly where it began. Snapshots of the side panel and strip (no glass in snapshots). The iPhone builds; VaultKit and IndexKit tests pass.
 
 **Not tried:** the sidebar's opening watched on screen (by Mike, or a screen recording); dragging the panel's and strip's edges by hand.
+
+**In a split (8 November 2026):** each side opens and closes its links panel on its own (kept per side by the window; the last choice is the default for a new side and the next launch). The panel never takes a side's note below 320 points, narrowing to 200 if it must, and a row keeps its type and date whole, its title wrapping instead. Seen in snapshots of a split with the panel on the left side only.

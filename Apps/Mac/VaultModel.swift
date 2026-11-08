@@ -1050,6 +1050,23 @@ final class VaultModel: ObservableObject {
 
     // MARK: Links to notes
 
+    /// Which sides of the window have the links panel open, when set since the window
+    /// opened; any other follows the last choice (`LinksPlacement.sidePanelKey`).
+    @Published private var linksPanelOpen: [NotePane.ID: Bool] = [:]
+
+    /// Whether this side of the window has the links panel open.
+    func isLinksPanelOpen(_ pane: NotePane.ID) -> Bool {
+        linksPanelOpen[pane] ?? UserDefaults.standard.bool(forKey: LinksPlacement.sidePanelKey)
+    }
+
+    /// Opens or closes the links panel on one side only. The choice becomes the default for
+    /// sides opened later, and the next launch; the other side keeps what it had.
+    func setLinksPanelOpen(_ open: Bool, for pane: NotePane.ID) {
+        for other in panes where linksPanelOpen[other.id] == nil { linksPanelOpen[other.id] = isLinksPanelOpen(other.id) }
+        linksPanelOpen[pane] = open
+        UserDefaults.standard.set(open, forKey: LinksPlacement.sidePanelKey)
+    }
+
     /// Each note's links, shared by its editor and the links panel beside it, so they're
     /// asked for once. The last few notes' are kept, for going back and forth.
     func connections(for note: Note) -> Connections {

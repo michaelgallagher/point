@@ -892,6 +892,13 @@ enum DebugSnapshots {
                 model.toggleSplit()
             }
         }
+        // `-PointSplitLinks YES`: and the links panel opens on the left side only.
+        if UserDefaults.standard.bool(forKey: "PointSplitLinks") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4.4) {
+                guard let first = model.panes.first else { return }
+                for pane in model.panes { model.setLinksPanelOpen(pane.id == first.id, for: pane.id) }
+            }
+        }
     }
 
     /// `-PointCursorProbe YES`: traces the pointer's shape whenever it or the pointer's place
