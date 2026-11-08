@@ -255,7 +255,7 @@ struct PropertiesStrip: View {
     @ViewBuilder private func typePicker(for property: Frontmatter.Property, current: PropertyType) -> some View {
         let kind = model.store.pointTypes.definition(forKey: property.key)?.type
         let chosen = kind.map(ChosenType.point) ?? .base(current)
-        Picker("Type", selection: Binding(get: { chosen }, set: { changeType(of: property, from: current, to: $0) })) {
+        Picker("Property type", selection: Binding(get: { chosen }, set: { changeType(of: property, from: current, to: $0) })) {
             ForEach(PropertyType.choosable) { type in
                 Text(type.name).tag(ChosenType.base(type))
             }

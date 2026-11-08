@@ -49,8 +49,8 @@ struct AddPropertySheet: View {
                         }
                 }
                 GridRow {
-                    label("Type")
-                    Picker("Type", selection: $type) {
+                    label("Property type")
+                    Picker("Property type", selection: $type) {
                         ForEach(PropertyType.choosable) { Label($0.name, systemImage: $0.symbol).tag($0) }
                     }
                     .labelsHidden()

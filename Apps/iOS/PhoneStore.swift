@@ -352,6 +352,19 @@ final class PhoneStore: ObservableObject {
         return (propertyValues[key.lowercased()] ?? []).map(\.value).filter { seen.insert($0.lowercased()).inserted }
     }
 
+    /// The notes that are lists, for Lists and to mark them in lists of notes.
+    @Published private(set) var listNoteIDs: Set<Note.ID> = []
+    private var listsUpdate = -1
+
+    func loadLists() async {
+        guard listsUpdate != indexUpdates, let index else { return }
+        let update = indexUpdates
+        guard let ids = try? await index.listNotes() else { return }
+        let found = Set(ids)
+        if found != listNoteIDs { listNoteIDs = found }
+        listsUpdate = update
+    }
+
     /// The titles of notes of the person kind (`type: Person`), read with the property values.
     private var personNotes: [String] = []
 

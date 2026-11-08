@@ -6,6 +6,8 @@ import VaultKit
 enum Route: Hashable {
     case note(Note.ID)
     case notes, bookmarks, recent, folders, tags, types
+    /// Every list note.
+    case lists
     /// A kind's notes: those whose `type` is its name.
     case kind(String)
     case tag(String)
@@ -154,6 +156,8 @@ struct HomeScreen: View {
         List {
             Section {
                 HomePanel(open: { path.append($0) })
+                    // Which notes are lists, for its Lists and to mark them: again as the index changes.
+                    .task(id: store.indexUpdates) { await store.loadLists() }
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
             }
@@ -187,6 +191,7 @@ struct HomeScreen: View {
         case .folders: FoldersScreen().pageBar(add { createNote() }) { newFolderButton(in: "") }
         case .tags: TagsScreen().pageBar(add { createNote() })
         case .types: TypesScreen().pageBar(add { createNote() })
+        case .lists: ListsScreen().pageBar(add { createNote() }, sorts: true)
         case .kind(let name):
             KindScreen(name: name).pageBar(add {
                 if let kind = store.kinds.kind(named: name) { createNote(kind: kind) } else { createNote() }
@@ -335,23 +340,29 @@ private struct HomePanel: View {
     @AppStorage(HomeTile.tags.key) private var showsTags = true
     @AppStorage(HomeTile.bookmarks.key) private var showsBookmarks = true
     @AppStorage(HomeTile.types.key) private var showsTypes = true
+    @AppStorage(HomeTile.lists.key) private var showsLists = true
     let open: (Route) -> Void
 
     private static let spacing: CGFloat = 4
 
     private var tiles: [HomeTile] {
         [showsFolders ? .folders : nil, showsTags ? .tags : nil, showsBookmarks ? .bookmarks : nil,
-         showsTypes && !store.kinds.isEmpty ? .types : nil].compactMap { $0 }
+         showsTypes && !store.kinds.isEmpty ? .types : nil, showsLists && !store.listNoteIDs.isEmpty ? .lists : nil].compactMap { $0 }
     }
 
     var body: some View {
         let tiles = tiles
         if typeSize.isAccessibilitySize {
             VStack(spacing: Self.spacing) { ForEach(tiles, id: \.self, content: tile) }
-        } else if tiles.count == 4 {
+        } else if tiles.count >= 4 {
+            // Two by two; an odd one last, at half width, lined up with those above.
             Grid(horizontalSpacing: Self.spacing, verticalSpacing: Self.spacing) {
-                GridRow { tile(tiles[0]); tile(tiles[1]) }
-                GridRow { tile(tiles[2]); tile(tiles[3]) }
+                ForEach(Array(stride(from: 0, to: tiles.count, by: 2)), id: \.self) { start in
+                    GridRow {
+                        tile(tiles[start])
+                        if start + 1 < tiles.count { tile(tiles[start + 1]) } else { Color.clear }
+                    }
+                }
             }
         } else if !tiles.isEmpty {
             HStack(spacing: Self.spacing) { ForEach(tiles, id: \.self, content: tile) }
@@ -364,6 +375,7 @@ private struct HomePanel: View {
         case .tags: ("Tags", symbol("number.sign.circle", or: "number.circle"), store.tags.count, .tags)
         case .bookmarks: ("Bookmarks", "bookmark", store.bookmarks.count, .bookmarks)
         case .types: ("Types", "square.grid.2x2", store.kinds.kinds.count, .types)
+        case .lists: ("Lists", "list.bullet.rectangle.portrait", store.listNoteIDs.count, .lists)
         }
         return Button { open(route) } label: {
             VStack(alignment: .leading, spacing: 8) {
@@ -397,7 +409,7 @@ private struct HomePanel: View {
 
 /// What home's panel can show, each turned on or off in Settings.
 enum HomeTile: CaseIterable {
-    case folders, tags, bookmarks, types
+    case folders, tags, bookmarks, types, lists
 
     var key: String {
         switch self {
@@ -405,6 +417,7 @@ enum HomeTile: CaseIterable {
         case .tags: "homeShowsTags"
         case .bookmarks: "homeShowsBookmarks"
         case .types: "homeShowsTypes"
+        case .lists: "homeShowsLists"
         }
     }
 
@@ -414,7 +427,21 @@ enum HomeTile: CaseIterable {
         case .tags: "Tags"
         case .bookmarks: "Bookmarks"
         case .types: "Types"
+        case .lists: "Lists"
         }
+    }
+}
+
+/// Every list note, wherever it is, marked as one.
+struct ListsScreen: View {
+    @EnvironmentObject private var store: PhoneStore
+
+    var body: some View {
+        let notes = store.notes.filter { store.listNoteIDs.contains($0.id) }.sorted(by: store.sort)
+        List { NoteSections(notes: notes) }
+            .pageTitle("Lists")
+            .task { await store.loadLists() }
+            .overlay { if notes.isEmpty { ContentUnavailableView("No lists", systemImage: "list.bullet.rectangle.portrait") } }
     }
 }
 
@@ -885,7 +912,7 @@ private struct NoteLink: View {
 
     var body: some View {
         NavigationLink(value: Route.note(note.id)) {
-            NoteRow(title: title ?? note.title, detail: detail)
+            NoteRow(title: title ?? note.title, detail: detail, isList: store.listNoteIDs.contains(note.id))
         }
         .contextMenu {
             let bookmarked = store.isBookmarked(note.id)
@@ -1064,15 +1091,28 @@ private struct FolderRow: View {
 struct NoteRow: View {
     let title: String
     var detail: String?
+    /// A list note, marked "List" at the right.
+    var isList = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-            if let detail {
-                Text(detail)
-                    .font(.subheadline)
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                if let detail {
+                    Text(detail)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+            if isList {
+                Spacer(minLength: 8)
+                Text("List")
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
-                    .monospacedDigit()
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(Color(.tertiarySystemFill)))
             }
         }
     }

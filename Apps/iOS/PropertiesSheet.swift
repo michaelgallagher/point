@@ -268,7 +268,7 @@ private struct PropertyRow: View {
                     Button("Edit choices", systemImage: "pencil", action: editChoices)
                     Divider()
                 }
-                Picker("Type", selection: Binding(get: { chosen }, set: changeType)) {
+                Picker("Property type", selection: Binding(get: { chosen }, set: changeType)) {
                     ForEach(PropertyType.choosable) { choice in
                         Label(choice.name, systemImage: choice.symbol).tag(ChosenType.base(choice))
                     }

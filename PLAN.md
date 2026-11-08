@@ -22,7 +22,8 @@ On `main`, which has everything so far, including search that learns.
 2. **`kinds`:** kinds of note defined in Point (template, folder, properties), with New meeting offering its templates, and `type` filled in once where the folder makes it plain. Built, and the real vault has its kinds and `type` filled in: see [Kinds of note](plan/kinds.md).
 3. **`recall`:** what happened before, in meeting notes first ("4 earlier · last on 21 October"), then while writing blog posts.
 4. **`clipper`:** a Chrome extension for Dia on the Mac and a share-sheet extension on the iPhone; Point extracts the article and sets its kind. The Mac and the extension are built: see [The clipper](plan/clipper.md). The iPhone is next.
-5. **`mac-full-screen`:** the full-screen bug (see [Investigations](plan/investigations.md)). Not blocking anything.
+5. **Types, links and lists** (8 November, merged): links grouped by what they are to a note (By, About, With, Mentioned) and narrowed by type, at the side or the bottom; Person and Project kinds; types chosen for the sidebar's top; Lists, and list notes marked. See [Types, links and lists](plan/types-and-links.md).
+6. **`mac-full-screen`:** the full-screen bug (see [Investigations](plan/investigations.md)). Not blocking anything.
 
 **Next, as of 3 November** (older list):
 1. **The real-vault trial goes on.** Anything it turns up comes first, including how search that learns (so far checked only by tests) and tables do on real notes. The [27 October review](plan/app-review-2026-10-27.md)'s findings are fixed except 5 (iCloud conflict versions, to fix against a real one) and 13–15 (performance, to measure first).

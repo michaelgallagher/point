@@ -54,6 +54,7 @@ private struct HomeSettings: View {
     @AppStorage(HomeTile.tags.key) private var showsTags = true
     @AppStorage(HomeTile.bookmarks.key) private var showsBookmarks = true
     @AppStorage(HomeTile.types.key) private var showsTypes = true
+    @AppStorage(HomeTile.lists.key) private var showsLists = true
 
     var body: some View {
         Section {
@@ -62,10 +63,11 @@ private struct HomeSettings: View {
             Toggle("Bookmarks", isOn: $showsBookmarks)
             Toggle("Types", isOn: $showsTypes)
                 .disabled(store.kinds.isEmpty)
+            Toggle("Lists", isOn: $showsLists)
         } header: {
             Text("Home")
         } footer: {
-            Text(store.kinds.isEmpty ? "Types shows once the vault has kinds of note." : "Four show two by two.")
+            Text(store.kinds.isEmpty ? "Types shows once the vault has kinds of note." : "Four or more show two by two. Lists shows once the vault has a list.")
         }
     }
 }
