@@ -9,9 +9,8 @@ struct NoteEditor: View {
     @EnvironmentObject private var model: VaultModel
     @Environment(\.topBarCover) private var topBarCover
     @StateObject private var session: EditorSession
-    @StateObject private var connections: Connections
+    @ObservedObject private var connections: Connections
     @AppStorage(LinksPlacement.key) private var linksPlacement = LinksPlacement.side
-    @AppStorage(LinksPlacement.sidePanelKey) private var showsLinksPanel = false
     /// The pane it's in, where links clicked in it open.
     let paneID: VaultModel.NotePane.ID
     /// The tab it's in, which keeps where it was in the note (see `VaultModel.notePlaces`).
@@ -23,27 +22,20 @@ struct NoteEditor: View {
         self.tabID = tabID
         self.offersTemplates = offersTemplates
         _session = StateObject(wrappedValue: EditorSession(note: note, drafts: model.store.drafts))
-        _connections = StateObject(wrappedValue: Connections(note: note, model: model))
+        connections = model.connections(for: note)
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            page
-                // Over the note: at its bottom right, the button opening the links at the
-                // side; or along its bottom, the strip growing up into them.
-                .overlay {
-                    switch linksPlacement {
-                    case .side: LinksButton(connections: connections)
-                    case .bottom: LinksStrip(connections: connections)
-                    }
+        page
+            // Over the note: at its bottom right, the button opening the links at the side
+            // (the panel is beside the pane: see `PaneView`); or at its bottom left, the
+            // strip growing up into them.
+            .overlay {
+                switch linksPlacement {
+                case .side: LinksButton(connections: connections)
+                case .bottom: LinksStrip(connections: connections)
                 }
-            // At the side, pushing the note over, as the sidebar does on the left.
-            if linksPlacement == .side, showsLinksPanel, connections.count > 0 {
-                Divider()
-                LinksSidePanel(connections: connections)
-                    .transition(.move(edge: .trailing))
             }
-        }
         .task {
             await session.load()
             connections.refresh()

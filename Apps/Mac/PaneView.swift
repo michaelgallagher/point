@@ -12,21 +12,43 @@ struct PaneView: View {
     /// Where a tab dragged over the page would go.
     @State private var dropZone: PaneDropZone?
 
+    @AppStorage(LinksPlacement.key) private var linksPlacement = LinksPlacement.side
+    @AppStorage(LinksPlacement.sidePanelKey) private var showsLinksPanel = false
+
     var body: some View {
         if let index = model.paneIndex(paneID) {
             let pane = model.panes[index]
             if model.isFocused {
                 page(pane, index: index, underBar: 0)
-            } else if #available(macOS 26, *) {
-                page(pane, index: index, underBar: model.topBarHeight)
-                    .overlay(alignment: .top) { PaneTabBar(pane: pane, paneIndex: index) }
             } else {
-                VStack(spacing: 0) {
-                    PaneTabBar(pane: pane, paneIndex: index)
-                    page(pane, index: index, underBar: 0)
+                let linksNote = linksPanelNote(pane)
+                // With the links panel open, this side is narrower, its bar and all, so the
+                // note is laid out at its width from the start, even moving from note to note.
+                HStack(spacing: 0) {
+                    if #available(macOS 26, *) {
+                        page(pane, index: index, underBar: model.topBarHeight)
+                            .overlay(alignment: .top) { PaneTabBar(pane: pane, paneIndex: index) }
+                    } else {
+                        VStack(spacing: 0) {
+                            PaneTabBar(pane: pane, paneIndex: index)
+                            page(pane, index: index, underBar: 0)
+                        }
+                    }
+                    if let linksNote {
+                        LinksSidePanel(connections: model.connections(for: linksNote))
+                            .transition(.move(edge: .trailing))
+                    }
                 }
+                .clipped()
+                .animation(LinksSidePanel.animation, value: linksNote != nil)
             }
         }
+    }
+
+    /// The note whose links show beside this side, if the panel's open: only for a note.
+    private func linksPanelNote(_ pane: VaultModel.NotePane) -> Note? {
+        guard linksPlacement == .side, showsLinksPanel else { return nil }
+        return model.note(pane.tab.noteID)
     }
 
     /// The note or start page. `underBar` is how much of it the top bar covers: the note's

@@ -13,7 +13,9 @@ final class Connections: ObservableObject {
     var groups: LinkGroups { LinkGroups(backlinks, type: type) }
     /// Links and unlinked mentions together.
     var count: Int { backlinks.count + mentions.count }
-    private let note: Note
+    let note: Note
+    /// Whether it has been asked once, so the panel can say "No links" rather than nothing.
+    @Published private(set) var isLoaded = false
     private weak var model: VaultModel?
     private var refreshTask: Task<Void, Never>?
 
@@ -40,6 +42,7 @@ final class Connections: ObservableObject {
             guard !Task.isCancelled else { return }
             self.backlinks = backlinks
             self.mentions = mentions
+            self.isLoaded = true
             if let type = self.type, !backlinks.contains(where: { $0.type?.caseInsensitiveCompare(type) == .orderedSame }) { self.type = nil }
         }
     }
@@ -101,6 +104,9 @@ enum LinksPlacement: String, CaseIterable, Identifiable {
     static let key = "linksPlacement"
     /// Whether the side panel is open, in every window, until closed.
     static let sidePanelKey = "showsLinksPanel"
+    static let sidePanelWidthKey = "linksPanelWidth"
+    /// The strip's panel's height, as last dragged.
+    static let stripHeightKey = "linksStripHeight"
 }
 
 /// The notes linking to a note, grouped by what they are to it: by them (`author`), about it
@@ -263,7 +269,7 @@ struct LinksButton: View {
     var body: some View {
         if connections.count > 0, !isPanelOpen {
             Button {
-                withAnimation(.spring(duration: 0.3, bounce: 0)) { isPanelOpen = true }
+                withAnimation(LinksSidePanel.animation) { isPanelOpen = true }
             } label: {
                 Text(connections.label)
                     .font(.callout)
@@ -286,129 +292,207 @@ struct LinksButton: View {
     }
 }
 
-/// With the links at the side: the panel at the note's right, pushing it over. Stays open
-/// from note to note until closed.
+/// With the links at the side: the panel at the right of a side of the window, which it
+/// makes narrower, top bar and all (see `PaneView`), as the sidebar does on the left. Its
+/// name is level with the top bar, its close button where the bar's menu would be. Its left
+/// edge drags to make it wider or narrower. Stays open from note to note until closed.
 struct LinksSidePanel: View {
     @ObservedObject var connections: Connections
-    @Environment(\.topBarCover) private var topBarCover
+    @EnvironmentObject private var model: VaultModel
     @AppStorage(LinksPlacement.sidePanelKey) private var isPanelOpen = false
-    static let width: CGFloat = 320
+    @AppStorage(LinksPlacement.sidePanelWidthKey) private var storedWidth: Double = 320
+    /// The width while its edge is dragged; kept until let go.
+    @State private var dragWidth: CGFloat?
+    @State private var dragStart: CGFloat?
+    static let widths: ClosedRange<CGFloat> = 240...640
 
     var body: some View {
+        let width = dragWidth ?? CGFloat(storedWidth)
         VStack(alignment: .leading, spacing: 0) {
-            LinksHeader(title: connections.label) {
-                withAnimation(.spring(duration: 0.3, bounce: 0)) { isPanelOpen = false }
+            HStack(spacing: TopBar.buttonSpacing) {
+                Text(connections.isLoaded ? connections.label : " ")
+                    .font(.headline)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                BarButton("Close links", systemImage: "xmark", help: "Close links") {
+                    withAnimation(LinksSidePanel.animation) { isPanelOpen = false }
+                }
             }
-            ScrollView { LinksList(connections: connections) }
+            .padding(.leading, 16)
+            .padding(.trailing, TopBar.buttonSpacing)
+            .frame(height: model.topBarHeight)
+            .background(WindowDragArea())
+            if connections.isLoaded, connections.count == 0 {
+                Text("No links to this note.")
+                    .foregroundStyle(.secondary)
+                    .padding(16)
+                Spacer(minLength: 0)
+            } else {
+                ScrollView { LinksList(connections: connections) }
+            }
         }
-        .padding(.top, topBarCover)
-        .frame(width: Self.width)
+        .frame(width: width)
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(Color(nsColor: .windowBackgroundColor).opacity(0.5))
+        .background(Color(nsColor: .textBackgroundColor))
+        .overlay(alignment: .leading) { edge(width: width) }
+    }
+
+    static let animation = Animation.spring(duration: 0.3, bounce: 0)
+
+    /// The hairline at its left, which drags.
+    private func edge(width: CGFloat) -> some View {
+        Divider()
+            .frame(maxHeight: .infinity)
+            .overlay {
+                Color.clear
+                    .frame(width: 8)
+                    .contentShape(Rectangle())
+                    .onHover { inside in if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
+                    .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                        .onChanged { drag in
+                            let start = dragStart ?? width
+                            dragStart = start
+                            dragWidth = min(max(start - drag.translation.width, Self.widths.lowerBound), Self.widths.upperBound)
+                        }
+                        .onEnded { _ in
+                            if let dragWidth { storedWidth = Double(dragWidth) }
+                            dragWidth = nil
+                            dragStart = nil
+                        })
+            }
     }
 }
 
-/// With the links at the bottom: a strip along the note's bottom saying how many and of
-/// what ("12 links · By 3 · With 8 · Mentioned 1"), growing upward over the note into the
-/// list, up to most of its height. A click elsewhere on the note, or Escape, closes it.
+/// With the links at the bottom: a glass button in the note's bottom left corner saying how
+/// many and of what ("21 links · By 7 · With 11"; just "21 links" where that won't fit),
+/// spaced as the sidebar's filter and sort buttons are. It opens a panel sliding up over the
+/// note, across its width: plain, as the side panel is, its top edge dragging to make it
+/// taller or shorter. Its height stays as it is while it's open, whatever it shows. Escape,
+/// the close button or a click on the note closes it.
 struct LinksStrip: View {
     @ObservedObject var connections: Connections
     @EnvironmentObject private var model: VaultModel
     @Environment(\.topBarCover) private var topBarCover
+    @AppStorage(LinksPlacement.stripHeightKey) private var storedHeight: Double = 360
     @State private var isExpanded = false
-    @Namespace private var glass
-    private static let corner: CGFloat = 18
+    @State private var dragHeight: CGFloat?
+    @State private var dragStart: CGFloat?
+
+    /// As the sidebar's filter field: its height, and its distance from the edges.
+    static let buttonHeight = VaultModel.SidebarDensity.comfortable.rowHeight
+    static let inset: CGFloat = 10
+    private static let animation = Animation.spring(duration: 0.32, bounce: 0)
 
     var body: some View {
-        if connections.count > 0 {
-            GeometryReader { geometry in
-                let width = min(geometry.size.width - LinksButton.inset * 2, model.store.textColumnWidth + 80)
-                ZStack(alignment: .bottom) {
-                    if isExpanded {
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture { close() }
-                    }
-                    Group {
-                        if isExpanded {
-                            VStack(alignment: .leading, spacing: 0) {
-                                LinksHeader(title: connections.label, close: close)
-                                ViewThatFits(in: .vertical) {
-                                    LinksList(connections: connections, onOpen: close)
-                                    ScrollView { LinksList(connections: connections, onOpen: close) }
-                                }
-                            }
-                            .frame(maxHeight: max(160, (geometry.size.height - topBarCover) * 0.7), alignment: .top)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .modifier(LinksGlass(shape: RoundedRectangle(cornerRadius: Self.corner, style: .continuous), isInteractive: false))
-                        } else {
-                            Button(action: open) {
-                                HStack(spacing: 10) {
-                                    Text(connections.label).fontWeight(.medium)
-                                    Text(connections.summary)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                    Spacer(minLength: 0)
-                                    Image(systemName: "chevron.up")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.secondary)
-                                }
-                                .font(.callout)
-                                .padding(.horizontal, 16)
-                                .frame(height: 36)
-                                .contentShape(Capsule())
-                            }
-                            .buttonStyle(.plain)
-                            .withoutFocusRing()
-                            .help("Links to this note, and mentions of it")
-                            .modifier(LinksGlass(shape: Capsule(), isInteractive: true))
-                        }
-                    }
-                    .frame(width: max(width, 200))
-                    .padding(.bottom, LinksButton.inset)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-            }
-            #if DEBUG
-            .onAppear {
-                if UserDefaults.standard.bool(forKey: "PointShowLinks") {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { open() }
+        GeometryReader { geometry in
+            let room = max(geometry.size.height - topBarCover - 24, 120)
+            let height = min(dragHeight ?? CGFloat(storedHeight), room)
+            ZStack(alignment: .bottomLeading) {
+                if isExpanded {
+                    // A click on the note above closes it.
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { close() }
+                    panel(height: height, room: room)
+                        .transition(.move(edge: .bottom))
+                } else if connections.count > 0 {
+                    button(maxWidth: geometry.size.width - Self.inset * 2)
+                        .padding(Self.inset)
+                        .transition(.opacity)
                 }
             }
-            #endif
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            .clipped()
         }
+        #if DEBUG
+        .onAppear {
+            if UserDefaults.standard.bool(forKey: "PointShowLinks") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { open() }
+            }
+        }
+        #endif
     }
 
-    private func open() { withAnimation(.spring(duration: 0.3, bounce: 0.1)) { isExpanded = true } }
-    private func close() { withAnimation(.spring(duration: 0.25, bounce: 0)) { isExpanded = false } }
-}
+    private func button(maxWidth: CGFloat) -> some View {
+        Button(action: open) {
+            ViewThatFits(in: .horizontal) {
+                content(withSummary: true)
+                content(withSummary: false)
+            }
+            .frame(maxWidth: maxWidth, alignment: .leading)
+            .fixedSize(horizontal: true, vertical: false)
+        }
+        .buttonStyle(.plain)
+        .withoutFocusRing()
+        .help("Links to this note, and mentions of it")
+        .modifier(LinksGlass(shape: Capsule(), isInteractive: true))
+    }
 
-/// "12 links", with a close button (Escape).
-private struct LinksHeader: View {
-    let title: String
-    let close: () -> Void
+    private func content(withSummary: Bool) -> some View {
+        HStack(spacing: 8) {
+            Text(connections.label).fontWeight(.medium)
+            if withSummary {
+                Text(connections.summary).foregroundStyle(Color.secondary)
+            }
+        }
+        .lineLimit(1)
+        .font(.callout)
+        .padding(.horizontal, 14)
+        .frame(height: Self.buttonHeight)
+        .contentShape(Capsule())
+    }
 
-    var body: some View {
-        HStack {
-            Text(title)
-                .font(.callout.weight(.semibold))
-            Spacer()
-            Button(action: close) {
-                Image(systemName: "xmark")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 22, height: 22)
+    private func panel(height: CGFloat, room: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: TopBar.buttonSpacing) {
+                Text(connections.label)
+                    .font(.headline)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                BarButton("Close links", systemImage: "xmark", help: "Close links", action: close)
+                    .keyboardShortcut(.cancelAction) // Escape
+            }
+            .padding(.leading, 16)
+            .padding(.trailing, TopBar.buttonSpacing)
+            .padding(.vertical, 6)
+            // At most a text column's width, from the left: wider, a title is far from its date.
+            ScrollView {
+                LinksList(connections: connections, onOpen: close)
+                    .frame(maxWidth: 640, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: height, alignment: .top)
+        .background(Color(nsColor: .textBackgroundColor))
+        .overlay(alignment: .top) { edge(height: height, room: room) }
+    }
+
+    /// The hairline along its top, which drags.
+    private func edge(height: CGFloat, room: CGFloat) -> some View {
+        Divider()
+            .frame(maxWidth: .infinity)
+            .overlay {
+                Color.clear
+                    .frame(height: 8)
                     .contentShape(Rectangle())
+                    .onHover { inside in if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() } }
+                    .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                        .onChanged { drag in
+                            let start = dragStart ?? height
+                            dragStart = start
+                            dragHeight = min(max(start - drag.translation.height, 140), room)
+                        }
+                        .onEnded { _ in
+                            if let dragHeight { storedHeight = Double(dragHeight) }
+                            dragHeight = nil
+                            dragStart = nil
+                        })
             }
-            .buttonStyle(.plain)
-            .withoutFocusRing()
-            .keyboardShortcut(.cancelAction) // Escape
-            .help("Close")
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
-        .padding(.bottom, 6)
     }
+
+    private func open() { withAnimation(Self.animation) { isExpanded = true } }
+    private func close() { withAnimation(Self.animation) { isExpanded = false } }
 }
 
 /// Glass on macOS 26, a material before.
