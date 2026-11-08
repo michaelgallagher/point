@@ -344,8 +344,9 @@ struct ListFiltersSheet: View {
                         if dragging != nil, NSEvent.pressedMouseButtons == 0 { dragging = nil }
                     }
                 }
+                // Smaller than Cancel and OK, and square-cornered like them, as in macOS's settings.
                 Button { add() } label: { Label("Add condition", systemImage: "plus") }
-                    .controlSize(.large)
+                    .buttonBorderShape(.roundedRectangle)
             }
             HStack {
                 Spacer()
@@ -356,6 +357,7 @@ struct ListFiltersSheet: View {
                     .disabled(!isWhole)
             }
             .controlSize(.large)
+            .buttonBorderShape(.roundedRectangle)
             .padding(.top, 4)
         }
         .padding(Self.margin)
