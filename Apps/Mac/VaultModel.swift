@@ -1119,8 +1119,8 @@ final class VaultModel: ObservableObject {
             if !isPaletteShown { endTabSwitch() }
         }
     }
-    /// Whether the palette searches and runs commands (Explorer, ⌘E) or browses folders and
-    /// tags in two columns (Search Vault, ⌘F).
+    /// Whether the palette searches and runs commands (Explorer, ⌘F) or browses folders and
+    /// tags in two columns (Search Vault, ⌘E).
     @Published var paletteMode = PaletteMode.search
     /// Text to start the palette with, such as a tag clicked in a note.
     @Published var paletteSeed: String?

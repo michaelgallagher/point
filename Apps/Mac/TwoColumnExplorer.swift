@@ -14,7 +14,7 @@ final class ExplorerState: ObservableObject {
         let title: String
         let depth: Int
         let count: Int
-        /// "Pinned", "Folders" or "Tags": a heading shows above each section's first row.
+        /// "Pinned", "Types", "Folders" or "Tags": a heading shows above each section's first row.
         let section: String
     }
 
@@ -50,8 +50,16 @@ final class ExplorerState: ObservableObject {
                 add(node.children ?? [], depth: depth + 1, section: section)
             }
         }
+        // The same places as the sidebar: the types chosen for it, folders, and tags unless
+        // it hides them.
+        let store = model.store
+        rows += store.shownSidebarKinds.map { kind in
+            let place = SidebarPlace.kind(store.kinds.property, kind.name)
+            return Place(id: "Types:" + place.key, place: place, title: place.title, depth: 0,
+                         count: model.noteCount(of: place), section: "Types")
+        }
         add(model.folderNodes, depth: 0, section: "Folders")
-        add(model.tagNodes, depth: 0, section: "Tags")
+        if store.showsTagsInSidebar { add(model.tagNodes, depth: 0, section: "Tags") }
         allPlaces = rows
         filter = ""
         places = rows

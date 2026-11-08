@@ -4,8 +4,8 @@ import EditorKit
 import SwiftUI
 import VaultKit
 
-/// ⌘E, Explorer (mode `.search`): one place to open notes, search tags and run commands, all
-/// from the keyboard. ⇧⌘E, Run Command (mode `.commands`): only the commands. ⌘F, Search Vault (mode `.explorer`): the same palette as two columns of
+/// ⌘F, Explorer (mode `.search`): one place to open notes, search tags and run commands, all
+/// from the keyboard. ⇧⌘E, Run Command (mode `.commands`): only the commands. ⌘E, Search Vault (mode `.explorer`): the same palette as two columns of
 /// folders, tags and their notes.
 /// ⌃Tab: only the open tabs, in number order, to switch between them. Letting go of ⌃ goes to
 /// the one highlighted, which starts as the tab shown before this.

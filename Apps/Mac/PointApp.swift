@@ -225,8 +225,8 @@ struct AppCommands: Commands {
         }
         // No divider first: the menu already has one between groups, and two showed a gap.
         CommandGroup(after: .textEditing) {
-            // The same in every layout, both in the palette: ⌘E, Explorer, to search, open notes
-            // and run commands; ⌘F, Search Vault, to browse folders and tags in two columns.
+            // The same in every layout, both in the palette: ⌘F, Explorer, to search, open notes
+            // and run commands; ⌘E, Search Vault, to browse folders and tags in two columns.
             Button("Explorer") { model?.togglePalette(.search) }
                 .shortcut(.explorer, in: shortcuts)
                 .disabled(model == nil || store.root == nil)
