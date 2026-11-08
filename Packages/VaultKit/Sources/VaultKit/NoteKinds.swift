@@ -122,6 +122,34 @@ public struct NoteKinds: Sendable, Equatable {
         return (set as NSString).replacingCharacters(in: moveRange, with: moved)
     }
 
+    /// A kind's name for many of them, as the sidebar lists it: Meetings, Daily notes, People.
+    /// Only the last word changes; words that are the same for many (Media) stay as they are.
+    public static func plural(_ name: String) -> String {
+        guard let range = name.range(of: #"[A-Za-z]+$"#, options: .regularExpression) else { return name }
+        let word = String(name[range])
+        let lower = word.lowercased()
+        let same: Set<String> = ["media", "news", "series", "species", "data", "info", "information", "music", "software",
+                                 "research", "feedback", "advice", "equipment", "reading", "writing", "admin"]
+        let irregular = ["person": "people", "child": "children", "man": "men", "woman": "women", "analysis": "analyses",
+                         "thesis": "theses", "index": "indexes", "quiz": "quizzes"]
+        var plural: String
+        if same.contains(lower) || lower.hasSuffix("s") && lower.count > 3 && !lower.hasSuffix("ss") && !lower.hasSuffix("us") && !lower.hasSuffix("is") {
+            return name // Already plural (Notes), or the same for many.
+        } else if let found = irregular[lower] {
+            plural = found
+        } else if lower.hasSuffix("y"), let before = lower.dropLast().last, !"aeiou".contains(before) {
+            plural = String(lower.dropLast()) + "ies"
+        } else if ["s", "x", "z", "ch", "sh"].contains(where: lower.hasSuffix) {
+            plural = lower + "es"
+        } else {
+            plural = lower + "s"
+        }
+        // In the word's own case: Person is People, PERSON is PEOPLE.
+        if word == word.uppercased(), word.count > 1 { plural = plural.uppercased() }
+        else if word.first?.isUppercase == true { plural = plural.prefix(1).uppercased() + plural.dropFirst() }
+        return name.replacingCharacters(in: range, with: plural)
+    }
+
     /// The kind people's notes are (Person, or People), if the vault has one: a property of
     /// the person kind suggests notes of it.
     public var personKind: Kind? {

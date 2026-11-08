@@ -127,7 +127,6 @@ extension VaultModel {
         }
         let twoColumns = content == .places
         let showsTags = store.showsTagsInSidebar && !tagTree.entries.isEmpty
-        let showsTypes = store.showsTypesInSidebar && !store.kinds.isEmpty
         if place == .allNotes {
             // Special places first, with no heading: every note, bookmarks, and the trash; in
             // one column, Tags, Types and the properties chosen too, each opening its own list
@@ -138,11 +137,9 @@ extension VaultModel {
             // The types chosen in Settings, then every list, under Bookmarks.
             special += store.shownSidebarKinds.map { .kind(store.kinds.property, $0.name) }
             if store.showsListsInSidebar, !store.listNoteIDs.isEmpty { special.append(.lists) }
-            if !twoColumns {
-                if showsTags { special.append(.tags) }
-                if showsTypes { special.append(.types) }
-                special += store.shownSidebarProperties.map { .property($0) }
-            }
+            // Tags open their own list in one column (in two, they're under folders). Types
+            // are only those chosen, above; properties are managed in Settings, not here.
+            if !twoColumns, showsTags { special.append(.tags) }
             special.append(.trash)
             sections.append(places(special.map { .place($0, depth: 0) })
                             + (oneAtATime && filter.isEmpty ? [.treeSwitch] : []))
@@ -166,15 +163,6 @@ extension VaultModel {
             }
             if twoColumns, showsTags, !oneAtATime || treeKind == .tags {
                 addTree(.tags, places(tagRows()))
-            }
-            if twoColumns {
-                // Each kind, and each value of a property chosen, lists its notes beside.
-                if showsTypes {
-                    sections.append(section(.types, places(store.kinds.kinds.map { .place(.kind(store.kinds.property, $0.name), depth: 0) })))
-                }
-                for name in store.shownSidebarProperties {
-                    sections.append(section(.property(name), places(store.sidebarValues(of: name).map { .place(.propertyValue(name, $0), depth: 0) })))
-                }
             }
         } else if place == .tags {
             sections.append(section(.tags, places(tagRows())))

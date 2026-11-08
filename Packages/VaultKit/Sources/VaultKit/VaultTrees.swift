@@ -181,7 +181,7 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
     public var parent: SidebarPlace {
         switch self {
         case .allNotes, .everything, .bookmarks, .trash, .properties, .types, .tags, .lists: .allNotes
-        case .kind: .types
+        case .kind: .allNotes
         case .property: .properties
         case .propertyValue(let name, _): .property(name)
         case .folder(let path):

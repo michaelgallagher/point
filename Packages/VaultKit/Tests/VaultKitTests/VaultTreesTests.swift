@@ -75,7 +75,7 @@ struct SidebarPlaceTests {
         #expect(SidebarPlace.propertyValue("status", "draft").parent == .property("status"))
         #expect(SidebarPlace.property("status").parent == .properties)
         #expect(SidebarPlace.properties.parent == .allNotes)
-        #expect(SidebarPlace.kind("type", "Meeting").parent == .types)
+        #expect(SidebarPlace.kind("type", "Meeting").parent == .allNotes)
         #expect(SidebarPlace.types.parent == .allNotes)
     }
 }

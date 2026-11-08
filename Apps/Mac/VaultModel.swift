@@ -1048,6 +1048,22 @@ final class VaultModel: ObservableObject {
     /// The keyboard shortcuts sheet (⌘/).
     @Published var isShowingShortcuts = false
 
+    // MARK: Links to notes
+
+    /// Each note's links, shared by its editor and the links panel beside it, so they're
+    /// asked for once. The last few notes' are kept, for going back and forth.
+    func connections(for note: Note) -> Connections {
+        if let found = connectionsCache[note.id], found.note.name == note.name { return found }
+        let made = Connections(note: note, model: self)
+        connectionsCache[note.id] = made
+        connectionsOrder.removeAll { $0 == note.id }
+        connectionsOrder.append(note.id)
+        while connectionsOrder.count > 12 { connectionsCache[connectionsOrder.removeFirst()] = nil }
+        return made
+    }
+    private var connectionsCache: [Note.ID: Connections] = [:]
+    private var connectionsOrder: [Note.ID] = []
+
     // MARK: Window
 
     /// Focus mode: just the text, with all other interface hidden.

@@ -11,13 +11,14 @@ struct SettingsView: View {
     @AppStorage(LinksPlacement.key) private var linksPlacement = LinksPlacement.side
 
     enum Page: String, CaseIterable, Identifiable {
-        case sidebar, notes, templates, shortcuts, appIcon
+        case sidebar, notes, properties, templates, shortcuts, appIcon
         var id: Self { self }
 
         var title: String {
             switch self {
             case .sidebar: "Sidebar"
             case .notes: "Notes"
+            case .properties: "Properties"
             case .templates: "Templates"
             case .shortcuts: "Shortcuts"
             case .appIcon: "App icon"
@@ -28,6 +29,7 @@ struct SettingsView: View {
             switch self {
             case .sidebar: "sidebar.left"
             case .notes: "doc.text"
+            case .properties: "list.bullet.rectangle"
             case .templates: "doc.on.doc"
             case .shortcuts: "keyboard"
             case .appIcon: "app.badge"
@@ -51,6 +53,7 @@ struct SettingsView: View {
                 switch page {
                 case .sidebar: sidebarPage
                 case .notes: notesPage
+                case .properties: PropertiesSettings()
                 case .templates: scrolling { TemplatesSettings() }
                 case .shortcuts: ShortcutSettings()
                 case .appIcon: scrolling { appIconPage }
@@ -167,35 +170,17 @@ struct SettingsView: View {
                 .disabled(store.browsingStyle != .twoColumns)
             }
 
-            Section {
-                Toggle("Bookmarks", isOn: $store.showsBookmarksInSidebar)
-                Toggle("Lists", isOn: $store.showsListsInSidebar)
-                Toggle("Tags", isOn: $store.showsTagsInSidebar)
-                Toggle("Types", isOn: $store.showsTypesInSidebar)
-                    .disabled(store.kinds.isEmpty)
-            } header: {
-                Text("Shown in the sidebar")
-            } footer: {
-                Text(store.kinds.isEmpty ? "Types shows once the vault has kinds of note (.point/kinds.json)." : "In one column, these are at the top, each opening its own list. In two, tags and types are listed under folders.")
-                    .foregroundStyle(.secondary)
-            }
-
-            if !store.kinds.isEmpty {
-                Section {
-                    ForEach(store.kinds.kinds) { kind in
-                        Toggle(isOn: Binding(get: { store.showsInSidebar(kind) }, set: { store.setShowsInSidebar(kind, $0) })) {
-                            Label(kind.name, systemImage: kind.shownSymbol)
-                        }
+            // In the order they're in the sidebar: Bookmarks, the types chosen, Lists, Tags.
+            Section("Shown in the sidebar") {
+                Toggle(isOn: $store.showsBookmarksInSidebar) { Label("Bookmarks", systemImage: SidebarPlace.bookmarks.symbol) }
+                ForEach(store.kinds.kinds) { kind in
+                    Toggle(isOn: Binding(get: { store.showsInSidebar(kind) }, set: { store.setShowsInSidebar(kind, $0) })) {
+                        Label(NoteKinds.plural(kind.name), systemImage: kind.shownSymbol)
                     }
-                } header: {
-                    Text("Types at the top")
-                } footer: {
-                    Text("Each type chosen is under Bookmarks, listing its notes wherever they are. A type kept in one folder is easier to reach through the folder.")
-                        .foregroundStyle(.secondary)
                 }
+                Toggle(isOn: $store.showsListsInSidebar) { Label("Lists", systemImage: SidebarPlace.lists.symbol) }
+                Toggle(isOn: $store.showsTagsInSidebar) { Label("Tags", systemImage: SidebarPlace.tags.symbol) }
             }
-
-            SidebarPropertiesSection()
 
             Section("Showing and hiding") {
                 Toggle("Swipe sideways with two fingers to show and hide", isOn: $store.swipesSidebar)
@@ -301,18 +286,12 @@ struct SettingsView: View {
             }
             TypographySettings(typography: $store.typography)
             Section("Links") {
-                Picker(selection: $linksPlacement) {
+                Picker("Show links to a note", selection: $linksPlacement) {
                     ForEach(LinksPlacement.allCases) { Text($0.title).tag($0) }
-                } label: {
-                    Text("Show links to a note")
-                    Text("At the side, a button opens a panel beside the note. At the bottom, a strip grows up over the note.")
                 }
             }
             Section("Images") {
-                Toggle(isOn: $store.showsWebImages) {
-                    Text("Show images from the web")
-                    Text("Loaded from their sites once, then kept on this Mac, outside the vault. A site can tell when its image is loaded.")
-                }
+                Toggle("Show images from the web", isOn: $store.showsWebImages)
             }
         }
     }
@@ -596,36 +575,34 @@ private struct Setting<Content: View>: View {
 
 /// The vault's properties, most used first: each can be listed in the sidebar with its values
 /// (none are, at first), and renamed in every note.
-private struct SidebarPropertiesSection: View {
+/// The vault's properties, most used first, each with its type and how many notes have it, to
+/// rename across every note.
+private struct PropertiesSettings: View {
     @EnvironmentObject private var store: VaultStore
     @State private var renaming: VaultStore.VaultRename?
 
     var body: some View {
-        Section {
-            if store.propertySummaries.isEmpty {
-                Text("No notes have properties.")
-                    .foregroundStyle(.secondary)
-            }
-            ForEach(store.propertySummaries) { summary in
-                HStack {
-                    Toggle(isOn: Binding(get: { store.showsInSidebar(property: summary.name) },
-                                         set: { store.setShowsInSidebar(property: summary.name, $0) })) {
-                        HStack(spacing: 6) {
-                            Text(summary.name)
-                            Text(summary.noteCount == 1 ? "1 note" : "\(summary.noteCount) notes")
-                                .foregroundStyle(.secondary)
-                        }
+        Form {
+            Section {
+                if store.propertySummaries.isEmpty {
+                    Text("No notes have properties.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(store.propertySummaries) { summary in
+                    HStack(spacing: 8) {
+                        Image(systemName: store.propertyTypes.type(forKey: summary.name)?.symbol ?? store.guessedType(ofProperty: summary.name).symbol)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 18)
+                        Text(summary.name)
+                        Text(summary.noteCount == 1 ? "1 note" : "\(summary.noteCount.formatted()) notes")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                        Spacer()
+                        Button("Rename…") { renaming = .property(summary.name) }
+                            .buttonStyle(.borderless)
                     }
-                    Spacer()
-                    Button("Rename…") { renaming = .property(summary.name) }
-                        .buttonStyle(.borderless)
                 }
             }
-        } header: {
-            Text("Properties in the sidebar")
-        } footer: {
-            Text("A property turned on is listed with its values, each opening the notes that give it. Renaming one renames it in every note.")
-                .foregroundStyle(.secondary)
         }
         .sheet(item: $renaming) { rename in
             RenameAcrossVaultSheet(rename: rename, store: store)

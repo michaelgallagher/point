@@ -22,7 +22,7 @@ On `main`, which has everything so far, including search that learns.
 2. **`kinds`:** kinds of note defined in Point (template, folder, properties), with New meeting offering its templates, and `type` filled in once where the folder makes it plain. Built, and the real vault has its kinds and `type` filled in: see [Kinds of note](plan/kinds.md).
 3. **`recall`:** what happened before, in meeting notes first ("4 earlier · last on 21 October"), then while writing blog posts.
 4. **`clipper`:** a Chrome extension for Dia on the Mac and a share-sheet extension on the iPhone; Point extracts the article and sets its kind. The Mac and the extension are built: see [The clipper](plan/clipper.md). The iPhone is next.
-5. **Types, links and lists** (8 November, merged): links grouped by what they are to a note (By, About, With, Mentioned) and narrowed by type, at the side or the bottom; Person and Project kinds; types chosen for the sidebar's top; Lists, and list notes marked. See [Types, links and lists](plan/types-and-links.md).
+5. **Types, links and lists** (8 November, merged): links grouped by what they are to a note (By, About, With, Mentioned) and narrowed by type, at the side or the bottom; Person and Project kinds; types chosen for the sidebar's top; Lists, and list notes marked. A second round moved types to the sidebar's top only (plural), properties to Settings, the links side panel beside the whole pane and the strip to the bottom left, and smoothed the sidebar in a window too wide for the screen. See [Types, links and lists](plan/types-and-links.md).
 6. **`mac-full-screen`:** the full-screen bug (see [Investigations](plan/investigations.md)). Not blocking anything.
 
 **Next, as of 3 November** (older list):

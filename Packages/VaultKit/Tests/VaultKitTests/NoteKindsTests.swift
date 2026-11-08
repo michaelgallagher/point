@@ -85,3 +85,24 @@ struct PersonKindTests {
         #expect(NoteKinds(kinds: [.init(name: "Topic")]).personKind == nil)
     }
 }
+
+struct KindPluralTests {
+    @Test func pluralisesTheLastWord() {
+        #expect(NoteKinds.plural("Meeting") == "Meetings")
+        #expect(NoteKinds.plural("Daily note") == "Daily notes")
+        #expect(NoteKinds.plural("Review") == "Reviews")
+        #expect(NoteKinds.plural("Person") == "People")
+        #expect(NoteKinds.plural("Media") == "Media")
+        #expect(NoteKinds.plural("Blog post") == "Blog posts")
+        #expect(NoteKinds.plural("Weekly note") == "Weekly notes")
+        #expect(NoteKinds.plural("Recipe") == "Recipes")
+        #expect(NoteKinds.plural("Topic") == "Topics")
+        #expect(NoteKinds.plural("Project") == "Projects")
+        #expect(NoteKinds.plural("Study") == "Studies")
+        #expect(NoteKinds.plural("Day") == "Days")
+        #expect(NoteKinds.plural("Sketch") == "Sketches")
+        #expect(NoteKinds.plural("Class") == "Classes")
+        #expect(NoteKinds.plural("Notes") == "Notes")
+        #expect(NoteKinds.plural("1-1") == "1-1")
+    }
+}
