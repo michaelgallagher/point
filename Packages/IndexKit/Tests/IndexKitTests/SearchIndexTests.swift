@@ -257,6 +257,39 @@ struct LinkIndexTests {
         #expect(("---\nproject: \"[[Imprint]]\"\n---\nNotes from the call.\n" as NSString).substring(with: range) == "Imprint")
     }
 
+    /// Richard Pope's note, from the real vault's case: the articles he wrote apart from the
+    /// meetings he was in, newest first, and narrowed by type.
+    @Test func groupsBacklinksByRelationAndType() async throws {
+        let vault = try await Fixture([
+            "Topics/Ann Lee.md": "---\ntype: Person\n---\n",
+            "Sources/Platforms.md": "---\ntype: Media\nauthor:\n  - \"[[Ann Lee]]\"\n---\nAn article.\n",
+            "Sources/Services.md": "---\ntype: Media\nauthor: \"[[Ann Lee]]\"\npeople: \"[[Ann Lee]]\"\n---\nAnother.\n",
+            "2026-01-05 Call.md": "---\ntype: Meeting\ndate: 2026-01-05\npeople:\n  - \"[[Ann Lee]]\"\n---\nNotes.\n",
+            "2026-03-02 Call.md": "---\ntype: Meeting\ndate: 2026-03-02\npeople:\n  - \"[[Ann Lee]]\"\n---\nNotes.\n",
+            "Profile.md": "---\ntopics: \"[[Ann Lee]]\"\n---\nA profile.\n",
+            "Diary.md": "Saw [[Ann Lee]] today.\n",
+        ])
+        defer { vault.cleanUp() }
+        let target = try #require(vault.notes.first { $0.title == "Ann Lee" })
+        let backlinks = try await vault.index.backlinks(to: target, notes: vault.notes)
+        #expect(backlinks.first { $0.title == "Platforms" }?.type == "Media")
+        #expect(backlinks.first { $0.title == "Services" }?.properties == ["author", "people"])
+
+        let groups = LinkGroups(backlinks)
+        #expect(groups.groups.map(\.relation) == [.by, .about, .with, .mentioned])
+        #expect(groups.groups.map { $0.backlinks.map(\.title) } == [["Platforms", "Services"], ["Profile"], ["2026-03-02 Call", "2026-01-05 Call"], ["Diary"]]
+            || groups.groups.map { $0.backlinks.map(\.title) } == [["Services", "Platforms"], ["Profile"], ["2026-03-02 Call", "2026-01-05 Call"], ["Diary"]])
+        #expect(groups.types.map(\.type) == ["Media", "Meeting"])
+        #expect(groups.count == 6)
+
+        let meetings = LinkGroups(backlinks, type: "meeting")
+        #expect(meetings.groups.map(\.relation) == [.with])
+        #expect(meetings.count == 2)
+        #expect(meetings.types.map(\.count) == [2, 2]) // The types of all, to choose another.
+        #expect(LinkRelation(property: "referrer") == .property("referrer"))
+        #expect(LinkRelation.property("referrer").label == "Referrer")
+    }
+
     @Test func findsUnlinkedMentions() async throws {
         let vault = try await Fixture(files)
         defer { vault.cleanUp() }

@@ -8,6 +8,7 @@ import VaultKit
 struct SettingsView: View {
     @EnvironmentObject private var store: VaultStore
     @AppStorage("settingsPage") private var page = Page.sidebar
+    @AppStorage(LinksPlacement.key) private var linksPlacement = LinksPlacement.side
 
     enum Page: String, CaseIterable, Identifiable {
         case sidebar, notes, templates, shortcuts, appIcon
@@ -283,6 +284,14 @@ struct SettingsView: View {
                 }
             }
             TypographySettings(typography: $store.typography)
+            Section("Links") {
+                Picker(selection: $linksPlacement) {
+                    ForEach(LinksPlacement.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    Text("Show links to a note")
+                    Text("At the side, a button opens a panel beside the note. At the bottom, a strip grows up over the note.")
+                }
+            }
             Section("Images") {
                 Toggle(isOn: $store.showsWebImages) {
                     Text("Show images from the web")

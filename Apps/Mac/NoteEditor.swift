@@ -10,6 +10,8 @@ struct NoteEditor: View {
     @Environment(\.topBarCover) private var topBarCover
     @StateObject private var session: EditorSession
     @StateObject private var connections: Connections
+    @AppStorage(LinksPlacement.key) private var linksPlacement = LinksPlacement.side
+    @AppStorage(LinksPlacement.sidePanelKey) private var showsLinksPanel = false
     /// The pane it's in, where links clicked in it open.
     let paneID: VaultModel.NotePane.ID
     /// The tab it's in, which keeps where it was in the note (see `VaultModel.notePlaces`).
@@ -25,6 +27,34 @@ struct NoteEditor: View {
     }
 
     var body: some View {
+        HStack(spacing: 0) {
+            page
+                // Over the note: at its bottom right, the button opening the links at the
+                // side; or along its bottom, the strip growing up into them.
+                .overlay {
+                    switch linksPlacement {
+                    case .side: LinksButton(connections: connections)
+                    case .bottom: LinksStrip(connections: connections)
+                    }
+                }
+            // At the side, pushing the note over, as the sidebar does on the left.
+            if linksPlacement == .side, showsLinksPanel, connections.count > 0 {
+                Divider()
+                LinksSidePanel(connections: connections)
+                    .transition(.move(edge: .trailing))
+            }
+        }
+        .task {
+            await session.load()
+            connections.refresh()
+        }
+        .onDisappear {
+            // Closed with edits that couldn't be saved: they're kept, and offered next time.
+            if !session.save(leaving: true) { model.store.reportUnsaved(session.note) }
+        }
+    }
+
+    private var page: some View {
         VStack(spacing: 0) {
             // Below the see-through top bars; only the text scrolls beneath them.
             Color.clear.frame(height: session.conflict != nil || session.message != nil
@@ -48,16 +78,6 @@ struct NoteEditor: View {
             } else {
                 Color.clear
             }
-        }
-        // Over the note, the button at its bottom right, growing into its panel within the note.
-        .overlay { LinksButton(connections: connections) }
-        .task {
-            await session.load()
-            connections.refresh()
-        }
-        .onDisappear {
-            // Closed with edits that couldn't be saved: they're kept, and offered next time.
-            if !session.save(leaving: true) { model.store.reportUnsaved(session.note) }
         }
     }
 }

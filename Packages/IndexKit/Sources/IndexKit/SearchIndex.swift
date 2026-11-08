@@ -23,6 +23,13 @@ public struct Backlink: Sendable, Identifiable, Equatable {
     public let context: String
     /// Where the link is in that note's text (UTF-16 offsets): its target, or the whole link.
     public var range = NSRange(location: NSNotFound, length: 0)
+    /// The properties it links from (`author`, `people`), as written; none if only from its
+    /// text. What it is to the note: written by them, about it, with them.
+    public var properties: [String] = []
+    /// What kind of note it is: its `type`.
+    public var type: String?
+    /// When it was: its `date`, `published` or `saved` property, else when it was created.
+    public var date: Date?
     public var id: Note.ID { noteID }
 }
 
@@ -545,9 +552,28 @@ public actor SearchIndex {
     // MARK: Links between notes
 
     /// The notes linking to `note`, each with the line the link is on.
-    public func backlinks(to note: Note, notes: [Note]) throws -> [Backlink] {
-        let candidates = try db.query("SELECT DISTINCT n.id FROM links l JOIN notes n ON n.row = l.note WHERE l.name = ?",
-                                      [note.name.lowercased()]).map { $0[0] as! String }
+    /// Each also says which properties it links from, what type it is (`typeProperty`) and
+    /// when it was.
+    public func backlinks(to note: Note, notes: [Note], typeProperty: String = "type") throws -> [Backlink] {
+        var candidates: [Note.ID] = []
+        var properties: [Note.ID: [String]] = [:]
+        var types: [Note.ID: String] = [:]
+        var dates: [Note.ID: Date] = [:]
+        let rows = try db.query("""
+            SELECT n.id, l.property,
+                (SELECT v.value FROM property_values v WHERE v.note = n.row AND lower(v.name) = ? AND v.value != '' LIMIT 1),
+                (SELECT v.date FROM property_values v WHERE v.note = n.row AND lower(v.name) IN ('date', 'published', 'saved') AND v.date IS NOT NULL
+                 ORDER BY CASE lower(v.name) WHEN 'date' THEN 0 WHEN 'published' THEN 1 ELSE 2 END LIMIT 1),
+                n.created
+            FROM links l JOIN notes n ON n.row = l.note WHERE l.name = ?
+            """, [typeProperty.lowercased(), note.name.lowercased()])
+        for row in rows {
+            let id = row[0] as! String
+            if properties[id] == nil { candidates.append(id); properties[id] = [] }
+            if let property = row[1] as? String, !property.isEmpty, !properties[id]!.contains(property) { properties[id]!.append(property) }
+            if let type = row[2] as? String { types[id] = type }
+            if let date = (row[3] as? Double) ?? (row[4] as? Double) { dates[id] = Date(timeIntervalSince1970: date) }
+        }
         let resolver = LinkResolver(notes: notes)
         let byID = Dictionary(notes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         return candidates.compactMap { id -> Backlink? in
@@ -556,7 +582,7 @@ public actor SearchIndex {
             func backlink(at range: NSRange) -> Backlink {
                 let line = ns.substring(with: ns.lineRange(for: NSRange(location: range.location, length: 0)))
                 return Backlink(noteID: id, title: source.title, context: PlainText.strippingMarkers(from: line).trimmingCharacters(in: .whitespacesAndNewlines),
-                                range: range)
+                                range: range, properties: properties[id] ?? [], type: types[id], date: dates[id])
             }
             // Wikilinks and embeds, in the frontmatter too (most of a note's links can be in
             // its properties: Obsidian counts them, and Point missed them), then Markdown links.
