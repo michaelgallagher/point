@@ -21,9 +21,11 @@ On `main`, which has everything so far, including search that learns.
 1. **`iphone-home`:** the simpler phone home screen. See "Home, simplified" in [M4, the iPhone app](plan/m4-iphone.md).
 2. **`kinds`:** kinds of note defined in Point (template, folder, properties), with New meeting offering its templates, and `type` filled in once where the folder makes it plain. Built, and the real vault has its kinds and `type` filled in: see [Kinds of note](plan/kinds.md).
 3. **`recall`** (merged 8 November; built 7 November but left unmerged until then): what happened before, in meeting notes first ("4 earlier · last on 21 October"), then while writing blog posts. Built on both, meetings by people and posts by topics: see [Recall](plan/recall.md).
-4. **`clipper`:** a Chrome extension for Dia on the Mac and a share-sheet extension on the iPhone; Point extracts the article and sets its kind. The Mac and the extension are built: see [The clipper](plan/clipper.md). The iPhone is next.
+4. **`clipper`:** a Chrome extension for Dia on the Mac and the share sheet on the iPhone; Point extracts the article and sets its kind. Built on both: the Mac with the extension, and the iPhone with a share-sheet Shortcut opening `point://clip` (steps in `Clipper/iPhone`) and Clip copied link. Tried in the Simulator; not yet on Mike's iPhone or from Dia. A share extension waits for the paid account. See [The clipper](plan/clipper.md).
 5. **Types, links and lists** (8 November, merged): links grouped by what they are to a note (By, About, With, Mentioned) and narrowed by type, at the side or the bottom; Person and Project kinds; types chosen for the sidebar's top; Lists, and list notes marked. A second round moved types to the sidebar's top only (plural), properties to Settings, the links side panel beside the whole pane and the strip to the bottom left, and smoothed the sidebar in a window too wide for the screen. See [Types, links and lists](plan/types-and-links.md).
-6. **`mac-full-screen`:** the full-screen bug (see [Investigations](plan/investigations.md)). Not blocking anything.
+6. **The iPhone on the real vault:** choosing the vault in iCloud Drive, notes not yet downloaded, changes from the Mac, and the safety tests again on the phone. After the iPhone clipper. See [The iPhone on the real vault](plan/iphone-real-vault.md).
+7. **Links and recall, together:** the links panels' layout and UI, and how they relate to recall, which overlaps them confusingly. To decide with Mike. See [Links and recall](plan/links-and-recall.md).
+8. **`mac-full-screen`:** the full-screen bug (see [Investigations](plan/investigations.md)). Not blocking anything.
 
 **Next, as of 3 November** (older list):
 1. **The real-vault trial goes on.** Anything it turns up comes first, including how search that learns (so far checked only by tests) and tables do on real notes. The [27 October review](plan/app-review-2026-10-27.md)'s findings are fixed except 5 (iCloud conflict versions, to fix against a real one) and 13–15 (performance, to measure first).
@@ -42,6 +44,9 @@ On `main`, which has everything so far, including search that learns.
 - [Milestones](plan/milestones.md): M0 to M6.
 
 **Work, newest first**
+- [The iPhone on the real vault](plan/iphone-real-vault.md) (8 November): what's needed to use the iPhone app on the real notes, and in what order.
+- [Links and recall: to work on](plan/links-and-recall.md) (8 November): the links panels' layout, and how they and recall fit together, with three ways it could go.
+- [Types, links and lists](plan/types-and-links.md) (8 November): links grouped by relation and type, Person and Project kinds, types and Lists in the sidebar, properties in Settings.
 - [Recall: what came before](plan/recall.md) (7 November): under a note's properties, its earlier meetings with the same people, or the notes on a post's topics.
 - [Beyond text: structure, names and Obsidian](plan/structure.md) (6 November): how images, comparing drafts, lists from properties, and people and types fit together. Decided: plain files readable anywhere, not Obsidian compatibility; titles from a `title:` property, with dated file names; a typed index under it all; lists as notes; and the order of work.
 - [Images: where to store them](plan/images.md) (6 November): the options, from Obsidian's one attachment folder to a folder for each note, and a recommendation: one folder, images named after their note, and Point looking after them as notes are renamed and deleted.

@@ -124,13 +124,21 @@ struct HomeScreen: View {
         }
     }
 
-    /// The blue New note, making a note with `create`; a long press offers the kinds.
+    /// The blue New note, making a note with `create`; a long press offers the kinds, and
+    /// clipping a copied link.
     private func add(_ create: @escaping () -> Void) -> PageTool {
-        .add(create, more: store.kinds.offered.isEmpty ? nil : AnyView(kindsMenu))
+        .add(create, more: AnyView(kindsMenu))
     }
 
-    /// New note's long press: a note of each kind, and of each of a kind's templates.
+    /// New note's long press: a note of each kind, and of each of a kind's templates; then
+    /// Clip copied link.
     @ViewBuilder private var kindsMenu: some View {
+        kindButtons
+        Divider()
+        Button("Clip copied link", systemImage: "scissors") { store.clipCopiedLink() }
+    }
+
+    @ViewBuilder private var kindButtons: some View {
         ForEach(store.kinds.offered) { kind in
             let templates = store.templates(of: kind)
             if templates.count > 1 {

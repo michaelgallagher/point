@@ -24,5 +24,17 @@
 			<string>square.and.pencil</string>
 		</dict>
 	</array>
+	<!-- point://clip?url=… clips a page: a share-sheet Shortcut opens it (see plan/clipper.md). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>org.mikegallagher.point.clip</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>point</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

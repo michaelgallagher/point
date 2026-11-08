@@ -3,7 +3,7 @@ import WebKit
 
 /// Fetches a page and finds its article, in a web view no one sees: the page is only parsed,
 /// so its scripts never run and nothing it refers to is loaded. Mozilla's Readability finds the
-/// article; Turndown writes it as Markdown (see `Resources`).
+/// article; Turndown writes it as Markdown (see `Scripts`; not `Resources`, which an iOS bundle can't have at its top).
 @MainActor
 public final class ClipExtractor: NSObject, WKNavigationDelegate {
     public enum ClipError: LocalizedError {
@@ -64,7 +64,7 @@ public final class ClipExtractor: NSObject, WKNavigationDelegate {
         configuration.websiteDataStore = .nonPersistent()
         let controller = configuration.userContentController
         for name in ["Readability", "turndown", "turndown-plugin-gfm", "clip"] {
-            guard let url = Bundle.module.url(forResource: name, withExtension: "js", subdirectory: "Resources"),
+            guard let url = Bundle.module.url(forResource: name, withExtension: "js", subdirectory: "Scripts"),
                   let source = try? String(contentsOf: url, encoding: .utf8) else { throw ClipError.unreadable }
             controller.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .defaultClient))
         }

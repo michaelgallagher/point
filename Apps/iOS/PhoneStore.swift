@@ -1,3 +1,4 @@
+import ClipKit
 import EditorKit
 import Foundation
 import IndexKit
@@ -50,6 +51,15 @@ final class PhoneStore: ObservableObject {
 
     let root = PhoneVault.root
     private var index: SearchIndex?
+    /// How a clip is going, if one is (see `clip`).
+    @Published var clipStatus: ClipStatus?
+
+    /// A note whose `source` is this address (a page clipped before).
+    func notes(withSource address: String) async -> Note.ID? {
+        guard let index, let id = try? await index.notes(matching: NoteQuery([.property("source", .equals(address))])).first,
+              note(id) != nil else { return nil }
+        return id
+    }
     /// The search index, for lists' queries.
     var searchIndex: SearchIndex? { index }
     /// Images and lists that notes embed.
@@ -442,15 +452,16 @@ final class PhoneStore: ObservableObject {
     func isUntitled(_ id: Note.ID) -> Bool { untitled.contains(id) }
 
     /// A new note in `folder` ("" for the vault's top level), starting with `text`, to be named
-    /// from its first line.
-    func createNote(in folder: String = "", text: String = "") -> Note.ID? {
+    /// from its first line; or, given a title, named from that at once (a clip).
+    func createNote(in folder: String = "", text: String = "", titled title: String? = nil) -> Note.ID? {
         do {
             // Named for its day, `2026-11-06-untitled.md`, until it's left and named from its first line.
-            let url = try NoteFiles.createDated(title: nil, text: text, in: url(ofFolder: folder))
+            let url = try NoteFiles.createDated(title: title, text: text, in: url(ofFolder: folder))
             let name = url.deletingPathExtension().lastPathComponent
-            let note = Note(id: id(of: url, in: folder), url: url, title: NoteNames.fallbackTitle(for: name),
+            let note = Note(id: id(of: url, in: folder), url: url, title: title ?? NoteNames.fallbackTitle(for: name),
                             modified: Date(), created: Date(), isDownloaded: true)
             notes.append(note)
+            guard title == nil else { return note.id }
             untitled.insert(note.id)
             if !text.isEmpty { startingTexts[note.id] = text }
             return note.id
@@ -1066,5 +1077,87 @@ enum PropertyLinks {
     /// A name as a link: `Sam Lee` gives `[[Sam Lee]]`; a link stays as it is.
     static func linked(_ value: String) -> String {
         linkedName(value) == nil ? "[[\(value)]]" : value
+    }
+}
+
+
+// MARK: Clipping
+
+/// How a clip is going, shown over home and the note: working, then done (for a moment).
+struct ClipStatus: Equatable {
+    var text: String
+    var symbol: String
+    var isWorking = false
+}
+
+extension PhoneStore {
+    /// Clips a page into the vault and opens it, as on the Mac: its article as a note of the
+    /// clip kind (in that kind's folder, from its template), or a note with a link if the
+    /// article can't be read. A page clipped before opens its note again.
+    func clip(_ request: ClipRequest) {
+        Task { @MainActor in
+            // Opened by the link, Point may still be reading the vault.
+            for _ in 0..<150 where !isReady { try? await Task.sleep(nanoseconds: 100_000_000) }
+            guard isReady else { return }
+            if let existing = await clippedNote(of: request.url) {
+                linkedRoute = .note(existing)
+                show(ClipStatus(text: "Clipped before", symbol: "doc.on.doc"))
+                return
+            }
+            let shownTitle = request.title ?? request.url.host ?? "the page"
+            clipStatus = ClipStatus(text: "Clipping “\(shownTitle)”…", symbol: "scissors", isWorking: true)
+            let (clip, couldRead) = await Clipping.read(request)
+            // A redirect may lead to a page clipped before.
+            if let existing = await clippedNote(of: clip.url) {
+                linkedRoute = .note(existing)
+                show(ClipStatus(text: "Clipped before", symbol: "doc.on.doc"))
+                return
+            }
+            let kind = Clipping.kind(in: kinds)
+            let folder = kind?.folder ?? Clipping.defaultFolder
+            let template = kind.flatMap { templates(of: $0).first?.url }.flatMap { try? NoteReader.read(contentsOf: $0) }
+            let (title, text) = Clipping.note(for: clip, request: request, kind: kind, template: template,
+                                              typeProperty: kinds.property, settings: settings)
+            try? FileManager.default.createDirectory(at: root.appendingPathComponent(folder), withIntermediateDirectories: true)
+            guard let id = createNote(in: folder, text: text, titled: title.isEmpty ? nil : title) else {
+                show(ClipStatus(text: "Couldn’t make the note", symbol: "exclamationmark.triangle"))
+                return
+            }
+            linkedRoute = .note(id)
+            show(couldRead ? ClipStatus(text: "Clipped to \(folder)", symbol: "checkmark.circle")
+                 : ClipStatus(text: "Couldn’t read the page, so the note has its link", symbol: "exclamationmark.triangle"))
+        }
+    }
+
+    /// Clips the link copied last, if there is one: for pages shared by copying their link.
+    /// (Reading the clipboard asks permission, the first time.)
+    func clipCopiedLink() {
+        let pasteboard = UIPasteboard.general
+        // Whether there's text or a link asks no permission; reading it brings up iOS's
+        // "Allow paste" prompt, so only read when there's something to read.
+        guard pasteboard.hasURLs || pasteboard.hasStrings,
+              let url = pasteboard.url ?? pasteboard.string.flatMap({ URL(string: $0.trimmingCharacters(in: .whitespacesAndNewlines)) }),
+              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+            show(ClipStatus(text: "No link copied", symbol: "link"))
+            return
+        }
+        clip(ClipRequest(url: url))
+    }
+
+    /// Shows how it went, for a few seconds.
+    private func show(_ status: ClipStatus) {
+        clipStatus = status
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            if clipStatus == status { clipStatus = nil }
+        }
+    }
+
+    /// The note already clipped from this page, if any: its `source` is the address.
+    private func clippedNote(of url: URL) async -> Note.ID? {
+        for address in Clipping.sources(of: url) {
+            if let id = await notes(withSource: address) { return id }
+        }
+        return nil
     }
 }

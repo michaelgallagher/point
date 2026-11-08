@@ -1,3 +1,4 @@
+import ClipKit
 import EditorKit
 import SwiftUI
 import VaultKit
@@ -24,6 +25,17 @@ struct PointPhoneApp: App {
                     }
                     .animation(.easeOut(duration: 0.3), value: store.isReady)
                 }
+                // How a clip is going, over whatever's showing.
+                .overlay(alignment: .bottom) {
+                    ZStack {
+                        if let status = store.clipStatus { ClipStatusView(status: status).transition(.move(edge: .bottom).combined(with: .opacity)) }
+                    }
+                    .animation(.spring(duration: 0.3, bounce: 0), value: store.clipStatus)
+                }
+                // `point://clip?url=…`, from the share sheet's Clip to Point shortcut.
+                .onOpenURL { url in
+                    if let request = ClipRequest(url) { store.clip(request) }
+                }
         }
     }
 }
@@ -41,6 +53,30 @@ private struct LaunchCover: View {
         .ignoresSafeArea()
         .accessibilityElement()
             .accessibilityLabel("Loading")
+    }
+}
+
+/// How a clip is going: a capsule above the bottom of the screen.
+private struct ClipStatusView: View {
+    let status: ClipStatus
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if status.isWorking {
+                ProgressView().controlSize(.small)
+            } else {
+                Image(systemName: status.symbol)
+            }
+            Text(status.text)
+                .lineLimit(2)
+        }
+        .font(.subheadline)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .glassEffect(.regular, in: Capsule())
+        .padding(.horizontal, 16)
+        .padding(.bottom, 64)
+        .accessibilityElement(children: .combine)
     }
 }
 

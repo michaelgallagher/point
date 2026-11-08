@@ -93,6 +93,7 @@ targets:
       - package: EditorKit
       - package: MarkdownKit
       - package: IndexKit
+      - package: ClipKit
     settings:
       base:
         PRODUCT_NAME: Point

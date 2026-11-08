@@ -36,16 +36,8 @@ final class PointAppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension VaultStore {
-    /// The names a kind for clips may have, if none says it's for clips.
-    static let clipKindNames = ["Media", "Clipping", "Clippings", "Clip", "Web clip", "Article"]
-
     /// The kind clipped pages are: Media, or the like, if the vault has one.
-    var clipKind: NoteKinds.Kind? {
-        for name in Self.clipKindNames {
-            if let kind = kinds.kinds.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) { return kind }
-        }
-        return nil
-    }
+    var clipKind: NoteKinds.Kind? { Clipping.kind(in: kinds) }
 
     /// Clips a page into the vault and opens it: its article as a note of the clip kind (in
     /// that kind's folder, from its template), or a note with a link if the article can't be
@@ -65,17 +57,7 @@ extension VaultStore {
             let shownTitle = request.title ?? request.url.host ?? "the page"
             vaultChangeNotice = VaultChangeNotice(text: "Clipping “\(shownTitle)”…", canUndo: false, symbol: "scissors", isWorking: true)
 
-            var clip: Clip
-            var couldRead = true
-            do {
-                clip = try await ClipExtractor().clip(request.url)
-                if clip.markdown.isEmpty { couldRead = false }
-            } catch {
-                couldRead = false
-                clip = Clip(url: Clip.cleaned(request.url), title: request.title ?? request.url.host ?? request.url.absoluteString,
-                            format: Clip.format(of: request.url))
-            }
-            if let title = request.title, clip.title.isEmpty || clip.title == clip.url.host { clip.title = title }
+            let (clip, couldRead) = await Clipping.read(request)
             // A redirect may lead to a page clipped before.
             if let existing = await clippedNote(of: clip.url) {
                 open(existing)
@@ -84,12 +66,10 @@ extension VaultStore {
             }
 
             let kind = clipKind
-            let folder = kind?.folder ?? "Clippings"
+            let folder = kind?.folder ?? Clipping.defaultFolder
             let template = kind.flatMap { templates(of: $0).first?.url }.flatMap { try? NoteReader.read(contentsOf: $0) }
-            let title = NoteFiles.sanitizedTitle(clip.title)
-            let text = ClipNote.text(for: clip, selection: request.selection,
-                                     template: template.map { Templates.render($0, title: title, settings: settings) },
-                                     typeProperty: kinds.property, kind: kind?.name)
+            let (title, text) = Clipping.note(for: clip, request: request, kind: kind, template: template,
+                                              typeProperty: kinds.property, settings: settings)
             if let root { try? FileManager.default.createDirectory(at: root.appendingPathComponent(folder), withIntermediateDirectories: true) }
             guard let id = createNote(text: text, titled: title.isEmpty ? nil : title, inFolder: folder) else {
                 vaultChangeNotice = nil
@@ -104,8 +84,7 @@ extension VaultStore {
     /// The note already clipped from this page, if any: its `source` is the address.
     private func clippedNote(of url: URL) async -> Note.ID? {
         guard let index else { return nil }
-        let addresses = Set([url.absoluteString, Clip.cleaned(url).absoluteString])
-        for address in addresses {
+        for address in Clipping.sources(of: url) {
             if let id = try? await index.notes(matching: NoteQuery([.property("source", .equals(address))])).first,
                notesByID[id] != nil { return id }
         }

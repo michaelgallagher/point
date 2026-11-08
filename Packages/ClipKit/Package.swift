@@ -11,7 +11,7 @@ let package = Package(
         .package(path: "../VaultKit"),
     ],
     targets: [
-        .target(name: "ClipKit", dependencies: ["VaultKit"], resources: [.copy("Resources")]),
+        .target(name: "ClipKit", dependencies: ["VaultKit"], resources: [.copy("Scripts")]),
         .testTarget(name: "ClipKitTests", dependencies: ["ClipKit"]),
     ]
 )
