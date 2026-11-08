@@ -318,7 +318,21 @@ struct LinksSidePanel: View {
 
     var body: some View {
         let width = min(dragWidth ?? CGFloat(storedWidth), widest)
-        VStack(alignment: .leading, spacing: 0) {
+        // The header over the list, not above it: from macOS 26 a scroll view reaches up under
+        // the title bar's strip whatever's above it, and took the close button's clicks.
+        ZStack(alignment: .top) {
+            if connections.isLoaded, connections.count == 0 {
+                Text("No links to this note.")
+                    .foregroundStyle(.secondary)
+                    .padding(16)
+                    .padding(.top, model.topBarHeight)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                ScrollView {
+                    LinksList(connections: connections)
+                        .padding(.top, model.topBarHeight)
+                }
+            }
             HStack(spacing: TopBar.buttonSpacing) {
                 Text(connections.isLoaded ? connections.label : " ")
                     .font(.headline)
@@ -332,14 +346,7 @@ struct LinksSidePanel: View {
             .padding(.trailing, TopBar.buttonSpacing)
             .frame(height: model.topBarHeight)
             .background(WindowDragArea())
-            if connections.isLoaded, connections.count == 0 {
-                Text("No links to this note.")
-                    .foregroundStyle(.secondary)
-                    .padding(16)
-                Spacer(minLength: 0)
-            } else {
-                ScrollView { LinksList(connections: connections) }
-            }
+            .background(Color(nsColor: .textBackgroundColor))
         }
         .frame(width: width)
         .frame(maxHeight: .infinity, alignment: .top)
