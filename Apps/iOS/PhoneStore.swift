@@ -336,6 +336,12 @@ final class PhoneStore: ObservableObject {
         guard propertyValuesUpdate != indexUpdates, let index else { return }
         let update = indexUpdates
         guard let values = try? await index.propertyValues() else { return }
+        if let kind = kinds.personKind {
+            let ids = Set((try? await index.notes(matching: NoteQuery([.property(kinds.property, .equals(kind.name))]))) ?? [])
+            personNotes = notes.filter { ids.contains($0.id) }.map(\.title)
+        } else {
+            personNotes = []
+        }
         propertyValues = values
         propertyValuesUpdate = update
     }
@@ -346,10 +352,14 @@ final class PhoneStore: ObservableObject {
         return (propertyValues[key.lowercased()] ?? []).map(\.value).filter { seen.insert($0.lowercased()).inserted }
     }
 
-    /// People, by their notes' titles: notes in the people folder, and whoever's linked in a
-    /// property of the person kind, most linked first.
+    /// The titles of notes of the person kind (`type: Person`), read with the property values.
+    private var personNotes: [String] = []
+
+    /// People, by their notes' titles: notes of the person kind, notes in the people folder,
+    /// and whoever's linked in a property of the person kind, most linked first.
     var people: [String] {
         var counts: [String: (name: String, count: Int)] = [:]
+        for title in personNotes { counts[title.lowercased()] = (title, 0) }
         if let folder = pointTypes.peopleFolder(among: folders.filter { !$0.contains("/") }) {
             for note in notes where FolderTree.folder(of: note.id) == folder || note.id.hasPrefix(folder + "/") {
                 counts[note.title.lowercased()] = (note.title, 0)

@@ -1503,6 +1503,7 @@ final class VaultStore: ObservableObject {
             if changed > 0 || propertyValues.isEmpty, let values = try? await index.propertyValues(), generation == vaultGeneration {
                 propertyValues = values
             }
+            if changed > 0 || personNoteIDs == nil, generation == vaultGeneration { await loadPersonNotes() }
             if changed > 0 || propertySummaries.isEmpty, let summaries = try? await index.propertySummaries(), generation == vaultGeneration {
                 propertySummaries = summaries
             }
@@ -1766,7 +1767,11 @@ final class VaultStore: ObservableObject {
     func loadKinds() {
         guard let root else { return }
         let loaded = NoteKinds.load(vault: root)
-        if loaded != kinds { kinds = loaded }
+        if loaded != kinds {
+            let personKindChanged = loaded.personKind != kinds.personKind
+            kinds = loaded
+            if personKindChanged { Task { await loadPersonNotes() } }
+        }
         let implied = kinds.choice.map { [kinds.property: $0] } ?? [:]
         if pointTypes.implied != implied { pointTypes.implied = implied }
     }
@@ -1797,11 +1802,22 @@ final class VaultStore: ObservableObject {
         listVersion += 1
     }
 
-    /// People, by their notes' titles: notes in the people folder, and whoever's linked in a
-    /// property of the person kind, most linked first.
+    /// The notes of the person kind (`type: Person`), if the vault has one.
+    private var personNoteIDs: [Note.ID]? { didSet { peopleCache = nil } }
+
+    func loadPersonNotes() async {
+        guard let index, let kind = kinds.personKind else { personNoteIDs = []; return }
+        personNoteIDs = (try? await index.notes(matching: NoteQuery([.property(kinds.property, .equals(kind.name))]))) ?? []
+    }
+
+    /// People, by their notes' titles: notes of the person kind, notes in the people folder,
+    /// and whoever's linked in a property of the person kind, most linked first.
     var people: [String] {
         if let cached = peopleCache, cached.version == listVersion { return cached.names }
         var counts: [String: (name: String, count: Int)] = [:]
+        for id in personNoteIDs ?? [] {
+            if let note = notesByID[id] { counts[note.title.lowercased()] = (note.title, 0) }
+        }
         if let folder = pointTypes.peopleFolder(among: folderTree.subfolders(of: "")) {
             for note in notes where FolderTree.folder(of: note.id) == folder || note.id.hasPrefix(folder + "/") {
                 counts[note.title.lowercased()] = (note.title, 0)

@@ -77,3 +77,11 @@ struct NoteKindsTests {
         #expect(NoteKinds().choice == nil)
     }
 }
+
+struct PersonKindTests {
+    @Test func findsThePersonKind() {
+        #expect(NoteKinds(kinds: [.init(name: "Meeting"), .init(name: "Person")]).personKind?.name == "Person")
+        #expect(NoteKinds(kinds: [.init(name: "people")]).personKind?.name == "people")
+        #expect(NoteKinds(kinds: [.init(name: "Topic")]).personKind == nil)
+    }
+}

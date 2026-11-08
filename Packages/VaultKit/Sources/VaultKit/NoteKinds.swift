@@ -122,6 +122,12 @@ public struct NoteKinds: Sendable, Equatable {
         return (set as NSString).replacingCharacters(in: moveRange, with: moved)
     }
 
+    /// The kind people's notes are (Person, or People), if the vault has one: a property of
+    /// the person kind suggests notes of it.
+    public var personKind: Kind? {
+        kinds.first { ["person", "people"].contains($0.name.lowercased()) }
+    }
+
     /// `type` as a choice of the kinds, for the properties to offer them. Nil if there are none.
     public var choice: PointTypes.Definition? {
         kinds.isEmpty ? nil : PointTypes.Definition(type: .choice, choices: kinds.map(\.name))
