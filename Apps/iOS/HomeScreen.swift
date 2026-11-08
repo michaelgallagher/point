@@ -49,7 +49,7 @@ struct HomeScreen: View {
                         Button("Settings", systemImage: "gear") { showsSettings = true }
                     }
                 }
-                .pageBar(add { createNote() }) { newFolderButton(in: "") }
+                .pageBar(add { createNote() })
         }
         // Search, over the bars and pages, opening out from the bar's field. Nothing under it moves.
         .overlay { SearchLayerHost() }
