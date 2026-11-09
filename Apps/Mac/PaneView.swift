@@ -28,6 +28,7 @@ struct PaneView: View {
                 HStack(spacing: 0) {
                     if #available(macOS 26, *) {
                         page(pane, index: index, underBar: model.topBarHeight)
+                            .overlay(alignment: .top) { targetLine(index: index) }
                             .overlay(alignment: .top) { PaneTabBar(pane: pane, paneIndex: index) }
                     } else {
                         VStack(spacing: 0) {
@@ -43,11 +44,29 @@ struct PaneView: View {
                 .clipped()
                 .background(GeometryReader { geometry in
                     Color.clear
-                        .onAppear { paneWidth = geometry.size.width }
+                        .onAppear {
+                            paneWidth = geometry.size.width
+                            model.paneFrames[paneID] = geometry.frame(in: .global)
+                        }
                         .onChange(of: geometry.size.width) { paneWidth = $0 }
+                        .onChange(of: geometry.frame(in: .global)) { model.paneFrames[paneID] = $0 }
                 })
                 .animation(LinksSidePanel.animation, value: linksNote != nil)
             }
+        }
+    }
+
+    /// In a split, a thin accent line under the bar of the side notes will open into, so it's
+    /// plain which one that is, with or without tabs showing.
+    @ViewBuilder private func targetLine(index: Int) -> some View {
+        if model.isSplit, index == model.activePane, !model.isFocused {
+            Capsule()
+                .fill(Color.accentColor.opacity(0.85))
+                .frame(height: 2)
+                .padding(.horizontal, 16)
+                .padding(.top, model.topBarHeight + 6)
+                .allowsHitTesting(false)
+                .transition(.opacity)
         }
     }
 

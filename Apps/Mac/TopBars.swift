@@ -229,6 +229,7 @@ struct PaneTabs: View {
                                 help: tab.noteID ?? "",
                                 isCurrent: index == pane.current,
                                 isActiveSide: paneIndex == model.activePane,
+                                marksTarget: model.isSplit && paneIndex == model.activePane,
                                 showsLine: index + 1 < pane.tabs.count && index != pane.current && index + 1 != pane.current,
                                 width: widths[index],
                                 select: { model.selectTab(index, inPane: paneIndex) },
@@ -281,6 +282,8 @@ private struct PaneTab: View {
     let isCurrent: Bool
     /// False on the side of a split not being worked on, whose current tab is less raised.
     let isActiveSide: Bool
+    /// In a split, the side notes will open into: its current tab's title in the accent colour.
+    var marksTarget = false
     /// Whether to draw the line after this tab.
     let showsLine: Bool
     let width: CGFloat
@@ -302,7 +305,8 @@ private struct PaneTab: View {
     var body: some View {
         Text(title)
             .font(.system(size: Self.fontSize))
-            .foregroundStyle((isCurrent && isActiveSide) || isHovering ? .primary : .secondary)
+            .foregroundStyle(isCurrent && marksTarget ? AnyShapeStyle(Color.accentColor)
+                             : (isCurrent && isActiveSide) || isHovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
             .lineLimit(1)
             .padding(.horizontal, Self.padding)
             .frame(width: width, height: Self.height)

@@ -290,6 +290,14 @@ final class VaultModel: ObservableObject {
     }
 
     var isSplit: Bool { panes.count > 1 }
+    /// Where each side is in the window, so the palettes can open over the side a note will
+    /// open into. Not published: read as a palette appears, not something to redraw for.
+    var paneFrames: [NotePane.ID: CGRect] = [:]
+    /// Where notes opened now will go, in the window, when it's split.
+    var targetPaneFrame: CGRect? {
+        guard isSplit, panes.indices.contains(activePane) else { return nil }
+        return paneFrames[panes[activePane].id]
+    }
     /// Opens a note in a new window. Set by the window, which can open others.
     var openWindowHandler: ((Note.ID?) -> Void)?
     /// A note just made with ⌘N in the Minimal layout, which offers templates while empty.
