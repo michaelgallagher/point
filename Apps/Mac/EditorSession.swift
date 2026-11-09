@@ -59,6 +59,7 @@ final class EditorSession: NSObject, ObservableObject {
     static let live = NSHashTable<EditorSession>.weakObjects()
     #if DEBUG
     var debugText: String? { textView?.string }
+    var debugTextView: MarkdownTextView? { textView }
     #endif
 
     init(note: Note, drafts: NoteDrafts? = nil) {

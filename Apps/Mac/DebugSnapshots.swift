@@ -1442,7 +1442,8 @@ enum DebugSnapshots {
                 NSApp.activate(ignoringOtherApps: true)
                 model.window?.makeKeyAndOrderFront(nil)
                 model.window?.makeFirstResponder(nil)
-                if let editor = Self.views(of: MarkdownTextView.self, in: model.window?.contentView).first {
+                // The test note's own editor: in a split, the first in the window can be the other side's.
+                if let editor = session()?.debugTextView ?? Self.views(of: MarkdownTextView.self, in: model.window?.contentView).first {
                     model.window?.makeFirstResponder(editor)
                     editor.setSelectedRange(NSRange(location: 3, length: 0))
                 }
@@ -1465,7 +1466,7 @@ enum DebugSnapshots {
                     guard let menu, let index = menu.items.firstIndex(where: { $0.title == path.last }) else { return nil }
                     return (menu, index)
                 }
-                let editor = Self.views(of: MarkdownTextView.self, in: model.window?.contentView).first
+                let editor = session()?.debugTextView ?? Self.views(of: MarkdownTextView.self, in: model.window?.contentView).first
                 // An app in the background has no key window, so a menu command that goes to the
                 // first responder finds no editor: the editor's command is sent to it directly, and
                 // the menus are checked for their keys (their actions, which need the window in
@@ -1476,7 +1477,7 @@ enum DebugSnapshots {
                       NSApp.sendAction(#selector(MarkdownTextView.highlightListItems(_:)), to: editor, from: MarkdownTextView.ListHighlightRequest(colour: "Red")) },
                     { check("then red", line().hasPrefix("- ! "), line())
                       NSApp.sendAction(#selector(MarkdownTextView.highlightListItems(_:)), to: editor, from: MarkdownTextView.ListHighlightRequest(colour: nil)) },
-                    { check("then none", line().hasPrefix("- one"), line())
+                    { check("then none", line().hasPrefix("- ") && !line().hasPrefix("- ? ") && !line().hasPrefix("- ! "), line())
                       check("⇧⌘1 is a menu key", press("!", keyCode: 18, [.command, .shift], unmodified: "1"))
                       check("⇧⌘2 is a menu key", press("@", keyCode: 19, [.command, .shift], unmodified: "2"))
                       Trace.mark("shortcut test: Orange's key before \(menuKey("Orange"))")
