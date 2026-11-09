@@ -349,6 +349,12 @@ private struct PlaceHeader: View {
                 .font(.headline)
                 .lineLimit(1)
             Spacer()
+            if model.place == .lists {
+                Button { model.createList() } label: { Image(systemName: "plus") }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("New list")
+            }
             if model.place == .trash {
                 EmptyTrashButton()
             } else if model.place != .everything && model.place != .bookmarks {

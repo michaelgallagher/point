@@ -20,7 +20,7 @@ struct ListPanel: View {
     var body: some View {
         let ids = store.noteIDs(matching: list.query)
         VStack(alignment: .leading, spacing: 10) {
-            ListFilters(list: list, model: model, store: store, write: write)
+            ListFilters(list: list, listID: session.note.id, model: model, store: store, write: write)
             if let ids {
                 ListResults(list: list, listID: session.note.id, ids: ids, limit: shownCount, moreLabel: "Show \(min(ids.count - shownCount, 200)) more",
                             more: { shownCount += 200 }, model: model, store: store, paneID: paneID, write: write)
@@ -55,6 +55,7 @@ struct ListPanel: View {
 /// Book", "Add filter", then its order and columns.
 private struct ListFilters: View {
     let list: ListDefinition
+    let listID: Note.ID
     @ObservedObject var model: VaultModel
     @ObservedObject var store: VaultStore
     let write: (ListDefinition) -> Void
@@ -103,6 +104,12 @@ private struct ListFilters: View {
             Rectangle().fill(Color(nsColor: .separatorColor)).frame(width: 1, height: 16)
             sortMenu
             columnsMenu
+        }
+        // A list just made opens its filters, to say what it lists.
+        .onAppear {
+            guard model.listOpeningFilters == listID else { return }
+            model.listOpeningFilters = nil
+            DispatchQueue.main.async { sheet = .add }
         }
         #if DEBUG
         .onReceive(NotificationCenter.default.publisher(for: .pointOpenListFilter)) { notification in

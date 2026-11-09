@@ -768,6 +768,14 @@ struct SidebarTable: NSViewRepresentable {
                 case .propertyValue(let name, let value): .value(property: name, value: value)
                 default: nil
                 }
+                // A list note of the notes here, named after the place.
+                switch place {
+                case .folder(let path) where !path.isEmpty:
+                    menu.addItem(item("New List of These Notes") { $0.createList(of: place) })
+                case .tag, .kind, .propertyValue:
+                    menu.addItem(item("New List of These Notes") { $0.createList(of: place) })
+                default: break
+                }
                 if let rename {
                     let title = switch rename {
                     case .tag: "Rename Tag…"

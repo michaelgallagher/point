@@ -112,8 +112,8 @@ private struct NoteHeader: View {
             if let list = ListDefinition(frontmatter: session.frontmatter) {
                 ListPanel(list: list, session: session, model: model, store: model.store, paneID: paneID)
             }
-            if offersTemplates, session.isEmpty, !model.templates.isEmpty {
-                TemplateChoices()
+            if offersTemplates, session.isEmpty {
+                TemplateChoices(session: session)
             }
         }
     }
@@ -291,11 +291,25 @@ private struct HeaderHeight: PreferenceKey {
 /// narrow side.)
 private struct TemplateChoices: View {
     @EnvironmentObject private var model: VaultModel
+    @ObservedObject var session: EditorSession
     @State private var hovered: URL?
+    @State private var listHovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            PaletteSectionHeader(title: "Start from a template", isFirst: true)
+            // Or make it a list, of every note to start with, its filters open to narrow it.
+            PaletteSectionHeader(title: "Start as", isFirst: true)
+            PaletteRow(item: .command(PaletteCommand(name: "A list of notes", shortcut: nil, symbol: "list.bullet.rectangle.portrait") {}),
+                       isHighlighted: listHovered)
+                .contentShape(Rectangle())
+                .onHover { listHovered = $0 }
+                .onTapGesture {
+                    model.listOpeningFilters = session.note.id
+                    session.writeList(ListDefinition())
+                }
+            if !model.templates.isEmpty {
+                PaletteSectionHeader(title: "Or from a template", isFirst: false)
+            }
             ForEach(model.templates, id: \.url) { template in
                 PaletteRow(item: .template(template.name, template.url), isHighlighted: hovered == template.url)
                     .contentShape(Rectangle())

@@ -156,6 +156,10 @@ struct AppCommands: Commands {
             Button("New Note from Template…") { model?.isCreatingFromTemplate = true }
                 .shortcut(.newNoteFromTemplate, in: shortcuts)
                 .disabled(model == nil || store.root == nil)
+            // A list of whatever's being browsed, opening with its filters to narrow it.
+            Button("New List") { model?.createList() }
+                .shortcut(.newList, in: shortcuts)
+                .disabled(model == nil || store.root == nil)
             // The vault's kinds of note (`.point/kinds.json`); one with several templates
             // offers each.
             if !store.kinds.offered.isEmpty {
