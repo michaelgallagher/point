@@ -10,7 +10,8 @@ struct NoteEditor: View {
     @Environment(\.topBarCover) private var topBarCover
     @StateObject private var session: EditorSession
     @ObservedObject private var connections: Connections
-    @AppStorage(LinksPlacement.key) private var linksPlacement = LinksPlacement.side
+    @AppStorage(LinksPlacement.key) private var linksPlacement = LinksPlacement.defaultValue
+    @AppStorage(LinksPlacement.stripHeightKey) private var slideUpHeight = LinksPlacement.defaultStripHeight
     /// View › Show Word Count, kept by the store.
     @AppStorage("showsWordCount") private var showsWordCount = false
     /// The pane it's in, where links clicked in it open.
@@ -29,21 +30,18 @@ struct NoteEditor: View {
 
     var body: some View {
         page
-            // Over the note: at its bottom right, the button opening the links at the side
-            // (the panel is beside the pane: see `PaneView`); or at its bottom left, the
-            // strip growing up into them.
+            // In the bottom corner, unless the related notes slide up over it.
             .overlay {
-                switch linksPlacement {
-                case .side: LinksButton(connections: connections, paneID: paneID)
-                case .bottom: LinksStrip(connections: connections)
-                }
+                WordCountLabel(tally: slidesUp ? nil : session.wordTally, alignment: .bottomTrailing)
             }
-            // In the corner the links leave free.
+            // The related notes sliding up over the note's bottom (at the side, the panel is
+            // beside the pane: see `PaneView`). The readout under the properties opens them.
             .overlay {
-                WordCountLabel(tally: session.wordTally, alignment: linksPlacement == .side ? .bottomLeading : .bottomTrailing)
+                if linksPlacement == .bottom { RelatedSlideUp(connections: connections, paneID: paneID) }
             }
             .onAppear { session.countsWords = showsWordCount }
             .onChange(of: showsWordCount) { session.countsWords = $0 }
+            .onReceive(session.$frontmatter) { connections.take($0, name: session.note.name) }
         .task {
             await session.load()
             connections.refresh()
@@ -52,6 +50,12 @@ struct NoteEditor: View {
             // Closed with edits that couldn't be saved: they're kept, and offered next time.
             if !session.save(leaving: true) { model.store.reportUnsaved(session.note) }
         }
+    }
+
+    /// Whether the related notes are sliding up over the note's bottom.
+    private var slidesUp: Bool {
+        linksPlacement == .bottom && model.isLinksPanelOpen(paneID)
+            && !(connections.isLoaded && connections.related.isEmpty && connections.mentions.isEmpty)
     }
 
     private var page: some View {
@@ -74,7 +78,8 @@ struct NoteEditor: View {
                 // away with the text instead of taking up room above it.
                 EditorView(session: session, model: model, paneID: paneID, tabID: tabID, offersTemplates: offersTemplates,
                            showsMarkdown: model.showsMarkdown(inPane: paneID), textScale: model.textScale, typography: model.store.typography,
-                           textColumnWidth: model.store.textColumnWidth, barBelowTitleBar: max(topBarCover - model.topBarHeight, 0))
+                           textColumnWidth: model.store.textColumnWidth, barBelowTitleBar: max(topBarCover - model.topBarHeight, 0),
+                           bottomSpace: slidesUp ? CGFloat(slideUpHeight) + LinksPlacement.inset : LinksPlacement.roomBelowText)
             } else {
                 Color.clear
             }
@@ -111,6 +116,9 @@ private struct NoteHeader: View {
             }
             if let list = ListDefinition(frontmatter: session.frontmatter) {
                 ListPanel(list: list, session: session, model: model, store: model.store, paneID: paneID)
+            }
+            if shownFrontmatter == nil || model.showsMarkdown(inPane: paneID) {
+                RelatedReadout(connections: model.connections(for: session.note), model: model, paneID: paneID, standalone: true)
             }
             if offersTemplates, session.isEmpty {
                 TemplateChoices(session: session)
@@ -425,6 +433,9 @@ private struct EditorView: NSViewRepresentable {
     /// How far the top bars reach below the title bar, which the window insets the text from
     /// by itself.
     let barBelowTitleBar: CGFloat
+    /// The room below the text: for the word count, or the related notes sliding up, so the
+    /// note's end can scroll clear of them.
+    let bottomSpace: CGFloat
 
     func makeNSView(context: Context) -> NSScrollView {
         let (scrollView, textView) = MarkdownTextView.makeScrollable()
@@ -432,7 +443,7 @@ private struct EditorView: NSViewRepresentable {
         textView.typography = typography
         textView.textScale = textScale
         textView.maxTextWidth = textColumnWidth
-        textView.extraBottomSpace = LinksButton.roomBelowText
+        textView.extraBottomSpace = bottomSpace
         // The keyboard stays in the list after picking a note there, and with two sides it
         // stays with the side being worked on (an editor on the other side, rebuilt when the
         // window splits, mustn't take it).
@@ -532,6 +543,7 @@ private struct EditorView: NSViewRepresentable {
         textView.textScale = textScale
         textView.typography = typography
         textView.maxTextWidth = textColumnWidth
+        textView.extraBottomSpace = bottomSpace
         // A note added, renamed or removed can change which links lead anywhere.
         if context.coordinator.notesGeneration != model.store.notesGeneration {
             context.coordinator.notesGeneration = model.store.notesGeneration

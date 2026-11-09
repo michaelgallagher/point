@@ -1,5 +1,6 @@
 import AppKit
 import EditorKit
+import IndexKit
 import SwiftUI
 import VaultKit
 
@@ -8,7 +9,8 @@ import VaultKit
 struct SettingsView: View {
     @EnvironmentObject private var store: VaultStore
     @AppStorage("settingsPage") private var page = Page.sidebar
-    @AppStorage(LinksPlacement.key) private var linksPlacement = LinksPlacement.side
+    @AppStorage(LinksPlacement.key) private var linksPlacement = LinksPlacement.defaultValue
+    @AppStorage(RelatedNotes.Placement.key) private var relatedPlacement = RelatedNotes.Placement.shared
 
     enum Page: String, CaseIterable, Identifiable {
         case sidebar, notes, properties, templates, shortcuts, appIcon
@@ -285,9 +287,12 @@ struct SettingsView: View {
                 }
             }
             TypographySettings(typography: $store.typography)
-            Section("Links") {
-                Picker("Show links to a note", selection: $linksPlacement) {
+            Section("Related notes") {
+                Picker("Show related notes in", selection: $linksPlacement) {
                     ForEach(LinksPlacement.allCases) { Text($0.title).tag($0) }
+                }
+                Picker("A note linking here and sharing topics shows", selection: $relatedPlacement) {
+                    ForEach(RelatedNotes.Placement.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
             }
             Section("Images") {

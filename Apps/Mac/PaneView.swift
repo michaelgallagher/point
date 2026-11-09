@@ -14,7 +14,7 @@ struct PaneView: View {
     /// This side's width, so the links panel leaves the note room.
     @State private var paneWidth: CGFloat = 0
 
-    @AppStorage(LinksPlacement.key) private var linksPlacement = LinksPlacement.side
+    @AppStorage(LinksPlacement.key) private var linksPlacement = LinksPlacement.defaultValue
 
     var body: some View {
         if let index = model.paneIndex(paneID) {
