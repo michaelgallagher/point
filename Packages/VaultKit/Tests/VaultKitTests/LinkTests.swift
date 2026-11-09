@@ -136,3 +136,43 @@ struct QuotedValueTests {
         #expect(edit.1 == "title: 'It''s there'\n")
     }
 }
+
+/// A note Point named (`2026-11-09-reviewing-my-job-and-role-2026.md`, titled "Reviewing my
+/// job and role, 2026"): a link written as its title made a new note instead of opening it.
+struct TitleLinkTests {
+    let named = Note(id: "2026-11-09-reviewing-my-job-and-role-2026.md",
+                     url: URL(fileURLWithPath: "/vault/2026-11-09-reviewing-my-job-and-role-2026.md"),
+                     title: "Reviewing my job and role, 2026", modified: .distantPast, created: .distantPast, isDownloaded: true)
+    var resolver: LinkResolver { LinkResolver(notes: [named, note("Inbox.md")]) }
+
+    @Test func linksByTitleFindAPointNamedNote() {
+        #expect(resolver.resolve(wikiTarget: "Reviewing my job and role, 2026", from: "Inbox.md")?.id == named.id)
+        #expect(resolver.resolve(wikiTarget: "reviewing my job and role, 2026#Goals", from: "Inbox.md")?.id == named.id)
+        #expect(resolver.resolve(wikiTarget: "2026-11-09-reviewing-my-job-and-role-2026", from: "Inbox.md")?.id == named.id)
+    }
+
+    @Test func aNameWinsOverATitle() {
+        let clash = note("Reviewing my job and role, 2026.md")
+        let resolver = LinkResolver(notes: [named, clash])
+        #expect(resolver.resolve(wikiTarget: "Reviewing my job and role, 2026", from: "Inbox.md")?.id == clash.id)
+    }
+
+    @Test func onlyPointNamedNotesAreFoundByTitle() {
+        // A clipped note with a `title:` is still found only by its file name.
+        let clipped = Note(id: "Clipped.md", url: URL(fileURLWithPath: "/vault/Clipped.md"), title: "Clipped",
+                           modified: .distantPast, created: .distantPast, isDownloaded: true)
+        #expect(LinkResolver(notes: [clipped]).resolve(wikiTarget: "Some page title", from: "Inbox.md") == nil)
+    }
+
+    @Test func linkTextNamesTheFileAndShowsTheTitle() {
+        #expect(LinkResolver.linkText(for: named) == "2026-11-09-reviewing-my-job-and-role-2026|Reviewing my job and role, 2026")
+        #expect(LinkResolver.linkText(for: note("Inbox.md")) == "Inbox")
+    }
+
+    @Test func retitlingTurnsTitleLinksIntoNamedOnes() {
+        let text = "- [[Reviewing my job and role, 2026]]\n- [[Reviewing my job and role, 2026#Goals]]\n- [[2026-11-09-reviewing-my-job-and-role-2026|Reviewing my job and role, 2026]]\n"
+        #expect(LinkUpdater.rewrite(text, in: "Inbox.md", renamed: named, newTitle: "2026-11-09-my-role-2026", resolver: resolver,
+                                    retitling: ("Reviewing my job and role, 2026", "My role, 2026"))
+                == "- [[2026-11-09-my-role-2026|My role, 2026]]\n- [[2026-11-09-my-role-2026#Goals|My role, 2026]]\n- [[2026-11-09-my-role-2026|My role, 2026]]\n")
+    }
+}

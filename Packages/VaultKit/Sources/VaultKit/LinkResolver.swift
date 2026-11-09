@@ -4,9 +4,14 @@ import Foundation
 public struct LinkResolver: Sendable {
     private let notesByTitle: [String: [Note]]
     private let notesByPath: [String: Note]
+    /// Notes Point named (`2026-11-09-reviewing-my-job`), by their `title:`: a link to one by
+    /// its title (`[[Reviewing my job, 2026]]`, as typed by hand, or by another app) still
+    /// finds it, though only a link by its name works in Obsidian.
+    private let namedNotesByTitle: [String: [Note]]
 
     public init(notes: [Note]) {
         notesByTitle = Dictionary(grouping: notes) { $0.name.lowercased() }
+        namedNotesByTitle = Dictionary(grouping: notes.filter(Self.isTitledApart)) { $0.title.lowercased() }
         notesByPath = Dictionary(notes.map { (Self.pathWithoutExtension($0.id).lowercased(), $0) }, uniquingKeysWith: { a, _ in a })
     }
 
@@ -22,7 +27,9 @@ public struct LinkResolver: Sendable {
             // A partial path matches any note whose path ends with it.
             return notesByPath.first { $0.key.hasSuffix("/" + path.lowercased()) }?.value
         }
-        guard let candidates = notesByTitle[name.lowercased()], !candidates.isEmpty else { return nil }
+        // A note's name wins over another's title, as Obsidian only knows names.
+        guard let candidates = notesByTitle[name.lowercased()] ?? namedNotesByTitle[name.lowercased()],
+              !candidates.isEmpty else { return nil }
         if candidates.count == 1 { return candidates[0] }
         // Several notes share the name: prefer one in the same folder, then the shortest path.
         let folder = Self.folder(of: sourceID)
@@ -41,6 +48,29 @@ public struct LinkResolver: Sendable {
         if let note = notesByPath[relative.lowercased()] { return note }
         if let note = notesByPath[Self.normalise(withoutExtension).lowercased()] { return note }
         return resolve(wikiTarget: (withoutExtension as NSString).lastPathComponent, from: sourceID)
+    }
+
+    /// Whether a link that names `target` names `note` by its title rather than its name: a
+    /// link to a note Point named, written as its title.
+    public static func linksByTitle(_ target: String, to note: Note) -> Bool {
+        var name = stripSubpath(target).trimmingCharacters(in: .whitespaces)
+        if name.lowercased().hasSuffix(".md") { name = String(name.dropLast(3)) }
+        return isTitledApart(note) && !name.contains("/") && name.lowercased() == note.title.lowercased()
+    }
+
+    /// What goes between `[[` and `]]` for a link to `note`: its name, and for a note Point
+    /// named (whose name isn't its title), the title as the link's label,
+    /// `2026-11-06-questions|Questions?`, which reads well in any app.
+    public static func linkText(for note: Note) -> String {
+        guard isTitledApart(note) else { return note.name }
+        // A label can't hold `]]` or `|`.
+        let label = note.title.replacingOccurrences(of: "]]", with: "] ]").replacingOccurrences(of: "|", with: "-")
+        return note.name + "|" + label
+    }
+
+    /// A note Point named, whose title (from `title:`) isn't its file name.
+    static func isTitledApart(_ note: Note) -> Bool {
+        NoteNames.isDated(note.name) && note.title.lowercased() != note.name.lowercased()
     }
 
     /// Whether a title is shared by more than one note, so links need a path to be clear.

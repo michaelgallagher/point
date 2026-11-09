@@ -180,7 +180,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     /// The note, renamed as its title is changed.
     @Published private(set) var note: Note
     let isNew: Bool
-    private let store: PhoneStore
+    private(set) var store: PhoneStore
     weak var textView: PhoneTextView?
     weak var titleField: TitleView?
     weak var header: NoteHeader?
@@ -976,6 +976,7 @@ struct EditorView: UIViewRepresentable {
         let bar = FormatBar(textView: textView)
         textView.inputAccessoryView = bar
         session.formatBar = bar
+        bar.linkText = { [weak session] in session?.store.linkText(forTitle: $0) ?? $0 }
         textView.onCompletionChange = { [weak bar, weak session] completion in
             bar?.show(completion, choices: completion.flatMap { session?.choices(for: $0) } ?? [])
         }

@@ -872,11 +872,8 @@ final class VaultStore: ObservableObject {
     /// for a note Point named (whose name isn't its title), the title as the link's label,
     /// `2026-11-06-questions|Questions?`, which reads well in any app.
     func linkText(forTitle title: String) -> String {
-        guard let note = notes.first(where: { $0.title == title }) ?? notes.first(where: { $0.title.lowercased() == title.lowercased() }),
-              note.name != note.title else { return title }
-        // A label can't hold `]]` or `|`.
-        let label = note.title.replacingOccurrences(of: "]]", with: "] ]").replacingOccurrences(of: "|", with: "-")
-        return note.name + "|" + label
+        guard let note = notes.first(where: { $0.title == title }) ?? notes.first(where: { $0.title.lowercased() == title.lowercased() }) else { return title }
+        return LinkResolver.linkText(for: note)
     }
 
     /// Note titles for completing a `[[wikilink]]`: names starting with the typed text first,

@@ -188,6 +188,13 @@ final class PhoneStore: ObservableObject {
         }
     }
 
+    /// What goes between `[[` and `]]` for a link to the note with this title, as on the Mac:
+    /// its name, and for a note Point named, `2026-11-06-questions|Questions?`.
+    func linkText(forTitle title: String) -> String {
+        guard let note = notes.first(where: { $0.title == title }) ?? notes.first(where: { $0.title.lowercased() == title.lowercased() }) else { return title }
+        return LinkResolver.linkText(for: note)
+    }
+
     /// Note titles for completing a `[[link`, as on the Mac: names starting with the typed text
     /// first, then names with a word starting with it, then names containing it anywhere.
     func titleSuggestions(for partial: String) -> [String] {

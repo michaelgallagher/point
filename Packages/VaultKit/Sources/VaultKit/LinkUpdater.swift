@@ -21,12 +21,14 @@ public enum LinkUpdater {
         var result = Result()
         let needle = renamed.name.lowercased()
         let encodedNeedle = (renamed.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? renamed.name).lowercased()
+        // A note Point named can be linked to by its title too.
+        let titleNeedle = LinkResolver.isTitledApart(renamed) ? renamed.title.lowercased() : nil
         for note in notes {
             // The renamed note itself is under its new name now (its links to itself change too).
             let url = note.id == renamed.id ? renamed.url.deletingLastPathComponent().appendingPathComponent(newTitle + ".md") : note.url
             guard let text = try? NoteReader.read(contentsOf: url) else { result.unreadNotes.append(note.id); continue }
             let lowered = text.lowercased()
-            guard lowered.contains(needle) || lowered.contains(encodedNeedle) else { continue }
+            guard lowered.contains(needle) || lowered.contains(encodedNeedle) || (titleNeedle.map { lowered.contains($0) } ?? false) else { continue }
             guard let rewritten = rewrite(text, in: note.id, renamed: renamed, newTitle: newTitle, resolver: resolver, retitling: retitling) else { continue }
             switch try? NoteWriter.write(rewritten, to: url, expecting: text, ifChanged: .report, keepingDate: true) {
             case .saved?: result.updatedNotes.append(note.id)
@@ -81,11 +83,20 @@ public enum LinkUpdater {
             var replacement = folder.isEmpty ? newTitle : folder + "/" + newTitle
             if hadExtension { replacement += ".md" }
             let nameRange = NSRange(location: targetRange.location, length: (subpath as NSString).length)
+            let labelStart = NSMaxRange(targetRange)
+            let hasLabel = labelStart < ns.length && ns.character(at: labelStart) == 124 // "|"
+            if !hasLabel, !hadExtension, LinkResolver.linksByTitle(target, to: renamed) {
+                // A link by the old title: by the name now, labelled with the title, so it reads
+                // the same and works in Obsidian.
+                let label = (retitling?.to ?? renamed.title).replacingOccurrences(of: "]]", with: "] ]").replacingOccurrences(of: "|", with: "-")
+                let heading = String(target.dropFirst(subpath.count))
+                replacements.append((targetRange, replacement + heading + "|" + label))
+                continue
+            }
             if replacement != subpath { replacements.append((nameRange, replacement)) }
             // The label after `|`, if it was the old title, follows the new one.
             if let retitling {
-                let labelStart = NSMaxRange(targetRange)
-                if labelStart < ns.length, ns.character(at: labelStart) == 124 { // "|"
+                if hasLabel {
                     let close = ns.range(of: "]]", range: NSRange(location: labelStart, length: ns.length - labelStart))
                     if close.location != NSNotFound {
                         let labelRange = NSRange(location: labelStart + 1, length: close.location - labelStart - 1)

@@ -13,6 +13,9 @@ final class FormatBar: UIView {
     private let glass = UIVisualEffectView(effect: UIGlassEffect())
     private static let height: CGFloat = 44
     /// Off in the title, which has no styles.
+    /// What goes in a link for a note title picked (its name, and its title as the label).
+    var linkText: ((String) -> String)?
+
     var showsTools = true {
         didSet { glass.isHidden = !showsTools }
     }
@@ -113,7 +116,9 @@ final class FormatBar: UIView {
             configuration.baseForegroundColor = .label
             configuration.titleLineBreakMode = .byTruncatingTail
             let choice = UIButton(configuration: configuration, primaryAction: UIAction { [weak self] _ in
-                self?.textView?.format { $0.complete(completion, with: title) }
+                guard let self else { return }
+                let choice = completion.kind == .note ? self.linkText?(title) ?? title : title
+                self.textView?.format { $0.complete(completion, with: choice) }
             })
             choice.widthAnchor.constraint(lessThanOrEqualToConstant: 240).isActive = true
             choiceStack.addArrangedSubview(choice)
