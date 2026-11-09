@@ -302,7 +302,7 @@ private struct PaneTab: View {
     var body: some View {
         Text(title)
             .font(.system(size: Self.fontSize))
-            .foregroundStyle(isCurrent && isActiveSide ? .primary : .secondary)
+            .foregroundStyle((isCurrent && isActiveSide) || isHovering ? .primary : .secondary)
             .lineLimit(1)
             .padding(.horizontal, Self.padding)
             .frame(width: width, height: Self.height)
@@ -327,9 +327,8 @@ private struct PaneTab: View {
                     RaisedTab(color: raisedColor)
                         .overlay { Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5) }
                         .shadow(color: .black.opacity(isActiveSide ? 0.1 : 0), radius: 2, y: 1)
-                } else if isHovering {
-                    Capsule().fill(Color.primary.opacity(0.05))
                 }
+                // Hovering shows only the close button and darker text: no shape behind.
             }
             .allowsHitTesting(false) // Clicks go to the tab's mouse area, below.
             // Clicks, drags, hover and the menu are handled in AppKit: the tabs sit where a

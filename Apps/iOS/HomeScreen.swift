@@ -679,7 +679,7 @@ enum PageTool {
 
 /// What every page has, as Apple's own apps have it. A list: the search field along the bottom,
 /// with Search over the page while it's in use, and New note at its right; at the top right,
-/// Sort (on a list of notes) and a menu of what can be done here. A note: finding in it, a map
+/// a menu of what can be done here, with sorting in it on a list of notes. A note: finding in it, a map
 /// that opens Search, and the menu, along the bottom.
 private struct PageBar<Actions: View>: ViewModifier {
     @EnvironmentObject private var search: PhoneSearch
@@ -709,10 +709,7 @@ private struct PageBar<Actions: View>: ViewModifier {
                 // undrawn, and showed blank as the keyboard went down.
                 .ignoresSafeArea(.keyboard)
                 .toolbar {
-                    if sorts {
-                        ToolbarItem(placement: .topBarTrailing) { SortMenu() }
-                    }
-                    if hasActions {
+                    if hasActions || sorts {
                         ToolbarItem(placement: .topBarTrailing) { menu(symbol: "ellipsis") }
                     }
                     // Point's own search field, not the system's: Search opens out from it.
@@ -748,7 +745,13 @@ private struct PageBar<Actions: View>: ViewModifier {
     }
 
     private func menu(symbol: String) -> some View {
-        Menu("Actions", systemImage: symbol) { actions }
+        Menu("Actions", systemImage: symbol) {
+            actions
+            // Sorting goes in the menu, as in Apple's own apps, not a button of its own.
+            if sorts {
+                Section { SortPicker() }
+            }
+        }
             // In the order given, top to bottom: from the bottom bar, the system would turn it
             // over, putting the first item nearest the thumb.
             .menuOrder(.fixed)
@@ -885,29 +888,20 @@ private struct NoteSections: View {
     }
 }
 
-/// How the note lists are sorted, as on the Mac.
-private struct SortMenu: View {
+/// How the note lists are sorted, as on the Mac: a submenu of the page's ••• menu, showing the
+/// current order under its name.
+private struct SortPicker: View {
     @EnvironmentObject private var store: PhoneStore
 
     var body: some View {
-        Menu {
-            Picker("Sort", selection: $store.sort) {
-                Text("Date edited").tag(NoteSort.modified)
-                Text("Date created").tag(NoteSort.created)
-                Text("Title").tag(NoteSort.title)
-            }
+        Picker(selection: $store.sort) {
+            Text("Date edited").tag(NoteSort.modified)
+            Text("Date created").tag(NoteSort.created)
+            Text("Title").tag(NoteSort.title)
         } label: {
-            // Lighter than the bar's own weight, which looked heavy for two arrows side by side.
-            // The bar takes no font weight, so the symbol comes with its own.
-            Label {
-                Text("Sort")
-            } icon: {
-                Image(uiImage: UIImage(systemName: "arrow.up.arrow.down",
-                                       withConfiguration: UIImage.SymbolConfiguration(weight: .regular))!)
-            }
+            Label("Sort by", systemImage: "arrow.up.arrow.down")
         }
-        // Top to bottom as listed: from the bottom bar, the system turned it over.
-        .menuOrder(.fixed)
+        .pickerStyle(.menu)
     }
 }
 

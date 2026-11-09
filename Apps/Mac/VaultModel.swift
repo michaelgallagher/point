@@ -1119,8 +1119,8 @@ final class VaultModel: ObservableObject {
             if !isPaletteShown { endTabSwitch() }
         }
     }
-    /// Whether the palette searches and runs commands (Explorer, ⌘F) or browses folders and
-    /// tags in two columns (Search Vault, ⌘E).
+    /// Whether the palette searches and runs commands (Search Vault, ⌘F) or browses folders and
+    /// tags in two columns (Explorer, ⌘E).
     @Published var paletteMode = PaletteMode.search
     /// Text to start the palette with, such as a tag clicked in a note.
     @Published var paletteSeed: String?
@@ -1131,7 +1131,7 @@ final class VaultModel: ObservableObject {
     /// ⌘E or ⌘F pressed while a start page is showing: the page switches to that mode.
     @Published private(set) var startPageRequest: (mode: PaletteMode, count: Int) = (.search, 0)
 
-    /// Searching and commands (Explorer, ⌘E), only commands (Run Command, ⇧⌘E), browsing folders and tags (Search Vault, ⌘F),
+    /// Searching and commands (Search Vault, ⌘F), only commands (Run Command, ⇧⌘E), browsing folders and tags (Explorer, ⌘E),
     /// only the open tabs (⌃Tab), or the folders to move the note to (Move Note).
     enum PaletteMode { case search, commands, explorer, tabs, moveNote, applyTemplate }
     /// ⌃Tab pressed again while the tabs palette shows: it moves to the next tab down.

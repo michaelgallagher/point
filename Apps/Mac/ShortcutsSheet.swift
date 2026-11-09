@@ -21,9 +21,9 @@ struct ShortcutsSheet: View {
             (.commands([.showInFinder]), "Show in Finder"),
         ]),
         ("Finding", [
-            (.commands([.explorer]), "Explorer: search or use commands (type a new name and press Return to make that note)"),
+            (.commands([.explorer]), "Search vault: search or use commands (type a new name and press Return to make that note)"),
             (.commands([.runCommand]), "Run a command: commands only, no notes"),
-            (.commands([.searchVault]), "Search vault: folders and tags in two columns"),
+            (.commands([.searchVault]), "Explorer: folders and tags in two columns"),
             (.commands([.searchInList]), "Filter the sidebar's list"),
             (.commands([.findInNote]), "Find in note"),
             (.commands([.back, .forward]), "Back, forward"),

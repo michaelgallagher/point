@@ -4,8 +4,8 @@ import EditorKit
 import SwiftUI
 import VaultKit
 
-/// ⌘F, Explorer (mode `.search`): one place to open notes, search tags and run commands, all
-/// from the keyboard. ⇧⌘E, Run Command (mode `.commands`): only the commands. ⌘E, Search Vault (mode `.explorer`): the same palette as two columns of
+/// ⌘F, Search Vault (mode `.search`): one place to open notes, search tags and run commands, all
+/// from the keyboard. ⇧⌘E, Run Command (mode `.commands`): only the commands. ⌘E, Explorer (mode `.explorer`): the same palette as two columns of
 /// folders, tags and their notes.
 /// ⌃Tab: only the open tabs, in number order, to switch between them. Letting go of ⌃ goes to
 /// the one highlighted, which starts as the tab shown before this.
@@ -673,7 +673,7 @@ struct PaletteCommand {
         }
         // Last of the four offered before anything's typed (New Note, Move Note, Apply
         // Template, then this).
-        commands.append(PaletteCommand(name: "Search Vault", shortcut: ShortcutStore.shared.label(for: .searchVault), isSuggested: true) {
+        commands.append(PaletteCommand(name: "Explorer", shortcut: ShortcutStore.shared.label(for: .searchVault), isSuggested: true) {
             DispatchQueue.main.async { model.togglePalette(.explorer) }
         })
         if let note = model.selectedNote {

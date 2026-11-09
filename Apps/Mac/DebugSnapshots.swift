@@ -1415,7 +1415,7 @@ enum DebugSnapshots {
 
     /// `-PointShortcutTest <note ID>`, on a note whose first line is a list item: presses ⇧⌘1 and
     /// ⇧⌘2 through the menus (orange and red highlights), gives orange ⌃⌘J and presses that, then
-    /// ⌘F and ⌘E (Explorer and Search Vault). Puts the shortcuts back as they were after.
+    /// ⌘F and ⌘E (Search Vault and Explorer). Puts the shortcuts back as they were after.
     private static func shortcutTestIfAsked(for model: VaultModel) {
         guard let id = UserDefaults.standard.string(forKey: "PointShortcutTest") else { return }
         func check(_ name: String, _ ok: Bool, _ detail: String = "") {
@@ -1485,8 +1485,8 @@ enum DebugSnapshots {
                       check("palette label follows", store.label(for: .highlightOrange) == "⌃⌘J")
                       check("⌘E is a menu key", press("e", keyCode: 14, .command, unmodified: "e"))
                       check("⌘F is a menu key", press("f", keyCode: 3, .command, unmodified: "f"))
-                      check("⌘F is Edit › Explorer", menuItem(["Edit", "Explorer"]).map { $0.0.items[$0.1].keyEquivalent } == "f")
-                      check("⌘E is Edit › Search Vault", menuItem(["Edit", "Search Vault"]).map { $0.0.items[$0.1].keyEquivalent } == "e") },
+                      check("⌘F is Edit › Search Vault", menuItem(["Edit", "Search Vault"]).map { $0.0.items[$0.1].keyEquivalent } == "f")
+                      check("⌘E is Edit › Explorer", menuItem(["Edit", "Explorer"]).map { $0.0.items[$0.1].keyEquivalent } == "e") },
                 ]
                 for (index, step) in steps.enumerated() {
                     DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.6) { MainActor.assumeIsolated { step() } }
