@@ -467,20 +467,22 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         return markerRect(item.decoration.marker, x: x, baseline: baseline, font: font)
     }
 
-    /// Whether only an item's own continuation lies between two items' lines: blank lines,
-    /// or lines indented under the item, not a paragraph that ends the list.
+    /// Whether only an item's own continuation lies between two items' lines: lines indented
+    /// under the item, with blank lines among them, not a paragraph that ends the list. An
+    /// empty line just above the next item separates the two, so a guide stops before it.
     private static func onlyContinues(_ text: NSString, from previous: Int, to next: Int) -> Bool {
         let previousLine = text.lineRange(for: NSRange(location: previous, length: 0))
         let nextLine = text.lineRange(for: NSRange(location: next, length: 0))
         var position = NSMaxRange(previousLine)
+        var lastWasBlank = false
         while position < nextLine.location {
             let line = text.lineRange(for: NSRange(location: position, length: 0))
             let content = text.substring(with: line)
-            if !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               !(content.hasPrefix(" ") || content.hasPrefix("\t")) { return false }
+            lastWasBlank = content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            if !lastWasBlank, !(content.hasPrefix(" ") || content.hasPrefix("\t")) { return false }
             position = NSMaxRange(line)
         }
-        return true
+        return !lastWasBlank
     }
 
     func checkboxRect(x: CGFloat, baseline: CGFloat, font: PlatformFont) -> CGRect {
