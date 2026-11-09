@@ -647,6 +647,18 @@ struct BarMenu: View {
     }
 
     var body: some View {
+        if #available(macOS 26, *) {
+            // The system's own glass pull-down button: macOS places its menu and grows it out
+            // of the button, as in its own apps.
+            GlassPullDown(title: title, systemImage: systemImage, help: help, opensUpward: opensUpward, menu: menu)
+                .frame(width: 36, height: 36)
+        } else {
+            popUpButton
+        }
+    }
+
+    /// Before macOS 26: a bar button that shows the menu below (or above) itself.
+    private var popUpButton: some View {
         BarButton(title, systemImage: systemImage, help: help) {
             guard let view = anchor.view else { return }
             let menu = menu()
@@ -655,6 +667,67 @@ struct BarMenu: View {
             menu.popUp(positioning: nil, at: NSPoint(x: 0, y: y), in: view)
         }
         .background(MenuAnchor(holder: anchor))
+    }
+}
+
+/// A round glass pull-down button (`NSPopUpButton`), its menu made afresh each time it opens.
+@available(macOS 26, *)
+private struct GlassPullDown: NSViewRepresentable {
+    let title: String
+    let systemImage: String
+    let help: String
+    let opensUpward: Bool
+    let menu: () -> NSMenu
+
+    func makeNSView(context: Context) -> Button {
+        let button = Button(frame: .zero, pullsDown: true)
+        button.bezelStyle = .glass
+        button.borderShape = .circle
+        button.controlSize = .large
+        button.imagePosition = .imageOnly
+        button.setAccessibilityLabel(title)
+        (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
+        button.focusRingType = .none
+        return button
+    }
+
+    func updateNSView(_ button: Button, context: Context) {
+        button.makeMenu = menu
+        button.toolTip = help
+        button.symbol = NSImage(systemSymbolName: systemImage, accessibilityDescription: title)?
+            .withSymbolConfiguration(.init(pointSize: 15, weight: .regular))
+        button.preferredEdge = opensUpward ? .maxY : .minY
+        button.refreshMenu()
+    }
+
+    final class Button: NSPopUpButton {
+        var makeMenu: () -> NSMenu = { NSMenu() }
+        var symbol: NSImage?
+
+        // In the title bar's area the window would take the click and move itself.
+        override var mouseDownCanMoveWindow: Bool { false }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        /// A pull-down shows its first item as the button and leaves it out of the menu: the
+        /// icon goes there, and the real items after it.
+        func refreshMenu() {
+            let menu = makeMenu()
+            let face = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+            face.image = symbol
+            menu.insertItem(face, at: 0)
+            self.menu = menu
+        }
+
+        // Made afresh as it opens, so ticks (the sort, Show Markdown) are current.
+        override func mouseDown(with event: NSEvent) {
+            refreshMenu()
+            super.mouseDown(with: event)
+        }
+
+        override func accessibilityPerformPress() -> Bool {
+            refreshMenu()
+            return super.accessibilityPerformPress()
+        }
     }
 }
 
