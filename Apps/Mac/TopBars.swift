@@ -440,8 +440,8 @@ private struct PaneMenuButton: View {
             bookmark.state = model.isBookmarked(note.id) ? .on : .off
             menu.addItem(bookmark)
             menu.addItem(BlockMenuItem("Move File…") { model.moving = note })
-            let markdown = BlockMenuItem("Show Markdown") { model.showsMarkdown.toggle() }
-            markdown.state = model.showsMarkdown ? .on : .off
+            let markdown = BlockMenuItem("Show Markdown") { model.toggleMarkdown(inPane: pane.id) }
+            markdown.state = model.showsMarkdown(inPane: pane.id) ? .on : .off
             menu.addItem(markdown)
             menu.addItem(BlockMenuItem("Reveal in Finder") { model.showInFinder(note) })
             menu.addItem(.separator())

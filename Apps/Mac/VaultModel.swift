@@ -65,7 +65,16 @@ final class VaultModel: ObservableObject {
     var listDateStyle: ListDateStyle { get { store.listDateStyle } set { store.listDateStyle = newValue } }
     var listDate: ListDate { get { store.listDate } set { store.listDate = newValue } }
     var showsTagsInList: Bool { get { store.showsTagsInList } set { store.showsTagsInList = newValue } }
-    var showsMarkdown: Bool { get { store.showsMarkdown } set { store.showsMarkdown = newValue } }
+    /// Markdown mode for the side being worked on: what the menus show and change.
+    var showsMarkdown: Bool {
+        get { panes.indices.contains(activePane) && panes[activePane].showsMarkdown }
+        set { if panes.indices.contains(activePane) { panes[activePane].showsMarkdown = newValue } }
+    }
+    /// Markdown mode for a given side, for its editors and its own menu.
+    func showsMarkdown(inPane id: NotePane.ID) -> Bool { paneIndex(id).map { panes[$0].showsMarkdown } ?? false }
+    func toggleMarkdown(inPane id: NotePane.ID) {
+        if let p = paneIndex(id) { panes[p].showsMarkdown.toggle() }
+    }
     var textScale: Double { get { store.textScale } set { store.textScale = newValue } }
     var browsingStyle: BrowsingStyle { get { store.browsingStyle } set { store.browsingStyle = newValue } }
     var tagOrder: TagOrder { get { store.tagOrder } set { store.tagOrder = newValue } }
@@ -165,6 +174,9 @@ final class VaultModel: ObservableObject {
         let id = UUID()
         var tabs: [NoteTab]
         var current = 0
+        /// Whether this side shows its notes as Markdown, as written. Each side has its own, so
+        /// turning it on in one note of a split leaves the other as it was.
+        var showsMarkdown = false
 
         init(tabs: [NoteTab] = [NoteTab()]) { self.tabs = tabs }
 

@@ -857,7 +857,7 @@ enum DebugSnapshots {
         }
     }
 
-    /// `-PointTabBar <tabs> [split]`: opens that many notes in tabs (with `split`, the last on
+    /// `-PointTabBar <tabs> [split] [markdown]`: opens that many notes in tabs (with `split`, the last on
     /// the other side) and scrolls them under the bars, for pictures of the tab row.
     private static func tabBarIfAsked(for model: VaultModel) {
         guard let spec = UserDefaults.standard.string(forKey: "PointTabBar") else { return }
@@ -866,6 +866,8 @@ enum DebugSnapshots {
             for note in model.notes.prefix(Int(words.first ?? "") ?? 3) { model.newTab(noteID: note.id) }
             model.closeTab(0, inPane: 0)
             if words.contains("split") { model.moveTabToOtherSide() }
+            // With `markdown`: Markdown mode on the side being worked on only, as the View menu does.
+            if words.contains("markdown") { model.showsMarkdown = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                 guard UserDefaults.standard.object(forKey: "PointScrollBy") != nil, let content = model.window?.contentView else { return }
                 for scrollView in scrollViews(in: content) where scrollView.documentView is NSTextView {

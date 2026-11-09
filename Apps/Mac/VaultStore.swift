@@ -1056,7 +1056,6 @@ final class VaultStore: ObservableObject {
             if showsTagsInList { refreshTags() }
         }
     }
-    @Published var showsMarkdown = false
     /// Note text size relative to normal, kept between launches (⌘+ / ⌘−).
     /// Whether each note's properties are open, this session. Not published: each strip
     /// keeps its own state and only writes here.

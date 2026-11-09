@@ -325,8 +325,10 @@ struct AppCommands: Commands {
                 }
             }
             Divider()
-            Toggle("Show Markdown", isOn: $store.showsMarkdown)
+            // For the side being worked on: the other side of a split keeps its own.
+            Toggle("Show Markdown", isOn: bind(\.showsMarkdown, false))
                 .shortcut(.showMarkdown, in: shortcuts)
+                .disabled(model == nil)
             Toggle("Focus", isOn: bind(\.isFocused, false))
                 .shortcut(.focus, in: shortcuts)
                 .disabled(model == nil)

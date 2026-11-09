@@ -65,7 +65,7 @@ struct NoteEditor: View {
                 // The header (path, title, properties) is inside the editor, so it scrolls
                 // away with the text instead of taking up room above it.
                 EditorView(session: session, model: model, paneID: paneID, tabID: tabID, offersTemplates: offersTemplates,
-                           showsMarkdown: model.showsMarkdown, textScale: model.textScale, typography: model.store.typography,
+                           showsMarkdown: model.showsMarkdown(inPane: paneID), textScale: model.textScale, typography: model.store.typography,
                            textColumnWidth: model.store.textColumnWidth, barBelowTitleBar: max(topBarCover - model.topBarHeight, 0))
             } else {
                 Color.clear
@@ -91,13 +91,13 @@ private struct NoteHeader: View {
                 TitleField(note: session.note, model: model)
             }
             .padding(.top, 16)
-            .padding(.bottom, shownFrontmatter == nil || model.showsMarkdown ? 12 : 2)
+            .padding(.bottom, shownFrontmatter == nil || model.showsMarkdown(inPane: paneID) ? 12 : 2)
             .padding(.leading, 5) // Lines up with the text, which is inset a little.
             .frame(maxWidth: model.store.textColumnWidth, alignment: .leading)
             .padding(.horizontal, 28)
             .frame(maxWidth: .infinity)
             // In Markdown mode the properties are in the text, as written, so not shown twice.
-            if let frontmatter = shownFrontmatter, !model.showsMarkdown {
+            if let frontmatter = shownFrontmatter, !model.showsMarkdown(inPane: paneID) {
                 PropertiesStrip(frontmatter: frontmatter, session: session, paneID: paneID,
                                 isExpanded: model.store.propertiesOpen[session.note.id] ?? UserDefaults.standard.bool(forKey: "propertiesExpanded"))
             }
