@@ -23,6 +23,10 @@ struct PointApp: App {
             TabRequest()
         }
         .windowStyle(.hiddenTitleBar)
+        // No window for a `point://` link: SwiftUI otherwise opens one for each, which becomes
+        // the active window, so a clip landed alone in a new window. The app delegate takes
+        // the links instead, and the clip opens in a tab of the window already open.
+        .handlesExternalEvents(matching: [])
         .commands {
             AppCommands(store: store)
             FormatCommands()
