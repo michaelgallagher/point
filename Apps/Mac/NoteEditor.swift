@@ -11,6 +11,8 @@ struct NoteEditor: View {
     @StateObject private var session: EditorSession
     @ObservedObject private var connections: Connections
     @AppStorage(LinksPlacement.key) private var linksPlacement = LinksPlacement.side
+    /// View › Show Word Count, kept by the store.
+    @AppStorage("showsWordCount") private var showsWordCount = false
     /// The pane it's in, where links clicked in it open.
     let paneID: VaultModel.NotePane.ID
     /// The tab it's in, which keeps where it was in the note (see `VaultModel.notePlaces`).
@@ -36,6 +38,12 @@ struct NoteEditor: View {
                 case .bottom: LinksStrip(connections: connections)
                 }
             }
+            // In the corner the links leave free.
+            .overlay {
+                WordCountLabel(tally: session.wordTally, alignment: linksPlacement == .side ? .bottomLeading : .bottomTrailing)
+            }
+            .onAppear { session.countsWords = showsWordCount }
+            .onChange(of: showsWordCount) { session.countsWords = $0 }
         .task {
             await session.load()
             connections.refresh()

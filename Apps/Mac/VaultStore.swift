@@ -989,6 +989,10 @@ final class VaultStore: ObservableObject {
     @Published var showsBookmarksInSidebar = UserDefaults.standard.object(forKey: "showsBookmarksInSidebar") == nil || UserDefaults.standard.bool(forKey: "showsBookmarksInSidebar") {
         didSet { UserDefaults.standard.set(showsBookmarksInSidebar, forKey: "showsBookmarksInSidebar") }
     }
+    /// Whether notes show their word count in a bottom corner (View › Show Word Count).
+    @Published var showsWordCount = UserDefaults.standard.bool(forKey: "showsWordCount") {
+        didSet { UserDefaults.standard.set(showsWordCount, forKey: "showsWordCount") }
+    }
     @Published var showsTagsInSidebar = UserDefaults.standard.object(forKey: "showsTagsInSidebar") == nil || UserDefaults.standard.bool(forKey: "showsTagsInSidebar") {
         didSet { UserDefaults.standard.set(showsTagsInSidebar, forKey: "showsTagsInSidebar") }
     }

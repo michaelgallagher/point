@@ -46,6 +46,21 @@ final class EditorSession: NSObject, ObservableObject {
     /// Whether the note has no text at all (a new note), for offering templates.
     @Published private(set) var isEmpty = false
     private weak var textView: MarkdownTextView?
+
+    /// The note's word count, while it's shown (View › Show Word Count): the text's words,
+    /// not the properties', and the selection's when there is one.
+    @Published private(set) var wordTally: WordCount.Tally?
+    /// Whether to keep `wordTally` up to date. Off, nothing is counted.
+    var countsWords = false {
+        didSet {
+            guard countsWords != oldValue else { return }
+            if countsWords { recountWords(after: 0) } else { pendingCount?.cancel(); wordTally = nil }
+        }
+    }
+    private var pendingCount: Task<Void, Never>?
+    nonisolated(unsafe) private var selectionObserver: NSObjectProtocol?
+
+    deinit { selectionObserver.map(NotificationCenter.default.removeObserver) }
     /// The file's contents as last read or written, to tell our edits from other people's.
     private var onDisk: String?
     private var pendingSave: Task<Void, Never>?
@@ -114,6 +129,12 @@ final class EditorSession: NSObject, ObservableObject {
         if isLoaded { applyPendingReveal() }
         isEmpty = initialText.isEmpty
         textView.onTextChange = { [weak self] _ in self?.textDidChange() }
+        selectionObserver.map(NotificationCenter.default.removeObserver)
+        selectionObserver = NotificationCenter.default.addObserver(forName: NSTextView.didChangeSelectionNotification,
+                                                                   object: textView, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { if self?.countsWords == true { self?.recountWords(after: 0.1) } }
+        }
+        if countsWords { recountWords(after: 0) }
         if takesFocus {
             DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) }
         }
@@ -187,6 +208,7 @@ final class EditorSession: NSObject, ObservableObject {
     private func textDidChange() {
         if let textView, textView.string.isEmpty != isEmpty { isEmpty = textView.string.isEmpty }
         refreshFrontmatter()
+        if countsWords { recountWords(after: 0.3) }
         pendingSave?.cancel()
         pendingSave = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(Self.saveDelay * 1_000_000_000))
@@ -196,6 +218,28 @@ final class EditorSession: NSObject, ObservableObject {
     }
 
     @objc private func appWillResignActive() { save() }
+
+    /// Counts the words a moment after typing or selecting stops, so a long note doesn't
+    /// slow typing down.
+    private func recountWords(after delay: TimeInterval) {
+        pendingCount?.cancel()
+        pendingCount = Task { [weak self] in
+            if delay > 0 { try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
+            guard !Task.isCancelled, let self, self.countsWords, let textView = self.textView else { return }
+            // Counted away from the main thread, on a copy: a very long note takes a while.
+            let text = textView.string
+            let start = self.frontmatter.map { NSMaxRange($0.range) } ?? 0
+            let selection = textView.selectedRange()
+            let tally = await Task.detached(priority: .utility) { () -> WordCount.Tally in
+                let text = text as NSString
+                let body = NSRange(location: min(start, text.length), length: max(text.length - start, 0))
+                let selected = selection.length > 0 ? WordCount.count(text, in: NSIntersectionRange(selection, body)) : nil
+                return WordCount.Tally(total: WordCount.count(text, in: body), selected: selected)
+            }.value
+            guard !Task.isCancelled, self.countsWords else { return }
+            if tally != self.wordTally { self.wordTally = tally }
+        }
+    }
 
     /// Saves unsaved edits, and says whether they're safely stored (or there were none). While
     /// a conflict is waiting for a decision, saves only when `leaving`, and then to a conflict

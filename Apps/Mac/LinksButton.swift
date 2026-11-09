@@ -513,7 +513,8 @@ struct LinksStrip: View {
 }
 
 /// Glass on macOS 26, a material before.
-private struct LinksGlass<S: Shape>: ViewModifier {
+/// The links' glass, also behind the word count.
+struct LinksGlass<S: Shape>: ViewModifier {
     let shape: S
     let isInteractive: Bool
 

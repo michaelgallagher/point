@@ -329,6 +329,7 @@ struct AppCommands: Commands {
             Toggle("Show Markdown", isOn: bind(\.showsMarkdown, false))
                 .shortcut(.showMarkdown, in: shortcuts)
                 .disabled(model == nil)
+            Toggle("Show Word Count", isOn: $store.showsWordCount)
             Toggle("Focus", isOn: bind(\.isFocused, false))
                 .shortcut(.focus, in: shortcuts)
                 .disabled(model == nil)
