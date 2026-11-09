@@ -16,6 +16,8 @@ final class ExplorerState: ObservableObject {
         let count: Int
         /// "Pinned", "Types", "Folders" or "Tags": a heading shows above each section's first row.
         let section: String
+        /// Its symbol: a folder's, or the templates' or attachments' own.
+        var icon: String = "folder"
     }
 
     @Published private(set) var places: [Place] = []
@@ -37,7 +39,8 @@ final class ExplorerState: ObservableObject {
     func load(_ model: VaultModel) {
         self.model = model
         var rows: [Place] = model.pins.map {
-            Place(id: "pin:" + $0.key, place: $0, title: $0.title, depth: 0, count: model.noteCount(of: $0), section: "Pinned")
+            Place(id: "pin:" + $0.key, place: $0, title: model.title(for: $0), depth: 0, count: model.noteCount(of: $0), section: "Pinned",
+                  icon: model.symbol(for: $0))
         }
         func add(_ nodes: [VaultModel.PlaceNode], depth: Int, section: String) {
             for node in nodes {
@@ -57,6 +60,13 @@ final class ExplorerState: ObservableObject {
             let place = SidebarPlace.kind(store.kinds.property, kind.name)
             return Place(id: "Types:" + place.key, place: place, title: place.title, depth: 0,
                          count: model.noteCount(of: place), section: "Types")
+        }
+        // The templates and attachments folders first, by their job, as at the sidebar's top
+        // (the tree below leaves them out).
+        rows += store.specialFolders.map { special in
+            let place = SidebarPlace.folder(special.path)
+            return Place(id: "Folders:special:" + place.key, place: place, title: special.kind.title, depth: 0,
+                         count: model.noteCount(of: place), section: "Folders", icon: special.kind.symbol)
         }
         add(model.folderNodes, depth: 0, section: "Folders")
         if store.showsTagsInSidebar { add(model.tagNodes, depth: 0, section: "Tags") }
@@ -192,7 +202,7 @@ struct ExplorerColumns: View {
                                 .padding(.bottom, 2)
                         }
                         ExplorerRow(
-                            icon: place.place.isTag ? "number.sign.circle" : (place.place == .allNotes ? "tray" : "folder"),
+                            icon: place.place.isTag ? "number.sign.circle" : (place.place == .allNotes ? "tray" : place.icon),
                             title: place.title,
                             detail: "\(place.count)",
                             indent: CGFloat(place.depth) * 14,

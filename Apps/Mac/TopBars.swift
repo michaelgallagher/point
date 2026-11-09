@@ -71,7 +71,7 @@ struct NoteListTopBar: View {
     var body: some View {
         HStack(spacing: TopBar.buttonSpacing) {
             VStack(alignment: .leading, spacing: 0) {
-                Text(model.place == .allNotes ? (model.root?.lastPathComponent ?? "Notes") : model.place.title)
+                Text(model.place == .allNotes ? (model.root?.lastPathComponent ?? "Notes") : model.title(for: model.place))
                     .font(.headline)
                     .lineLimit(1)
                 Text(countLabel)

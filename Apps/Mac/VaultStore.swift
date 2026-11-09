@@ -56,6 +56,7 @@ final class VaultStore: ObservableObject {
             // Editors restyle when an image comes or goes, as when a note does.
             if Set(byName.keys) != Set(imagesByName.keys) { notesGeneration += 1 }
             imagesByName = byName
+            refreshSpecialFolders()
         }
     }
     /// The images by file name, in lowercase, as embeds find them.
@@ -88,7 +89,7 @@ final class VaultStore: ObservableObject {
     }
 
     private var watcher: VaultWatcher?
-    private(set) var settings = ObsidianSettings()
+    private(set) var settings = ObsidianSettings() { didSet { refreshSpecialFolders() } }
     /// Notes created untitled, to be named by their first line when left.
     private var untitled: Set<Note.ID> = []
     #if DEBUG
@@ -1541,7 +1542,7 @@ final class VaultStore: ObservableObject {
     // MARK: Folders, tags and pins
 
     /// Worked out once per change to the notes, not every time the sidebar draws.
-    @Published private(set) var folderTree = FolderTree(notes: [])
+    @Published private(set) var folderTree = FolderTree(notes: []) { didSet { refreshSpecialFolders() } }
     /// Folders and tags pinned to the top of the sidebar, in the order they were pinned.
     @Published private(set) var pins: [SidebarPlace] = []
 
@@ -1604,6 +1605,7 @@ final class VaultStore: ObservableObject {
     private var latestEditsCache: (notes: Int, generation: Int, value: (folders: [String: Date], tags: [String: Date]))?
 
     func sortedFolders(_ paths: [String]) -> [String] {
+        let paths = hiddenFolders.isEmpty ? paths : paths.filter { !hiddenFolders.contains($0) }
         guard tagOrder == .modified else { return paths } // Already in Finder order.
         let latest = latestEdits.folders
         return paths.sorted { (latest[$0] ?? .distantPast) > (latest[$1] ?? .distantPast) }
@@ -1971,6 +1973,57 @@ final class VaultStore: ObservableObject {
     func togglePin(_ place: SidebarPlace) {
         if let index = pins.firstIndex(of: place) { pins.remove(at: index) } else { pins.append(place) }
         if let root { UserDefaults.standard.set(pins.map(\.key), forKey: "pins." + Self.vaultKey(root)) }
+    }
+
+    // MARK: Templates and attachments
+
+    /// A folder the vault's settings give a job: shown as a place of its own at the top of the
+    /// sidebar, not in the folder tree.
+    enum SpecialFolder: CaseIterable {
+        case templates, attachments
+        var title: String { self == .templates ? "Templates" : "Attachments" }
+        var symbol: String { self == .templates ? "doc.on.doc" : "paperclip" }
+    }
+
+    /// The templates folder and the attachments folder, from Obsidian's settings, where they
+    /// exist. Attachments only when they all go to one folder (not beside each note).
+    @Published private(set) var specialFolders: [(kind: SpecialFolder, path: String)] = []
+    /// Folders left out of the tree: the special ones, and a folder holding nothing but them
+    /// (no notes or images of its own, and no other folders).
+    private(set) var hiddenFolders: Set<String> = []
+
+    func specialFolder(at path: String) -> SpecialFolder? { specialFolders.first { $0.path == path }?.kind }
+
+    private func refreshSpecialFolders() {
+        func cleaned(_ path: String) -> String { path.trimmingCharacters(in: CharacterSet(charactersIn: "/ ")) }
+        let attachments = settings.attachmentFolder
+        let candidates: [(SpecialFolder, String)] = [
+            (.templates, cleaned(settings.templatesFolder)),
+            (.attachments, attachments.hasPrefix("./") ? "" : cleaned(attachments)),
+        ]
+        let found = candidates.filter { !$0.1.isEmpty && folderTree.noteCounts[$0.1] != nil }
+        var hidden = Set(found.map(\.1))
+        // Up from each, the folders left with nothing showing once it's gone.
+        if !hidden.isEmpty {
+            let imageFolders = Set(images.map { ($0.path as NSString).deletingLastPathComponent })
+            var changed = true
+            while changed {
+                changed = false
+                for path in hidden {
+                    let parent = FolderTree.parent(of: path)
+                    guard !parent.isEmpty, !hidden.contains(parent) else { continue }
+                    let subfolders = folderTree.subfolders(of: parent)
+                    let ownNotes = (folderTree.noteCounts[parent] ?? 0) - subfolders.reduce(0) { $0 + (folderTree.noteCounts[$1] ?? 0) }
+                    if ownNotes == 0, !imageFolders.contains(parent), subfolders.allSatisfy(hidden.contains) {
+                        hidden.insert(parent)
+                        changed = true
+                    }
+                }
+            }
+        }
+        let special = found.map { (kind: $0.0, path: $0.1) }
+        if special.map(\.path) != specialFolders.map(\.path) || special.map(\.kind) != specialFolders.map(\.kind) { specialFolders = special }
+        if hidden != hiddenFolders { hiddenFolders = hidden; objectWillChange.send() }
     }
 
     /// The vault's top level, then its folders as a tree.

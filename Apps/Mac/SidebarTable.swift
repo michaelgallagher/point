@@ -107,7 +107,7 @@ extension VaultModel {
         func places(_ rows: [SidebarRow]) -> [SidebarRow] {
             rows.filter { row in
                 guard case .place(let place, _) = row else { return true }
-                return shows(place.title)
+                return shows(self.title(for: place))
             }
         }
         // Folders, each followed by its subfolders if it's unfolded.
@@ -137,6 +137,8 @@ extension VaultModel {
             // The types chosen in Settings, then every list, under Bookmarks.
             special += store.shownSidebarKinds.map { .kind(store.kinds.property, $0.name) }
             if store.showsListsInSidebar, !store.listNoteIDs.isEmpty { special.append(.lists) }
+            // The templates and attachments folders, as places of their own (not in the tree).
+            special += store.specialFolders.map { .folder($0.path) }
             // Tags open their own list in one column (in two, they're under folders). Types
             // are only those chosen, above; properties are managed in Settings, not here.
             if !twoColumns, showsTags { special.append(.tags) }
@@ -998,8 +1000,10 @@ struct SidebarRowView: View {
     static func name(of place: SidebarPlace, depth: Int) -> String { depth > 0 ? place.shortName : place.title }
 
     /// A row's name: the vault's own, for the top of the two-column view's tree.
+    /// The templates and attachments folders by their job, whatever the folders are called.
     private func name(of place: SidebarPlace, depth: Int) -> String {
-        place == .allNotes ? (model.root?.lastPathComponent ?? "Vault") : Self.name(of: place, depth: depth)
+        if place == .allNotes { return model.root?.lastPathComponent ?? "Vault" }
+        return depth == 0 ? model.title(for: place) : Self.name(of: place, depth: depth)
     }
 
     /// Where a folder's or tag's unfold arrow starts in its row: just after its name, which
@@ -1311,9 +1315,17 @@ extension SidebarPlace {
 }
 
 extension VaultModel {
+    /// A place's name as shown: the templates and attachments folders by their job, whatever
+    /// the folders are called.
+    func title(for place: SidebarPlace) -> String {
+        if case .folder(let path) = place, let special = store.specialFolder(at: path) { return special.title }
+        return place.title
+    }
+
     /// A place's symbol: a property's says its type, as in the properties strip.
     func symbol(for place: SidebarPlace) -> String {
         switch place {
+        case .folder(let path) where store.specialFolder(at: path) != nil: store.specialFolder(at: path)!.symbol
         case .property(let name): store.propertyTypes.type(forKey: name)?.symbol ?? guessedSymbol(name)
         case .kind(_, let name): store.kinds.kind(named: name)?.shownSymbol ?? place.symbol
         default: place.symbol

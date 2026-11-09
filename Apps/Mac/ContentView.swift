@@ -345,7 +345,7 @@ private struct PlaceHeader: View {
             }
             .buttonStyle(.plain)
             .help("Back (⌘↑)")
-            Text(model.place.title)
+            Text(model.title(for: model.place))
                 .font(.headline)
                 .lineLimit(1)
             Spacer()
