@@ -544,7 +544,7 @@ struct PaletteRow: View {
         case .note: isBookmarked ? "bookmark" : "doc.text"
         case .tag: "number.sign.circle"
         case .create: "plus"
-        case .command: "command"
+        case .command(let command): command.symbol ?? "command"
         case .folder: "folder"
         case .template: "doc.on.doc"
         }
@@ -577,6 +577,8 @@ struct PaletteCommand {
     let shortcut: String?
     /// Shown when the palette opens, before anything is typed.
     var isSuggested = false
+    /// Its icon, if not the command symbol.
+    var symbol: String?
     let action: () -> Void
 
     @MainActor static func all(for model: VaultModel) -> [PaletteCommand] {

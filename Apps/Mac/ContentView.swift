@@ -161,8 +161,18 @@ struct ContentView: View {
                     Color.black.opacity(0.08)
                         .ignoresSafeArea()
                         .onTapGesture { model.isPaletteShown = false }
-                    CommandPalette()
-                        .padding(.top, 80)
+                    // Over the side a note will open into, when the window's split; inside
+                    // the window however narrow that side is.
+                    GeometryReader { geometry in
+                        let window = geometry.frame(in: .global)
+                        let half = min(270, window.width / 2 - 16)
+                        let centre = model.targetPaneFrame.map { $0.midX - window.minX } ?? window.width / 2
+                        let clamped = min(max(centre, half + 16), window.width - half - 16)
+                        CommandPalette()
+                            .padding(.top, 80)
+                            .frame(maxWidth: .infinity)
+                            .offset(x: clamped - window.width / 2)
+                    }
                 }
                 .transition(.opacity)
             }
@@ -349,6 +359,12 @@ private struct PlaceHeader: View {
                 .font(.headline)
                 .lineLimit(1)
             Spacer()
+            if model.place == .lists {
+                Button { model.createList() } label: { Image(systemName: "plus") }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("New list")
+            }
             if model.place == .trash {
                 EmptyTrashButton()
             } else if model.place != .everything && model.place != .bookmarks {

@@ -16,6 +16,7 @@ struct ShortcutsSheet: View {
     private static let groups: [(String, [(Keys, String)])] = [
         ("Notes", [
             (.commands([.newNote]), "New note"),
+            (.commands([.newList]), "New list"),
             (.commands([.applyTemplate]), "Insert template"),
             (.commands([.newFolder]), "New folder"),
             (.commands([.showInFinder]), "Show in Finder"),

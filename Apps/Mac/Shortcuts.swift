@@ -57,7 +57,7 @@ struct Shortcut: Codable, Hashable {
 /// Every menu command whose shortcut can be changed, with its menu, name and default.
 enum ShortcutAction: String, CaseIterable, Identifiable {
     // File
-    case newNote, newNoteFromTemplate, newFolder, newTab, newTabOnOtherSide, newWindow, todaysNote, applyTemplate,
+    case newNote, newNoteFromTemplate, newList, newFolder, newTab, newTabOnOtherSide, newWindow, todaysNote, applyTemplate,
          openVault, closeTab, renameNote, moveToFolder, addTag, toggleBookmark, showInFinder, moveToTrash
     // Edit
     case explorer, runCommand, searchVault, searchInList, findInNote
@@ -81,7 +81,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
     /// The menu it's in, for grouping it in Settings and the shortcut list.
     var menu: String {
         switch self {
-        case .newNote, .newNoteFromTemplate, .newFolder, .newTab, .newTabOnOtherSide, .newWindow, .todaysNote, .applyTemplate,
+        case .newNote, .newNoteFromTemplate, .newList, .newFolder, .newTab, .newTabOnOtherSide, .newWindow, .todaysNote, .applyTemplate,
              .openVault, .closeTab, .renameNote, .moveToFolder, .addTag, .toggleBookmark, .showInFinder, .moveToTrash: "File"
         case .explorer, .runCommand, .searchVault, .searchInList, .findInNote: "Edit"
         case .toggleNoteList, .biggerText, .smallerText, .actualSize, .split, .moveTabToOtherSide, .nextTab, .previousTab,
@@ -101,6 +101,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         switch self {
         case .newNote: "New Note"
         case .newNoteFromTemplate: "New Note from Template…"
+        case .newList: "New List"
         case .newFolder: "New Folder…"
         case .newTab: "New Tab"
         case .newTabOnOtherSide: "New Tab on Other Side"
@@ -199,6 +200,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         switch self {
         case .newNote: Shortcut("n")
         case .newFolder: Shortcut("n", shift: true)
+        case .newList: Shortcut("n", control: true)
         case .newTab: Shortcut("t")
         case .newTabOnOtherSide: Shortcut("t", control: true)
         case .newWindow: Shortcut("n", option: true)

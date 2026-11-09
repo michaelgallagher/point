@@ -45,22 +45,21 @@ enum WordCount {
     }
 }
 
-/// The current note's word count, in the bottom corner the links button leaves free (View ›
-/// Show Word Count).
+/// The current note's word count, in its bottom corner (View › Show Word Count).
 struct WordCountLabel: View {
     let tally: WordCount.Tally?
     let alignment: Alignment
 
     var body: some View {
         if let tally {
-            // On glass, as the links button is, so it reads over the text scrolling under it.
+            // On glass, so it reads over the text scrolling under it.
             Text(tally.label)
                 .font(.callout.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 12)
                 .frame(height: 30)
                 .modifier(LinksGlass(shape: Capsule(), isInteractive: false))
-                .padding(LinksButton.inset)
+                .padding(LinksPlacement.inset)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
                 .allowsHitTesting(false)
                 .accessibilityLabel(tally.label)

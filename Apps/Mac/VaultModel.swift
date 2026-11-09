@@ -290,6 +290,14 @@ final class VaultModel: ObservableObject {
     }
 
     var isSplit: Bool { panes.count > 1 }
+    /// Where each side is in the window, so the palettes can open over the side a note will
+    /// open into. Not published: read as a palette appears, not something to redraw for.
+    var paneFrames: [NotePane.ID: CGRect] = [:]
+    /// Where notes opened now will go, in the window, when it's split.
+    var targetPaneFrame: CGRect? {
+        guard isSplit, panes.indices.contains(activePane) else { return nil }
+        return paneFrames[panes[activePane].id]
+    }
     /// Opens a note in a new window. Set by the window, which can open others.
     var openWindowHandler: ((Note.ID?) -> Void)?
     /// A note just made with ⌘N in the Minimal layout, which offers templates while empty.
@@ -919,17 +927,32 @@ final class VaultModel: ObservableObject {
         if selection == nil { selection = id } else { newTab(noteID: id) }
     }
 
-    /// Creates a list and opens it: of the folder or tag being browsed, or of every note, to
-    /// narrow down from there with its menus.
-    func createList() {
-        let property: String
+    /// Creates a list and opens it, its filters showing, to narrow it down from there: of a
+    /// place's notes (a folder, tag, type or property value), named after it, or with no
+    /// place given, of the one being browsed.
+    func createList(of given: SidebarPlace? = nil) {
+        let place = given ?? self.place
+        var list = ListDefinition()
         switch place {
-        case .folder(let path) where !path.isEmpty: property = "list-from: \(Frontmatter.quoted(path))"
-        case .tag(let tag): property = "list-tags: [\(Frontmatter.quoted(tag))]"
-        default: property = "list-where:"
+        case .folder(let path) where !path.isEmpty: list.folders = [path]
+        case .tag(let tag): list.tags = [tag]
+        case .kind(let property, let value), .propertyValue(let property, let value):
+            list.conditions = [ListCondition(property, .is, value)]
+        default: break
         }
-        createNote(text: "---\n\(property)\n---\n")
+        var properties = list.properties
+        // A list of every note still needs its key, empty, to be a list.
+        if properties.isEmpty { properties = [(ListDefinition.Key.conditions, [], true)] }
+        let text = "---\n" + properties.map { Frontmatter.yaml(key: $0.key, values: $0.values, isList: $0.isList) }.joined() + "---\n"
+        // In sentence case, whatever the tag's or value's own spelling: "Book list".
+        let title = given.map { place -> String in let name = self.title(for: place); return name.prefix(1).uppercased() + name.dropFirst() + " list" }
+        createNote(text: text, titled: title)
+        freshNoteID = nil // A list, not a note waiting for a template.
+        listOpeningFilters = selection
     }
+
+    /// A list just made, whose filters open as it shows.
+    @Published var listOpeningFilters: Note.ID?
 
     /// Opens today's daily note, creating it if needed.
     func openTodaysNote() {

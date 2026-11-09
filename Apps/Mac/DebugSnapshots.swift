@@ -201,6 +201,17 @@ enum DebugSnapshots {
                 }
             }
         }
+        if let key = UserDefaults.standard.string(forKey: "PointNewList"), let path = UserDefaults.standard.string(forKey: "PointSheetSnapshot") {
+            // `-PointNewList <place key>|current` with `-PointSheetSnapshot <file.png>`: makes a list
+            // (of that place, as the sidebar's menu does, or of the place browsed, as ⌃⌘N does),
+            // then saves a picture of the filters it opens with; then quits.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { model.createList(of: SidebarPlace(key: key)) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5.5) {
+                Trace.mark("new list: \(model.selection ?? "none"), sheet \(model.window?.attachedSheet != nil)")
+                save(model.window?.attachedSheet ?? NSApp.windows.first { "\(type(of: $0))".contains("Sheet") }, to: URL(fileURLWithPath: path))
+                NSApp.terminate(nil)
+            }
+        }
         if let spec = UserDefaults.standard.string(forKey: "PointListSheet"), let bar = spec.firstIndex(of: "|"),
            let path = UserDefaults.standard.string(forKey: "PointSheetSnapshot") {
             // `-PointListSheet "note id|new"` (or `|condition:1`) with `-PointSheetSnapshot <file.png>`:

@@ -103,10 +103,8 @@ struct PropertiesStrip: View {
                 // The rows' backgrounds reach into the margin; their text lines up with the summary.
                 .padding(.leading, -Self.rowInset)
             }
-            // What came before it: under the summary, or the rows when open.
-            if let recall = model.store.recall(of: session.frontmatter, name: session.note.name) {
-                RecallLine(model: model, recall: recall, noteID: session.note.id, paneID: paneID)
-            }
+            // What's related to it, and what came before: under the summary, or the rows when open.
+            RelatedReadout(connections: model.connections(for: session.note), model: model, paneID: paneID)
             // Drawn like a horizontal rule in the note: one point, the separator colour.
             if isExpanded {
                 Rectangle()
