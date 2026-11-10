@@ -92,13 +92,13 @@ struct HomeScreen: View {
             Button("OK", role: .cancel) {}
         }
         .sheet(isPresented: $showsSettings) { SettingsScreen().environmentObject(store) }
-        .onChange(of: quickActions.newNoteRequests) { _, _ in quickNote() }
+        .onChange(of: quickActions.newNoteRequests) { _, _ in if quickActions.takeNewNote() { quickNote() } }
         .onChange(of: store.linkedRoute) { _, route in
             guard let route else { return }
             store.linkedRoute = nil
             go(to: route)
         }
-        .onAppear { if quickActions.newNoteRequests > 0 { quickNote() } }
+        .onAppear { if quickActions.takeNewNote() { quickNote() } }
         .onChange(of: path) { _, path in
             // Home, or another note: that's the end of coming back to this one.
             guard let working = store.workingOn?.note.id else { return }
@@ -264,6 +264,7 @@ struct HomeScreen: View {
     /// from under it: left, it may go altogether.
     private func createNote(in folder: String = "", text: String = "") {
         guard let id = store.createNote(in: folder, text: text) else { return }
+        PhoneVault.log("made \(id) with New note")
         newNote = id
         if case .note(let below)? = path.last, store.isUntitled(store.currentID(below)) { path.removeLast() }
         path.append(.note(id))
@@ -272,6 +273,7 @@ struct HomeScreen: View {
     /// Makes a note of a kind and opens it, as New note does.
     private func createNote(kind: NoteKinds.Kind, template: URL? = nil) {
         guard let id = store.createNote(kind: kind, template: template) else { return }
+        PhoneVault.log("made \(id) with New \(kind.name)")
         newNote = id
         path.append(.note(id))
     }
@@ -279,6 +281,7 @@ struct HomeScreen: View {
     /// Makes a note and opens it straight from home, from wherever you were.
     private func quickNote() {
         guard let id = store.createNote() else { return }
+        PhoneVault.log("made \(id) with the icon's New note")
         newNote = id
         path = [.note(id)]
     }

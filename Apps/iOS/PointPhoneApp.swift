@@ -110,10 +110,20 @@ final class QuickActions: ObservableObject {
     static let newNote = "org.mikegallagher.point.newNote" // As in Info.plist.
     /// Goes up each time New Note is chosen.
     @Published private(set) var newNoteRequests = 0
+    /// How many of those home has made a note for. Each is made once: home appearing again
+    /// (iOS can build it afresh, waking the app) made another, empty, as a count alone did.
+    private var newNotesMade = 0
 
     func perform(_ item: UIApplicationShortcutItem) -> Bool {
         guard item.type == Self.newNote else { return false }
         newNoteRequests += 1
+        return true
+    }
+
+    /// Whether a New Note chosen is still to be made; if so, it's taken.
+    func takeNewNote() -> Bool {
+        guard newNotesMade < newNoteRequests else { return false }
+        newNotesMade = newNoteRequests
         return true
     }
 }
