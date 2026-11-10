@@ -24,6 +24,9 @@ struct CommandPalette: View {
     @StateObject private var explorer = ExplorerState()
     /// Shown as a tab's start page rather than over the window.
     var isPage = false
+    /// For a start page, the side it's on: what's picked on it opens there, in its own tab,
+    /// even if the other side was being worked on since.
+    var paneID: VaultModel.NotePane.ID?
     /// On a start page: browsing in the explorer, rather than searching.
     @State private var pageExplores = false
 
@@ -180,7 +183,13 @@ struct CommandPalette: View {
         if explorer.leaveNotes() { query = "" } else if isPage { setPageExplores(false) } else { NSSound.beep() }
     }
 
+    /// A start page's side becomes the one being worked on, so what's picked opens in its tab.
+    private func takeSide() {
+        if isPage, let paneID { model.activate(pane: paneID) }
+    }
+
     private func open(_ id: Note.ID, inNewTab: Bool) {
+        takeSide()
         let typed = query.trimmingCharacters(in: .whitespaces)
         if !isPage { close() }
         // A start page opens the note in its own tab, which is the active one.
@@ -382,6 +391,7 @@ struct CommandPalette: View {
     }
 
     private func run() {
+        takeSide()
         let inNewTab = NSApp.currentEvent?.modifierFlags.contains(.command) == true
         if isExploring {
             if explorer.inNotes, let note = explorer.currentNote { open(note.id, inNewTab: inNewTab) } else { explorerRight() }

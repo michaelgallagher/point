@@ -28,7 +28,6 @@ struct PaneView: View {
                 HStack(spacing: 0) {
                     if #available(macOS 26, *) {
                         page(pane, index: index, underBar: model.topBarHeight)
-                            .overlay(alignment: .top) { targetLine(index: index) }
                             .overlay(alignment: .top) { PaneTabBar(pane: pane, paneIndex: index) }
                     } else {
                         VStack(spacing: 0) {
@@ -56,20 +55,6 @@ struct PaneView: View {
         }
     }
 
-    /// In a split, a thin accent line under the bar of the side notes will open into, so it's
-    /// plain which one that is, with or without tabs showing.
-    @ViewBuilder private func targetLine(index: Int) -> some View {
-        if model.isSplit, index == model.activePane, !model.isFocused {
-            Capsule()
-                .fill(Color.accentColor.opacity(0.85))
-                .frame(height: 2)
-                .padding(.horizontal, 16)
-                .padding(.top, model.topBarHeight + 6)
-                .allowsHitTesting(false)
-                .transition(.opacity)
-        }
-    }
-
     /// The note whose links show beside this side, if the panel's open: only for a note.
     private func linksPanelNote(_ pane: VaultModel.NotePane) -> Note? {
         guard linksPlacement == .side, model.isLinksPanelOpen(paneID) else { return nil }
@@ -91,7 +76,7 @@ struct PaneView: View {
                             .id(paneID.uuidString + image.path)
                     } else {
                         // An empty tab is a start page: search, recent notes and the explorer.
-                        CommandPalette(isPage: true)
+                        CommandPalette(isPage: true, paneID: paneID)
                             .padding(.top, underBar)
                             .id(pane.tab.id) // A fresh page for each tab.
                     }
