@@ -50,6 +50,12 @@ private struct VaultRoot: View {
                 }
                 .animation(.spring(duration: 0.3, bounce: 0), value: store.clipStatus)
             }
+            .alert("Changed on two devices", isPresented: Binding(get: { store.conflictNotice != nil },
+                                                                 set: { if !$0 { store.conflictNotice = nil } })) {
+                Button("OK") { store.conflictNotice = nil }
+            } message: {
+                Text(store.conflictNotice ?? "")
+            }
             // `point://clip?url=…`, from the share sheet's Clip to Point shortcut.
             .onOpenURL { url in
                 if let request = ClipRequest(url) { store.clip(request) }

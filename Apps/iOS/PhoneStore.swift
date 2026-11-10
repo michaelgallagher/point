@@ -81,7 +81,8 @@ final class PhoneStore: ObservableObject {
         }
         Task { await reload() }
         // Changes from elsewhere (the Mac, through iCloud) and notes arriving: read again.
-        presenter = VaultPresenter(root: root) { [weak self] in self?.refresh() }
+        presenter = VaultPresenter(root: root, changed: { [weak self] in self?.refresh() },
+                                   conflicted: { [weak self] url in self?.surfaceConflicts([url]) })
         becameActive = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil,
                                                               queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
@@ -91,6 +92,35 @@ final class PhoneStore: ObservableObject {
     func note(_ id: Note.ID) -> Note? { notes.first { $0.id == id } }
 
     // MARK: Changes from elsewhere
+
+    /// Notes iCloud found changed on two devices before either synced, as a note to show:
+    /// the other version is in a conflict copy beside each.
+    @Published var conflictNotice: String?
+    private var hasLookedForConflicts = false
+
+    /// Writes out iCloud's hidden conflict versions of these notes as conflict copies beside
+    /// them (off the main thread), says so, and reads the vault again to show them.
+    func surfaceConflicts(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        Task {
+            let copied = await Task.detached(priority: .utility) {
+                urls.compactMap { url -> String? in
+                    guard ICloudConflicts.has(url) else { return nil }
+                    do {
+                        return try ICloudConflicts.surface(url).isEmpty ? nil : url.deletingPathExtension().lastPathComponent
+                    } catch {
+                        PhoneVault.log("couldn't copy out an iCloud conflict of \(url.lastPathComponent): \(error.localizedDescription)")
+                        return nil
+                    }
+                }
+            }.value
+            guard !copied.isEmpty else { return }
+            conflictNotice = copied.count == 1
+                ? "“\(copied[0])” was changed on two devices at once. The other version is in a conflict copy beside it."
+                : "\(copied.count) notes were changed on two devices at once. The other versions are in conflict copies beside them."
+            refresh()
+        }
+    }
 
     /// Hears of changes to the vault's folder.
     private var presenter: VaultPresenter?
@@ -181,6 +211,10 @@ final class PhoneStore: ObservableObject {
         }
         let result = try? await Task.detached(priority: .userInitiated) { try VaultScanner.scanAll(root) }.value
         let scanned = result?.notes ?? []
+        // Notes not there last time: a note open here that's gone may be one of them, renamed
+        // or moved on the Mac.
+        let before = Set(notes.map(\.id))
+        let appeared = before.isEmpty ? [] : scanned.filter { !before.contains($0.id) }
         if let early {
             let (tags, names) = await early.value
             if let tags { tagsByNote = tags }
@@ -189,7 +223,13 @@ final class PhoneStore: ObservableObject {
         if scanned != notes { notes = scanned }
         hasScanned = true
         requestDownloads(scanned)
-        NotificationCenter.default.post(name: .phoneVaultScanned, object: self)
+        NotificationCenter.default.post(name: .phoneVaultScanned, object: self, userInfo: ["appeared": appeared])
+        // Once a launch, every note checked for conflict versions iCloud kept while one of the
+        // devices was offline (those arriving later are heard of by the presenter).
+        if !hasLookedForConflicts, !scanned.isEmpty, !PhoneVault.isOwnFolder {
+            hasLookedForConflicts = true
+            surfaceConflicts(scanned.filter(\.isDownloaded).map(\.url))
+        }
         // Notes that are gone take what was learned about them (not while the folder reads
         // as empty, which is more likely unavailable for a moment).
         if !scanned.isEmpty {
@@ -772,6 +812,17 @@ final class PhoneStore: ObservableObject {
         refreshTrash()
         if !failed.isEmpty {
             deletedNotesProblem = failed.count == 1 ? "“\(failed[0])” couldn’t be deleted." : "\(failed.count) notes couldn’t be deleted."
+        }
+    }
+
+    /// A note open here renamed or moved on another device: what it was known by follows it, as
+    /// for a rename here (the list already has it, from the scan; bookmarks, from the Mac).
+    func noteMovedElsewhere(from id: Note.ID, to note: Note) {
+        renamedIDs[id] = note.id
+        history.renamed(from: id, to: note.id)
+        historyFile.save(history)
+        if UserDefaults.standard.string(forKey: PhoneVault.defaultsKey("workingOn")) == id {
+            UserDefaults.standard.set(note.id, forKey: PhoneVault.defaultsKey("workingOn"))
         }
     }
 

@@ -97,16 +97,19 @@ extension Notification.Name {
 
 /// Told by the system when anything in the vault's folder changes: a note edited on the Mac
 /// arriving through iCloud, or a download finishing. `changed` is called on the main queue,
-/// at most once a second.
+/// at most once a second. `conflicted`, at once, with a note iCloud has found changed on two
+/// devices before either synced.
 final class VaultPresenter: NSObject, NSFilePresenter, @unchecked Sendable {
     let presentedItemURL: URL?
     let presentedItemOperationQueue: OperationQueue = .main
     private let changed: @MainActor () -> Void
+    private let conflicted: @MainActor (URL) -> Void
     private var pending: DispatchWorkItem?
 
-    init(root: URL, changed: @escaping @MainActor () -> Void) {
+    init(root: URL, changed: @escaping @MainActor () -> Void, conflicted: @escaping @MainActor (URL) -> Void) {
         presentedItemURL = root
         self.changed = changed
+        self.conflicted = conflicted
         super.init()
         NSFileCoordinator.addFilePresenter(self)
     }
@@ -117,6 +120,10 @@ final class VaultPresenter: NSObject, NSFilePresenter, @unchecked Sendable {
     func presentedSubitemDidAppear(at url: URL) { schedule() }
     func presentedSubitem(at oldURL: URL, didMoveTo newURL: URL) { schedule() }
     func presentedItemDidChange() { schedule() }
+    func presentedSubitem(at url: URL, didGain version: NSFileVersion) {
+        if version.isConflict { MainActor.assumeIsolated { conflicted(url) } }
+        schedule()
+    }
     func accommodatePresentedSubitemDeletion(at url: URL, completionHandler: @escaping @Sendable (Error?) -> Void) {
         completionHandler(nil)
         schedule()
