@@ -654,7 +654,15 @@ final class PhoneStore: ObservableObject {
         set {
             UserDefaults.standard.set(Array(newValue), forKey: PhoneVault.defaultsKey("untitled"))
             startingTexts = startingTexts.filter { newValue.contains($0.key) }
+            untitledMade = untitledMade.filter { newValue.contains($0.key) }
         }
+    }
+
+    /// When each new note not yet named was made here: a note at its path made at another time
+    /// is another device's (both once named their first note of the day alike), and is left be.
+    private var untitledMade: [Note.ID: Double] {
+        get { UserDefaults.standard.dictionary(forKey: PhoneVault.defaultsKey("untitledMade")) as? [Note.ID: Double] ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: PhoneVault.defaultsKey("untitledMade")) }
     }
 
     /// What new notes not yet named started with, if not nothing (a tag): left as it was, a
@@ -678,6 +686,7 @@ final class PhoneStore: ObservableObject {
             notes.append(note)
             guard title == nil else { return note.id }
             untitled.insert(note.id)
+            untitledMade[note.id] = note.created.timeIntervalSince1970
             if !text.isEmpty { startingTexts[note.id] = text }
             return note.id
         } catch {
@@ -697,6 +706,12 @@ final class PhoneStore: ObservableObject {
             untitled.remove(id) // Gone already.
             return
         }
+        // Only a note made here: not another device's under the same name, nor one from before
+        // this was known (its file is left as it is, to remove by hand if it's empty).
+        guard let made = untitledMade[id], abs(note.created.timeIntervalSince1970 - made) < 120 else {
+            untitled.remove(id)
+            return
+        }
         guard let text = try? NoteReader.read(contentsOf: note.url) else { return }
         if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text == startingTexts[id] {
             guard (try? FileManager.default.removeItem(at: note.url)) != nil else { return }
@@ -705,17 +720,22 @@ final class PhoneStore: ObservableObject {
             return
         }
         untitled.remove(id)
+        // Kept under its untitled name if it can't be named now, to name next time.
+        func keep() {
+            untitled.insert(id)
+            untitledMade[id] = made
+        }
         guard let line = PlainText.firstLine(of: text) else { return }
         if NoteNames.isDated(note.name) {
             // A note Point named: its title is the line as written, and its name follows.
-            if (try? retitle(note, to: line, text: text)) == nil { untitled.insert(id) }
+            if (try? retitle(note, to: line, text: text)) == nil { keep() }
             return
         }
         let title = NoteFiles.sanitizedTitle(line)
         guard !title.isEmpty, title != note.title else { return }
         let available = NoteFiles.availableURL(for: title, in: note.url.deletingLastPathComponent())
         guard let url = try? NoteFiles.rename(note.url, to: available.deletingPathExtension().lastPathComponent) else {
-            untitled.insert(id) // Kept under its untitled name; named next time.
+            keep()
             return
         }
         moved(note, to: url)
@@ -929,9 +949,11 @@ final class PhoneStore: ObservableObject {
         renamedIDs[id] = note.id
         if untitled.contains(id) {
             let start = startingTexts[id]
+            let made = untitledMade[id]
             untitled.remove(id)
             untitled.insert(note.id)
             startingTexts[note.id] = start
+            untitledMade[note.id] = made
         }
         history.renamed(from: id, to: note.id)
         historyFile.save(history)
@@ -953,9 +975,11 @@ final class PhoneStore: ObservableObject {
         renamedIDs[note.id] = newID
         if untitled.contains(note.id) {
             let start = startingTexts[note.id]
+            let made = untitledMade[note.id]
             untitled.remove(note.id)
             untitled.insert(newID)
             startingTexts[newID] = start
+            untitledMade[newID] = made
         }
         history.renamed(from: note.id, to: newID)
         historyFile.save(history)

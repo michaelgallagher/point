@@ -21,6 +21,13 @@ struct NoteNamesTests {
         #expect(NoteNames.name(for: "🎉", created: date, calendar: calendar) == "2026-11-06-untitled")
         #expect(NoteNames.renamed("2026-11-06-old-title", to: "New title") == "2026-11-06-new-title")
         #expect(NoteNames.renamed("Old title", to: "New") == nil)
+        let late = calendar.date(from: DateComponents(year: 2026, month: 11, day: 6, hour: 21, minute: 38, second: 9))!
+        #expect(NoteNames.untitledName(created: late, calendar: calendar) == "2026-11-06-untitled-213809")
+        #expect(NoteNames.isDated("2026-11-06-untitled-213809"))
+        #expect(NoteNames.fallbackTitle(for: "2026-11-06-untitled-213809") == "Untitled")
+        #expect(NoteNames.fallbackTitle(for: "2026-11-06-untitled-3") == "Untitled")
+        #expect(NoteNames.fallbackTitle(for: "2026-11-06-untitled") == "Untitled")
+        #expect(NoteNames.fallbackTitle(for: "2026-11-06-plan-2") == "Plan 2")
     }
 
     @Test func knowsPointsNames() {
