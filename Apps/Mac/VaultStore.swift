@@ -430,6 +430,8 @@ final class VaultStore: ObservableObject {
         } catch {
             return Self.showProblem("Couldn’t rename “\(note.title)”", error)
         }
+        // It has its title now: no longer to be named by its first line when it's left.
+        untitled.remove(note.id)
         let vaultBefore = notes
         var url = note.url
         if let name = NoteNames.renamed(note.name, to: title), name != note.name {

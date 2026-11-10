@@ -1272,8 +1272,28 @@ enum DebugSnapshots {
                     check("unsaved untitled note kept", FileManager.default.fileExists(atPath: untitled.url.path) && model.store.isUntitled(id))
                     setWritable(untitled.url, true)
                     model.store.finishUntitledNote(id)
-                    check("named once saved", FileManager.default.fileExists(atPath: root.appendingPathComponent("Hello untitled.md").path)
+                    // Named with the day and its title (`2026-11-06-hello-untitled.md`).
+                    let names = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
+                    check("named once saved", names.contains { $0.hasSuffix("-hello-untitled.md") }
                           && !FileManager.default.fileExists(atPath: untitled.url.path))
+                },
+                { model.createNote() },
+                {
+                    // A new note named by hand keeps its name: typing a first line and leaving
+                    // it doesn't rename it after that line.
+                    guard let id = model.selection, model.store.isUntitled(id), let untitled = model.note(id) else {
+                        return check("second untitled note", false)
+                    }
+                    model.rename(untitled, to: "Named by hand")
+                },
+                {
+                    guard let id = model.selection, model.note(id)?.title == "Named by hand" else {
+                        return check("named by hand", false, model.selection ?? "nothing selected")
+                    }
+                    check("named by hand, no longer untitled", !model.store.isUntitled(id))
+                    type("A different first line\n", in: id)
+                    model.store.finishUntitledNote(id)
+                    check("name kept after typing", model.note(id)?.title == "Named by hand", model.note(id)?.title ?? "gone")
                 },
             ]
             run()
