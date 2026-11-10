@@ -2,7 +2,14 @@ import Foundation
 
 /// Finds every note in a vault, in all folders, as one flat list.
 public enum VaultScanner {
+    #if os(iOS)
+    // On iOS a note iCloud hasn't downloaded keeps its own name (no `.icloud` placeholder), so
+    // only its download status tells.
+    private static let keys: Set<URLResourceKey> = [.isDirectoryKey, .contentModificationDateKey, .creationDateKey,
+                                                    .ubiquitousItemDownloadingStatusKey]
+    #else
     private static let keys: Set<URLResourceKey> = [.isDirectoryKey, .contentModificationDateKey, .creationDateKey]
+    #endif
 
     /// Scans `root` recursively. Folders whose names start with a dot (`.obsidian`, `.trash`,
     /// `.git`) are skipped, as Obsidian does. Evicted iCloud files are included and marked
@@ -52,7 +59,7 @@ public enum VaultScanner {
                 }
                 continue
             }
-            guard let (fileName, isDownloaded) = noteFileName(name) else {
+            guard var (fileName, isDownloaded) = noteFileName(name) else {
                 if let (imageName, isDownloaded) = imageFileName(name) {
                     let path = (url.pathComponents.suffix(enumerator.level).dropLast() + [imageName]).joined(separator: "/")
                     images.append(VaultImage(path: path, url: url.deletingLastPathComponent().appendingPathComponent(imageName),
@@ -61,6 +68,7 @@ public enum VaultScanner {
                 continue
             }
 
+            if isDownloaded, isNotDownloaded(values) { isDownloaded = false }
             let fileURL = url.deletingLastPathComponent().appendingPathComponent(fileName)
             // The enumerator may spell paths differently from `root` (for example /var versus
             // /private/var), so take the relative path from its depth, not by trimming a prefix.
@@ -76,6 +84,16 @@ public enum VaultScanner {
             ))
         }
         return Scan(notes: notes, folders: folders, images: images)
+    }
+
+    /// Whether iCloud says a file's contents aren't on this device (always false off iOS, where
+    /// such a file is an `.icloud` placeholder instead). Reading one would wait for its download.
+    static func isNotDownloaded(_ values: URLResourceValues?) -> Bool {
+        #if os(iOS)
+        values?.ubiquitousItemDownloadingStatus == .notDownloaded
+        #else
+        false
+        #endif
     }
 
     /// An image's file name, and whether it's local (not an evicted iCloud placeholder).

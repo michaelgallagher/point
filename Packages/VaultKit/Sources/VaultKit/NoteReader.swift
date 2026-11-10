@@ -19,7 +19,10 @@ public enum NoteReader {
     /// `ReadError.notDownloaded`; scan again once the download finishes.
     public static func read(_ note: Note) throws -> String {
         // Check the disk rather than `note.isDownloaded`, which may be from an older scan.
-        guard FileManager.default.fileExists(atPath: note.url.path) else {
+        var url = note.url
+        url.removeAllCachedResourceValues() // The status now, not when the URL was last asked.
+        let values = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
+        guard FileManager.default.fileExists(atPath: note.url.path), !VaultScanner.isNotDownloaded(values) else {
             try? FileManager.default.startDownloadingUbiquitousItem(at: note.url)
             throw ReadError.notDownloaded
         }
