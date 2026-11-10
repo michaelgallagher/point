@@ -347,8 +347,8 @@ struct RecentScreen: View {
 }
 
 /// Home's panel: Folders, Tags, Bookmarks and Types, each opening its page, as many as
-/// Settings shows, then any kinds of note chosen to show by themselves. Side by side, or two by two when there are four; stacked at the largest text
-/// sizes, where three wouldn't fit across.
+/// Settings shows, then any kinds of note chosen to show by themselves. In rows of up to three
+/// (see `rows(of:across:)`), or two where three won't fit; stacked at the largest text sizes.
 private struct HomePanel: View {
     @EnvironmentObject private var store: PhoneStore
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -360,6 +360,8 @@ private struct HomePanel: View {
     let open: (Route) -> Void
 
     private static let spacing: CGFloat = 4
+    private static let padding: CGFloat = 12
+    @State private var width: CGFloat = 0
 
     /// A tile: one of home's places, or a kind of note chosen to show by itself.
     private enum Tile: Hashable {
@@ -380,31 +382,65 @@ private struct HomePanel: View {
         let tiles = tiles
         if typeSize.isAccessibilitySize {
             VStack(spacing: Self.spacing) { ForEach(tiles, id: \.self, content: tile) }
-        } else if tiles.count >= 4 {
-            // Two by two; an odd one last, at half width, lined up with those above.
-            Grid(horizontalSpacing: Self.spacing, verticalSpacing: Self.spacing) {
-                ForEach(Array(stride(from: 0, to: tiles.count, by: 2)), id: \.self) { start in
-                    GridRow {
-                        tile(tiles[start])
-                        if start + 1 < tiles.count { tile(tiles[start + 1]) } else { Color.clear }
-                    }
-                }
-            }
-        } else if !tiles.isEmpty {
-            HStack(spacing: Self.spacing) { ForEach(tiles, id: \.self, content: tile) }
+        } else {
+            // Three across where every title fits whole, at larger text sizes two.
+            rows(of: tiles, across: fitsThree(tiles) ? 3 : 2)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         }
     }
 
-    private func tile(_ tile: Tile) -> some View {
-        let (title, glyph, count, route): (String, String, Int, Route) = switch tile {
+    /// Whether each tile, a third of the width, has room for its title and its count.
+    private func fitsThree(_ tiles: [Tile]) -> Bool {
+        guard width > 0 else { return true }
+        let room = (width - 2 * Self.spacing) / 3 - 2 * Self.padding
+        let titleFont = UIFont.systemFont(ofSize: UIFont.preferredFont(forTextStyle: .subheadline).pointSize, weight: .medium)
+        let countFont = UIFont.systemFont(ofSize: UIFont.preferredFont(forTextStyle: .title3).pointSize, weight: .semibold)
+        return tiles.allSatisfy { tile in
+            let (title, _, count, _) = details(tile)
+            let countWidth = ("\(count)" as NSString).size(withAttributes: [.font: countFont]).width
+            return (title as NSString).size(withAttributes: [.font: titleFont]).width <= room
+                && countWidth + countFont.pointSize * 1.5 <= room // The glyph beside it.
+        }
+    }
+
+    private func rows(of tiles: [Tile], across: Int) -> some View {
+        VStack(spacing: Self.spacing) {
+            ForEach(Self.rows(of: tiles, across: across), id: \.self) { row in
+                HStack(spacing: Self.spacing) { ForEach(row, id: \.self, content: tile) }
+            }
+        }
+    }
+
+    /// Rows of at most `across`, as even as they'll go, any longer ones first: across three,
+    /// 4 as 2 over 2, 5 as 3 over 2, 7 as 3, 2 and 2.
+    private static func rows(of tiles: [Tile], across: Int) -> [[Tile]] {
+        guard !tiles.isEmpty else { return [] }
+        let count = (tiles.count + across - 1) / across
+        var rows: [[Tile]] = []
+        var start = 0
+        for index in 0..<count {
+            let length = tiles.count / count + (index < tiles.count % count ? 1 : 0)
+            rows.append(Array(tiles[start..<start + length]))
+            start += length
+        }
+        return rows
+    }
+
+    /// A tile's title, glyph, count, and where it goes.
+    private func details(_ tile: Tile) -> (String, String, Int, Route) {
+        switch tile {
         case .place(.folders): ("Folders", "folder", store.subfolders(of: "").count, .folders)
         case .place(.tags): ("Tags", symbol("number.sign.circle", or: "number.circle"), store.tags.count, .tags)
         case .place(.bookmarks): ("Bookmarks", "bookmark", store.bookmarks.count, .bookmarks)
         case .place(.types): ("Types", "square.grid.2x2", store.kinds.kinds.count, .types)
         case .place(.lists): ("Lists", "list.bullet.rectangle.portrait", store.listNoteIDs.count, .lists)
-        case .kind(let name): (name, store.kinds.kinds.first { $0.name == name }?.shownSymbol ?? "doc.text",
+        case .kind(let name): (NoteKinds.plural(name), store.kinds.kinds.first { $0.name == name }?.shownSymbol ?? "doc.text",
                                store.kindCounts[name.lowercased()] ?? 0, .kind(name))
         }
+    }
+
+    private func tile(_ tile: Tile) -> some View {
+        let (title, glyph, count, route) = details(tile)
         return Button { open(route) } label: {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline) {
@@ -419,11 +455,12 @@ private struct HomePanel: View {
                 Text(title)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.secondary)
+                    // Every title the same size: a long one is cut short rather than made smaller.
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Self.padding)
+            // Every tile in a row as wide as the others, whatever its title.
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
             .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 16, style: .continuous))
             .contentShape(.rect(cornerRadius: 16, style: .continuous))
         }
@@ -482,7 +519,7 @@ struct TypesScreen: View {
         List {
             ForEach(store.kinds.kinds) { kind in
                 NavigationLink(value: Route.kind(kind.name)) {
-                    PlaceRow(title: kind.name, symbol: kind.shownSymbol, count: counts[kind.name.lowercased()] ?? 0)
+                    PlaceRow(title: NoteKinds.plural(kind.name), symbol: kind.shownSymbol, count: counts[kind.name.lowercased()] ?? 0)
                 }
             }
         }
@@ -514,7 +551,7 @@ private struct KindNotes: View {
         let found = Set(ids ?? [])
         let notes = store.notes.filter { found.contains($0.id) }.sorted(by: store.sort)
         List { NoteSections(notes: notes) }
-            .pageTitle(name)
+            .pageTitle(NoteKinds.plural(name))
             .overlay { if ids != nil, notes.isEmpty { ContentUnavailableView("No notes", systemImage: "doc.text") } }
     }
 }

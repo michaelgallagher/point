@@ -1,5 +1,6 @@
 import EditorKit
 import SwiftUI
+import VaultKit
 
 /// Settings, from home's top right: where the notes are, and how many, what home shows, how
 /// note text is set, and forgetting what search has learned.
@@ -117,7 +118,7 @@ private struct HomeSettings: View {
         } header: {
             Text("Home")
         } footer: {
-            Text(store.kinds.isEmpty ? "Types shows once the vault has kinds of note." : "Four or more show two by two. Lists shows once the vault has a list.")
+            Text(store.kinds.isEmpty ? "Types shows once the vault has kinds of note." : "In rows of up to three. Lists shows once the vault has a list.")
         }
     }
 }
@@ -137,7 +138,7 @@ private struct TypesOnHome: View {
                 ForEach(store.kinds.kinds) { kind in
                     Button { store.toggleHomeKind(kind.name) } label: {
                         HStack {
-                            Label(kind.name, systemImage: kind.shownSymbol)
+                            Label(NoteKinds.plural(kind.name), systemImage: kind.shownSymbol)
                                 .foregroundStyle(.primary)
                             Spacer()
                             if store.homeKinds.contains(kind.name) {
