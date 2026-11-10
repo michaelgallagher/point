@@ -29,6 +29,12 @@ public enum NoteReader {
         return try read(contentsOf: note.url)
     }
 
+    /// Brings a file's contents to the device now, as reading it would, without reading it:
+    /// a coordinated read, which iCloud serves at once (a requested download can wait).
+    public static func fetch(_ url: URL) {
+        _ = try? coordinated(url) { _ in true }
+    }
+
     /// Reads a file's text, refusing anything that wouldn't write back byte-for-byte.
     public static func read(contentsOf url: URL) throws -> String {
         let data = try coordinated(url) { try Data(contentsOf: $0) }

@@ -152,6 +152,20 @@ final class PhoneStore: ObservableObject {
         }
     }
 
+    /// Fetches the text of notes changed elsewhere as opening one does (a coordinated read,
+    /// which iCloud serves at once), rather than waiting for the requested download, which took
+    /// up to a minute. Then each is read again. Only notes that were here before: not the
+    /// thousands of a first sync.
+    private func fetchChanged(_ urls: Set<URL>) {
+        guard !urls.isEmpty, urls.count <= 50 else { return }
+        Task {
+            await Task.detached(priority: .userInitiated) {
+                for url in urls { NoteReader.fetch(url) }
+            }.value
+            refresh(urls)
+        }
+    }
+
     /// Asks iCloud for the notes not on the phone yet, and looks again in a few seconds (the
     /// presenter hears of most arrivals; this catches any it doesn't).
     private func requestDownloads(_ scanned: [Note]) {
@@ -262,6 +276,8 @@ final class PhoneStore: ObservableObject {
         let vanished = notes.filter { !scannedIDs.contains($0.id) }
         var unmatched: [Note] = []
         var titles: [Note.ID: String] = [:]
+        // Notes that were here and changed elsewhere, their text not here yet: fetched now.
+        var fetchNow: Set<URL> = []
         for gone in vanished + vanishedBefore.filter({ !scannedIDs.contains($0.id) }) {
             guard let index = appeared.firstIndex(where: { Self.isSameNote(gone, $0) }) else {
                 unmatched.append(gone)
@@ -269,7 +285,12 @@ final class PhoneStore: ObservableObject {
             }
             let new = appeared.remove(at: index)
             noteMovedElsewhere(from: gone.id, to: new)
-            titles[new.id] = gone.title
+            // Its title, while its text is on the way: the one it had if it's only moved (or
+            // its new name says the same), not if it was renamed for a new title (`…-test`).
+            if new.name == gone.name || NoteNames.renamed(gone.name, to: gone.title) == new.name {
+                titles[new.id] = gone.title
+            }
+            if gone.isDownloaded, !new.isDownloaded { fetchNow.insert(new.url) }
         }
         vanishedBefore = unmatched.filter { before[$0.id] != nil }
         // How long changes from elsewhere take to reach the phone: each note found changed, and
@@ -300,6 +321,8 @@ final class PhoneStore: ObservableObject {
         }
         if scanned != notes { notes = scanned }
         hasScanned = true
+        for note in scanned where !note.isDownloaded && before[note.id]?.isDownloaded == true { fetchNow.insert(note.url) }
+        fetchChanged(fetchNow)
         requestDownloads(scanned)
         NotificationCenter.default.post(name: .phoneVaultScanned, object: self, userInfo: ["appeared": appearedNow])
         // Once a launch, every note checked for conflict versions iCloud kept while one of the
