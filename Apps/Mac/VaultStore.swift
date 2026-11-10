@@ -114,8 +114,10 @@ final class VaultStore: ObservableObject {
             NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: nil) { [weak self] _ in
                 Task { @MainActor in
                     if self?.watcher?.isWatching == false { self?.missedChanges() }
-                    // Kinds are edited by hand, in another app, so they're read again on coming back.
+                    // Kinds are edited by hand, in another app, so they're read again on coming back;
+                    // bookmarks change on the iPhone.
                     self?.loadKinds()
+                    self?.loadBookmarks()
                 }
             },
         ]
@@ -196,6 +198,7 @@ final class VaultStore: ObservableObject {
             notes = scanned.notes.sorted(by: sort)
             forgetDeletedNotes()
             propertyTypes = PropertyTypes.load(vault: root) // Obsidian may have changed them.
+            loadBookmarks() // The iPhone may have.
             errorMessage = nil
             refreshTags()
             updateIndex()
@@ -246,7 +249,8 @@ final class VaultStore: ObservableObject {
         valueListCache = [:]
         tagTree = TagTree(tagsByNote: [])
         pins = (UserDefaults.standard.stringArray(forKey: "pins." + Self.vaultKey(url)) ?? []).compactMap(SidebarPlace.init(key:))
-        bookmarks = UserDefaults.standard.stringArray(forKey: "bookmarks." + Self.vaultKey(url)) ?? []
+        moveBookmarksIntoVault(url)
+        loadBookmarks()
         openIndex(for: url)
         openSearchHistory(for: url)
         watcher = VaultWatcher(root: url, onChange: { [weak self] urls in
@@ -466,9 +470,13 @@ final class VaultStore: ObservableObject {
         if pendingOpen?.id == note.id { pendingOpen?.id = newID }
         saveSearchHistory()
         // A bookmark follows its note.
-        if let index = bookmarks.firstIndex(of: note.id) {
-            bookmarks[index] = newID
-            saveBookmarks()
+        if bookmarks.contains(note.id), let root {
+            do {
+                try ObsidianBookmarks.rename(note.id, to: newID, vault: root)
+            } catch {
+                NSLog("Point: couldn't move the bookmark of \(note.id): \(error.localizedDescription)")
+            }
+            loadBookmarks()
         }
         NotificationCenter.default.post(name: .pointNoteMoved, object: self, userInfo: ["old": note.id, "new": newID])
     }
@@ -1955,8 +1963,9 @@ final class VaultStore: ObservableObject {
         return Array((starting.sorted() + containing.sorted()).prefix(6))
     }
 
-    /// Notes bookmarked, in the order they were bookmarked, for the vault. Kept by ID, so a
-    /// bookmark to a note moved outside Point (or deleted) is simply not listed.
+    /// Notes bookmarked, in their order: Obsidian's bookmarks (`.obsidian/bookmarks.json`), so
+    /// the iPhone (and Obsidian) have the same ones. Kept by path, so a bookmark to a note moved
+    /// outside Point (or deleted) is simply not listed.
     @Published private(set) var bookmarks: [Note.ID] = []
 
     /// The bookmarked notes that exist.
@@ -1968,12 +1977,37 @@ final class VaultStore: ObservableObject {
     func isBookmarked(_ id: Note.ID) -> Bool { bookmarks.contains(id) }
 
     func toggleBookmark(_ id: Note.ID) {
-        if let index = bookmarks.firstIndex(of: id) { bookmarks.remove(at: index) } else { bookmarks.append(id) }
-        saveBookmarks()
+        guard let root else { return }
+        do {
+            if isBookmarked(id) {
+                try ObsidianBookmarks.remove(id, vault: root)
+            } else {
+                try ObsidianBookmarks.add(id, vault: root)
+            }
+        } catch {
+            Self.showProblem("Couldn’t change the bookmark", error)
+        }
+        loadBookmarks()
     }
 
-    private func saveBookmarks() {
-        if let root { UserDefaults.standard.set(bookmarks, forKey: "bookmarks." + Self.vaultKey(root)) }
+    /// Reads the vault's bookmarks again (a cheap read of one small file).
+    private func loadBookmarks() {
+        guard let root else { return }
+        let loaded = ObsidianBookmarks.load(vault: root).map(\.path)
+        if loaded != bookmarks { bookmarks = loaded }
+    }
+
+    /// Bookmarks Point kept on this Mac alone (before 10 November 2026), added to the vault's
+    /// once, after any already there, then forgotten here.
+    private func moveBookmarksIntoVault(_ root: URL) {
+        let key = "bookmarks." + Self.vaultKey(root)
+        guard let kept = UserDefaults.standard.stringArray(forKey: key) else { return }
+        do {
+            for id in kept { try ObsidianBookmarks.add(id, vault: root) }
+            UserDefaults.standard.removeObject(forKey: key)
+        } catch {
+            NSLog("Point: couldn't move this Mac's bookmarks into the vault: \(error.localizedDescription)")
+        }
     }
 
     func togglePin(_ place: SidebarPlace) {
