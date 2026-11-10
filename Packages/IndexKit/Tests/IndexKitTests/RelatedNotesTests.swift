@@ -96,4 +96,14 @@ struct RelatedNotesTests {
         #expect(empty.readout(ownType: nil, unlinkedMentions: 0) == nil)
         #expect(empty.isEmpty)
     }
+
+    @Test func aGroupOfMixedTypesIsNotes() {
+        let links = ["Book", "Podcast", "Video"].enumerated().map { index, type in
+            var link = Backlink(noteID: "\(index).md", title: "\(index)", context: "", properties: ["related"])
+            link.type = type
+            return link
+        }
+        #expect(RelatedNotes.commonType(of: links) == nil)
+        #expect(RelatedNotes.commonType(of: links + [links[0], links[0]]) == "Book")
+    }
 }

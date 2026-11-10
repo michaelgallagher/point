@@ -176,10 +176,13 @@ public struct RelatedNotes: Sendable, Equatable {
         }
     }
 
-    /// The type most of these have, if any do.
+    /// The type more than half of these have, if one does ("notes" otherwise: five of five
+    /// kinds aren't "books").
     static func commonType(of backlinks: [Backlink]) -> String? {
         var counts: [String: Int] = [:]
         for type in backlinks.compactMap(\.type) { counts[type, default: 0] += 1 }
-        return counts.max { $0.value != $1.value ? $0.value < $1.value : $0.key > $1.key }?.key
+        guard let top = counts.max(by: { $0.value != $1.value ? $0.value < $1.value : $0.key > $1.key }),
+              top.value * 2 > backlinks.count else { return nil }
+        return top.key
     }
 }

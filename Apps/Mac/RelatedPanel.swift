@@ -473,28 +473,49 @@ struct RelatedSlideUp: View {
     @State private var dragHeight: CGFloat?
     @State private var dragStart: CGFloat?
     @State private var isScrolled = false
+    /// Whether it's there at all (also while sliding away), and whether it's up. It slides as
+    /// one, by its own animation: opened from the note's header (a view of its own, which
+    /// doesn't animate), a transition moved only the list, and nothing moved on the way out.
+    @State private var isPresent = false
+    @State private var isUp = false
 
     var body: some View {
         GeometryReader { geometry in
             let room = Self.room(in: geometry.size.height, topBarCover: topBarCover)
             let height = min(dragHeight ?? CGFloat(storedHeight), room)
             ZStack(alignment: .bottom) {
-                // Out of the way for a note with nothing related (it has no readout to close it
-                // with); back for the next one that has.
-                if model.isLinksPanelOpen(paneID), !isEmpty {
+                if isPresent {
                     panel(height: height, room: room)
-                        .transition(.move(edge: .bottom))
+                        .offset(y: isUp ? 0 : height + 2)
+                        .allowsHitTesting(isUp)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             .clipped()
         }
-        #if DEBUG
+        // Open already, from note to note: there at once.
         .onAppear {
+            isPresent = wantsOpen
+            isUp = wantsOpen
+            #if DEBUG
             if UserDefaults.standard.bool(forKey: "PointShowLinks") { model.setLinksPanelOpen(true, for: paneID) }
+            #endif
         }
-        #endif
+        .onChange(of: wantsOpen) { open in
+            if open {
+                isPresent = true
+                // Laid out below first, then up.
+                DispatchQueue.main.async { withAnimation(RelatedPanel.animation) { isUp = true } }
+            } else {
+                withAnimation(RelatedPanel.animation) { isUp = false }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { if !wantsOpen { isPresent = false } }
+            }
+        }
     }
+
+    /// Out of the way for a note with nothing related (it has no readout to close it with);
+    /// back for the next one that has.
+    private var wantsOpen: Bool { model.isLinksPanelOpen(paneID) && !isEmpty }
 
     private var isEmpty: Bool { connections.isLoaded && connections.related.isEmpty && connections.mentions.isEmpty }
 
@@ -506,26 +527,27 @@ struct RelatedSlideUp: View {
     private func panel(height: CGFloat, room: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .topTrailing) {
-                // In the note's column, as the list is.
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text(RelatedPanel.title)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .fixedSize()
-                        .frame(height: 28)
-                    if !connections.related.types.isEmpty {
-                        TypeChips(types: connections.related.types, selection: $connections.type)
-                            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
-                            .padding(.top, 3)
+                // In the note's column, as the list is. The chips beside the title while they
+                // fit on its line; narrower, on rows of their own below it.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .center, spacing: 12) {
+                        title
+                        chips.fixedSize()
+                        Spacer(minLength: 0)
                     }
-                    Spacer(minLength: 0)
+                    VStack(alignment: .leading, spacing: 4) {
+                        title
+                        chips
+                    }
+                    .padding(.bottom, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(.horizontal, 16) // Lined up with the rows' text, and the note's.
                 .modifier(Column(width: columnWidth, trailingRoom: 40))
                 BarButton("Close", systemImage: "xmark", help: "Close related notes (Escape)") {
-                    withAnimation(RelatedPanel.animation) { model.setLinksPanelOpen(false, for: paneID) }
+                    model.setLinksPanelOpen(false, for: paneID)
                 }
-                .keyboardShortcut(.cancelAction) // Escape
+                .modifier(EscapeCloses(isOn: isUp))
                 .padding(.trailing, TopBar.buttonSpacing)
             }
             .padding(.top, 10)
@@ -539,6 +561,29 @@ struct RelatedSlideUp: View {
         .frame(height: height, alignment: .top)
         .background(Color(nsColor: .textBackgroundColor))
         .overlay(alignment: .top) { edge(height: height, room: room) }
+    }
+
+    private var title: some View {
+        Text(RelatedPanel.title)
+            .font(.headline)
+            .lineLimit(1)
+            .fixedSize()
+            .frame(height: 28)
+    }
+
+    @ViewBuilder private var chips: some View {
+        if !connections.related.types.isEmpty {
+            TypeChips(types: connections.related.types, selection: $connections.type)
+        }
+    }
+
+    /// Escape closes it while it's up (not while it's sliding away, or Escape would be taken
+    /// from the note).
+    private struct EscapeCloses: ViewModifier {
+        let isOn: Bool
+        func body(content: Content) -> some View {
+            if isOn { content.keyboardShortcut(.cancelAction) } else { content }
+        }
     }
 
     /// No wider than the note's text, lined up with it (the rows' text with the note's: they're

@@ -229,7 +229,6 @@ struct PaneTabs: View {
                                 help: tab.noteID ?? "",
                                 isCurrent: index == pane.current,
                                 isActiveSide: paneIndex == model.activePane,
-                                marksTarget: model.isSplit && paneIndex == model.activePane,
                                 showsLine: index + 1 < pane.tabs.count && index != pane.current && index + 1 != pane.current,
                                 width: widths[index],
                                 select: { model.selectTab(index, inPane: paneIndex) },
@@ -282,8 +281,6 @@ private struct PaneTab: View {
     let isCurrent: Bool
     /// False on the side of a split not being worked on, whose current tab is less raised.
     let isActiveSide: Bool
-    /// In a split, the side notes will open into: its current tab's title in the accent colour.
-    var marksTarget = false
     /// Whether to draw the line after this tab.
     let showsLine: Bool
     let width: CGFloat
@@ -305,8 +302,7 @@ private struct PaneTab: View {
     var body: some View {
         Text(title)
             .font(.system(size: Self.fontSize))
-            .foregroundStyle(isCurrent && marksTarget ? AnyShapeStyle(Color.accentColor)
-                             : (isCurrent && isActiveSide) || isHovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+            .foregroundStyle((isCurrent && isActiveSide) || isHovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
             .lineLimit(1)
             .padding(.horizontal, Self.padding)
             .frame(width: width, height: Self.height)
@@ -652,10 +648,14 @@ struct BarMenu: View {
 
     var body: some View {
         if #available(macOS 26, *) {
-            // The system's own glass pull-down button: macOS places its menu and grows it out
-            // of the button, as in its own apps.
-            GlassPullDown(title: title, systemImage: systemImage, help: help, opensUpward: opensUpward, menu: menu)
-                .frame(width: 36, height: 36)
+            // Drawn as the other bar buttons are; over it, an invisible system pull-down takes
+            // the click, so macOS places the menu and opens it from the button. (The pull-down's
+            // own glass bezel isn't the bar buttons' glass: it drew as a flat grey circle.)
+            BarButton(title, systemImage: systemImage, help: help) {}
+                .allowsHitTesting(false)
+                .overlay {
+                    GlassPullDown(title: title, systemImage: systemImage, help: help, opensUpward: opensUpward, menu: menu)
+                }
         } else {
             popUpButton
         }
@@ -674,7 +674,8 @@ struct BarMenu: View {
     }
 }
 
-/// A round glass pull-down button (`NSPopUpButton`), its menu made afresh each time it opens.
+/// An invisible pull-down button (`NSPopUpButton`) over a bar button's face, its menu made
+/// afresh each time it opens.
 @available(macOS 26, *)
 private struct GlassPullDown: NSViewRepresentable {
     let title: String
@@ -685,10 +686,9 @@ private struct GlassPullDown: NSViewRepresentable {
 
     func makeNSView(context: Context) -> Button {
         let button = Button(frame: .zero, pullsDown: true)
-        button.bezelStyle = .glass
-        button.borderShape = .circle
-        button.controlSize = .large
-        button.imagePosition = .imageOnly
+        button.isBordered = false
+        button.isTransparent = true
+        button.imagePosition = .noImage
         button.setAccessibilityLabel(title)
         (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
         button.focusRingType = .none
@@ -698,26 +698,22 @@ private struct GlassPullDown: NSViewRepresentable {
     func updateNSView(_ button: Button, context: Context) {
         button.makeMenu = menu
         button.toolTip = help
-        button.symbol = NSImage(systemSymbolName: systemImage, accessibilityDescription: title)?
-            .withSymbolConfiguration(.init(pointSize: 15, weight: .regular))
         button.preferredEdge = opensUpward ? .maxY : .minY
         button.refreshMenu()
     }
 
     final class Button: NSPopUpButton {
         var makeMenu: () -> NSMenu = { NSMenu() }
-        var symbol: NSImage?
 
         // In the title bar's area the window would take the click and move itself.
         override var mouseDownCanMoveWindow: Bool { false }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-        /// A pull-down shows its first item as the button and leaves it out of the menu: the
-        /// icon goes there, and the real items after it.
+        /// A pull-down shows its first item as the button and leaves it out of the menu: an
+        /// empty one goes there (the face is drawn beneath), and the real items after it.
         func refreshMenu() {
             let menu = makeMenu()
             let face = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-            face.image = symbol
             menu.insertItem(face, at: 0)
             self.menu = menu
         }
