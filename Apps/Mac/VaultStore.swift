@@ -515,17 +515,24 @@ final class VaultStore: ObservableObject {
         }
     }
 
-    /// When each note in the trash was deleted, and where from, by its name there. Kept by
-    /// the app, per vault, not in the vault.
+    /// When each note in the trash was deleted, and where from, by its name there: in the
+    /// vault for those Point deleted, so the iPhone puts them back where they were too.
     private var trashRecords: [String: VaultTrash.Record] {
-        get {
-            guard let root, let data = UserDefaults.standard.data(forKey: "trash." + Self.vaultKey(root)) else { return [:] }
-            return (try? JSONDecoder().decode([String: VaultTrash.Record].self, from: data)) ?? [:]
-        }
+        get { trashBook?.all ?? [:] }
         set {
-            guard let root else { return }
-            UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: "trash." + Self.vaultKey(root))
+            do {
+                try trashBook?.set(newValue)
+            } catch {
+                NSLog("Point: couldn't keep the trash's records: \(error.localizedDescription)")
+            }
         }
+    }
+
+    private var trashBook: TrashRecords? {
+        guard let root else { return nil }
+        let key = "trash." + Self.vaultKey(root)
+        return TrashRecords(root: root, loadLocal: { UserDefaults.standard.data(forKey: key) },
+                            saveLocal: { UserDefaults.standard.set($0, forKey: key) })
     }
 
     /// Lists the trash, removing for good the notes Point deleted longer ago than the set
@@ -533,6 +540,7 @@ final class VaultStore: ObservableObject {
     /// emptied, as they would in Obsidian. A note that can't be removed stays listed.
     func refreshTrash() {
         guard let root else { return trashedNotes = [] }
+        trashBook?.shareOwn()
         var records = trashRecords
         let now = Date()
         let cutoff = now.addingTimeInterval(-Double(max(trashRetentionDays, 1)) * 86_400)
@@ -552,9 +560,10 @@ final class VaultStore: ObservableObject {
             if records[item.name] == nil { records[item.name] = VaultTrash.Record(deleted: now, folder: item.folder ?? "", deletedByPoint: false) }
             items.append(item)
         }
-        // Forget notes no longer there (emptied or put back elsewhere).
+        // Forget notes no longer there (emptied or put back elsewhere): those deleted on another
+        // device in the last week once they've had time to arrive.
         let names = Set(items.map(\.name))
-        records = records.filter { names.contains($0.key) }
+        records = records.filter { names.contains($0.key) || ($0.value.deletedByPoint && $0.value.deleted > now.addingTimeInterval(-7 * 86_400)) }
         if records != trashRecords { trashRecords = records }
         if items != trashedNotes { trashedNotes = items }
     }
