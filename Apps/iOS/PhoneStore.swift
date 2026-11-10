@@ -81,7 +81,7 @@ final class PhoneStore: ObservableObject {
         }
         Task { await reload() }
         // Changes from elsewhere (the Mac, through iCloud) and notes arriving: read again.
-        presenter = VaultPresenter(root: root, changed: { [weak self] in self?.refresh() },
+        presenter = VaultPresenter(root: root, changed: { [weak self] urls in self?.refresh(urls) },
                                    conflicted: { [weak self] url in self?.surfaceConflicts([url]) })
         becameActive = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil,
                                                               queue: .main) { [weak self] _ in
@@ -140,10 +140,16 @@ final class PhoneStore: ObservableObject {
         downloadCheck?.cancel()
     }
 
-    /// Reads the vault again, in the background, once it's been read since launch.
-    func refresh() {
+    /// Reads the vault again, in the background, once it's been read since launch: only the
+    /// files given, if they are (those the presenter heard of), else all of it.
+    func refresh(_ urls: Set<URL>? = nil) {
         guard hasScanned, presenter != nil else { return }
-        Task { await reload() }
+        if let urls {
+            guard !urls.isEmpty else { return }
+            Task { await read(files: urls) }
+        } else {
+            Task { await reload() }
+        }
     }
 
     /// Asks iCloud for the notes not on the phone yet, and looks again in a few seconds (the
@@ -161,16 +167,19 @@ final class PhoneStore: ObservableObject {
         }
         downloadCheck?.cancel()
         guard !waiting.isEmpty else { return }
+        let urls = Set(waiting.map(\.url))
         downloadCheck = Task { [weak self] in
             try? await Task.sleep(for: .seconds(5))
             guard !Task.isCancelled else { return }
-            self?.refresh()
+            self?.refresh(urls)
         }
     }
 
-    /// The read under way, if one is, and whether another is wanted after it.
+    /// The read under way, if one is, and what the next is to look at: all of the vault, or
+    /// only these files.
     private var reloading: Task<Void, Never>?
-    private var reloadsAgain = false
+    private var pendingAll = false
+    private var pendingFiles: Set<URL> = []
 
     /// Notes renamed while the app's open, old ID to new, so a screen opened under the old
     /// one (navigation keeps the ID it was given) still finds its note.
@@ -186,24 +195,33 @@ final class PhoneStore: ObservableObject {
 
     /// Scans the folder again, and brings the search index up to date behind it. One read at a
     /// time: asked for during one, another follows it, and both callers wait for that.
-    func reload() async {
-        if let reloading {
-            reloadsAgain = true
-            return await reloading.value
-        }
+    func reload() async { await read(all: true) }
+
+    private func read(all: Bool = false, files: Set<URL> = []) async {
+        if all { pendingAll = true } else { pendingFiles.formUnion(files) }
+        if let reloading { return await reloading.value }
         let task = Task { [weak self] in
             guard let self else { return }
-            repeat {
-                reloadsAgain = false
-                await scan()
-            } while reloadsAgain
+            while pendingAll || !pendingFiles.isEmpty {
+                if pendingAll {
+                    pendingAll = false
+                    pendingFiles = []
+                    await scan()
+                } else {
+                    let files = pendingFiles
+                    pendingFiles = []
+                    await scan(only: files)
+                }
+            }
             reloading = nil
         }
         reloading = task
         await task.value
     }
 
-    private func scan() async {
+    /// Reads the vault (or only `files`, those heard of as changed: a few milliseconds, where
+    /// all of it takes seconds in iCloud Drive), and brings everything up to date behind it.
+    private func scan(only files: Set<URL>? = nil) async {
         let root = root
         let start = CACurrentMediaTime()
         // On the first read, the tags and properties the index had last time are read beside the
@@ -212,15 +230,28 @@ final class PhoneStore: ObservableObject {
             Task { (try? await index.tagsByNote(), try? await index.propertyNames()) }
         }
         let notesAtStart = notes
-        let result = try? await Task.detached(priority: .userInitiated) { try VaultScanner.scanAll(root) }.value
+        let listed: [Note]
+        var result: VaultScanner.Scan?
+        if let files {
+            guard let changed = await Task.detached(priority: .userInitiated, operation: {
+                VaultScanner.rescan(files, in: root, notes: notesAtStart)
+            }).value else {
+                pendingAll = true // A folder or an image: all of it.
+                return
+            }
+            listed = changed
+        } else {
+            result = try? await Task.detached(priority: .userInitiated) { try VaultScanner.quickScan(root) }.value
+            listed = result?.notes ?? []
+        }
         // A note made, renamed or moved here while the folder was being read: read it again,
         // rather than put back the list from before (a new note's screen went blank as it was
         // named, its new name not in the list).
         if notes != notesAtStart {
-            reloadsAgain = true
+            if let files { pendingFiles.formUnion(files) } else { pendingAll = true }
             return
         }
-        var scanned = result?.notes ?? []
+        var scanned = listed
         let before = Dictionary(notes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let scannedIDs = Set(scanned.map(\.id))
         // Notes not there last time, and those gone: renamed or moved on another device, the
@@ -286,7 +317,7 @@ final class PhoneStore: ObservableObject {
             if history != known { historyFile.save(history) }
         }
         if let images = result?.images, images != embeds.images { embeds.images = images }
-        folders = (result?.folders ?? []).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        if let result { folders = result.folders.sorted { $0.localizedStandardCompare($1) == .orderedAscending } }
         bookmarks = ObsidianBookmarks.load(vault: root)
         propertyTypes = PropertyTypes.load(vault: root)
         pointTypes = PointTypes.load(vault: root)
@@ -304,7 +335,8 @@ final class PhoneStore: ObservableObject {
             isReady = true
             PhoneVault.log("ready \(Int((CACurrentMediaTime() - PhoneVault.launched) * 1000)) ms after launch")
         }
-        PhoneVault.log("scanned \(scanned.count) notes in \(Int((CACurrentMediaTime() - start) * 1000)) ms")
+        PhoneVault.log((files.map { "read \($0.count) changed files" } ?? "scanned \(scanned.count) notes")
+                       + " in \(Int((CACurrentMediaTime() - start) * 1000)) ms")
         guard let index else { return }
         let indexStart = CACurrentMediaTime()
         let changed = (try? await index.update(notes: scanned)) ?? 0

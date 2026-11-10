@@ -97,16 +97,18 @@ extension Notification.Name {
 
 /// Told by the system when anything in the vault's folder changes: a note edited on the Mac
 /// arriving through iCloud, or a download finishing. `changed` is called on the main queue,
-/// at most once a second. `conflicted`, at once, with a note iCloud has found changed on two
-/// devices before either synced.
+/// at most once a second, with the files changed since (nil: the folder itself, so anything).
+/// `conflicted`, at once, with a note iCloud has found changed on two devices before either synced.
 final class VaultPresenter: NSObject, NSFilePresenter, @unchecked Sendable {
     let presentedItemURL: URL?
     let presentedItemOperationQueue: OperationQueue = .main
-    private let changed: @MainActor () -> Void
+    private let changed: @MainActor (Set<URL>?) -> Void
     private let conflicted: @MainActor (URL) -> Void
     private var pending: DispatchWorkItem?
+    /// The files heard of since `changed` was last called; nil once the folder itself is.
+    private var urls: Set<URL>? = []
 
-    init(root: URL, changed: @escaping @MainActor () -> Void, conflicted: @escaping @MainActor (URL) -> Void) {
+    init(root: URL, changed: @escaping @MainActor (Set<URL>?) -> Void, conflicted: @escaping @MainActor (URL) -> Void) {
         presentedItemURL = root
         self.changed = changed
         self.conflicted = conflicted
@@ -116,23 +118,28 @@ final class VaultPresenter: NSObject, NSFilePresenter, @unchecked Sendable {
 
     func stop() { NSFileCoordinator.removeFilePresenter(self) }
 
-    func presentedSubitemDidChange(at url: URL) { schedule() }
-    func presentedSubitemDidAppear(at url: URL) { schedule() }
-    func presentedSubitem(at oldURL: URL, didMoveTo newURL: URL) { schedule() }
-    func presentedItemDidChange() { schedule() }
+    func presentedSubitemDidChange(at url: URL) { schedule([url]) }
+    func presentedSubitemDidAppear(at url: URL) { schedule([url]) }
+    func presentedSubitem(at oldURL: URL, didMoveTo newURL: URL) { schedule([oldURL, newURL]) }
+    func presentedItemDidChange() { schedule(nil) }
     func presentedSubitem(at url: URL, didGain version: NSFileVersion) {
         if version.isConflict { MainActor.assumeIsolated { conflicted(url) } }
-        schedule()
+        schedule([url])
     }
     func accommodatePresentedSubitemDeletion(at url: URL, completionHandler: @escaping @Sendable (Error?) -> Void) {
         completionHandler(nil)
-        schedule()
+        schedule([url])
     }
 
-    private func schedule() {
+    private func schedule(_ changedURLs: Set<URL>?) {
+        if let changedURLs { urls?.formUnion(changedURLs) } else { urls = nil }
         pending?.cancel()
-        let changed = changed
-        let work = DispatchWorkItem { MainActor.assumeIsolated { changed() } }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            let heard = urls
+            urls = []
+            MainActor.assumeIsolated { changed(heard) }
+        }
         pending = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: work)
     }
