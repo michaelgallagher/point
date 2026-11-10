@@ -29,6 +29,7 @@ final class Connections: ObservableObject {
     private var sharedIDs: [Note.ID] = []
     private var sharedValues: [Note.ID: [String: [String]]] = [:]
     private var placement = RelatedNotes.Placement.current
+    private var isOff = LinksPlacement.current == .off
     private weak var model: VaultModel?
     private var refreshTask: Task<Void, Never>?
 
@@ -46,7 +47,13 @@ final class Connections: ObservableObject {
 
     @objc private func defaultsChanged() {
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.placement != RelatedNotes.Placement.current else { return }
+            guard let self else { return }
+            let isOff = LinksPlacement.current == .off
+            if isOff != self.isOff {
+                self.isOff = isOff
+                if !isOff { self.refresh() }
+            }
+            guard self.placement != RelatedNotes.Placement.current else { return }
             self.placement = RelatedNotes.Placement.current
             self.rebuild()
         }
@@ -74,7 +81,8 @@ final class Connections: ObservableObject {
         refreshTask?.cancel()
         refreshTask = Task { [weak self] in
             if delay > 0 { try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
-            guard let self, let model = self.model, let index = model.index, !Task.isCancelled else { return }
+            // Turned off in Settings: nothing asked of the index.
+            guard let self, !self.isOff, let model = self.model, let index = model.index, !Task.isCancelled else { return }
             let notes = model.notes
             let note = self.note
             let typeProperty = model.store.kinds.property
@@ -151,27 +159,31 @@ extension RelatedNotes.Placement {
     @MainActor static var current: Self { Self(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .shared }
     var title: String {
         switch self {
-        case .shared: "With the notes sharing topics or people"
-        case .links: "With the links, by what they are"
+        case .shared: "As part of topics"
+        case .links: "As part of backlinks"
         }
     }
 }
 
 /// Where the related notes show, chosen in Settings › Notes.
 enum LinksPlacement: String, CaseIterable, Identifiable {
+    /// A panel sliding up over the note's bottom, the note above it scrolling as ever.
+    case bottom
     /// A panel at the right of a side of the window that pushes the note over, as the sidebar
     /// does on the left.
     case side
-    /// A panel sliding up over the note's bottom, the note above it scrolling as ever.
-    case bottom
+    /// Not at all: no readout, no panel, and nothing asked of the index for them.
+    case off
     var id: Self { self }
     var title: String {
         switch self {
-        case .side: "Panel at the side"
-        case .bottom: "Panel sliding up from the bottom"
+        case .bottom: "Bottom"
+        case .side: "Side"
+        case .off: "Do not show"
         }
     }
     static let key = "linksPlacement"
+    @MainActor static var current: Self { Self(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? defaultValue }
     static let defaultValue = LinksPlacement.bottom
     /// Whether the panel is open, in every window, until closed.
     static let sidePanelKey = "showsLinksPanel"
@@ -197,9 +209,10 @@ struct RelatedReadout: View {
     let paneID: VaultModel.NotePane.ID
     /// Alone under the title, not in the properties: spaced as they'd be.
     var standalone = false
+    @AppStorage(LinksPlacement.key) private var placement = LinksPlacement.defaultValue
 
     var body: some View {
-        if let readout = connections.readout {
+        if placement != .off, let readout = connections.readout {
             let isOpen = model.isLinksPanelOpen(paneID)
             Button {
                 withAnimation(RelatedPanel.animation) { model.setLinksPanelOpen(!isOpen, for: paneID) }
@@ -433,6 +446,18 @@ enum RelatedPanel {
     static let empty = "Nothing related to this note yet."
 }
 
+/// A one-pixel line in the separator colour, as under the window's bars (a `Divider` is a
+/// point, so darker).
+private struct Hairline: View {
+    @Environment(\.displayScale) private var displayScale
+    var body: some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(height: 1 / max(displayScale, 1))
+            .frame(maxWidth: .infinity)
+    }
+}
+
 /// The list scrolling under a header that gets a hairline once it has: the list's top is
 /// tracked in the scroll view's space.
 private struct ScrollingList<Content: View>: View {
@@ -551,7 +576,11 @@ struct RelatedSlideUp: View {
                 .padding(.trailing, TopBar.buttonSpacing)
             }
             .padding(.top, 10)
-            Divider().opacity(isScrolled ? 1 : 0)
+            // As wide as the list, a hairline as the bars' is.
+            Hairline()
+                .padding(.horizontal, 11)
+                .modifier(Column(width: columnWidth, trailingRoom: 0))
+                .opacity(isScrolled ? 1 : 0)
             ScrollingList(isScrolled: $isScrolled) {
                 RelatedList(connections: connections, paneID: paneID)
                     .modifier(Column(width: columnWidth, trailingRoom: 0))
@@ -679,8 +708,16 @@ struct LinksSidePanel: View {
             .padding(.trailing, TopBar.buttonSpacing)
             .frame(height: model.topBarHeight)
             .background(WindowDragArea())
-            .background(Color(nsColor: .textBackgroundColor))
-            .overlay(alignment: .bottom) { Divider().opacity(isScrolled ? 1 : 0) }
+            // See-through, as the other bars are: once the list scrolls under it, it blurs
+            // it, with the bars' hairline below.
+            .background {
+                ZStack {
+                    Color(nsColor: .textBackgroundColor).opacity(isScrolled ? 0 : 1)
+                    Rectangle().fill(.bar).opacity(isScrolled ? 1 : 0)
+                }
+                .animation(.easeOut(duration: 0.15), value: isScrolled)
+            }
+            .overlay(alignment: .bottom) { Hairline().opacity(isScrolled ? 1 : 0) }
         }
         .frame(width: width)
         .frame(maxHeight: .infinity, alignment: .top)

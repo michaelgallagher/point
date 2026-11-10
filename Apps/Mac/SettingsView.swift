@@ -288,11 +288,13 @@ struct SettingsView: View {
             }
             TypographySettings(typography: $store.typography)
             Section("Related notes") {
-                Picker("Show related notes in", selection: $linksPlacement) {
+                Picker("Location", selection: $linksPlacement) {
                     ForEach(LinksPlacement.allCases) { Text($0.title).tag($0) }
                 }
-                Picker("A note linking here and sharing topics shows", selection: $relatedPlacement) {
-                    ForEach(RelatedNotes.Placement.allCases, id: \.self) { Text($0.title).tag($0) }
+                if linksPlacement != .off {
+                    Picker("Links with multiple connections", selection: $relatedPlacement) {
+                        ForEach(RelatedNotes.Placement.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
                 }
             }
             Section("Images") {
