@@ -101,7 +101,7 @@ private struct NoteHeader: View {
             VStack(alignment: .leading, spacing: 9) {
                 NotePath(note: session.note, model: model)
                 // Its file name, which can be edited here to rename the note.
-                TitleField(note: session.note, model: model)
+                TitleField(note: session.note, model: model, toText: { session.focusText() })
             }
             .padding(.top, 16)
             .padding(.bottom, shownFrontmatter == nil || model.showsMarkdown(inPane: paneID) ? 12 : 2)
@@ -174,10 +174,12 @@ private struct NotePath: View {
 }
 
 /// A note's title, editable: Return (or clicking away) renames the note, and its file, and
-/// updates links to it; Escape puts the title back.
+/// updates links to it; Escape puts the title back. A new note without a title opens with the
+/// keyboard here, the field empty, and Return goes on to the text.
 private struct TitleField: View {
     let note: Note
     @ObservedObject var model: VaultModel
+    let toText: () -> Void
     @State private var draft = ""
     @FocusState private var isEditing: Bool
 
@@ -188,7 +190,10 @@ private struct TitleField: View {
             .font(.system(size: 24 * model.textScale * model.store.typography.bodySize / 15, weight: .semibold))
             .lineLimit(1...3)
             .focused($isEditing)
-            .onSubmit { commit() }
+            .onSubmit {
+                commit()
+                toText()
+            }
             .onExitCommand {
                 draft = note.title
                 isEditing = false
@@ -196,7 +201,13 @@ private struct TitleField: View {
             .onChange(of: isEditing) { editing in
                 if !editing { commit() }
             }
-            .onAppear { draft = note.title }
+            .onAppear {
+                draft = note.title
+                guard model.namingNoteID == note.id else { return }
+                model.namingNoteID = nil
+                draft = ""
+                DispatchQueue.main.async { isEditing = true }
+            }
             .onChange(of: note.title) { title in
                 if !isEditing { draft = title }
             }
@@ -456,7 +467,9 @@ private struct EditorView: NSViewRepresentable {
         var isShown = false
         context.coordinator.placeKey = placeKey
         context.coordinator.model = model
-        session.attach(textView, takesFocus: !model.consumeListFocus() && isActivePane)
+        // A new note's title takes the keyboard instead (`TitleField`).
+        let isNaming = model.namingNoteID == session.note.id
+        session.attach(textView, takesFocus: !model.consumeListFocus() && isActivePane && !isNaming)
         if let selection = place?.selection, NSMaxRange(selection) <= (textView.string as NSString).length {
             textView.setSelectedRange(selection)
         }

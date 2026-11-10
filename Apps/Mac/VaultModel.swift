@@ -818,6 +818,10 @@ final class VaultModel: ObservableObject {
         selection = id
     }
 
+    /// A new note without a title, whose title takes the keyboard as it opens, rather than
+    /// its text: set as it's made, and taken by its title field.
+    var namingNoteID: Note.ID?
+
     /// Whether the editor opening now should leave the keyboard in the list (asked once).
     func consumeListFocus() -> Bool {
         defer { keepsListFocus = false }
@@ -922,6 +926,7 @@ final class VaultModel: ObservableObject {
         var folder = ""
         if case .folder(let path) = place { folder = path }
         guard let id = store.createNote(text: text, titled: title, inFolder: folder) else { return }
+        if title == nil { namingNoteID = id }
         // A new tab, unless this one is empty, and templates on offer until typing starts.
         freshNoteID = id
         if selection == nil { selection = id } else { newTab(noteID: id) }
@@ -1067,6 +1072,7 @@ final class VaultModel: ObservableObject {
         let template = url.flatMap { try? NoteReader.read(contentsOf: $0) } ?? ""
         let text = store.kinds.text(for: kind, from: Templates.render(template, title: "", settings: settings))
         guard let id = store.createNote(text: text, inFolder: kind.folder ?? "") else { return NSSound.beep() }
+        namingNoteID = id
         freshNoteID = nil
         if selection == nil { selection = id } else { newTab(noteID: id) }
     }

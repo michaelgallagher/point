@@ -140,6 +140,12 @@ final class EditorSession: NSObject, ObservableObject {
         }
     }
 
+    /// Gives the text the keyboard (Return in the title, say).
+    func focusText() {
+        guard let textView else { return }
+        textView.window?.makeFirstResponder(textView)
+    }
+
     // MARK: Showing a place in the note
 
     /// Places to show in notes about to open, by note: taken as each one's text view arrives.
