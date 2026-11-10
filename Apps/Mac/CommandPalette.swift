@@ -709,6 +709,7 @@ struct PaletteCommand {
                 ("Heading 5", "⌘5", #selector(MarkdownTextView.makeHeading5(_:))),
                 ("Heading 6", "⌘6", #selector(MarkdownTextView.makeHeading6(_:))),
                 ("Bulleted List", "⌘L", #selector(MarkdownTextView.toggleBulletList(_:))),
+                ("Numbered List", "⌥⌘L", #selector(MarkdownTextView.toggleNumberedList(_:))),
                 ("Checklist", "⇧⌘L", #selector(MarkdownTextView.toggleChecklist(_:))),
                 ("Indent", "⌥⌘→", #selector(MarkdownTextView.indentLines(_:))),
                 ("Outdent", "⌥⌘←", #selector(MarkdownTextView.outdentLines(_:))),

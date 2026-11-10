@@ -320,6 +320,25 @@ public struct MarkdownEditing {
 
     public func toggleBulletList() -> MarkdownEdit? { toggleList(task: false) }
     public func toggleChecklist() -> MarkdownEdit? { toggleList(task: true) }
+    public func toggleNumberedList() -> MarkdownEdit? {
+        let lines = selectedLineRanges()
+        guard let first = lines.first else { return nil }
+        var above: LineParts?
+        if first.location > 0 {
+            var start = 0, end = 0, contentsEnd = 0
+            text.getLineStart(&start, end: &end, contentsEnd: &contentsEnd, for: NSRange(location: first.location - 1, length: 0))
+            above = parts(ofLineAt: NSRange(location: start, length: contentsEnd - start))
+        }
+        let all = lines.map { parts(ofLineAt: $0) }
+        var numbering = ListNumbering(lines: all.map { ($0.indent, $0.listMarker) }, above: above.map { ($0.indent, $0.listMarker) })
+        return rewriteSelectedLines { line in
+            var line = line
+            let (indent, marker) = numbering.next(indent: line.indent)
+            line.marker = marker
+            line.indent = indent
+            return line
+        }
+    }
 
     func toggleList(task: Bool) -> MarkdownEdit? {
         let lines = selectedLineRanges().map { parts(ofLineAt: $0) }
@@ -494,5 +513,28 @@ public struct MarkdownEditing {
             return MarkdownEdit(range: completion.range, replacement: replacement,
                                 selection: NSRange(location: completion.range.location + (replacement as NSString).length, length: 0))
         }
+    }
+}
+
+/// Numbered List's markers for the lines it's turning into (or out of) a numbered list, shared
+/// by both editors. Each indent level counts from 1, or on from a numbered item just above at
+/// the same level; going back out to a shallower level forgets the deeper counts.
+struct ListNumbering {
+    /// Whether every line is a numbered item already, so the command takes the numbers off.
+    let removing: Bool
+    private var counts: [String: Int] = [:]
+
+    init(lines: [(indent: String, marker: ListMarker?)], above: (indent: String, marker: ListMarker?)?) {
+        removing = lines.allSatisfy { if case .ordered? = $0.marker { true } else { false } }
+        if case .ordered(let number)? = above?.marker, let indent = above?.indent { counts[indent] = number + 1 }
+    }
+
+    /// The indent and marker for the next line, which has `indent` now.
+    mutating func next(indent: String) -> (indent: String, marker: String) {
+        guard !removing else { return ("", "") }
+        counts = counts.filter { $0.key.count <= indent.count }
+        let number = counts[indent] ?? 1
+        counts[indent] = number + 1
+        return (indent, "\(number). ")
     }
 }

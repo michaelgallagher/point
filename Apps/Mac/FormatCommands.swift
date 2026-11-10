@@ -26,6 +26,7 @@ struct FormatCommands: Commands {
             item(.heading6, #selector(MarkdownTextView.makeHeading6(_:)))
             Divider()
             item(.bulletList, #selector(MarkdownTextView.toggleBulletList(_:)))
+            item(.numberedList, #selector(MarkdownTextView.toggleNumberedList(_:)))
             item(.checklist, #selector(MarkdownTextView.toggleChecklist(_:)))
             item(.blockQuote, #selector(MarkdownTextView.toggleBlockQuote(_:)))
             item(.indent, #selector(MarkdownTextView.indentLines(_:)))

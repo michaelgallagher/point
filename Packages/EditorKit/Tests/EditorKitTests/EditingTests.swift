@@ -280,6 +280,20 @@ struct LineFormattingTests {
         #expect(view.string == "a\nb")
     }
 
+    @Test func numberedListsCountEachLevel() {
+        let view = editor("‹a\n\t- b\n\t- c\nd›")
+        view.toggleNumberedList(nil)
+        #expect(view.string == "1. a\n\t1. b\n\t2. c\n2. d")
+        view.toggleNumberedList(nil)
+        #expect(view.string == "a\nb\nc\nd")
+    }
+
+    @Test func numberedListCarriesOnFromTheItemAbove() {
+        let view = editor("1. one\n2. two\nthr|ee")
+        view.toggleNumberedList(nil)
+        #expect(marked(view) == "1. one\n2. two\n3. thr|ee")
+    }
+
     @Test func checklistReplacesABullet() {
         let view = editor("- it|em")
         view.toggleChecklist(nil)

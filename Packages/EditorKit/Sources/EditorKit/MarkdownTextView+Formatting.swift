@@ -181,6 +181,26 @@ extension MarkdownTextView {
 
     @objc public func toggleBulletList(_ sender: Any?) { toggleList(task: false) }
     @objc public func toggleChecklist(_ sender: Any?) { toggleList(task: true) }
+    @objc public func toggleNumberedList(_ sender: Any?) {
+        let lines = selectedLineRanges()
+        guard let first = lines.first else { return }
+        let text = string as NSString
+        var above: LineParts?
+        if first.location > 0 {
+            var start = 0, end = 0, contentsEnd = 0
+            text.getLineStart(&start, end: &end, contentsEnd: &contentsEnd, for: NSRange(location: first.location - 1, length: 0))
+            above = parts(ofLineAt: NSRange(location: start, length: contentsEnd - start))
+        }
+        let all = lines.map { parts(ofLineAt: $0) }
+        var numbering = ListNumbering(lines: all.map { ($0.indent, $0.listMarker) }, above: above.map { ($0.indent, $0.listMarker) })
+        rewriteSelectedLines { line in
+            var line = line
+            let (indent, marker) = numbering.next(indent: line.indent)
+            line.marker = marker
+            line.indent = indent
+            return line
+        }
+    }
 
     func toggleList(task: Bool) {
         let lines = selectedLineRanges().map { parts(ofLineAt: $0) }

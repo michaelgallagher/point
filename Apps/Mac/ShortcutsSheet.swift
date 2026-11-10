@@ -57,6 +57,7 @@ struct ShortcutsSheet: View {
             (.commands([.blockQuote]), "Block quote"),
             (.commands([.bodyText, .heading1, .heading6]), "Body text, headings 1 to 6"),
             (.commands([.bulletList]), "Bulleted list"),
+            (.commands([.numberedList]), "Numbered list"),
             (.commands([.checklist]), "Checklist"),
             (.commands([.highlightOrange, .highlightRed]), "Highlight a list item orange, red (the rest under Format › Highlight List Item)"),
             (.commands([.addLink]), "Add link"),

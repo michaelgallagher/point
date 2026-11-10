@@ -68,7 +68,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
     case enclosingFolder, topLevel, back, forward
     // Format
     case bold, italic, highlight, strikethrough, inlineCode, bodyText, heading1, heading2, heading3, heading4,
-         heading5, heading6, bulletList, checklist, blockQuote, indent, outdent, moveLineUp, moveLineDown, fold,
+         heading5, heading6, bulletList, numberedList, checklist, blockQuote, indent, outdent, moveLineUp, moveLineDown, fold,
          unfold, addCursorAbove, addCursorBelow, addNextMatch, addLink, insertTable, addProperty
     // Format › Highlight List Item, by colour name (see `MarkdownTextView.colourName`).
     case highlightOrange, highlightRed, highlightYellow, highlightGreen, highlightTeal, highlightPurple,
@@ -152,6 +152,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .heading5: "Heading 5"
         case .heading6: "Heading 6"
         case .bulletList: "Bulleted List"
+        case .numberedList: "Numbered List"
         case .checklist: "Checklist"
         case .blockQuote: "Block Quote"
         case .indent: "Indent"
@@ -242,6 +243,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .heading5: Shortcut("5")
         case .heading6: Shortcut("6")
         case .bulletList: Shortcut("l")
+        case .numberedList: Shortcut("l", option: true)
         case .checklist: Shortcut("l", shift: true)
         case .blockQuote: Shortcut("'")
         // ⌘← and ⌘→ stay as the system's start and end of line.

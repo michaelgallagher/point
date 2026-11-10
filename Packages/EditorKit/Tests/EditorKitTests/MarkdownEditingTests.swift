@@ -26,6 +26,7 @@ struct MarkdownEditingTests {
         Command(name: "quote", mac: { $0.toggleBlockQuote(nil) }, phone: { $0.toggleBlockQuote() }),
         Command(name: "bullets", mac: { $0.toggleBulletList(nil) }, phone: { $0.toggleBulletList() }),
         Command(name: "checklist", mac: { $0.toggleChecklist(nil) }, phone: { $0.toggleChecklist() }),
+        Command(name: "numbered", mac: { $0.toggleNumberedList(nil) }, phone: { $0.toggleNumberedList() }),
         Command(name: "indent", mac: { $0.indentLines(nil) }, phone: { $0.indent() }),
         Command(name: "outdent", mac: { $0.outdentLines(nil) }, phone: { $0.outdent() }),
         Command(name: "return", mac: { $0.insertNewline(nil) }, phone: { $0.newline() }),
