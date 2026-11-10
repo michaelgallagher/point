@@ -209,12 +209,44 @@ final class PhoneStore: ObservableObject {
         let early: Task<([Note.ID: [String]]?, [(name: String, count: Int)]?), Never>? = isReady ? nil : index.map { index in
             Task { (try? await index.tagsByNote(), try? await index.propertyNames()) }
         }
+        let notesAtStart = notes
         let result = try? await Task.detached(priority: .userInitiated) { try VaultScanner.scanAll(root) }.value
-        let scanned = result?.notes ?? []
-        // Notes not there last time: a note open here that's gone may be one of them, renamed
-        // or moved on the Mac.
-        let before = Set(notes.map(\.id))
-        let appeared = before.isEmpty ? [] : scanned.filter { !before.contains($0.id) }
+        // A note made, renamed or moved here while the folder was being read: read it again,
+        // rather than put back the list from before (a new note's screen went blank as it was
+        // named, its new name not in the list).
+        if notes != notesAtStart {
+            reloadsAgain = true
+            return
+        }
+        var scanned = result?.notes ?? []
+        let before = Dictionary(notes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let scannedIDs = Set(scanned.map(\.id))
+        // Notes not there last time, and those gone: renamed or moved on another device, the
+        // one is the other, and what's known about it here follows it (see `isSameNote`). A
+        // rename can arrive over two reads, so a note gone and not found waits one more.
+        let newlyAppeared = before.isEmpty ? [] : scanned.filter { before[$0.id] == nil }
+        var appeared = newlyAppeared + appearedBefore.filter { scannedIDs.contains($0.id) && before[$0.id] != nil }
+        let vanished = notes.filter { !scannedIDs.contains($0.id) }
+        var unmatched: [Note] = []
+        var titles: [Note.ID: String] = [:]
+        for gone in vanished + vanishedBefore.filter({ !scannedIDs.contains($0.id) }) {
+            guard let index = appeared.firstIndex(where: { Self.isSameNote(gone, $0) }) else {
+                unmatched.append(gone)
+                continue
+            }
+            let new = appeared.remove(at: index)
+            noteMovedElsewhere(from: gone.id, to: new)
+            titles[new.id] = gone.title
+        }
+        vanishedBefore = unmatched.filter { before[$0.id] != nil }
+        appearedBefore = newlyAppeared.filter { new in appeared.contains { $0.id == new.id } }
+        // A note iCloud hasn't brought yet has only its file name for a title (for a note Point
+        // named, its lowercase slug): the title it had is kept until its text arrives.
+        scanned = scanned.map { note in
+            guard !note.isDownloaded, let title = titles[note.id] ?? before[note.id]?.title, title != note.title else { return note }
+            return Note(id: note.id, url: note.url, title: title, modified: note.modified, created: note.created, isDownloaded: false)
+        }
+        let appearedNow = before.isEmpty ? [] : scanned.filter { before[$0.id] == nil }
         if let early {
             let (tags, names) = await early.value
             if let tags { tagsByNote = tags }
@@ -223,7 +255,7 @@ final class PhoneStore: ObservableObject {
         if scanned != notes { notes = scanned }
         hasScanned = true
         requestDownloads(scanned)
-        NotificationCenter.default.post(name: .phoneVaultScanned, object: self, userInfo: ["appeared": appeared])
+        NotificationCenter.default.post(name: .phoneVaultScanned, object: self, userInfo: ["appeared": appearedNow])
         // Once a launch, every note checked for conflict versions iCloud kept while one of the
         // devices was offline (those arriving later are heard of by the presenter).
         if !hasLookedForConflicts, !scanned.isEmpty, !PhoneVault.isOwnFolder {
@@ -231,11 +263,12 @@ final class PhoneStore: ObservableObject {
             surfaceConflicts(scanned.filter(\.isDownloaded).map(\.url))
         }
         // Notes that are gone take what was learned about them (not while the folder reads
-        // as empty, which is more likely unavailable for a moment).
+        // as empty, which is more likely unavailable for a moment), once they've had their
+        // chance to be found renamed.
         if !scanned.isEmpty {
-            let before = history
-            history.keepOnly(Set(scanned.map(\.id)))
-            if history != before { historyFile.save(history) }
+            let known = history
+            history.keepOnly(scannedIDs.union(vanishedBefore.map(\.id)))
+            if history != known { historyFile.save(history) }
         }
         if let images = result?.images, images != embeds.images { embeds.images = images }
         folders = (result?.folders ?? []).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
@@ -747,18 +780,29 @@ final class PhoneStore: ObservableObject {
     /// How long the notes Point deletes are kept, as on the Mac by default.
     static let keepsDeletedNotesDays = 30
 
-    /// When each note in the trash was deleted, and where from, by its name there.
+    /// When each note in the trash was deleted, and where from, by its name there: in the
+    /// vault for those Point deleted, so the Mac puts them back where they were too.
     private var trashRecords: [String: VaultTrash.Record] {
-        get {
-            guard let data = UserDefaults.standard.data(forKey: PhoneVault.defaultsKey("trashRecords")) else { return [:] }
-            return (try? JSONDecoder().decode([String: VaultTrash.Record].self, from: data)) ?? [:]
+        get { trashBook.all }
+        set {
+            do {
+                try trashBook.set(newValue)
+            } catch {
+                PhoneVault.log("couldn't keep the trash's records: \(error.localizedDescription)")
+            }
         }
-        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: PhoneVault.defaultsKey("trashRecords")) }
+    }
+
+    private var trashBook: TrashRecords {
+        let key = PhoneVault.defaultsKey("trashRecords")
+        return TrashRecords(root: root, loadLocal: { UserDefaults.standard.data(forKey: key) },
+                            saveLocal: { UserDefaults.standard.set($0, forKey: key) })
     }
 
     /// Lists the trash, removing for good the notes Point deleted more than 30 days ago, as the
     /// Mac does. Notes found there (put there by Obsidian, say) stay until it's emptied.
     func refreshTrash() {
+        trashBook.shareOwn()
         var records = trashRecords
         let now = Date()
         let cutoff = now.addingTimeInterval(-Double(Self.keepsDeletedNotesDays) * 86_400)
@@ -776,9 +820,10 @@ final class PhoneStore: ObservableObject {
         for item in items where records[item.name] == nil {
             records[item.name] = VaultTrash.Record(deleted: now, folder: item.folder ?? "", deletedByPoint: false)
         }
-        // Forget notes no longer there (emptied or put back elsewhere).
+        // Forget notes no longer there (emptied or put back elsewhere): those deleted on another
+        // device in the last week once they've had time to arrive.
         let names = Set(items.map(\.name))
-        records = records.filter { names.contains($0.key) }
+        records = records.filter { names.contains($0.key) || ($0.value.deletedByPoint && $0.value.deleted > now.addingTimeInterval(-7 * 86_400)) }
         if records != trashRecords { trashRecords = records }
         if items != deletedNotes { deletedNotes = items }
     }
@@ -815,10 +860,32 @@ final class PhoneStore: ObservableObject {
         }
     }
 
-    /// A note open here renamed or moved on another device: what it was known by follows it, as
-    /// for a rename here (the list already has it, from the scan; bookmarks, from the Mac).
+    /// Notes gone in the last read and not yet found renamed or moved, and those that appeared
+    /// in it and weren't one of them.
+    private var vanishedBefore: [Note] = []
+    private var appearedBefore: [Note] = []
+
+    /// Whether a note that's gone and one that's appeared are the same, renamed or moved on
+    /// another device: the same name in another folder, or another name in the same folder
+    /// made at the same moment (a rename keeps when a file was made).
+    static func isSameNote(_ gone: Note, _ new: Note) -> Bool {
+        let goneFolder = FolderTree.folder(of: gone.id)
+        let newFolder = FolderTree.folder(of: new.id)
+        if gone.url.lastPathComponent == new.url.lastPathComponent { return goneFolder != newFolder }
+        return goneFolder == newFolder && abs(gone.created.timeIntervalSince(new.created)) < 1
+    }
+
+    /// A note renamed or moved on another device: what it was known by follows it, as for a
+    /// rename here (the list already has it, from the scan; bookmarks, from the Mac).
     func noteMovedElsewhere(from id: Note.ID, to note: Note) {
+        guard id != note.id else { return }
         renamedIDs[id] = note.id
+        if untitled.contains(id) {
+            let start = startingTexts[id]
+            untitled.remove(id)
+            untitled.insert(note.id)
+            startingTexts[note.id] = start
+        }
         history.renamed(from: id, to: note.id)
         historyFile.save(history)
         if UserDefaults.standard.string(forKey: PhoneVault.defaultsKey("workingOn")) == id {

@@ -322,6 +322,16 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         let appeared = notification.userInfo?["appeared"] as? [Note] ?? []
         defer { appearedBefore = appeared }
         if isDownloading { return open() }
+        // Renamed or moved on another device, and found by the store: followed.
+        let current = store.currentID(note.id)
+        if current != note.id, let moved = store.note(current), !FileManager.default.fileExists(atPath: note.url.path) {
+            return follow(moved)
+        }
+        if let known = store.note(note.id), known.title != note.title, known.isDownloaded {
+            // Retitled on another device (a note Point named keeps its title in the text).
+            note = known
+            if titleField?.isFirstResponder != true, !store.isUntitled(known.id) { titleField?.text = known.title }
+        }
         if store.note(note.id) == nil, !FileManager.default.fileExists(atPath: note.url.path) {
             noteWentElsewhere(appeared: appeared + appearedBefore)
         } else {
@@ -346,20 +356,25 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
             .filter { $0.isDownloaded && store.note($0.id) != nil }
             .prefix(20)
         if let found = candidates.first(where: { (try? NoteReader.read(contentsOf: $0.url)) == onDisk }) {
-            let old = note.id
-            note = found
-            store.noteMovedElsewhere(from: old, to: found)
-            titleField?.text = store.isUntitled(found.id) ? "" : found.title
-            fileIsMissing = false
-            saveProblem = nil
-            save() // Anything typed meanwhile.
-            return
+            store.noteMovedElsewhere(from: note.id, to: found)
+            return follow(found)
         }
         guard !fileIsMissing else { return }
         fileIsMissing = true
         let edited = textView.map { $0.text != onDisk } ?? false
         if edited, let text = textView?.text { _ = try? store.drafts.keep(text, for: note.id) }
         saveProblem = "This note was deleted, renamed or moved on another device." + (edited ? " Your changes are kept." : "")
+    }
+
+    /// Carries on in the note where it is now, with anything typed meanwhile, and takes in
+    /// any change made to it there.
+    private func follow(_ moved: Note) {
+        note = moved
+        titleField?.text = store.isUntitled(moved.id) ? "" : moved.title
+        fileIsMissing = false
+        saveProblem = nil
+        save()
+        reloadIfUnedited()
     }
 
     /// Writes the note back where it was, after its file went: only when asked.
