@@ -16,6 +16,8 @@ Part of [the plan](../PLAN.md). Step 5 of [M4, the iPhone app](m4-iphone.md).
 
 **Before the first run:** a backup of the vault, and Obsidian's own sync left as it is (iCloud), so nothing else writes the files.
 
+**Status (10 November 2026):** started, on branch `iphone-real-vault`, for a week on Point alone while travelling (see [the plan](../PLAN.md)).
+
 **Order:** 1 and 2, tried on a copy of the vault in iCloud Drive; then 3; then 4 on the real vault with a backup; then Mike uses it day to day.
 
 **Size:** a few days' work. After the iPhone clipper.
