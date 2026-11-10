@@ -183,7 +183,8 @@ struct HomeScreen: View {
         }
         // Not until the vault's been read: at launch, it showed for a moment before the notes.
         .overlay { if store.hasScanned, store.notes.isEmpty { ContentUnavailableView("No notes", systemImage: "doc.text",
-            description: Text("Copy notes into Point’s folder in the Files app.")) } }
+            description: Text(PhoneVault.isOwnFolder ? "Copy notes into Point’s folder in the Files app, or choose your vault in Settings."
+                              : "This folder has no notes yet. Choose another vault in Settings.")) } }
     }
 
     @ViewBuilder private func destination(_ route: Route) -> some View {

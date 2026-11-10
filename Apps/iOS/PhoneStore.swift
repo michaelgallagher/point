@@ -25,9 +25,9 @@ final class PhoneStore: ObservableObject {
     @Published private(set) var bookmarks: [ObsidianBookmarks.Bookmark] = []
     /// The folders and tags on home's Favourites, in their order: the phone's own, in its
     /// defaults, not the vault's (Obsidian has nothing like it).
-    @Published private(set) var favourites: [Favourite] = UserDefaults.standard.data(forKey: "favourites")
+    @Published private(set) var favourites: [Favourite] = UserDefaults.standard.data(forKey: PhoneVault.defaultsKey("favourites"))
         .flatMap { try? JSONDecoder().decode([Favourite].self, from: $0) } ?? [] {
-        didSet { UserDefaults.standard.set(try? JSONEncoder().encode(favourites), forKey: "favourites") }
+        didSet { UserDefaults.standard.set(try? JSONEncoder().encode(favourites), forKey: PhoneVault.defaultsKey("favourites")) }
     }
     /// What's typed in the search field, and what's found.
     let search = PhoneSearch()
@@ -66,15 +66,13 @@ final class PhoneStore: ObservableObject {
     let embeds = PhoneEmbeds()
 
     /// Where edits that can't be saved are kept, outside the vault.
-    let drafts = NoteDrafts(storage: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("Drafts", isDirectory: true), vaultKey: "phone")
+    let drafts = NoteDrafts(storage: PhoneVault.storage("Drafts"), vaultKey: PhoneVault.key)
 
     init() {
         history = Self.loadHistory(from: historyFile)
         embeds.store = self
         PhoneVault.makeSampleNotes()
-        index = try? SearchIndex(url: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Index/vault.sqlite"))
+        index = try? SearchIndex(url: PhoneVault.storage("Index/vault.sqlite"))
         search.find = { [weak self] query in
             guard let self, let index = self.index else { return nil }
             let results = (try? await index.search(query)) ?? []
@@ -82,9 +80,65 @@ final class PhoneStore: ObservableObject {
             return self.history.rank(results, for: query)
         }
         Task { await reload() }
+        // Changes from elsewhere (the Mac, through iCloud) and notes arriving: read again.
+        presenter = VaultPresenter(root: root) { [weak self] in self?.refresh() }
+        becameActive = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil,
+                                                              queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
+        }
     }
 
     func note(_ id: Note.ID) -> Note? { notes.first { $0.id == id } }
+
+    // MARK: Changes from elsewhere
+
+    /// Hears of changes to the vault's folder.
+    private var presenter: VaultPresenter?
+    private var becameActive: NSObjectProtocol?
+    /// How many notes iCloud hasn't brought to the phone yet. Each is asked for, and read
+    /// (and indexed) as it arrives.
+    @Published private(set) var downloadingCount = 0
+    private var askedToDownload: Set<Note.ID> = []
+    private var downloadCheck: Task<Void, Never>?
+
+    /// Stops watching the vault (another is being chosen).
+    func stopWatching() {
+        presenter?.stop()
+        presenter = nil
+        if let becameActive { NotificationCenter.default.removeObserver(becameActive) }
+        becameActive = nil
+        downloadCheck?.cancel()
+    }
+
+    /// Reads the vault again, in the background, once it's been read since launch.
+    func refresh() {
+        guard hasScanned, presenter != nil else { return }
+        Task { await reload() }
+    }
+
+    /// Asks iCloud for the notes not on the phone yet, and looks again in a few seconds (the
+    /// presenter hears of most arrivals; this catches any it doesn't).
+    private func requestDownloads(_ scanned: [Note]) {
+        let waiting = scanned.filter { !$0.isDownloaded }
+        if waiting.count != downloadingCount { downloadingCount = waiting.count }
+        let ask = waiting.filter { askedToDownload.insert($0.id).inserted }.map(\.url)
+        if !ask.isEmpty {
+            Task.detached(priority: .utility) {
+                for url in ask { try? FileManager.default.startDownloadingUbiquitousItem(at: url) }
+            }
+        }
+        downloadCheck?.cancel()
+        guard !waiting.isEmpty else { return }
+        downloadCheck = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            self?.refresh()
+        }
+    }
+
+    /// The read under way, if one is, and whether another is wanted after it.
+    private var reloading: Task<Void, Never>?
+    private var reloadsAgain = false
 
     /// Notes renamed while the app's open, old ID to new, so a screen opened under the old
     /// one (navigation keeps the ID it was given) still finds its note.
@@ -98,8 +152,26 @@ final class PhoneStore: ObservableObject {
         return id
     }
 
-    /// Scans the folder again, and brings the search index up to date behind it.
+    /// Scans the folder again, and brings the search index up to date behind it. One read at a
+    /// time: asked for during one, another follows it, and both callers wait for that.
     func reload() async {
+        if let reloading {
+            reloadsAgain = true
+            return await reloading.value
+        }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            repeat {
+                reloadsAgain = false
+                await scan()
+            } while reloadsAgain
+            reloading = nil
+        }
+        reloading = task
+        await task.value
+    }
+
+    private func scan() async {
         let root = root
         let start = CACurrentMediaTime()
         // On the first read, the tags and properties the index had last time are read beside the
@@ -114,8 +186,10 @@ final class PhoneStore: ObservableObject {
             if let tags { tagsByNote = tags }
             if let names { propertyNames = names }
         }
-        notes = scanned
+        if scanned != notes { notes = scanned }
         hasScanned = true
+        requestDownloads(scanned)
+        NotificationCenter.default.post(name: .phoneVaultScanned, object: self)
         // Notes that are gone take what was learned about them (not while the folder reads
         // as empty, which is more likely unavailable for a moment).
         if !scanned.isEmpty {
@@ -442,9 +516,9 @@ final class PhoneStore: ObservableObject {
     /// New notes not yet named: each takes its name from its first line when it's left, or
     /// goes if it's still empty. Kept across launches, for a note open when the app stopped.
     private var untitled: Set<Note.ID> {
-        get { Set(UserDefaults.standard.stringArray(forKey: "untitled") ?? []) }
+        get { Set(UserDefaults.standard.stringArray(forKey: PhoneVault.defaultsKey("untitled")) ?? []) }
         set {
-            UserDefaults.standard.set(Array(newValue), forKey: "untitled")
+            UserDefaults.standard.set(Array(newValue), forKey: PhoneVault.defaultsKey("untitled"))
             startingTexts = startingTexts.filter { newValue.contains($0.key) }
         }
     }
@@ -452,8 +526,8 @@ final class PhoneStore: ObservableObject {
     /// What new notes not yet named started with, if not nothing (a tag): left as it was, a
     /// note goes just as an empty one does.
     private var startingTexts: [Note.ID: String] {
-        get { UserDefaults.standard.dictionary(forKey: "untitledStarts") as? [Note.ID: String] ?? [:] }
-        set { UserDefaults.standard.set(newValue, forKey: "untitledStarts") }
+        get { UserDefaults.standard.dictionary(forKey: PhoneVault.defaultsKey("untitledStarts")) as? [Note.ID: String] ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: PhoneVault.defaultsKey("untitledStarts")) }
     }
 
     func isUntitled(_ id: Note.ID) -> Bool { untitled.contains(id) }
@@ -599,7 +673,7 @@ final class PhoneStore: ObservableObject {
         notes.removeAll { $0.id == id }
         history.keepOnly(Set(notes.map(\.id)))
         historyFile.save(history)
-        if UserDefaults.standard.string(forKey: "workingOn") == id { stopWorking() }
+        if UserDefaults.standard.string(forKey: PhoneVault.defaultsKey("workingOn")) == id { stopWorking() }
         if isBookmarked(id) {
             try? ObsidianBookmarks.remove(id, vault: root)
             bookmarks = ObsidianBookmarks.load(vault: root)
@@ -622,10 +696,10 @@ final class PhoneStore: ObservableObject {
     /// When each note in the trash was deleted, and where from, by its name there.
     private var trashRecords: [String: VaultTrash.Record] {
         get {
-            guard let data = UserDefaults.standard.data(forKey: "trashRecords") else { return [:] }
+            guard let data = UserDefaults.standard.data(forKey: PhoneVault.defaultsKey("trashRecords")) else { return [:] }
             return (try? JSONDecoder().decode([String: VaultTrash.Record].self, from: data)) ?? [:]
         }
-        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: "trashRecords") }
+        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: PhoneVault.defaultsKey("trashRecords")) }
     }
 
     /// Lists the trash, removing for good the notes Point deleted more than 30 days ago, as the
@@ -706,7 +780,7 @@ final class PhoneStore: ObservableObject {
         }
         history.renamed(from: note.id, to: newID)
         historyFile.save(history)
-        if UserDefaults.standard.string(forKey: "workingOn") == note.id { UserDefaults.standard.set(newID, forKey: "workingOn") }
+        if UserDefaults.standard.string(forKey: PhoneVault.defaultsKey("workingOn")) == note.id { UserDefaults.standard.set(newID, forKey: PhoneVault.defaultsKey("workingOn")) }
         if isBookmarked(note.id) {
             try? ObsidianBookmarks.rename(note.id, to: newID, vault: root)
             bookmarks = ObsidianBookmarks.load(vault: root)
@@ -853,14 +927,14 @@ final class PhoneStore: ObservableObject {
     /// What search learns on this phone: which notes are opened, and which are picked for
     /// what's typed (`SearchHistory`). Kept in the app's own storage, never in the vault.
     private(set) var history = SearchHistory()
-    private let historyFile = SearchHistory.File(url: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("History/vault.json"))
+    private let historyFile = SearchHistory.File(url: PhoneVault.storage("History/vault.json"))
     /// A note just picked from search, whose screen appearing isn't another open.
     private var pickedID: Note.ID?
 
     /// What search had learned before: when each note was last opened, kept in the defaults.
     private static func loadHistory(from file: SearchHistory.File) -> SearchHistory {
-        guard !FileManager.default.fileExists(atPath: file.url.path),
+        // Only Point's own folder had it: a chosen vault starts afresh.
+        guard PhoneVault.isOwnFolder, !FileManager.default.fileExists(atPath: file.url.path),
               let data = UserDefaults.standard.data(forKey: "opened"),
               let opened = try? JSONDecoder().decode([Note.ID: Date].self, from: data) else { return file.load() }
         var history = SearchHistory()
@@ -935,29 +1009,29 @@ final class PhoneStore: ObservableObject {
 
     /// Notes the note last edited on this phone, and when.
     func noteEdited(_ id: Note.ID) {
-        UserDefaults.standard.set(id, forKey: "workingOn")
-        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "workingOnDate")
+        UserDefaults.standard.set(id, forKey: PhoneVault.defaultsKey("workingOn"))
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: PhoneVault.defaultsKey("workingOnDate"))
     }
 
     /// The note being worked on: the one last edited here, if that was today.
     var workingOn: (note: Note, edited: Date)? {
-        let date = Date(timeIntervalSince1970: UserDefaults.standard.double(forKey: "workingOnDate"))
-        guard Calendar.current.isDateInToday(date), let id = UserDefaults.standard.string(forKey: "workingOn"),
+        let date = Date(timeIntervalSince1970: UserDefaults.standard.double(forKey: PhoneVault.defaultsKey("workingOnDate")))
+        guard Calendar.current.isDateInToday(date), let id = UserDefaults.standard.string(forKey: PhoneVault.defaultsKey("workingOn")),
               let note = note(id) else { return nil }
         return (note, date)
     }
 
     /// Where the cursor was in the note being worked on, kept for coming back to it.
-    func noteCursor(_ location: Int) { UserDefaults.standard.set(location, forKey: "workingOnCursor") }
+    func noteCursor(_ location: Int) { UserDefaults.standard.set(location, forKey: PhoneVault.defaultsKey("workingOnCursor")) }
 
     /// Going home, or to another note: the app no longer comes back to this one.
-    func stopWorking() { UserDefaults.standard.removeObject(forKey: "workingOn") }
+    func stopWorking() { UserDefaults.standard.removeObject(forKey: PhoneVault.defaultsKey("workingOn")) }
 
     /// Coming back into the note being worked on, at launch: its ID, its cursor kept for
     /// `resumeCursor(for:)`.
     func resumeWorking() -> Note.ID? {
         guard let id = workingOn?.note.id else { return nil }
-        resuming = (id, UserDefaults.standard.integer(forKey: "workingOnCursor"))
+        resuming = (id, UserDefaults.standard.integer(forKey: PhoneVault.defaultsKey("workingOnCursor")))
         return id
     }
 
