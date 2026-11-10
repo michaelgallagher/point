@@ -151,6 +151,8 @@ final class PhoneStore: ObservableObject {
     private func requestDownloads(_ scanned: [Note]) {
         let waiting = scanned.filter { !$0.isDownloaded }
         if waiting.count != downloadingCount { downloadingCount = waiting.count }
+        // Arrived: asked for again when it's next changed elsewhere (it was asked for only once).
+        askedToDownload.formIntersection(waiting.map(\.id))
         let ask = waiting.filter { askedToDownload.insert($0.id).inserted }.map(\.url)
         if !ask.isEmpty {
             Task.detached(priority: .utility) {
@@ -239,6 +241,19 @@ final class PhoneStore: ObservableObject {
             titles[new.id] = gone.title
         }
         vanishedBefore = unmatched.filter { before[$0.id] != nil }
+        // How long changes from elsewhere take to reach the phone: each note found changed, and
+        // when it was saved (in `spike-timings.txt`, beside Point's own folder).
+        if !before.isEmpty {
+            for note in scanned {
+                guard let known = before[note.id] else { continue }
+                let ago = "saved \(Int(Date().timeIntervalSince(note.modified))) s ago"
+                if note.modified > known.modified {
+                    PhoneVault.log("heard of a change: \(note.title), \(ago)" + (note.isDownloaded ? "" : ", text still coming"))
+                } else if note.isDownloaded, !known.isDownloaded {
+                    PhoneVault.log("change arrived: \(note.title), \(ago)")
+                }
+            }
+        }
         appearedBefore = newlyAppeared.filter { new in appeared.contains { $0.id == new.id } }
         // A note iCloud hasn't brought yet has only its file name for a title (for a note Point
         // named, its lowercase slug): the title it had is kept until its text arrives.
