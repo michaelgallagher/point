@@ -384,6 +384,20 @@ final class PhoneStore: ObservableObject {
     /// What notes can be (`.point/kinds.json`), as on the Mac: offered for new notes from
     /// home's New note, and as `type`'s choices.
     @Published private(set) var kinds = NoteKinds()
+    /// The kinds home shows as tiles of their own, by name, chosen in Settings (each vault its own).
+    @Published var homeKinds: [String] = UserDefaults.standard.stringArray(forKey: PhoneVault.defaultsKey("homeKinds")) ?? [] {
+        didSet { UserDefaults.standard.set(homeKinds, forKey: PhoneVault.defaultsKey("homeKinds")) }
+    }
+
+    /// Shows a kind on home as a tile of its own, or stops.
+    func toggleHomeKind(_ name: String) {
+        if let index = homeKinds.firstIndex(of: name) { homeKinds.remove(at: index) } else { homeKinds.append(name) }
+    }
+
+    /// How many notes are of each kind, by its name in lowercase (once property values are loaded).
+    var kindCounts: [String: Int] {
+        Dictionary((propertyValues[kinds.property.lowercased()] ?? []).map { ($0.value.lowercased(), $0.count) }, uniquingKeysWith: +)
+    }
 
     /// A kind's templates in the templates folder, each with a short label.
     func templates(of kind: NoteKinds.Kind) -> [(label: String, url: URL)] {

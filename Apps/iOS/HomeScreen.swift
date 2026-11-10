@@ -164,8 +164,12 @@ struct HomeScreen: View {
         List {
             Section {
                 HomePanel(open: { path.append($0) })
-                    // Which notes are lists, for its Lists and to mark them: again as the index changes.
-                    .task(id: store.indexUpdates) { await store.loadLists() }
+                    // Which notes are lists, for its Lists and to mark them, and how many notes
+                    // are of each kind: again as the index changes.
+                    .task(id: store.indexUpdates) {
+                        await store.loadLists()
+                        if !store.homeKinds.isEmpty { await store.loadPropertyValues() }
+                    }
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
             }
@@ -340,7 +344,7 @@ struct RecentScreen: View {
 }
 
 /// Home's panel: Folders, Tags, Bookmarks and Types, each opening its page, as many as
-/// Settings shows. Side by side, or two by two when there are four; stacked at the largest text
+/// Settings shows, then any kinds of note chosen to show by themselves. Side by side, or two by two when there are four; stacked at the largest text
 /// sizes, where three wouldn't fit across.
 private struct HomePanel: View {
     @EnvironmentObject private var store: PhoneStore
@@ -354,9 +358,19 @@ private struct HomePanel: View {
 
     private static let spacing: CGFloat = 4
 
-    private var tiles: [HomeTile] {
-        [showsFolders ? .folders : nil, showsTags ? .tags : nil, showsBookmarks ? .bookmarks : nil,
-         showsTypes && !store.kinds.isEmpty ? .types : nil, showsLists && !store.listNoteIDs.isEmpty ? .lists : nil].compactMap { $0 }
+    /// A tile: one of home's places, or a kind of note chosen to show by itself.
+    private enum Tile: Hashable {
+        case place(HomeTile)
+        case kind(String)
+    }
+
+    private var tiles: [Tile] {
+        let places: [HomeTile] = [showsFolders ? .folders : nil, showsTags ? .tags : nil, showsBookmarks ? .bookmarks : nil,
+                                  showsTypes && !store.kinds.isEmpty ? .types : nil,
+                                  showsLists && !store.listNoteIDs.isEmpty ? .lists : nil].compactMap { $0 }
+        // Chosen kinds, in the vault's order of kinds (one no longer in it isn't shown).
+        let kinds = store.kinds.kinds.map(\.name).filter(store.homeKinds.contains)
+        return places.map(Tile.place) + kinds.map(Tile.kind)
     }
 
     var body: some View {
@@ -378,13 +392,15 @@ private struct HomePanel: View {
         }
     }
 
-    private func tile(_ tile: HomeTile) -> some View {
+    private func tile(_ tile: Tile) -> some View {
         let (title, glyph, count, route): (String, String, Int, Route) = switch tile {
-        case .folders: ("Folders", "folder", store.subfolders(of: "").count, .folders)
-        case .tags: ("Tags", symbol("number.sign.circle", or: "number.circle"), store.tags.count, .tags)
-        case .bookmarks: ("Bookmarks", "bookmark", store.bookmarks.count, .bookmarks)
-        case .types: ("Types", "square.grid.2x2", store.kinds.kinds.count, .types)
-        case .lists: ("Lists", "list.bullet.rectangle.portrait", store.listNoteIDs.count, .lists)
+        case .place(.folders): ("Folders", "folder", store.subfolders(of: "").count, .folders)
+        case .place(.tags): ("Tags", symbol("number.sign.circle", or: "number.circle"), store.tags.count, .tags)
+        case .place(.bookmarks): ("Bookmarks", "bookmark", store.bookmarks.count, .bookmarks)
+        case .place(.types): ("Types", "square.grid.2x2", store.kinds.kinds.count, .types)
+        case .place(.lists): ("Lists", "list.bullet.rectangle.portrait", store.listNoteIDs.count, .lists)
+        case .kind(let name): (name, store.kinds.kinds.first { $0.name == name }?.shownSymbol ?? "doc.text",
+                               store.kindCounts[name.lowercased()] ?? 0, .kind(name))
         }
         return Button { open(route) } label: {
             VStack(alignment: .leading, spacing: 8) {
@@ -459,8 +475,7 @@ struct TypesScreen: View {
     @EnvironmentObject private var store: PhoneStore
 
     var body: some View {
-        let counts = Dictionary((store.propertyValues[store.kinds.property.lowercased()] ?? []).map { ($0.value.lowercased(), $0.count) },
-                                uniquingKeysWith: +)
+        let counts = store.kindCounts
         List {
             ForEach(store.kinds.kinds) { kind in
                 NavigationLink(value: Route.kind(kind.name)) {
