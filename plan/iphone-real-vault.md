@@ -16,7 +16,11 @@ Part of [the plan](../PLAN.md). Step 5 of [M4, the iPhone app](m4-iphone.md).
 
 **Before the first run:** a backup of the vault, and Obsidian's own sync left as it is (iCloud), so nothing else writes the files.
 
-**Status (10 November 2026):** started, on branch `iphone-real-vault`, for a week on Point alone while travelling (see [the plan](../PLAN.md)).
+**Status (10 November 2026):** 1–3 built, on branch `iphone-real-vault`, for a week on Point alone while travelling (see [the plan](../PLAN.md)).
+- **Choosing the vault:** Settings › Vault › Choose vault… opens the Files folder picker; the folder is kept as a bookmark and reopened at launch (if it can't be, Point says so and shows its own folder). Use Point's own folder goes back. Each vault has its own index, search history, drafts, and its own note being worked on, untitled notes, favourites and trash records, so nothing from one acts on another's notes. The spike notes and `spike-timings.txt` only ever go in Point's own folder.
+- **Notes not yet downloaded:** each scan asks iCloud for any placeholder notes and looks again every 5 seconds until none are left; Settings shows how many are still downloading. A note opened while downloading says so and can't be typed into, then opens once it arrives.
+- **Changes from elsewhere:** a file presenter on the vault's folder reads it again (a second after the last change), as does coming back to the app. Reads run one at a time. An open note with no edits takes in a change to its file; one with edits keeps them, and saving puts them in a conflict copy, as before.
+- **Tried in the Simulator** on a folder chosen in the Files picker: choosing it, the bookmark kept across launches, notes written from outside appearing without a refresh, an open note taking in an outside edit, typing saved into the chosen folder, and the vault's state kept apart. **Not yet tried:** iCloud itself (placeholders downloading, edits arriving from the Mac), which needs Mike's iPhone and the vault in iCloud Drive; then 4, the safety tests on the phone.
 
 **Order:** 1 and 2, tried on a copy of the vault in iCloud Drive; then 3; then 4 on the real vault with a backup; then Mike uses it day to day.
 
