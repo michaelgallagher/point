@@ -223,6 +223,8 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         super.init()
         NotificationCenter.default.addObserver(self, selector: #selector(embedsChanged), name: .phoneEmbedsChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(resignActive), name: UIApplication.willResignActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(saveNow), name: .phoneSaveNow, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(vaultScanned), name: .phoneVaultScanned, object: store)
         NotificationCenter.default.addObserver(self, selector: #selector(editingChanged), name: UITextView.textDidBeginEditingNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(editingChanged), name: UITextView.textDidEndEditingNotification, object: nil)
     }
@@ -294,12 +296,36 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         if let textView { store.noteCursor(textView.selectedRange.location) }
     }
 
+    /// The vault is about to change: saved, into the vault it belongs to.
+    @objc private func saveNow() { save() }
+
+    /// The vault's been read again: a note that was downloading opens once it's here, and one
+    /// changed elsewhere (on the Mac) is read again if it has no edits here. One with edits
+    /// keeps them; saving them then puts them in a conflict copy, as before.
+    @objc private func vaultScanned() {
+        if isDownloading { open() } else { reloadIfUnedited() }
+    }
+
+    /// Whether the note is still on its way from iCloud: shown as such, and not editable, so
+    /// nothing typed into the empty page is lost.
+    private var isDownloading = false
+
     func open() {
         guard let textView else { return }
         let readStart = CACurrentMediaTime()
-        guard let text = try? NoteReader.read(note) else {
-            saveProblem = "Point couldn’t read this note."
+        let text: String
+        do {
+            text = try NoteReader.read(note)
+        } catch {
+            isDownloading = (error as? NoteReader.ReadError) == .notDownloaded
+            textView.isEditable = false
+            saveProblem = isDownloading ? "This note is still downloading from iCloud." : "Point couldn’t read this note."
             return
+        }
+        if isDownloading || !textView.isEditable {
+            isDownloading = false
+            textView.isEditable = true
+            saveProblem = nil
         }
         let read = (CACurrentMediaTime() - readStart) * 1000
         textView.typography = store.typography
@@ -453,9 +479,14 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
 
     /// Reads the note again if it's changed on disk and not here.
     private func reloadIfUnedited() {
-        guard let textView, textView.text == onDisk, let text = try? NoteReader.read(note), text != onDisk else { return }
+        guard let textView, let onDisk, textView.text == onDisk, let text = try? NoteReader.read(note), text != onDisk else { return }
+        let selection = textView.selectedRange
         textView.load(text)
-        onDisk = text
+        self.onDisk = text
+        noteFrontmatter(of: text)
+        // The cursor stays about where it was, if the text still reaches there.
+        let length = (text as NSString).length
+        textView.selectedRange = NSRange(location: min(selection.location, length), length: 0)
     }
 
     /// Applies a template, filled in, as on the Mac: its properties merged into the note's, and
