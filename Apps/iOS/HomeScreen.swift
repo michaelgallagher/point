@@ -92,13 +92,13 @@ struct HomeScreen: View {
             Button("OK", role: .cancel) {}
         }
         .sheet(isPresented: $showsSettings) { SettingsScreen().environmentObject(store) }
-        .onChange(of: quickActions.newNoteRequests) { _, _ in quickNote() }
+        .onChange(of: quickActions.newNoteRequests) { _, _ in if quickActions.takeNewNote() { quickNote() } }
         .onChange(of: store.linkedRoute) { _, route in
             guard let route else { return }
             store.linkedRoute = nil
             go(to: route)
         }
-        .onAppear { if quickActions.newNoteRequests > 0 { quickNote() } }
+        .onAppear { if quickActions.takeNewNote() { quickNote() } }
         .onChange(of: path) { _, path in
             // Home, or another note: that's the end of coming back to this one.
             guard let working = store.workingOn?.note.id else { return }
@@ -164,8 +164,12 @@ struct HomeScreen: View {
         List {
             Section {
                 HomePanel(open: { path.append($0) })
-                    // Which notes are lists, for its Lists and to mark them: again as the index changes.
-                    .task(id: store.indexUpdates) { await store.loadLists() }
+                    // Which notes are lists, for its Lists and to mark them, and how many notes
+                    // are of each kind: again as the index changes.
+                    .task(id: store.indexUpdates) {
+                        await store.loadLists()
+                        if !store.homeKinds.isEmpty { await store.loadPropertyValues() }
+                    }
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
             }
@@ -183,7 +187,8 @@ struct HomeScreen: View {
         }
         // Not until the vault's been read: at launch, it showed for a moment before the notes.
         .overlay { if store.hasScanned, store.notes.isEmpty { ContentUnavailableView("No notes", systemImage: "doc.text",
-            description: Text("Copy notes into Point’s folder in the Files app.")) } }
+            description: Text(PhoneVault.isOwnFolder ? "Copy notes into Point’s folder in the Files app, or choose your vault in Settings."
+                              : "This folder has no notes yet. Choose another vault in Settings.")) } }
     }
 
     @ViewBuilder private func destination(_ route: Route) -> some View {
@@ -259,6 +264,7 @@ struct HomeScreen: View {
     /// from under it: left, it may go altogether.
     private func createNote(in folder: String = "", text: String = "") {
         guard let id = store.createNote(in: folder, text: text) else { return }
+        PhoneVault.log("made \(id) with New note")
         newNote = id
         if case .note(let below)? = path.last, store.isUntitled(store.currentID(below)) { path.removeLast() }
         path.append(.note(id))
@@ -267,6 +273,7 @@ struct HomeScreen: View {
     /// Makes a note of a kind and opens it, as New note does.
     private func createNote(kind: NoteKinds.Kind, template: URL? = nil) {
         guard let id = store.createNote(kind: kind, template: template) else { return }
+        PhoneVault.log("made \(id) with New \(kind.name)")
         newNote = id
         path.append(.note(id))
     }
@@ -274,6 +281,7 @@ struct HomeScreen: View {
     /// Makes a note and opens it straight from home, from wherever you were.
     private func quickNote() {
         guard let id = store.createNote() else { return }
+        PhoneVault.log("made \(id) with the icon's New note")
         newNote = id
         path = [.note(id)]
     }
@@ -339,7 +347,7 @@ struct RecentScreen: View {
 }
 
 /// Home's panel: Folders, Tags, Bookmarks and Types, each opening its page, as many as
-/// Settings shows. Side by side, or two by two when there are four; stacked at the largest text
+/// Settings shows, then any kinds of note chosen to show by themselves. Side by side, or two by two when there are four; stacked at the largest text
 /// sizes, where three wouldn't fit across.
 private struct HomePanel: View {
     @EnvironmentObject private var store: PhoneStore
@@ -353,9 +361,19 @@ private struct HomePanel: View {
 
     private static let spacing: CGFloat = 4
 
-    private var tiles: [HomeTile] {
-        [showsFolders ? .folders : nil, showsTags ? .tags : nil, showsBookmarks ? .bookmarks : nil,
-         showsTypes && !store.kinds.isEmpty ? .types : nil, showsLists && !store.listNoteIDs.isEmpty ? .lists : nil].compactMap { $0 }
+    /// A tile: one of home's places, or a kind of note chosen to show by itself.
+    private enum Tile: Hashable {
+        case place(HomeTile)
+        case kind(String)
+    }
+
+    private var tiles: [Tile] {
+        let places: [HomeTile] = [showsFolders ? .folders : nil, showsTags ? .tags : nil, showsBookmarks ? .bookmarks : nil,
+                                  showsTypes && !store.kinds.isEmpty ? .types : nil,
+                                  showsLists && !store.listNoteIDs.isEmpty ? .lists : nil].compactMap { $0 }
+        // Chosen kinds, in the vault's order of kinds (one no longer in it isn't shown).
+        let kinds = store.kinds.kinds.map(\.name).filter(store.homeKinds.contains)
+        return places.map(Tile.place) + kinds.map(Tile.kind)
     }
 
     var body: some View {
@@ -377,13 +395,15 @@ private struct HomePanel: View {
         }
     }
 
-    private func tile(_ tile: HomeTile) -> some View {
+    private func tile(_ tile: Tile) -> some View {
         let (title, glyph, count, route): (String, String, Int, Route) = switch tile {
-        case .folders: ("Folders", "folder", store.subfolders(of: "").count, .folders)
-        case .tags: ("Tags", symbol("number.sign.circle", or: "number.circle"), store.tags.count, .tags)
-        case .bookmarks: ("Bookmarks", "bookmark", store.bookmarks.count, .bookmarks)
-        case .types: ("Types", "square.grid.2x2", store.kinds.kinds.count, .types)
-        case .lists: ("Lists", "list.bullet.rectangle.portrait", store.listNoteIDs.count, .lists)
+        case .place(.folders): ("Folders", "folder", store.subfolders(of: "").count, .folders)
+        case .place(.tags): ("Tags", symbol("number.sign.circle", or: "number.circle"), store.tags.count, .tags)
+        case .place(.bookmarks): ("Bookmarks", "bookmark", store.bookmarks.count, .bookmarks)
+        case .place(.types): ("Types", "square.grid.2x2", store.kinds.kinds.count, .types)
+        case .place(.lists): ("Lists", "list.bullet.rectangle.portrait", store.listNoteIDs.count, .lists)
+        case .kind(let name): (name, store.kinds.kinds.first { $0.name == name }?.shownSymbol ?? "doc.text",
+                               store.kindCounts[name.lowercased()] ?? 0, .kind(name))
         }
         return Button { open(route) } label: {
             VStack(alignment: .leading, spacing: 8) {
@@ -458,8 +478,7 @@ struct TypesScreen: View {
     @EnvironmentObject private var store: PhoneStore
 
     var body: some View {
-        let counts = Dictionary((store.propertyValues[store.kinds.property.lowercased()] ?? []).map { ($0.value.lowercased(), $0.count) },
-                                uniquingKeysWith: +)
+        let counts = store.kindCounts
         List {
             ForEach(store.kinds.kinds) { kind in
                 NavigationLink(value: Route.kind(kind.name)) {
@@ -708,6 +727,9 @@ private struct PageBar<Actions: View>: ViewModifier {
                 // The page stays its size under the keyboard: shrunk, the rows below were left
                 // undrawn, and showed blank as the keyboard went down.
                 .ignoresSafeArea(.keyboard)
+                // No scrim behind the search field and New note: the rows run under them, as
+                // in Apple's own apps, and the glass is enough to set them apart.
+                .scrollEdgeEffectHidden(true, for: .bottom)
                 .toolbar {
                     if hasActions || sorts {
                         ToolbarItem(placement: .topBarTrailing) { menu(symbol: "ellipsis") }

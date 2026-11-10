@@ -64,7 +64,8 @@ public enum NoteFiles {
     /// Creates a note Point names, for `title` (nil: untitled, to be named later), with its
     /// `title:` set in its text, and returns its URL.
     public static func createDated(title: String?, text: String = "", in folder: URL, created: Date = Date()) throws -> URL {
-        let url = availableDatedURL(for: NoteNames.name(for: title ?? "", created: created), in: folder)
+        let name = title.map { NoteNames.name(for: $0, created: created) } ?? NoteNames.untitledName(created: created)
+        let url = availableDatedURL(for: name, in: folder)
         let body = title.map { NoteNames.settingTitle($0, in: text) } ?? text
         try Data(body.utf8).write(to: url, options: .withoutOverwriting)
         return url

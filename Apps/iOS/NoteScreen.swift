@@ -115,7 +115,15 @@ struct NoteScreen: View {
             }
         } else if let problem = session.saveProblem {
             Banner(text: problem) {
-                Button("Try again") { session.save() }
+                if session.fileIsMissing {
+                    Button("Save it again") { session.recreateFile() }
+                } else {
+                    Button("Try again") { session.save() }
+                }
+            }
+        } else if let notice = session.notice {
+            Banner(text: notice) {
+                Button("OK") { session.dismissNotice() }
             }
         } else if let draft = session.recoveredDraft {
             Banner(text: "Changes made \(draft.saved.formatted(date: .abbreviated, time: .shortened)) couldn’t be saved at the time.") {
@@ -202,6 +210,14 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     @Published private(set) var titleProblem: String?
 
     @Published private(set) var saveProblem: String?
+    /// The note's file went (deleted, renamed or moved on another device) and wasn't found
+    /// again: edits are kept as a draft, and can be saved again where it was.
+    @Published private(set) var fileIsMissing = false
+    /// Something to know that isn't a problem (writing carries on in a conflict copy), until dismissed.
+    @Published private(set) var notice: String?
+    /// Notes that appeared in the last read of the vault before this one: a rename can show its
+    /// new name a read before the old one goes.
+    private var appearedBefore: [Note] = []
     @Published private(set) var recoveredDraft: NoteDrafts.Draft?
     /// What opening and typing cost, shown only for the spike's typing test.
     @Published private(set) var timings = ""
@@ -223,6 +239,8 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         super.init()
         NotificationCenter.default.addObserver(self, selector: #selector(embedsChanged), name: .phoneEmbedsChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(resignActive), name: UIApplication.willResignActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(saveNow), name: .phoneSaveNow, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(vaultScanned(_:)), name: .phoneVaultScanned, object: store)
         NotificationCenter.default.addObserver(self, selector: #selector(editingChanged), name: UITextView.textDidBeginEditingNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(editingChanged), name: UITextView.textDidEndEditingNotification, object: nil)
     }
@@ -294,12 +312,125 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         if let textView { store.noteCursor(textView.selectedRange.location) }
     }
 
+    /// The vault is about to change: saved, into the vault it belongs to.
+    @objc private func saveNow() { save() }
+
+    /// The vault's been read again: a note that was downloading opens once it's here, and one
+    /// changed elsewhere (on the Mac) is read again if it has no edits here. One with edits
+    /// keeps them; saving them then puts them in a conflict copy, as before.
+    @objc private func vaultScanned(_ notification: Notification) {
+        let appeared = notification.userInfo?["appeared"] as? [Note] ?? []
+        defer { appearedBefore = appeared }
+        if isDownloading { return open() }
+        // Renamed or moved on another device, and found by the store: followed.
+        let current = store.currentID(note.id)
+        if current != note.id, let moved = store.note(current), !FileManager.default.fileExists(atPath: note.url.path) {
+            return follow(moved)
+        }
+        if let known = store.note(note.id), known.title != note.title, known.isDownloaded {
+            // Retitled on another device (a note Point named keeps its title in the text).
+            note = known
+            if titleField?.isFirstResponder != true, !store.isUntitled(known.id) { titleField?.text = known.title }
+        }
+        if store.note(note.id) == nil, !FileManager.default.fileExists(atPath: note.url.path) {
+            noteWentElsewhere(appeared: appeared + appearedBefore)
+        } else {
+            if fileIsMissing {
+                // Back where it was.
+                fileIsMissing = false
+                saveProblem = nil
+                save()
+            }
+            reloadIfUnedited()
+        }
+    }
+
+    /// The note's file is gone. Renamed or moved on another device, it's followed: found by its
+    /// text among the notes that have just appeared, edits and all. Otherwise it was deleted (or
+    /// changed as well as moved), and that's said; edits are kept and can be saved again.
+    private func noteWentElsewhere(appeared: [Note]) {
+        guard let onDisk else { return }
+        let name = note.url.lastPathComponent
+        // Moved: the same name first. Then renamed, up to a sensible number of reads.
+        let candidates = (appeared.filter { $0.url.lastPathComponent == name } + appeared.filter { $0.url.lastPathComponent != name })
+            .filter { $0.isDownloaded && store.note($0.id) != nil }
+            .prefix(20)
+        if let found = candidates.first(where: { (try? NoteReader.read(contentsOf: $0.url)) == onDisk }) {
+            store.noteMovedElsewhere(from: note.id, to: found)
+            return follow(found)
+        }
+        guard !fileIsMissing else { return }
+        fileIsMissing = true
+        let edited = textView.map { $0.text != onDisk } ?? false
+        if edited, let text = textView?.text { _ = try? store.drafts.keep(text, for: note.id) }
+        saveProblem = "This note was deleted, renamed or moved on another device." + (edited ? " Your changes are kept." : "")
+    }
+
+    /// Carries on in the note where it is now, with anything typed meanwhile, and takes in
+    /// any change made to it there.
+    private func follow(_ moved: Note) {
+        note = moved
+        titleField?.text = store.isUntitled(moved.id) ? "" : moved.title
+        fileIsMissing = false
+        saveProblem = nil
+        save()
+        reloadIfUnedited()
+    }
+
+    /// Writes the note back where it was, after its file went: only when asked.
+    func recreateFile() {
+        guard let text = textView?.text else { return }
+        do {
+            try NoteWriter.recreate(text, at: note.url)
+            onDisk = text
+            saveProblem = nil
+            fileIsMissing = false
+            store.drafts.remove(for: note.id)
+            store.refresh()
+        } catch {
+            saveProblem = "Point couldn’t write the note again (\(error.localizedDescription)). Your changes are kept."
+        }
+    }
+
+    func dismissNotice() { notice = nil }
+
+    /// Changed on another device since it was read here, the edits went to a conflict copy
+    /// beside it. Writing carries on in the copy, so later saves don't each make another; the
+    /// note itself has the other device's version.
+    private func continueInCopy(_ copy: URL) {
+        let original = note
+        let folder = (original.id as NSString).deletingLastPathComponent
+        let name = copy.deletingPathExtension().lastPathComponent
+        note = Note(id: folder.isEmpty ? copy.lastPathComponent : "\(folder)/\(copy.lastPathComponent)", url: copy,
+                    title: name, modified: Date(), created: Date(), isDownloaded: true)
+        titleField?.text = name
+        notice = "“\(original.title)” was changed on another device while you were writing. Your version is now a note of its own, “\(name)”, beside it."
+        store.refresh()
+    }
+
+    /// Whether the note is still on its way from iCloud: shown as such, and not editable, so
+    /// nothing typed into the empty page is lost.
+    private var isDownloading = false
+
     func open() {
         guard let textView else { return }
         let readStart = CACurrentMediaTime()
-        guard let text = try? NoteReader.read(note) else {
-            saveProblem = "Point couldn’t read this note."
+        let text: String
+        do {
+            text = try NoteReader.read(note)
+        } catch {
+            // A note that's gone from the vault isn't downloading.
+            let isGone = store.hasScanned && store.note(note.id) == nil
+            isDownloading = (error as? NoteReader.ReadError) == .notDownloaded && !isGone
+            textView.isEditable = false
+            saveProblem = isDownloading ? "This note is still downloading from iCloud."
+                : isGone ? "This note was deleted, renamed or moved on another device." : "Point couldn’t read this note."
             return
+        }
+        if isDownloading || !textView.isEditable {
+            isDownloading = false
+            textView.isEditable = true
+            saveProblem = nil
         }
         let read = (CACurrentMediaTime() - readStart) * 1000
         textView.typography = store.typography
@@ -405,15 +536,21 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         pendingSave?.cancel()
         guard let textView, let onDisk, let text = textView.text, text != onDisk else { return true }
         do {
-            _ = try NoteWriter.write(text, to: note.url, expecting: onDisk, ifChanged: .saveCopy)
+            let outcome = try NoteWriter.write(text, to: note.url, expecting: onDisk, ifChanged: .saveCopy)
             self.onDisk = text
             saveProblem = nil
+            fileIsMissing = false
             store.drafts.remove(for: note.id)
+            if case .savedAsConflictCopy(let copy) = outcome { continueInCopy(copy) }
             return true
         } catch {
             let kept = (try? store.drafts.keep(text, for: note.id)) != nil
-            saveProblem = "Point couldn’t save this note (\(error.localizedDescription))."
-                + (kept ? " Your changes are kept." : " Copy them somewhere safe.")
+            fileIsMissing = (error as? NoteWriter.WriteError) == .missing
+            saveProblem = fileIsMissing
+                ? "This note was deleted, renamed or moved on another device, so your changes weren’t saved."
+                    + (kept ? " They’re kept." : " Copy them somewhere safe.")
+                : "Point couldn’t save this note (\(error.localizedDescription))."
+                    + (kept ? " Your changes are kept." : " Copy them somewhere safe.")
             return false
         }
     }
@@ -453,9 +590,14 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
 
     /// Reads the note again if it's changed on disk and not here.
     private func reloadIfUnedited() {
-        guard let textView, textView.text == onDisk, let text = try? NoteReader.read(note), text != onDisk else { return }
+        guard let textView, let onDisk, textView.text == onDisk, let text = try? NoteReader.read(note), text != onDisk else { return }
+        let selection = textView.selectedRange
         textView.load(text)
-        onDisk = text
+        self.onDisk = text
+        noteFrontmatter(of: text)
+        // The cursor stays about where it was, if the text still reaches there.
+        let length = (text as NSString).length
+        textView.selectedRange = NSRange(location: min(selection.location, length), length: 0)
     }
 
     /// Applies a template, filled in, as on the Mac: its properties merged into the note's, and

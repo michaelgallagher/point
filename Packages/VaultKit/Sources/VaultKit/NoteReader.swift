@@ -19,11 +19,20 @@ public enum NoteReader {
     /// `ReadError.notDownloaded`; scan again once the download finishes.
     public static func read(_ note: Note) throws -> String {
         // Check the disk rather than `note.isDownloaded`, which may be from an older scan.
-        guard FileManager.default.fileExists(atPath: note.url.path) else {
+        var url = note.url
+        url.removeAllCachedResourceValues() // The status now, not when the URL was last asked.
+        let values = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
+        guard FileManager.default.fileExists(atPath: note.url.path), !VaultScanner.isNotDownloaded(values) else {
             try? FileManager.default.startDownloadingUbiquitousItem(at: note.url)
             throw ReadError.notDownloaded
         }
         return try read(contentsOf: note.url)
+    }
+
+    /// Brings a file's contents to the device now, as reading it would, without reading it:
+    /// a coordinated read, which iCloud serves at once (a requested download can wait).
+    public static func fetch(_ url: URL) {
+        _ = try? coordinated(url) { _ in true }
     }
 
     /// Reads a file's text, refusing anything that wouldn't write back byte-for-byte.

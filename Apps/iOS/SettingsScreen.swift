@@ -1,8 +1,8 @@
 import EditorKit
 import SwiftUI
 
-/// Settings, from home's top right: how note text is set, where the notes are, and how many,
-/// and forgetting what search has learned.
+/// Settings, from home's top right: where the notes are, and how many, what home shows, how
+/// note text is set, and forgetting what search has learned.
 struct SettingsScreen: View {
     @EnvironmentObject private var store: PhoneStore
     @Environment(\.dismiss) private var dismiss
@@ -11,16 +11,9 @@ struct SettingsScreen: View {
     var body: some View {
         NavigationStack {
             Form {
+                VaultSettings()
                 HomeSettings()
                 TypographySettings(typography: $store.typography)
-                Section {
-                    LabeledContent("Notes", value: "\(store.notes.count)")
-                    LabeledContent("Folders", value: "\(store.folders.count)")
-                } header: {
-                    Text("Vault")
-                } footer: {
-                    Text("Notes are kept in Point’s folder on this iPhone, which the Files app shows. They don’t sync yet.")
-                }
                 Section {
                     Button("Forget what search has learned", role: .destructive) { confirmsForget = true }
                         .disabled(store.history.isEmpty)
@@ -47,6 +40,48 @@ struct SettingsScreen: View {
     }
 }
 
+/// Which vault the notes are in: Point's own folder on the phone, or one chosen in Files (the
+/// Obsidian vault in iCloud Drive), and how many of its notes are here.
+private struct VaultSettings: View {
+    @EnvironmentObject private var store: PhoneStore
+    @EnvironmentObject private var vault: VaultChoice
+    @State private var choosing = false
+    @State private var problem: String?
+
+    var body: some View {
+        Section {
+            LabeledContent("Vault", value: vault.name)
+            LabeledContent("Notes", value: "\(store.notes.count)")
+            LabeledContent("Folders", value: "\(store.folders.count)")
+            if store.downloadingCount > 0 {
+                LabeledContent("Still downloading", value: "\(store.downloadingCount)")
+            }
+            Button(vault.isOwnFolder ? "Choose vault…" : "Choose another vault…") { choosing = true }
+            if !vault.isOwnFolder {
+                Button("Use Point’s own folder") { vault.useOwnFolder() }
+            }
+        } header: {
+            Text("Vault")
+        } footer: {
+            Text(vault.isOwnFolder
+                 ? "Notes are kept in Point’s folder on this iPhone, which the Files app shows. They don’t sync. Choose your vault in iCloud Drive to use the same notes as your Mac."
+                 : "Changes from your other devices show up as iCloud brings them. Notes not on this iPhone yet are downloaded.")
+        }
+        .fileImporter(isPresented: $choosing, allowedContentTypes: [.folder]) { result in
+            do {
+                try vault.choose(result.get())
+            } catch {
+                problem = error.localizedDescription
+            }
+        }
+        .alert("Couldn’t use that folder", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
+            Button("OK") { problem = nil }
+        } message: {
+            Text(problem ?? "")
+        }
+    }
+}
+
 /// What home's panel shows.
 private struct HomeSettings: View {
     @EnvironmentObject private var store: PhoneStore
@@ -56,19 +91,72 @@ private struct HomeSettings: View {
     @AppStorage(HomeTile.types.key) private var showsTypes = true
     @AppStorage(HomeTile.lists.key) private var showsLists = true
 
+    /// What home shows of the kinds of note, in a word or two.
+    private var typesShown: String {
+        let chosen = store.kinds.kinds.filter { store.homeKinds.contains($0.name) }.count
+        return switch (showsTypes, chosen) {
+        case (false, 0): "Off"
+        case (true, 0): "One tile"
+        case (false, _): "\(chosen) chosen"
+        case (true, _): "One tile, \(chosen) chosen"
+        }
+    }
+
     var body: some View {
         Section {
             Toggle("Folders", isOn: $showsFolders)
             Toggle("Tags", isOn: $showsTags)
             Toggle("Bookmarks", isOn: $showsBookmarks)
-            Toggle("Types", isOn: $showsTypes)
-                .disabled(store.kinds.isEmpty)
+            NavigationLink {
+                TypesOnHome()
+            } label: {
+                LabeledContent("Types", value: typesShown)
+            }
+            .disabled(store.kinds.isEmpty)
             Toggle("Lists", isOn: $showsLists)
         } header: {
             Text("Home")
         } footer: {
             Text(store.kinds.isEmpty ? "Types shows once the vault has kinds of note." : "Four or more show two by two. Lists shows once the vault has a list.")
         }
+    }
+}
+
+/// The kinds of note on home: all of them behind one Types tile, and any chosen to show as
+/// tiles of their own, with how many notes each has.
+private struct TypesOnHome: View {
+    @EnvironmentObject private var store: PhoneStore
+    @AppStorage(HomeTile.types.key) private var showsTypes = true
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("All types, as one tile", isOn: $showsTypes)
+            }
+            Section {
+                ForEach(store.kinds.kinds) { kind in
+                    Button { store.toggleHomeKind(kind.name) } label: {
+                        HStack {
+                            Label(kind.name, systemImage: kind.shownSymbol)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            if store.homeKinds.contains(kind.name) {
+                                Image(systemName: "checkmark")
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                        }
+                    }
+                    .accessibilityAddTraits(store.homeKinds.contains(kind.name) ? .isSelected : [])
+                }
+            } header: {
+                Text("Each on its own")
+            } footer: {
+                Text("Chosen types show on home as tiles of their own, after the others.")
+            }
+        }
+        .navigationTitle("Types")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

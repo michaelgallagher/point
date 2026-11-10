@@ -43,6 +43,15 @@ public enum NoteNames {
         day(created, calendar: calendar) + "-" + (slug(title).isEmpty ? "untitled" : slug(title))
     }
 
+    /// A new note's name until it has a title: the day and the time it was made
+    /// (`2026-11-10-untitled-213809`), so two devices making notes the same day don't pick the
+    /// same name (counting up, each picked the first free one it knew of).
+    public static func untitledName(created: Date, calendar: Calendar = .current) -> String {
+        let time = calendar.dateComponents([.hour, .minute, .second], from: created)
+        return day(created, calendar: calendar) + "-untitled-"
+            + String(format: "%02d%02d%02d", time.hour ?? 0, time.minute ?? 0, time.second ?? 0)
+    }
+
     /// A note named with its title, keeping the day it was made: `2026-11-06-old` retitled
     /// "New" becomes `2026-11-06-new`.
     public static func renamed(_ name: String, to title: String) -> String? {
@@ -66,6 +75,9 @@ public enum NoteNames {
     /// yet, say): its name without the day, in words.
     public static func fallbackTitle(for name: String) -> String {
         guard let day = day(of: name) else { return name }
+        // Untitled, however it's numbered (`-untitled-213809`, `-untitled-3`): the number only
+        // keeps names apart.
+        if name.dropFirst(day.count + 1).range(of: #"^untitled(-\d+)?$"#, options: .regularExpression) != nil { return "Untitled" }
         let words = name.dropFirst(day.count + 1).replacingOccurrences(of: "-", with: " ")
         return words.prefix(1).uppercased() + words.dropFirst()
     }

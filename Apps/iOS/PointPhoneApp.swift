@@ -8,35 +8,58 @@ import VaultKit
 @main
 struct PointPhoneApp: App {
     @UIApplicationDelegateAdaptor private var appDelegate: AppDelegate
-    @StateObject private var store = PhoneStore()
+    @StateObject private var vault = VaultChoice()
 
     init() { _ = PhoneVault.launched }
 
     var body: some Scene {
         WindowGroup {
-            HomeScreen()
-                .environmentObject(store)
-                .environmentObject(store.search)
-                // Until the vault's been read: home, half filled in, showed lists still filling
-                // and "No notes" for a moment.
-                .overlay {
-                    ZStack {
-                        if !store.isReady { LaunchCover().transition(.opacity) }
-                    }
-                    .animation(.easeOut(duration: 0.3), value: store.isReady)
-                }
-                // How a clip is going, over whatever's showing.
-                .overlay(alignment: .bottom) {
-                    ZStack {
-                        if let status = store.clipStatus { ClipStatusView(status: status).transition(.move(edge: .bottom).combined(with: .opacity)) }
-                    }
-                    .animation(.spring(duration: 0.3, bounce: 0), value: store.clipStatus)
-                }
-                // `point://clip?url=…`, from the share sheet's Clip to Point shortcut.
-                .onOpenURL { url in
-                    if let request = ClipRequest(url) { store.clip(request) }
+            VaultRoot(store: vault.store)
+                .environmentObject(vault)
+                // Another vault chosen: everything shown is made again, from its store.
+                .id(ObjectIdentifier(vault.store))
+                .alert("Couldn’t open your vault", isPresented: Binding(get: { vault.problem != nil }, set: { if !$0 { vault.problem = nil } })) {
+                    Button("OK") { vault.problem = nil }
+                } message: {
+                    Text(vault.problem ?? "")
                 }
         }
+    }
+}
+
+/// Home, and what shows over it, for one vault's store.
+private struct VaultRoot: View {
+    @ObservedObject var store: PhoneStore
+
+    var body: some View {
+        HomeScreen()
+            .environmentObject(store)
+            .environmentObject(store.search)
+            // Until the vault's been read: home, half filled in, showed lists still filling
+            // and "No notes" for a moment.
+            .overlay {
+                ZStack {
+                    if !store.isReady { LaunchCover().transition(.opacity) }
+                }
+                .animation(.easeOut(duration: 0.3), value: store.isReady)
+            }
+            // How a clip is going, over whatever's showing.
+            .overlay(alignment: .bottom) {
+                ZStack {
+                    if let status = store.clipStatus { ClipStatusView(status: status).transition(.move(edge: .bottom).combined(with: .opacity)) }
+                }
+                .animation(.spring(duration: 0.3, bounce: 0), value: store.clipStatus)
+            }
+            .alert("Changed on two devices", isPresented: Binding(get: { store.conflictNotice != nil },
+                                                                 set: { if !$0 { store.conflictNotice = nil } })) {
+                Button("OK") { store.conflictNotice = nil }
+            } message: {
+                Text(store.conflictNotice ?? "")
+            }
+            // `point://clip?url=…`, from the share sheet's Clip to Point shortcut.
+            .onOpenURL { url in
+                if let request = ClipRequest(url) { store.clip(request) }
+            }
     }
 }
 
@@ -87,10 +110,20 @@ final class QuickActions: ObservableObject {
     static let newNote = "org.mikegallagher.point.newNote" // As in Info.plist.
     /// Goes up each time New Note is chosen.
     @Published private(set) var newNoteRequests = 0
+    /// How many of those home has made a note for. Each is made once: home appearing again
+    /// (iOS can build it afresh, waking the app) made another, empty, as a count alone did.
+    private var newNotesMade = 0
 
     func perform(_ item: UIApplicationShortcutItem) -> Bool {
         guard item.type == Self.newNote else { return false }
         newNoteRequests += 1
+        return true
+    }
+
+    /// Whether a New Note chosen is still to be made; if so, it's taken.
+    func takeNewNote() -> Bool {
+        guard newNotesMade < newNoteRequests else { return false }
+        newNotesMade = newNoteRequests
         return true
     }
 }
@@ -113,17 +146,44 @@ final class SceneDelegate: NSObject, UIWindowSceneDelegate {
     }
 }
 
-/// The vault on the phone, for now: a folder in the app's Documents, which the Files app
-/// shows (copy notes in there). Two notes for measuring are made the first time.
+/// The vault on the phone: Point's own folder in the app's Documents, which the Files app
+/// shows (copy notes in there), or a folder chosen in Files, such as the Obsidian vault in
+/// iCloud Drive (see `VaultChoice`). Two notes for measuring are made in Point's own folder
+/// the first time, never in a chosen one.
 enum PhoneVault {
     /// When the app started, for timing how long it takes to be ready.
     static let launched = CACurrentMediaTime()
-    static let root: URL = {
+    /// Point's own folder, in its Documents.
+    static let ownFolder: URL = {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let root = documents.appendingPathComponent("Vault", isDirectory: true)
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         return root
     }()
+
+    /// The vault in use, and its key for what the phone keeps about it. Set by `VaultChoice`
+    /// on the main thread, before each `PhoneStore` is made, which reads them once.
+    nonisolated(unsafe) private(set) static var root = ownFolder
+    nonisolated(unsafe) private(set) static var key = ownKey
+    /// Point's own folder's key: what's kept about it stays where it always was.
+    static let ownKey = "phone"
+    static var isOwnFolder: Bool { key == ownKey }
+
+    static func use(_ root: URL, key: String) {
+        self.root = root
+        self.key = key
+    }
+
+    /// A defaults key for something kept about the vault in use (the note being worked on,
+    /// untitled notes, favourites): each vault has its own, so one never acts on another's notes.
+    static func defaultsKey(_ name: String) -> String { isOwnFolder ? name : "\(key).\(name)" }
+
+    /// Where something kept about the vault in use goes in the app's own storage, never in the
+    /// vault: the search index, what search has learned, drafts.
+    static func storage(_ path: String) -> URL {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return support.appendingPathComponent(isOwnFolder ? path : "Vaults/\(key)/\(path)")
+    }
 
     /// A long note with most kinds of Markdown, to time opening and typing; and a short one.
     /// `-SpikeSections <n>` for a longer one: 150 is about 45,000 characters, 900 about 270,000.
@@ -132,6 +192,7 @@ enum PhoneVault {
     static var longTitle: String { sections == 150 ? "Spike, long note" : "Spike, long note (\(sections) sections)" }
 
     static func makeSampleNotes() {
+        let root = ownFolder
         let long = root.appendingPathComponent(longTitle + ".md")
         guard !FileManager.default.fileExists(atPath: long.path) else { return }
         var text = "---\ntags: [spike]\nstatus: draft\n---\n# A long note\n\n"
@@ -148,9 +209,10 @@ enum PhoneVault {
             .write(to: root.appendingPathComponent("Spike, short note.md"))
     }
 
-    /// Timings, appended to `spike-timings.txt` beside the vault (in Files), to read later.
+    /// Timings, appended to `spike-timings.txt` beside Point's own folder (in Files), to read
+    /// later: never in a chosen vault.
     static func log(_ line: String) {
-        let url = root.deletingLastPathComponent().appendingPathComponent("spike-timings.txt")
+        let url = ownFolder.deletingLastPathComponent().appendingPathComponent("spike-timings.txt")
         let stamped = "\(Date().formatted(date: .numeric, time: .standard)) \(line)\n"
         if let handle = try? FileHandle(forWritingTo: url) {
             handle.seekToEndOfFile()

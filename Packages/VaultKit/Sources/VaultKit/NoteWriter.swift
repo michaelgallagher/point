@@ -94,12 +94,17 @@ public enum NoteWriter {
     /// Writes `text` to a new conflict copy beside `url` and returns where: named for the time,
     /// and numbered if that's taken (two saves in one second), never written over another.
     public static func writeConflictCopy(_ text: String, beside url: URL, date: Date = Date()) throws -> URL {
+        try writeConflictCopy(Data(text.utf8), beside: url, date: date)
+    }
+
+    /// A conflict copy of exactly these bytes.
+    public static func writeConflictCopy(_ data: Data, beside url: URL, date: Date = Date()) throws -> URL {
         let first = conflictCopyURL(for: url, date: date)
         let stem = first.deletingPathExtension().lastPathComponent
         for number in 1...1_000 {
             let copy = number == 1 ? first : first.deletingLastPathComponent().appendingPathComponent("\(stem) \(number).md")
             do {
-                try Data(text.utf8).write(to: copy, options: .withoutOverwriting)
+                try data.write(to: copy, options: .withoutOverwriting)
                 return copy
             } catch let error as CocoaError where error.code == .fileWriteFileExists {
                 continue

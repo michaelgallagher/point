@@ -10,9 +10,9 @@ On `main`, which has everything so far.
 
 **The Mac is the daily notes app,** on the real vault since 29 October, and is ready to use without Obsidian. Since 3 November: kinds of note, recall, the clipper, types, links and lists, the 8 November batch, and stage 4 (list notes, the split target, and links and recall as one related notes panel sliding up from the bottom). On 10 November: Format › Numbered List (⌥⌘L), and a new note named by hand no longer renamed after its first line when it's left.
 
-**The iPhone app** is steps 0–4 of [M4](plan/m4-iphone.md) and the catch-up with the Mac, but still reads only a copy of the vault in its own Documents folder: nothing written there reaches the Mac.
+**The iPhone app** is steps 0–4 of [M4](plan/m4-iphone.md) and the catch-up with the Mac, and since 10 November uses the vault in iCloud Drive, chosen in Files ([The iPhone on the real vault](plan/iphone-real-vault.md)): tried on a copy of the vault there, with the safety tests passed on the phone. Not yet on the real vault.
 
-**Still open:** iCloud's own conflict versions (finding 5 of the [27 October review](plan/app-review-2026-10-27.md), never seen on demand); full screen on the Mac ([Investigations](plan/investigations.md), set aside for now); performance (13–15 of the review, measured only if something feels slow).
+**Still open:** full screen on the Mac ([Investigations](plan/investigations.md), set aside for now); performance (13–15 of the review, measured only if something feels slow).
 
 **Not merged into `main`:** design experiments `animating-the-cursor`, `simple-but-bigger`, `tighter-and-lighter`, `capsules` and `skinny-bar`.
 
@@ -20,7 +20,7 @@ On `main`, which has everything so far.
 
 Mike travels soon with the laptop and the iPhone, and wants to use Point on both for a week without opening Obsidian. The Mac is ready; the iPhone isn't. In order:
 
-1. **The iPhone on the real vault** (branch `iphone-real-vault`; see [The iPhone on the real vault](plan/iphone-real-vault.md)): choose the vault in iCloud Drive and keep it, notes not yet downloaded, changes from the Mac, and the safety tests again on the phone. Tried on a copy of the vault in iCloud Drive first, then the real one with a snapshot taken.
+1. **The iPhone on the real vault** (see [The iPhone on the real vault](plan/iphone-real-vault.md)): built and merged on 10 November, and tried on a copy of the vault in iCloud Drive. The real vault next, with a snapshot taken.
 2. **Signing:** the free account's 7-day builds are fine; the laptop comes along, so Xcode can reinstall on the road.
 3. **A shakedown at home:** two or three days on both apps, no Obsidian: write on the phone, edit the same note on the Mac, and `scripts/vault-snapshot.sh changes` to see exactly what Point wrote.
 4. **Before leaving:** a snapshot (`scripts/vault-snapshot.sh take`; the first set for Thursday 12 November, 8:00), Obsidian Sync still off on every device, and the vault set to Keep Downloaded in Files on the iPhone, so nothing is a placeholder offline.
