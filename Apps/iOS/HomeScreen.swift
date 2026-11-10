@@ -709,6 +709,9 @@ private struct PageBar<Actions: View>: ViewModifier {
                 // The page stays its size under the keyboard: shrunk, the rows below were left
                 // undrawn, and showed blank as the keyboard went down.
                 .ignoresSafeArea(.keyboard)
+                // No scrim behind the search field and New note: the rows run under them, as
+                // in Apple's own apps, and the glass is enough to set them apart.
+                .scrollEdgeEffectHidden(true, for: .bottom)
                 .toolbar {
                     if hasActions || sorts {
                         ToolbarItem(placement: .topBarTrailing) { menu(symbol: "ellipsis") }
