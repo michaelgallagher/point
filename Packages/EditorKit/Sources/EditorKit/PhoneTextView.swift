@@ -63,6 +63,9 @@ public final class PhoneTextView: UITextView {
     public var makeBlockEmbedView: ((String) -> UIView)?
     /// Called when an image is tapped, with its file.
     public var onOpenImage: ((URL) -> Void)?
+    /// Actions for the edit menu over a selection (reader mode's Highlight and Add to notes),
+    /// put before the system's own. None, and the menu is the system's.
+    public var editMenuActions: ((NSRange) -> [UIMenuElement])?
 
     public init() {
         // TextKit 1, built by hand so the layout manager can hide markers, as on the Mac.
@@ -426,6 +429,12 @@ extension PhoneTextView: UITextViewDelegate {
             return false
         }
         return true
+    }
+
+    public func textView(_ textView: UITextView, editMenuForTextIn range: NSRange,
+                         suggestedActions: [UIMenuElement]) -> UIMenu? {
+        guard let actions = editMenuActions?(range), !actions.isEmpty else { return nil }
+        return UIMenu(children: actions + suggestedActions)
     }
 
     /// Never into the hidden frontmatter, where what's selected can be deleted, nor hidden markers.
