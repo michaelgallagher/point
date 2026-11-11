@@ -66,9 +66,7 @@ struct NoteScreen: View {
                     }
                 }
             }
-            .pageBar(.find({ session.find("") }, beside: session.isReading
-                ? AnyView(Button("Your notes", systemImage: "note.text") { session.openNotes() })
-                : nil)) {
+            .pageBar(.find({ session.find("") }, notes: session.isReading ? { session.openNotes() } : nil)) {
                 Button("New note", systemImage: "square.and.pencil") { newNote(FolderTree.folder(of: session.note.id)) }
                 Divider()
                 Button("Move note", systemImage: "folder") { showsMove = true }
@@ -251,6 +249,8 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     @Published private(set) var progress: Double = 0
     @Published private(set) var minutesLeft = 0
     private var minutesToRead = 1
+    /// The note as read when the screen was made, for its first showing.
+    private var firstRead: String?
     /// Reading, the bars (and the status bar) are out of the way, for the text alone.
     @Published private(set) var barsHidden = false
     private var scrolling: NSKeyValueObservation?
@@ -290,6 +290,14 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         self.store = store
         self.isNew = isNew
         super.init()
+        // Read now, not once the editor's made: a clip is set for reading before the screen
+        // first draws, so its bars are right from the start (an item added to them later
+        // wasn't grouped with the others).
+        if !isNew, let text = try? NoteReader.read(note) {
+            firstRead = text
+            canRead = !store.showsMarkdown && Reading.opensForReading(text, kinds: store.kinds)
+            isReading = canRead
+        }
         NotificationCenter.default.addObserver(self, selector: #selector(embedsChanged), name: .phoneEmbedsChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(resignActive), name: UIApplication.willResignActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(saveNow), name: .phoneSaveNow, object: nil)

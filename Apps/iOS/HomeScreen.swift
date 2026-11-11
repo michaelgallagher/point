@@ -727,8 +727,8 @@ func symbol(_ name: String, or older: String) -> String {
 /// blue New note.
 enum PageTool {
     case none
-    /// A note: finding in it, and `beside`, if given, sharing the menu's glass.
-    case find(() -> Void, beside: AnyView? = nil)
+    /// A note: finding in it, and, while reading, `notes` (your notes), sharing the menu's glass.
+    case find(() -> Void, notes: (() -> Void)? = nil)
     /// New note, the bar's one blue button, at its right. `more`, if given, is what a long
     /// press offers (new notes of each kind).
     case add(() -> Void, more: AnyView? = nil)
@@ -747,7 +747,7 @@ private struct PageBar<Actions: View>: ViewModifier {
 
     func body(content: Content) -> some View {
         switch tool {
-        case .find(let find, let beside):
+        case .find(let find, let notes):
             // A note: finding in it, and, with the map, Search, as on the lists.
             content
                 .toolbar {
@@ -758,18 +758,14 @@ private struct PageBar<Actions: View>: ViewModifier {
                         Button("Search", systemImage: "map") { search.present(from: nil) }
                     }
                     ToolbarSpacer(.flexible, placement: .bottomBar)
-                    if let beside {
-                        // One item, so they share one glass, hugging them.
+                    // Beside the menu with no spacer between: the system sets them in one glass,
+                    // spaced as the other groups.
+                    if let notes {
                         ToolbarItem(placement: .bottomBar) {
-                            HStack(spacing: 4) {
-                                beside
-                                menu(symbol: symbol("text.menu", or: "line.3.horizontal"))
-                            }
-                            .labelStyle(.iconOnly)
+                            Button("Your notes", systemImage: "note.text", action: notes)
                         }
-                    } else {
-                        ToolbarItem(placement: .bottomBar) { menu(symbol: symbol("text.menu", or: "line.3.horizontal")) }
                     }
+                    ToolbarItem(placement: .bottomBar) { menu(symbol: symbol("text.menu", or: "line.3.horizontal")) }
                 }
         case .none, .add:
             content
