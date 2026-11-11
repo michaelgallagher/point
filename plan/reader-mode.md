@@ -87,6 +87,13 @@ Part of [the plan](../PLAN.md). Builds on [the clipper](clipper.md).
 - **Tried:** `HighlightingTests` (12). In the Simulator: a word highlighted; a selection half in bold made `==**everything**==` and the quote `> **everything**`; the list and going to a highlight; Remove highlight; the file changed from outside before Remove highlight, which then wrote nothing and showed the notice, and worked once tried again; a comment typed under a quote. The file stayed well-formed throughout, the rest byte for byte.
 - **Not tried:** a real iPhone, a selection across paragraphs in the app (only the tests), VoiceOver.
 
+## After step 3 (11 November, branch `reader-polish`)
+
+- **The bars get out of the way:** reading, a little scroll on by hand hides the top and bottom bars and the status bar; a little scroll back, a tap on the text (not a link), or reaching the top or the end brings them back. Measured by the finger, not the scroll offset, which jumps as the bars go.
+- **Your notes moved to the bottom,** sharing the action menu's glass, so the top has only progress, Aa and Edit.
+- **Lines closer:** 1.4 rather than 1.5 by default.
+- **Line spacing and margins in Aa:** line spacing 1.2 to 1.8 in tenths, margins 12 to 48 points in sixes (24 by default). Settings kept before these came in still read, with these as standard.
+
 ## The steps
 
 1. **The reader view:** the type, the header, the Aa menu, progress, your place, and Edit and Done. It never writes to the file, so it can be used on the real vault straight away.
