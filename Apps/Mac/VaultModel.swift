@@ -326,8 +326,10 @@ final class VaultModel: ObservableObject {
         note(selection)
     }
 
+    /// A note by its ID: one in the vault, or one gone in the last scan that may yet be found
+    /// renamed elsewhere, so a window showing it keeps it open meanwhile.
     func note(_ id: Note.ID?) -> Note? {
-        id.flatMap { store.notesByID[$0] }
+        id.flatMap { store.notesByID[$0] ?? store.notesGoingElsewhere[$0] }
     }
 
     /// The window's sidebar and notes, side by side; shows and hides the sidebar by widening

@@ -880,7 +880,7 @@ private struct VaultChangeNoticeView: View {
         .onHover { isHovering = $0 }
         .task(id: notice.id) {
             if notice.isWorking { return } // Replaced when the work is done.
-            try? await Task.sleep(nanoseconds: notice.canUndo ? 8_000_000_000 : 3_000_000_000)
+            try? await Task.sleep(nanoseconds: notice.isWarning ? 10_000_000_000 : notice.canUndo ? 8_000_000_000 : 3_000_000_000)
             while isHovering {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 if Task.isCancelled { return }

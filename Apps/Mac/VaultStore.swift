@@ -184,18 +184,36 @@ final class VaultStore: ObservableObject {
         #if DEBUG
         debugScans.started += 1
         #endif
+        let idsAtStart = noteIDs
         do {
             let scanned = try await Task.detached(priority: .userInitiated) {
                 try VaultScanner.scanAll(root)
             }.value
             guard generation == vaultGeneration else { return Trace.mark("scan dropped: another vault opened") }
+            // A note made, renamed or deleted here while the vault was being read: what was
+            // read is out of date (a rename here would look like one elsewhere, undone), so
+            // read it again.
+            guard noteIDs == idsAtStart else {
+                rescanWanted = true
+                return Trace.mark("scan dropped: notes changed here meanwhile")
+            }
             Trace.mark("rescanned: \(scanned.notes.count) notes")
             #if DEBUG
             debugScans.shown += 1
             #endif
             folders = scanned.folders
             if scanned.images != images { images = scanned.images }
-            notes = scanned.notes.sorted(by: sort)
+            let listed = scanned.notes.sorted(by: sort)
+            let moved = moves.match(before: notes, after: listed)
+            notes = listed
+            for (gone, new) in moved { followMovedElsewhere(gone, to: new) }
+            waitForMoves()
+            // Once a vault's opened, every note checked for conflict versions iCloud kept
+            // while Point wasn't running (those arriving later, the conflict watcher hears of).
+            if !hasLookedForConflicts, !notes.isEmpty {
+                hasLookedForConflicts = true
+                surfaceConflicts(notes.filter(\.isDownloaded).map(\.url))
+            }
             forgetDeletedNotes()
             propertyTypes = PropertyTypes.load(vault: root) // Obsidian may have changed them.
             loadBookmarks() // The iPhone may have.
@@ -233,11 +251,14 @@ final class VaultStore: ObservableObject {
         scanning = nil
         rescanWanted = false
         watcher?.stop()
+        conflictWatcher?.stop()
+        hasLookedForConflicts = false
         root?.stopAccessingSecurityScopedResource()
         _ = url.startAccessingSecurityScopedResource()
         root = url
         folders = []
         notes = []
+        moves = NotesMovedElsewhere()
         settings = ObsidianSettings.load(vault: url)
         propertyTypes = PropertyTypes.load(vault: url)
         pointTypes = PointTypes.load(vault: url)
@@ -258,6 +279,7 @@ final class VaultStore: ObservableObject {
         }, onMissedChanges: { [weak self] in
             Task { @MainActor in self?.missedChanges() }
         })
+        conflictWatcher = ConflictWatcher(root: url) { [weak self] note in self?.surfaceConflicts([note]) }
         if watcher?.isWatching != true {
             Self.showProblem("Point can’t watch this vault for changes",
                              detail: "Changes made in Obsidian or on other devices will show when Point next comes to the front.")
@@ -267,9 +289,82 @@ final class VaultStore: ObservableObject {
         Task { await reload() }
     }
 
+    // MARK: Notes renamed or moved elsewhere
+
+    /// Notes gone and appeared between scans, matched as renamed or moved outside Point.
+    private var moves = NotesMovedElsewhere()
+    /// Notes gone in the last scan and not yet found renamed, by ID: windows keep showing
+    /// them meanwhile (see `VaultModel.note`), as a rename can arrive over two scans.
+    private(set) var notesGoingElsewhere: [Note.ID: Note] = [:]
+    private var moveCheck: Task<Void, Never>?
+
+    /// A note renamed or moved on the iPhone, in Obsidian or in Finder: its editors, what
+    /// Point knows about it, and windows showing it follow it, as for a rename here. (Its
+    /// bookmark is moved by whatever renamed it, and read again with the scan.)
+    private func followMovedElsewhere(_ gone: Note, to new: Note) {
+        Trace.mark("followed a note moved elsewhere: \(gone.id) → \(new.id)")
+        EditorSession.follow(gone.url, to: new)
+        if untitled.remove(gone.id) != nil { untitled.insert(new.id) }
+        searchHistory.renamed(from: gone.id, to: new.id)
+        if pendingOpen?.id == gone.id { pendingOpen?.id = new.id }
+        saveSearchHistory()
+        NotificationCenter.default.post(name: .pointNoteMoved, object: self, userInfo: ["old": gone.id, "new": new.id])
+    }
+
+    /// Notes gone and not yet matched are kept showing for one more scan, which runs shortly
+    /// if nothing else starts one: then they're gone (deleted), or followed.
+    private func waitForMoves() {
+        let waiting = Dictionary(moves.vanishedBefore.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        if waiting != notesGoingElsewhere { notesGoingElsewhere = waiting }
+        moveCheck?.cancel()
+        guard !waiting.isEmpty else { return }
+        moveCheck = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.reload()
+        }
+    }
+
+    // MARK: iCloud's conflict versions
+
+    private var conflictWatcher: ConflictWatcher?
+    private var hasLookedForConflicts = false
+
+    /// Writes out iCloud's hidden conflict versions of these notes as conflict copies beside
+    /// them (off the main thread), and says so, as the iPhone does. A note open in an editor
+    /// is left to it: it asks which version to keep.
+    private func surfaceConflicts(_ urls: [URL]) {
+        let open = EditorSession.openPaths()
+        let notes = urls.filter { $0.pathExtension.lowercased() == "md" && !open.contains($0.resolvingSymlinksInPath().path) }
+        guard !notes.isEmpty else { return }
+        let generation = vaultGeneration
+        Task {
+            let copied = await Task.detached(priority: .utility) {
+                notes.compactMap { url -> String? in
+                    guard ICloudConflicts.has(url) else { return nil }
+                    do {
+                        return try ICloudConflicts.surface(url).isEmpty ? nil : url.deletingPathExtension().lastPathComponent
+                    } catch {
+                        NSLog("Point: couldn't copy out an iCloud conflict of \(url.lastPathComponent): \(error.localizedDescription)")
+                        return nil
+                    }
+                }
+            }.value
+            guard !copied.isEmpty, generation == vaultGeneration else { return }
+            Trace.mark("wrote out iCloud conflicts: \(copied.joined(separator: ", "))")
+            vaultChangeNotice = VaultChangeNotice(
+                text: copied.count == 1
+                    ? "“\(copied[0])” was changed on two devices at once: the other version is in a conflict copy"
+                    : "\(copied.count) notes were changed on two devices at once: the other versions are in conflict copies",
+                canUndo: false, symbol: "exclamationmark.triangle", isWarning: true)
+            await reload()
+        }
+    }
+
     /// Something in the vault changed, here or elsewhere: rescan, and tell open notes.
     private func filesChanged(_ urls: [URL]) {
         NotificationCenter.default.post(name: .pointFilesChanged, object: self, userInfo: ["urls": urls])
+        surfaceConflicts(urls)
         Task { await reload() }
     }
 
@@ -726,6 +821,8 @@ final class VaultStore: ObservableObject {
         var symbol = "checkmark.circle"
         /// Still under way (clipping a page): shown with a spinner until replaced.
         var isWorking = false
+        /// Shown longer, to be read (a note changed on two devices).
+        var isWarning = false
     }
 
     /// Renames a property, a value or a tag in every note that has it, as one change that can

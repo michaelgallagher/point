@@ -269,21 +269,12 @@ final class PhoneStore: ObservableObject {
         let before = Dictionary(notes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let scannedIDs = Set(scanned.map(\.id))
         // Notes not there last time, and those gone: renamed or moved on another device, the
-        // one is the other, and what's known about it here follows it (see `isSameNote`). A
-        // rename can arrive over two reads, so a note gone and not found waits one more.
-        let newlyAppeared = before.isEmpty ? [] : scanned.filter { before[$0.id] == nil }
-        var appeared = newlyAppeared + appearedBefore.filter { scannedIDs.contains($0.id) && before[$0.id] != nil }
-        let vanished = notes.filter { !scannedIDs.contains($0.id) }
-        var unmatched: [Note] = []
+        // one is the other, and what's known about it here follows it (see
+        // `NotesMovedElsewhere`, which also lets a rename arrive over two reads).
         var titles: [Note.ID: String] = [:]
         // Notes that were here and changed elsewhere, their text not here yet: fetched now.
         var fetchNow: Set<URL> = []
-        for gone in vanished + vanishedBefore.filter({ !scannedIDs.contains($0.id) }) {
-            guard let index = appeared.firstIndex(where: { Self.isSameNote(gone, $0) }) else {
-                unmatched.append(gone)
-                continue
-            }
-            let new = appeared.remove(at: index)
+        for (gone, new) in moves.match(before: notes, after: scanned) {
             noteMovedElsewhere(from: gone.id, to: new)
             // Its title, while its text is on the way: the one it had if it's only moved (or
             // its new name says the same), not if it was renamed for a new title (`…-test`).
@@ -292,7 +283,6 @@ final class PhoneStore: ObservableObject {
             }
             if gone.isDownloaded, !new.isDownloaded { fetchNow.insert(new.url) }
         }
-        vanishedBefore = unmatched.filter { before[$0.id] != nil }
         // How long changes from elsewhere take to reach the phone: each note found changed, and
         // when it was saved (in `spike-timings.txt`, beside Point's own folder).
         if !before.isEmpty {
@@ -306,7 +296,6 @@ final class PhoneStore: ObservableObject {
                 }
             }
         }
-        appearedBefore = newlyAppeared.filter { new in appeared.contains { $0.id == new.id } }
         // A note iCloud hasn't brought yet has only its file name for a title (for a note Point
         // named, its lowercase slug): the title it had is kept until its text arrives.
         scanned = scanned.map { note in
@@ -336,7 +325,7 @@ final class PhoneStore: ObservableObject {
         // chance to be found renamed.
         if !scanned.isEmpty {
             let known = history
-            history.keepOnly(scannedIDs.union(vanishedBefore.map(\.id)))
+            history.keepOnly(scannedIDs.union(moves.vanishedBefore.map(\.id)))
             if history != known { historyFile.save(history) }
         }
         if let images = result?.images, images != embeds.images { embeds.images = images }
@@ -952,20 +941,8 @@ final class PhoneStore: ObservableObject {
         }
     }
 
-    /// Notes gone in the last read and not yet found renamed or moved, and those that appeared
-    /// in it and weren't one of them.
-    private var vanishedBefore: [Note] = []
-    private var appearedBefore: [Note] = []
-
-    /// Whether a note that's gone and one that's appeared are the same, renamed or moved on
-    /// another device: the same name in another folder, or another name in the same folder
-    /// made at the same moment (a rename keeps when a file was made).
-    static func isSameNote(_ gone: Note, _ new: Note) -> Bool {
-        let goneFolder = FolderTree.folder(of: gone.id)
-        let newFolder = FolderTree.folder(of: new.id)
-        if gone.url.lastPathComponent == new.url.lastPathComponent { return goneFolder != newFolder }
-        return goneFolder == newFolder && abs(gone.created.timeIntervalSince(new.created)) < 1
-    }
+    /// Notes gone and appeared between reads, matched as renamed or moved on another device.
+    private var moves = NotesMovedElsewhere()
 
     /// A note renamed or moved on another device: what it was known by follows it, as for a
     /// rename here (the list already has it, from the scan; bookmarks, from the Mac).

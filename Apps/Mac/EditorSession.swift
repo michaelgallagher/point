@@ -296,6 +296,29 @@ final class EditorSession: NSObject, ObservableObject {
         sessions(of: url).forEach { $0.isReleased = true }
     }
 
+    /// The file at `url` was renamed or moved outside Point (on the iPhone, say), and is now
+    /// `new`: its editors carry on with it there. Unsaved edits are saved to it at once, or,
+    /// if the note's text changed too, kept in a conflict copy beside it, as when leaving a
+    /// note; a draft kept from a save that failed meanwhile goes with it.
+    static func follow(_ url: URL, to new: Note) {
+        for session in sessions(of: url) where !session.isReleased {
+            let old = session.note.id
+            session.note = new
+            session.drafts?.move(from: old, to: new.id)
+            if session.fileIsMissing {
+                session.fileIsMissing = false
+                session.saveProblem = nil
+            }
+            session.save(leaving: true)
+        }
+    }
+
+    /// The files open in an editor, by resolved path: each asks what to do with iCloud's
+    /// conflict versions of its note itself.
+    static func openPaths() -> Set<String> {
+        Set(live.allObjects.filter { !$0.isReleased }.map { $0.note.url.resolvingSymlinksInPath().path })
+    }
+
     private static func sessions(of url: URL) -> [EditorSession] {
         let path = url.resolvingSymlinksInPath().path
         return live.allObjects.filter { $0.note.url.resolvingSymlinksInPath().path == path }

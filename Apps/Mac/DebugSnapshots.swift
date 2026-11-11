@@ -25,6 +25,7 @@ enum DebugSnapshots {
         openSplitIfAsked(for: model)
         probeCursorIfAsked(for: model)
         conflictIfAsked(for: model)
+        movedElsewhereIfAsked(for: model)
         safetyIfAsked(for: model)
         shortcutTestIfAsked(for: model)
         tabTestIfAsked(for: model)
@@ -1198,6 +1199,88 @@ enum DebugSnapshots {
                             let copy = copies.first.flatMap { try? String(contentsOf: folder.appendingPathComponent($0), encoding: .utf8) }
                             check("conflict copy has mine", copy == mine, copies.joined(separator: ", "))
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    /// `-PointMovedElsewhereTest "<note ID>|rename|move|retitle|twostep|delete"`, with
+    /// `-PointSaveDelay 60` and `-PointNoAlerts YES`: opens the note, types a line (unsaved), then
+    /// changes its file outside Point, as the iPhone does through iCloud. `rename` renames it in
+    /// its folder, `move` moves it to `Elsewhere/`, `retitle` renames it and changes its text,
+    /// `twostep` takes it out of the vault for a scan before it comes back renamed, and `delete`
+    /// deletes it. Checks the tab follows it and the typing is kept. Each step is in the trace.
+    private static func movedElsewhereIfAsked(for model: VaultModel) {
+        guard let spec = UserDefaults.standard.string(forKey: "PointMovedElsewhereTest"), let bar = spec.lastIndex(of: "|") else { return }
+        let id = String(spec[..<bar]), mode = String(spec[spec.index(after: bar)...])
+        func check(_ name: String, _ ok: Bool, _ detail: String = "") {
+            Trace.mark("moved elsewhere test (\(mode)): \(ok ? "PASS" : "FAIL") \(name)\(detail.isEmpty ? "" : " — \(detail)")")
+        }
+        func read(_ url: URL) -> String? { try? String(contentsOf: url, encoding: .utf8) }
+        func start(tries: Int) {
+            guard let note = model.note(id) else {
+                if tries > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { start(tries: tries - 1) } }
+                else { check("note found", false, model.store.root?.path ?? "no vault") }
+                return
+            }
+            run(note)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { start(tries: 20) }
+        func run(_ note: Note) {
+            model.selectFromList(id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                guard let session = EditorSession.live.allObjects.first(where: { $0.note.id == id && $0.debugText != nil }),
+                      let original = read(note.url), let root = model.store.root else { return check("note open", false) }
+                NotificationCenter.default.post(name: .pointInsertText, object: model, userInfo: ["text": "Mine\n", "noteID": id])
+                let mine = session.debugText ?? ""
+                check("typing unsaved", mine.contains("Mine") && read(note.url) == original)
+                let folder = note.url.deletingLastPathComponent()
+                let fm = FileManager.default
+                var newURL = folder.appendingPathComponent("Renamed elsewhere.md")
+                switch mode {
+                case "move":
+                    let elsewhere = root.appendingPathComponent("Elsewhere", isDirectory: true)
+                    try? fm.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+                    newURL = elsewhere.appendingPathComponent(note.url.lastPathComponent)
+                    try? fm.moveItem(at: note.url, to: newURL)
+                case "retitle":
+                    try? fm.moveItem(at: note.url, to: newURL)
+                    try? Data((original + "Theirs\n").utf8).write(to: newURL)
+                case "twostep":
+                    let outside = root.deletingLastPathComponent().appendingPathComponent("in-flight.md")
+                    try? fm.removeItem(at: outside)
+                    try? fm.moveItem(at: note.url, to: outside)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                        check("still shown while it's away", model.note(id) != nil && model.store.notesByID[id] == nil)
+                        try? fm.moveItem(at: outside, to: newURL)
+                    }
+                case "delete":
+                    try? fm.removeItem(at: note.url)
+                default:
+                    try? fm.moveItem(at: note.url, to: newURL)
+                }
+                let newID = String(newURL.path.dropFirst(root.path.count + 1))
+                DispatchQueue.main.asyncAfter(deadline: .now() + (mode == "delete" ? 6 : 3.5)) {
+                    let shown = model.panes[model.activePane].tab.noteID
+                    let copies = ((try? fm.contentsOfDirectory(atPath: newURL.deletingLastPathComponent().path)) ?? []).filter { $0.contains("(conflict ") }
+                    switch mode {
+                    case "delete":
+                        check("note no longer shown", model.note(shown) == nil, shown ?? "nil")
+                        check("typing kept as a draft", model.store.drafts?.draft(for: id)?.text == mine)
+                    case "retitle":
+                        check("tab follows", shown == newID, shown ?? "nil")
+                        check("file has theirs", read(newURL) == original + "Theirs\n")
+                        let copy = copies.first.flatMap { read(newURL.deletingLastPathComponent().appendingPathComponent($0)) }
+                        check("conflict copy has mine", copy == mine, copies.joined(separator: ", "))
+                    default:
+                        check("tab follows", shown == newID, shown ?? "nil")
+                        check("typing saved in the new file", read(newURL) == mine, read(newURL) ?? "missing")
+                        check("old file not made again", !fm.fileExists(atPath: note.url.path))
+                        check("no conflict copy", copies.isEmpty, copies.joined(separator: ", "))
+                        let editor = EditorSession.live.allObjects.first { $0.note.id == newID && $0.debugText != nil }
+                        check("editor shows the typing", editor?.debugText == mine)
+                        check("no problem shown", editor?.saveProblem == nil && editor?.conflict == nil)
                     }
                 }
             }

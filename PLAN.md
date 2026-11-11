@@ -4,13 +4,13 @@ A simple, fast, native Markdown notes app for Mac and iPhone that feels like App
 
 The plan is in several documents, in [`plan/`](plan/). This page says where things stand and what's in each.
 
-## Where things stand (10 November 2026)
+## Where things stand (11 November 2026)
 
 On `main`, which has everything so far.
 
 **The Mac is the daily notes app,** on the real vault since 29 October, and is ready to use without Obsidian. Since 3 November: kinds of note, recall, the clipper, types, links and lists, the 8 November batch, and stage 4 (list notes, the split target, and links and recall as one related notes panel sliding up from the bottom). On 10 November: Format › Numbered List (⌥⌘L), and a new note named by hand no longer renamed after its first line when it's left.
 
-**The iPhone app** is steps 0–4 of [M4](plan/m4-iphone.md) and the catch-up with the Mac, and since 10 November uses the vault in iCloud Drive, chosen in Files ([The iPhone on the real vault](plan/iphone-real-vault.md)): tried on a copy of the vault there, with the safety tests passed on the phone. Not yet on the real vault.
+**The iPhone app** is steps 0–4 of [M4](plan/m4-iphone.md) and the catch-up with the Mac, and since 10 November uses the vault in iCloud Drive, chosen in Files ([The iPhone on the real vault](plan/iphone-real-vault.md)): the safety tests passed on a copy there, and **on the real vault since 11 November**. The same day, the Mac learned to follow a note renamed on the phone while it's open, and to write out iCloud's conflict versions of every note, not only open ones.
 
 **Still open:** full screen on the Mac ([Investigations](plan/investigations.md), set aside for now); performance (13–15 of the review, measured only if something feels slow).
 
@@ -20,7 +20,7 @@ On `main`, which has everything so far.
 
 Mike travels soon with the laptop and the iPhone, and wants to use Point on both for a week without opening Obsidian. The Mac is ready; the iPhone isn't. In order:
 
-1. **The iPhone on the real vault** (see [The iPhone on the real vault](plan/iphone-real-vault.md)): built and merged on 10 November, and tried on a copy of the vault in iCloud Drive. The real vault next, with a snapshot taken.
+1. **The iPhone on the real vault** (see [The iPhone on the real vault](plan/iphone-real-vault.md)): built and merged on 10 November, tried on a copy of the vault in iCloud Drive, and in use on the real vault since 11 November.
 2. **Signing:** the free account's 7-day builds are fine; the laptop comes along, so Xcode can reinstall on the road.
 3. **A shakedown at home:** two or three days on both apps, no Obsidian: write on the phone, edit the same note on the Mac, and `scripts/vault-snapshot.sh changes` to see exactly what Point wrote.
 4. **Before leaving:** a snapshot (`scripts/vault-snapshot.sh take`; the first set for Thursday 12 November, 8:00), Obsidian Sync still off on every device, and the vault set to Keep Downloaded in Files on the iPhone, so nothing is a placeholder offline.
@@ -28,7 +28,7 @@ Mike travels soon with the laptop and the iPhone, and wants to use Point on both
 
 **After the trip:** the iPhone catching up again (the related notes panel, Numbered List in the bar above the keyboard), full screen on the Mac, and anything the week turns up, which comes first.
 
-**Later milestones:** meaning (M5) and extras (M6). See [Milestones](plan/milestones.md).
+**Later:** comparing drafts (Compare with…: two notes, or a note and an earlier version or conflict copy, shown as tracked changes; designed in [Beyond text](plan/structure.md), not started), daily notes as a meeting log ([Investigations](plan/investigations.md)), and the milestones meaning (M5) and extras (M6). See [Milestones](plan/milestones.md).
 
 ## The documents
 
