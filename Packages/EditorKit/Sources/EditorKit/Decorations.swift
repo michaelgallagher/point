@@ -136,7 +136,13 @@ struct EditorTheme {
     func webLinkSymbolSize(for font: PlatformFont) -> CGFloat { (font.pointSize * 0.8).rounded() }
     func webLinkSpace(for font: PlatformFont) -> CGFloat { webLinkSymbolSize(for: font) + 4 }
 
-    var body: PlatformFont { .systemFont(ofSize: bodySize) }
+    /// Text, headings included, set in the system's serif (New York) rather than its sans: for
+    /// reading, on the phone.
+    var isSerif = false
+    /// A line drawn as a rule rather than as its text: reader mode's marker between your notes
+    /// and the saved text (`==---- Text ----==`). Nil when writing.
+    var dividerLine: String?
+    var body: PlatformFont { isSerif ? PlatformFont.systemFont(ofSize: bodySize).serif : .systemFont(ofSize: bodySize) }
     var mono: PlatformFont { .monospacedSystemFont(ofSize: bodySize - 2, weight: .regular) }
 
     /// A heading's font, from the typography: its size relative to the body, its weight,
@@ -150,7 +156,8 @@ struct EditorTheme {
         case .semibold: .semibold
         case .bold: .bold
         }
-        let font = PlatformFont.systemFont(ofSize: size, weight: weight)
+        var font = PlatformFont.systemFont(ofSize: size, weight: weight)
+        if isSerif { font = font.serif }
         guard style.italic else { return font }
         return font.adding(PlatformTraits.italic)
     }

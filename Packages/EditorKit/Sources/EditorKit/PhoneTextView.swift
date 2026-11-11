@@ -12,6 +12,10 @@ public final class PhoneTextView: UITextView {
     let pointLayoutManager: PointLayoutManager
     /// Decides which taps are for `PhoneTextView+Links`.
     var tapFilter: NSObject?
+    var plainTapFilter: NSObject?
+    /// Called for a double tap on the text, not a link, checkbox or image, while it isn't
+    /// editable (reader mode's double tap to show or hide the bars).
+    public var onPlainTap: (() -> Void)?
 
     /// How long the last edit took to parse and restyle, in milliseconds, and the slowest so
     /// far: what typing costs on this phone.
@@ -63,6 +67,9 @@ public final class PhoneTextView: UITextView {
     public var makeBlockEmbedView: ((String) -> UIView)?
     /// Called when an image is tapped, with its file.
     public var onOpenImage: ((URL) -> Void)?
+    /// Actions for the edit menu over a selection (reader mode's Highlight and Add to notes),
+    /// put before the system's own. None, and the menu is the system's.
+    public var editMenuActions: ((NSRange) -> [UIMenuElement])?
 
     public init() {
         // TextKit 1, built by hand so the layout manager can hide markers, as on the Mac.
@@ -215,6 +222,53 @@ public final class PhoneTextView: UITextView {
             restyle(NSRange(location: 0, length: textStorage.length))
             setNeedsLayout()
         }
+    }
+
+    /// Text set in the system's serif (New York): for reading.
+    public var isSerif: Bool {
+        get { styler.theme.isSerif }
+        set {
+            guard newValue != styler.theme.isSerif else { return }
+            styler.theme.isSerif = newValue
+            pointLayoutManager.theme = styler.theme
+            typingAttributes = styler.baseAttributes
+            restyle(NSRange(location: 0, length: textStorage.length))
+            setNeedsLayout()
+        }
+    }
+
+    /// A line drawn as a rule rather than its text (reader mode's marker), or nil.
+    public var dividerLine: String? {
+        get { styler.theme.dividerLine }
+        set {
+            guard newValue != styler.theme.dividerLine else { return }
+            styler.theme.dividerLine = newValue
+            pointLayoutManager.theme = styler.theme
+            restyle(NSRange(location: 0, length: textStorage.length))
+        }
+    }
+
+    /// Where the text at the top of the screen starts: the first character on the first line
+    /// showing below the bars.
+    public var topVisibleLocation: Int {
+        guard textStorage.length > 0 else { return 0 }
+        let y = contentOffset.y + adjustedContentInset.top - textContainerInset.top + 1
+        let point = CGPoint(x: 0, y: max(y, 0))
+        let glyph = pointLayoutManager.glyphIndex(for: point, in: textContainer)
+        return pointLayoutManager.characterIndexForGlyph(at: glyph)
+    }
+
+    /// Scrolls so that the line with `location` is at the top of the screen, below the bars,
+    /// however far down it is.
+    public func scroll(toTop location: Int) {
+        let location = min(max(location, 0), textStorage.length)
+        guard location > 0 else { return }
+        layOut(through: location)
+        let glyph = pointLayoutManager.glyphIndexForCharacter(at: min(location, textStorage.length - 1))
+        let line = pointLayoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        let top = line.minY + textContainerInset.top - adjustedContentInset.top
+        let bottom = max(contentSize.height - bounds.height + adjustedContentInset.bottom, -adjustedContentInset.top)
+        setContentOffset(CGPoint(x: contentOffset.x, y: min(max(top, -adjustedContentInset.top), bottom)), animated: false)
     }
 
     public var showsMarkdown: Bool {
@@ -379,6 +433,12 @@ extension PhoneTextView: UITextViewDelegate {
             return false
         }
         return true
+    }
+
+    public func textView(_ textView: UITextView, editMenuForTextIn range: NSRange,
+                         suggestedActions: [UIMenuElement]) -> UIMenu? {
+        guard let actions = editMenuActions?(range), !actions.isEmpty else { return nil }
+        return UIMenu(children: actions + suggestedActions)
     }
 
     /// Never into the hidden frontmatter, where what's selected can be deleted, nor hidden markers.

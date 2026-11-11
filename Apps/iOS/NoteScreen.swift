@@ -1,3 +1,4 @@
+import ClipKit
 import EditorKit
 import IndexKit
 import MarkdownKit
@@ -20,6 +21,7 @@ struct NoteScreen: View {
     @State private var confirmsDelete = false
     @State private var isDeleting = false
     @State private var showsMove = false
+    @State private var showsReaderControls = false
     /// Makes a note in the given folder.
     private let newNote: (String) -> Void
 
@@ -39,14 +41,32 @@ struct NoteScreen: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if session.isWriting {
+                if session.isReading {
+                    ToolbarItem(placement: .principal) {
+                        ReadingProgress(progress: session.progress, minutesLeft: session.minutesLeft)
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Text and page", systemImage: "textformat.size") { showsReaderControls = true }
+                            .popover(isPresented: $showsReaderControls) {
+                                ReaderControls(settings: $store.reader)
+                            }
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Edit") { session.edit() }
+                    }
+                } else if session.canRead {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") { session.doneEditing() }
+                            .buttonStyle(.glassProminent)
+                    }
+                } else if session.isWriting {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("Hide keyboard", systemImage: "keyboard.chevron.compact.down") { session.hideKeyboard() }
                             .buttonStyle(.glassProminent)
                     }
                 }
             }
-            .pageBar(.find { session.find("") }) {
+            .pageBar(.find({ session.find("") }, notes: session.isReading ? { session.openNotes() } : nil)) {
                 Button("New note", systemImage: "square.and.pencil") { newNote(FolderTree.folder(of: session.note.id)) }
                 Divider()
                 Button("Move note", systemImage: "folder") { showsMove = true }
@@ -68,9 +88,15 @@ struct NoteScreen: View {
                 Button("Delete note", systemImage: "trash", role: .destructive) { confirmsDelete = true }
             }
             // A hardware keyboard leaves the format bar at the bottom, on top of this one.
-            .toolbarVisibility(session.isWriting ? .hidden : .automatic, for: .bottomBar)
+            .toolbarVisibility(session.isWriting || session.barsHidden ? .hidden : .automatic, for: .bottomBar)
+            // Reading, the bars go as the text scrolls on, and come back as it scrolls back.
+            .toolbarVisibility(session.barsHidden ? .hidden : .automatic, for: .navigationBar)
+            .statusBarHidden(session.barsHidden)
             .sheet(isPresented: $session.showsProperties) {
                 PropertiesSheet(session: session).environmentObject(store)
+            }
+            .sheet(isPresented: $session.showsNotes, onDismiss: { session.finishNotes() }) {
+                NotesSheet(session: session).environmentObject(store)
             }
             .sheet(isPresented: $session.showsRelated) {
                 RelatedSheet(session: session).environmentObject(store)
@@ -93,11 +119,13 @@ struct NoteScreen: View {
             .quickLookPreview($embeds.shownImage)
             .onAppear { store.noteOpened(session.note.id) }
             .onChange(of: store.showsMarkdown) { _, shows in session.showMarkdown(shows) }
-            .onChange(of: store.typography) { _, typography in session.textView?.typography = typography }
+            .onChange(of: store.typography) { _, _ in session.applyReading() }
+            .onChange(of: store.reader) { _, _ in session.applyReading() }
             // The index has taken in changed notes: what links here may have changed.
             .onChange(of: store.indexUpdates) { _, _ in session.refreshRelated() }
             .onDisappear {
                 guard !isDeleting else { return session.moveToTrash() }
+                session.keepPlace()
                 // Left: its title taken, saved, then (if it has no title) named from its first
                 // line, or removed if it's still empty.
                 session.commitTitle()
@@ -190,7 +218,8 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     weak var textView: PhoneTextView?
     weak var titleField: TitleView?
     weak var header: NoteHeader?
-    weak var formatBar: FormatBar?
+    /// Held here too, as it's taken off the text view while reading.
+    var formatBar: FormatBar?
     /// The note's frontmatter, as its text is now.
     @Published private(set) var frontmatter: Frontmatter?
     @Published var showsProperties = false
@@ -212,6 +241,20 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     private var relatedTask: Task<Void, Never>?
     /// Writing in the note, when the format bar takes the bottom of the screen.
     @Published private(set) var isWriting = false
+    /// A note for reading (see plan/reader-mode.md): one of the clip kind, opened set for
+    /// reading, not editable until Edit.
+    @Published private(set) var canRead = false
+    @Published private(set) var isReading = false
+    /// How far through it the reader is, and the minutes left.
+    @Published private(set) var progress: Double = 0
+    @Published private(set) var minutesLeft = 0
+    private var minutesToRead = 1
+    /// The note as read when the screen was made, for its first showing.
+    private var firstRead: String?
+    /// Reading, the bars (and the status bar) are out of the way, for the text alone.
+    @Published private(set) var barsHidden = false
+    private var scrolling: NSKeyValueObservation?
+    private var pendingPlace: Task<Void, Never>?
     /// Why a title couldn't be used (the name's taken, say), until dismissed.
     @Published private(set) var titleProblem: String?
 
@@ -247,6 +290,14 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         self.store = store
         self.isNew = isNew
         super.init()
+        // Read now, not once the editor's made: a clip is set for reading before the screen
+        // first draws, so its bars are right from the start (an item added to them later
+        // wasn't grouped with the others).
+        if !isNew, let text = try? NoteReader.read(note) {
+            firstRead = text
+            canRead = !store.showsMarkdown && Reading.opensForReading(text, kinds: store.kinds)
+            isReading = canRead
+        }
         NotificationCenter.default.addObserver(self, selector: #selector(embedsChanged), name: .phoneEmbedsChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(resignActive), name: UIApplication.willResignActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(saveNow), name: .phoneSaveNow, object: nil)
@@ -319,6 +370,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     /// Going to the background (the phone locked, another app): saved.
     @objc private func resignActive() {
         save()
+        keepPlace()
         if let textView { store.noteCursor(textView.selectedRange.location) }
     }
 
@@ -421,32 +473,50 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     /// Whether the note is still on its way from iCloud: shown as such, and not editable, so
     /// nothing typed into the empty page is lost.
     private var isDownloading = false
+    /// The note couldn't be read, so it isn't editable, until it can.
+    private var couldntRead = false
 
     func open() {
         guard let textView else { return }
         let readStart = CACurrentMediaTime()
         let text: String
         do {
-            text = try NoteReader.read(note)
+            // What was read as the screen was made, the first time.
+            if let firstRead {
+                text = firstRead
+                self.firstRead = nil
+            } else {
+                text = try NoteReader.read(note)
+            }
         } catch {
             // A note that's gone from the vault isn't downloading.
             let isGone = store.hasScanned && store.note(note.id) == nil
             isDownloading = (error as? NoteReader.ReadError) == .notDownloaded && !isGone
+            couldntRead = true
             textView.isEditable = false
             saveProblem = isDownloading ? "This note is still downloading from iCloud."
                 : isGone ? "This note was deleted, renamed or moved on another device." : "Point couldn’t read this note."
             return
         }
-        if isDownloading || !textView.isEditable {
+        if isDownloading || couldntRead {
             isDownloading = false
-            textView.isEditable = true
+            couldntRead = false
             saveProblem = nil
         }
         let read = (CACurrentMediaTime() - readStart) * 1000
-        textView.typography = store.typography
+        // A clip opens for reading, the first time it's opened here (not while the Markdown
+        // shows, which is for fixing things).
+        let firstOpen = onDisk == nil
+        if firstOpen {
+            canRead = !isNew && !store.showsMarkdown && Reading.opensForReading(text, kinds: store.kinds)
+            isReading = canRead
+        }
         textView.showsMarkdown = store.showsMarkdown
         header?.showsProperties = !store.showsMarkdown
+        applyReading()
+        textView.isEditable = !isReading
         let load = textView.load(text)
+        if isReading { minutesToRead = Reading.minutes(toRead: text) }
         onDisk = text
         noteWebImages(in: text)
         noteFrontmatter(of: text)
@@ -455,9 +525,20 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         }
         titleField?.text = store.isUntitled(note.id) ? "" : note.title
         // A new note: straight to typing its title. Come back to: straight back to typing.
+        // Reading: back where the reader was.
+        let resumed = store.resumeCursor(for: note.id)
         if isNew {
             focusTitle()
-        } else if let cursor = store.resumeCursor(for: note.id) {
+        } else if isReading {
+            if firstOpen { observeScrolling() }
+            if firstOpen, let place = store.places.place(for: note.id) {
+                let location = Reading.location(of: place, in: text)
+                DispatchQueue.main.async { [weak self] in
+                    self?.textView?.scroll(toTop: location)
+                    self?.updateProgress()
+                }
+            }
+        } else if let cursor = resumed {
             textView.placeCursor(at: cursor)
             textView.becomeFirstResponder()
         } else if let link = store.revealRange(for: note.id), NSMaxRange(link) <= (text as NSString).length {
@@ -480,6 +561,352 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     func hideKeyboard() {
         textView?.window?.endEditing(true)
         DispatchQueue.main.async { [weak self] in _ = self?.textView?.resignFirstResponder() }
+    }
+
+    // MARK: Reading
+
+    /// Sets the note for reading (the reader's type, margins and page, the byline under the
+    /// title) or for writing, as it is now.
+    func applyReading() {
+        guard let textView else { return }
+        // What's at the top stays there as the type changes size.
+        let top = isReading && textView.window != nil && textView.textStorage.length > 0 ? textView.topVisibleLocation : nil
+        let reader = store.reader
+        textView.typography = isReading ? reader.typography : store.typography
+        textView.isSerif = isReading && reader.isSerif
+        textView.dividerLine = isReading ? ReaderNotes.marker : nil
+        let margin: CGFloat = isReading ? reader.margin : 16
+        if textView.textContainerInset.left != margin {
+            textView.textContainerInset.left = margin
+            textView.textContainerInset.right = margin
+        }
+        let page = isReading ? reader.page : .system
+        textView.backgroundColor = page.background
+        textView.overrideUserInterfaceStyle = page.style
+        // Selecting while reading is for highlighting, not formatting.
+        let accessory = isReading ? nil : formatBar
+        if textView.inputAccessoryView !== accessory {
+            textView.inputAccessoryView = accessory
+            if textView.isFirstResponder { textView.reloadInputViews() }
+        }
+        titleField?.setReading(isReading, serif: reader.isSerif)
+        header?.showReading(isReading ? Reading.byline(of: frontmatter, minutes: minutesToRead) : nil)
+        textView.setNeedsLayout()
+        if let top {
+            textView.layoutIfNeeded()
+            textView.scroll(toTop: top)
+            updateProgress()
+        }
+    }
+
+    /// Edit: the note as any other, editable, the cursor at the top of what was showing.
+    func edit() {
+        guard isReading, let textView else { return }
+        keepPlace()
+        let top = textView.topVisibleLocation
+        isReading = false
+        setBarsHidden(false)
+        applyReading()
+        textView.isEditable = true
+        textView.scroll(toTop: top)
+        textView.selectedRange = NSRange(location: max(top, textView.bodyStart), length: 0)
+        textView.becomeFirstResponder()
+    }
+
+    /// Done: saved, and set for reading again, where the editing was.
+    func doneEditing() {
+        guard canRead, !isReading, let textView else { return }
+        save()
+        hideKeyboard()
+        let top = textView.topVisibleLocation
+        isReading = true
+        minutesToRead = Reading.minutes(toRead: textView.text)
+        textView.isEditable = false
+        applyReading()
+        DispatchQueue.main.async { [weak self] in
+            self?.textView?.scroll(toTop: top)
+            self?.updateProgress()
+        }
+    }
+
+    private func observeScrolling() {
+        scrolling = textView?.observe(\.contentOffset, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in self?.scrolled() }
+        }
+    }
+
+    private func scrolled() {
+        guard isReading else { return }
+        updateProgress()
+        hideOrShowBars()
+        // Kept once scrolling stops, not at every step.
+        pendingPlace?.cancel()
+        pendingPlace = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            guard !Task.isCancelled else { return }
+            self?.keepPlace()
+        }
+    }
+
+    /// Scrolled on by hand, the bars go; scrolled back, or at the top or the end, they come
+    /// back. Measured by the finger, as the offset jumps as the bars go.
+    private func hideOrShowBars() {
+        guard let textView else { return }
+        let offset = textView.contentOffset.y
+        let top = -textView.adjustedContentInset.top
+        let end = textView.contentSize.height - textView.bounds.height + textView.adjustedContentInset.bottom
+        if offset <= top + 20 || offset >= end - 4 { return setBarsHidden(false) }
+        guard textView.isTracking else { return }
+        // Well past a nudge either way: a short adjustment while reading leaves them be.
+        let dragged = textView.panGestureRecognizer.translation(in: textView).y
+        if dragged < -Self.hideDistance { setBarsHidden(true) } else if dragged > Self.showDistance { setBarsHidden(false) }
+    }
+
+    /// How far a drag goes on before the bars go, and back before they return, in points.
+    private static let hideDistance: CGFloat = 90
+    private static let showDistance: CGFloat = 120
+
+    func setBarsHidden(_ hidden: Bool) {
+        guard hidden != barsHidden, isReading || !hidden else { return }
+        withAnimation(.easeInOut(duration: 0.25)) { barsHidden = hidden }
+        // No fading at the edges, with nothing there to keep clear of.
+        textView?.topEdgeEffect.isHidden = hidden
+        textView?.bottomEdgeEffect.isHidden = hidden
+    }
+
+    /// A double tap on the text while reading (not on a link or a selection) brings the bars
+    /// back, or puts them away.
+    func readerTapped() {
+        guard isReading, let textView, textView.selectedRange.length == 0 else { return }
+        setBarsHidden(!barsHidden)
+    }
+
+    private func updateProgress() {
+        guard let textView else { return }
+        let top = -textView.adjustedContentInset.top
+        let end = textView.contentSize.height - textView.bounds.height + textView.adjustedContentInset.bottom
+        let through = end > top ? (textView.contentOffset.y - top) / (end - top) : 1
+        let clamped = min(max(Double(through), 0), 1)
+        if abs(clamped - progress) > 0.002 || (clamped == 1) != (progress == 1) { progress = clamped }
+        let left = clamped >= 0.995 ? 0 : max(1, Int((Double(minutesToRead) * (1 - clamped)).rounded(.up)))
+        if left != minutesLeft { minutesLeft = left }
+    }
+
+    /// Shows the note as it is now (changed on another device, or your notes saved), while
+    /// reading: the same paragraph stays at the top.
+    private func showWhileReading(_ text: String) {
+        guard let textView else { return }
+        let place = Reading.place(at: textView.topVisibleLocation, in: textView.text)
+        textView.load(text)
+        onDisk = text
+        minutesToRead = Reading.minutes(toRead: text)
+        noteFrontmatter(of: text)
+        header?.showReading(Reading.byline(of: frontmatter, minutes: minutesToRead))
+        textView.layoutIfNeeded()
+        textView.scroll(toTop: Reading.location(of: place, in: text))
+        updateProgress()
+    }
+
+    // MARK: Your notes
+
+    /// Your notes as the sheet opened with them, or as last saved: if they're different on
+    /// disk when saving, they were changed elsewhere meanwhile.
+    private var notesBase: String?
+    private var pendingNotes: (text: String, task: Task<Void, Never>)?
+    @Published var showsNotes = false
+
+    /// Your notes, as the file has them.
+    var notes: String { ReaderNotes.notes(in: onDisk ?? "") }
+    /// What the notes sheet opens with: your notes, or with a quote just added, a blank line
+    /// under it for the cursor.
+    private(set) var notesToEdit = ""
+
+    func openNotes() {
+        guard isReading, onDisk != nil else { return }
+        notesBase = notes
+        notesToEdit = notes
+        showsNotes = true
+    }
+
+    /// Typed in the notes sheet: saved a second after typing stops.
+    func notesChanged(_ text: String) {
+        pendingNotes?.task.cancel()
+        let task = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.saveNotes(text)
+        }
+        pendingNotes = (text, task)
+    }
+
+    /// The sheet closed: what's waiting is saved now.
+    func finishNotes() {
+        if let pending = pendingNotes { saveNotes(pending.text) }
+        notesBase = nil
+        notesView = nil
+    }
+
+    /// Saves your notes into the file as it is on disk now: the properties and the saved text
+    /// are whatever it holds, so a change synced from elsewhere while you wrote is kept. If your
+    /// notes themselves were changed elsewhere meanwhile, yours go to a conflict copy, as typing
+    /// in the editor does. Nothing changed, nothing's written (an old clip gets no marker).
+    @discardableResult
+    func saveNotes(_ typed: String) -> Bool {
+        pendingNotes?.task.cancel()
+        pendingNotes = nil
+        guard let base = notesBase, let onDisk else { return true }
+        let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != base.trimmingCharacters(in: .whitespacesAndNewlines) else { return true }
+        var spliced = ReaderNotes.settingNotes(typed, in: onDisk)
+        do {
+            let disk = try NoteReader.read(note)
+            let expecting: String
+            if ReaderNotes.notes(in: disk) == base {
+                spliced = ReaderNotes.settingNotes(typed, in: disk)
+                expecting = disk
+            } else {
+                // Your notes changed elsewhere too: written over what was read, which no longer
+                // matches, so they go to a copy.
+                expecting = onDisk
+            }
+            let outcome = try NoteWriter.write(spliced, to: note.url, expecting: expecting, ifChanged: .saveCopy)
+            notesBase = ReaderNotes.notes(in: spliced)
+            saveProblem = nil
+            store.drafts.remove(for: note.id)
+            if case .savedAsConflictCopy(let copy) = outcome { continueInCopy(copy) }
+            showWhileReading(spliced)
+            store.noteEdited(note.id)
+            return true
+        } catch {
+            let kept = (try? store.drafts.keep(spliced, for: note.id)) != nil
+            fileIsMissing = (error as? NoteWriter.WriteError) == .missing
+            saveProblem = (fileIsMissing ? "This note was deleted, renamed or moved on another device, so your notes weren’t saved."
+                : "Point couldn’t save your notes (\(error.localizedDescription)).")
+                + (kept ? " They’re kept." : " Copy them somewhere safe.")
+            return false
+        }
+    }
+
+    // MARK: Highlights
+
+    /// The notes sheet's editor while it's open, to take a quote added from the article.
+    weak var notesView: PhoneTextView?
+
+    /// The reader's edit menu over a selection: Highlight, Remove highlight (if it touches
+    /// one) and Add to notes (from the saved text). Nothing while editing.
+    func readerMenu(for range: NSRange) -> [UIMenuElement] {
+        guard isReading, let onDisk, let textView, textView.text == onDisk else { return [] }
+        let editing = MarkdownEditing(text: onDisk, selection: range)
+        let marker = ReaderNotes.marker
+        var actions: [UIMenuElement] = []
+        if editing.highlightingSelection(skipping: marker) != nil {
+            actions.append(UIAction(title: "Highlight", image: UIImage(systemName: "highlighter")) { [weak self] _ in
+                self?.highlight(range)
+            })
+        }
+        if editing.removingHighlights(skipping: marker) != nil {
+            actions.append(UIAction(title: "Remove highlight", image: UIImage(systemName: "eraser")) { [weak self] _ in
+                self?.removeHighlights(range)
+            })
+        }
+        let inArticle = ReaderNotes.markerLine(in: onDisk).map { range.location > $0.location } ?? true
+        if inArticle, range.length > 0, !editing.quotableSelection(skipping: marker).isEmpty {
+            actions.append(UIAction(title: "Add to notes", image: UIImage(systemName: "text.badge.plus")) { [weak self] _ in
+                self?.addToNotes(range)
+            })
+        }
+        return actions
+    }
+
+    func highlight(_ range: NSRange) {
+        writeWhileReading { text in
+            MarkdownEditing(text: text, selection: range).highlightingSelection(skipping: ReaderNotes.marker)
+                .map { (text as NSString).replacingCharacters(in: $0.range, with: $0.replacement) }
+        }
+    }
+
+    func removeHighlights(_ range: NSRange) {
+        writeWhileReading { text in
+            MarkdownEditing(text: text, selection: range).removingHighlights(skipping: ReaderNotes.marker)
+                .map { (text as NSString).replacingCharacters(in: $0.range, with: $0.replacement) }
+        }
+    }
+
+    /// Quotes the selection at the end of your notes, highlights it in the article, in one
+    /// write, and opens your notes there, for a comment under it.
+    func addToNotes(_ range: NSRange) {
+        // What's being typed in the sheet goes in first.
+        if let pending = pendingNotes { saveNotes(pending.text) }
+        var added: String?
+        let wrote = writeWhileReading { text in
+            let editing = MarkdownEditing(text: text, selection: range)
+            let quote = editing.quotableSelection(skipping: ReaderNotes.marker)
+            guard !quote.isEmpty else { return nil }
+            let highlighted = editing.highlightingSelection(skipping: ReaderNotes.marker)
+                .map { (text as NSString).replacingCharacters(in: $0.range, with: $0.replacement) } ?? text
+            let notes = ReaderNotes.addingQuote(quote, to: ReaderNotes.notes(in: highlighted)).notes
+            added = notes
+            return ReaderNotes.settingNotes(notes, in: highlighted)
+        }
+        guard wrote, let added else { return }
+        notesBase = ReaderNotes.notes(in: onDisk ?? "")
+        if let notesView {
+            notesView.load(added)
+            notesView.placeCursor(at: (added as NSString).length)
+        } else {
+            notesToEdit = added
+            showsNotes = true
+        }
+    }
+
+    /// The note's highlights in the saved text, for the notes sheet's list.
+    var highlights: [(range: NSRange, text: String)] {
+        guard let onDisk else { return [] }
+        let start = ReaderNotes.markerLine(in: onDisk).map(NSMaxRange) ?? 0
+        return MarkdownEditing.highlights(in: onDisk, from: start, skipping: ReaderNotes.marker)
+    }
+
+    /// Goes to a highlight: its paragraph at the top of the screen.
+    func go(to highlight: NSRange) {
+        textView?.scroll(toTop: highlight.location)
+        updateProgress()
+        keepPlace()
+    }
+
+    /// Changes the note while reading, as `change` makes it from the file as shown, and writes
+    /// it. Changed on another device since it was shown, it's shown as it is now and nothing's
+    /// written: a selection made in the old version might not be the same words.
+    @discardableResult
+    private func writeWhileReading(_ change: (String) -> String?) -> Bool {
+        guard isReading, let onDisk else { return false }
+        do {
+            let disk = try NoteReader.read(note)
+            guard disk == onDisk else {
+                showWhileReading(disk)
+                notice = "This note was changed on another device, so it’s been read again. Try that again."
+                return false
+            }
+            guard let changed = change(disk), changed != disk else { return false }
+            let outcome = try NoteWriter.write(changed, to: note.url, expecting: disk, ifChanged: .saveCopy)
+            saveProblem = nil
+            if case .savedAsConflictCopy(let copy) = outcome { continueInCopy(copy) }
+            showWhileReading(changed)
+            store.noteEdited(note.id)
+            return true
+        } catch {
+            fileIsMissing = (error as? NoteWriter.WriteError) == .missing
+                || (error as? NoteReader.ReadError) != nil && store.hasScanned && store.note(note.id) == nil
+            saveProblem = fileIsMissing ? "This note was deleted, renamed or moved on another device, so that wasn’t saved."
+                : "Point couldn’t save that (\(error.localizedDescription))."
+            return false
+        }
+    }
+
+    /// Keeps where the reader is: the paragraph at the top of the screen.
+    func keepPlace() {
+        guard canRead, let textView, textView.textStorage.length > 0 else { return }
+        pendingPlace?.cancel()
+        store.places.keep(Reading.place(at: textView.topVisibleLocation, in: textView.text), for: note.id)
     }
 
     /// Shows the raw Markdown, or the formatted note, as on the Mac. With the Markdown showing,
@@ -642,6 +1069,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     /// Reads the note again if it's changed on disk and not here.
     private func reloadIfUnedited() {
         guard let textView, let onDisk, textView.text == onDisk, let text = try? NoteReader.read(note), text != onDisk else { return }
+        if isReading { return showWhileReading(text) }
         let selection = textView.selectedRange
         textView.load(text)
         self.onDisk = text
@@ -741,6 +1169,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         guard parsed != frontmatter || frontmatter == nil else { return }
         frontmatter = parsed
         header?.showProperties(count: shownProperties.count)
+        if isReading { header?.showReading(Reading.byline(of: parsed, minutes: minutesToRead)) }
         showList(ListDefinition(frontmatter: parsed))
         let typeProperty = store.kinds.property
         let type = parsed?.properties.first { $0.key.caseInsensitiveCompare(typeProperty) == .orderedSame }?
@@ -916,6 +1345,10 @@ final class NoteHeader: UIView {
     var onRelated: (() -> Void)?
     private let properties = NoteHeader.button()
     private let related = NoteHeader.button()
+    /// While reading: who wrote it, where, when, and how long it takes to read, in place of
+    /// the buttons.
+    private let byline = UILabel()
+    private(set) var isReading = false
     private static let gap: CGFloat = 8
     /// Between the buttons, side by side.
     private static let between: CGFloat = 8
@@ -949,6 +1382,12 @@ final class NoteHeader: UIView {
         addSubview(title)
         addSubview(properties)
         addSubview(related)
+        byline.font = .preferredFont(forTextStyle: .subheadline)
+        byline.adjustsFontForContentSizeCategory = true
+        byline.textColor = .secondaryLabel
+        byline.numberOfLines = 0
+        byline.isHidden = true
+        addSubview(byline)
         properties.addAction(UIAction { [weak self] _ in self?.onProperties?() }, for: .touchUpInside)
         related.addAction(UIAction { [weak self] _ in self?.onRelated?() }, for: .touchUpInside)
         showProperties(count: 0)
@@ -996,8 +1435,22 @@ final class NoteHeader: UIView {
         setNeedsLayout()
     }
 
-    /// The buttons showing, in order.
-    private var buttons: [UIButton] { [properties, related].filter { !$0.isHidden } }
+    /// Reading, with this line under the title, or writing (nil), with the buttons.
+    func showReading(_ line: String?) {
+        isReading = line != nil
+        byline.text = line
+        byline.isHidden = line == nil
+        for button in [properties, related] { button.alpha = isReading ? 0 : 1 }
+        setNeedsLayout()
+    }
+
+    /// The buttons showing, in order; none while reading.
+    private var buttons: [UIButton] { isReading ? [] : [properties, related].filter { !$0.isHidden } }
+
+    private static let bylineGap: CGFloat = 6
+    private func bylineHeight(width: CGFloat) -> CGFloat {
+        isReading ? byline.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height + Self.bylineGap : 0
+    }
 
     /// Where each button goes, below the title: along a line, onto the next when it doesn't fit,
     /// each no wider than the header.
@@ -1020,15 +1473,19 @@ final class NoteHeader: UIView {
     }
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
-        let height = title.sizeThatFits(size).height
+        let height = title.sizeThatFits(size).height + bylineHeight(width: size.width)
         let bottom = buttonFrames(width: size.width, top: height + Self.gap).map(\.maxY).max()
         return CGSize(width: size.width, height: (bottom.map { $0 + Self.below } ?? height + Self.below) + listRoom)
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let height = title.sizeThatFits(bounds.size).height
-        title.frame = CGRect(x: 0, y: 0, width: bounds.width, height: height)
+        let titleHeight = title.sizeThatFits(bounds.size).height
+        title.frame = CGRect(x: 0, y: 0, width: bounds.width, height: titleHeight)
+        let height = titleHeight + bylineHeight(width: bounds.width)
+        if isReading {
+            byline.frame = CGRect(x: 0, y: titleHeight + Self.bylineGap, width: bounds.width, height: height - titleHeight - Self.bylineGap)
+        }
         for (button, frame) in zip(buttons, buttonFrames(width: bounds.width, top: height + Self.gap)) {
             button.frame = frame
         }
@@ -1050,9 +1507,21 @@ final class TitleView: UITextView {
     }
     private let placeholder = UILabel()
 
+    private static let writingFont = UIFontMetrics(forTextStyle: .title2).scaledFont(for: .systemFont(ofSize: 28, weight: .bold))
+
+    /// Reading: the title can't be changed, and is set as the text is.
+    func setReading(_ reading: Bool, serif: Bool) {
+        isEditable = !reading
+        let base = UIFont.systemFont(ofSize: 28, weight: .bold)
+        let design = reading && serif ? base.fontDescriptor.withDesign(.serif).map { UIFont(descriptor: $0, size: 28) } ?? base : base
+        font = UIFontMetrics(forTextStyle: .title2).scaledFont(for: design)
+        placeholder.font = font
+        superview?.setNeedsLayout()
+    }
+
     init() {
         super.init(frame: .zero, textContainer: nil)
-        font = UIFontMetrics(forTextStyle: .title2).scaledFont(for: .systemFont(ofSize: 28, weight: .bold))
+        font = Self.writingFont
         adjustsFontForContentSizeCategory = true
         accessibilityLabel = "Title"
         backgroundColor = .clear
@@ -1105,6 +1574,8 @@ struct EditorView: UIViewRepresentable {
         }
         textView.onTextChange = { [weak session] in session?.changed($0) }
         textView.onOpenLink = { [weak session] in session?.open($0) }
+        textView.editMenuActions = { [weak session] in session?.readerMenu(for: $0) ?? [] }
+        textView.onPlainTap = { [weak session] in session?.readerTapped() }
         // Images and lists embedded in the note, drawn over it, as on the Mac.
         textView.makeBlockEmbedView = { [weak session] in session?.makeEmbedView($0) ?? UIView() }
         textView.blockEmbedHeight = { [weak session] in session?.listEmbedHeight($0) }

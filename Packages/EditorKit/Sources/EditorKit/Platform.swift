@@ -13,6 +13,11 @@ extension NSFont {
     func adding(_ traits: NSFontDescriptor.SymbolicTraits) -> NSFont {
         NSFont(descriptor: fontDescriptor.withSymbolicTraits(fontDescriptor.symbolicTraits.union(traits)), size: pointSize) ?? self
     }
+
+    /// The same font in the system's serif (New York), or itself if there's none.
+    var serif: NSFont {
+        fontDescriptor.withDesign(.serif).flatMap { NSFont(descriptor: $0, size: pointSize) } ?? self
+    }
 }
 
 enum PlatformTraits {
@@ -86,6 +91,11 @@ extension UIBezierPath {
 extension UIFont {
     func adding(_ traits: UIFontDescriptor.SymbolicTraits) -> UIFont {
         fontDescriptor.withSymbolicTraits(fontDescriptor.symbolicTraits.union(traits)).map { UIFont(descriptor: $0, size: pointSize) } ?? self
+    }
+
+    /// The same font in the system's serif (New York), or itself if there's none.
+    var serif: UIFont {
+        fontDescriptor.withDesign(.serif).map { UIFont(descriptor: $0, size: pointSize) } ?? self
     }
 }
 
