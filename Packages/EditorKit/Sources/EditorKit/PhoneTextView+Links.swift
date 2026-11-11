@@ -17,7 +17,7 @@ public enum LinkTarget: Equatable, Sendable {
     }
 }
 
-/// Taps on the text that aren't for a checkbox, link or image, while it isn't being edited,
+/// Double taps on the text that aren't for a checkbox, link or image, while it isn't being edited,
 /// alongside the text view's own (which clears a selection).
 private final class PlainTapFilter: NSObject, UIGestureRecognizerDelegate {
     weak var textView: PhoneTextView?
@@ -30,6 +30,13 @@ private final class PlainTapFilter: NSObject, UIGestureRecognizerDelegate {
 
     func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
         true
+    }
+
+    /// Ahead of the text view's own double tap, which would select a word (a long press still does).
+    func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+        guard let textView, textView.onPlainTap != nil, !textView.isEditable,
+              let tap = other as? UITapGestureRecognizer, tap !== recognizer, tap.view === textView else { return false }
+        return tap.numberOfTapsRequired == 2
     }
 }
 
@@ -64,6 +71,8 @@ extension PhoneTextView {
         plainFilter.textView = self
         plainTapFilter = plainFilter
         let plain = UITapGestureRecognizer(target: self, action: #selector(plainTapped))
+        // Twice, so a touch to stop a scroll or steady the page doesn't count.
+        plain.numberOfTapsRequired = 2
         plain.delegate = plainFilter
         addGestureRecognizer(plain)
     }

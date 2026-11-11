@@ -674,8 +674,8 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         textView?.bottomEdgeEffect.isHidden = hidden
     }
 
-    /// A tap on the text while reading (not on a link or a selection) brings the bars back, or
-    /// puts them away.
+    /// A double tap on the text while reading (not on a link or a selection) brings the bars
+    /// back, or puts them away.
     func readerTapped() {
         guard isReading, let textView, textView.selectedRange.length == 0 else { return }
         setBarsHidden(!barsHidden)
