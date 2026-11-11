@@ -15,6 +15,7 @@ What it does:
 - **Kinds of note:** meetings, people, projects and so on, each with its own folder, template and properties.
 - **Related notes:** under each note's title, the notes that share its people or topics, and the notes that link to it, grouped by how.
 - **Clipping:** a browser extension and an iPhone Shortcut that turn a web page into a note.
+- **Reading:** on the iPhone, clips open in a reader mode. You can highlight passages, quote them into your notes on the article, and keep the notes above it.
 
 Where it's going is in [PLAN.md](PLAN.md), and the documents in [`plan/`](plan/) explain how each part came to be the way it is.
 
@@ -58,6 +59,17 @@ There are also a few checks you turn on by hand:
 
 - **Snapshots** (EditorKit): `IMPRINT_SNAPSHOT_DIR` and `IMPRINT_SNAPSHOT_NOTE` render a note to light and dark PNGs (`SnapshotTests`).
 - **A live clip** (ClipKit): `POINT_CLIP_URL=… swift test --filter LiveClipTests` clips a real page.
+- **Reader mode on a copy of a vault** (ClipKit, then EditorKit) tries reader mode's writes on every clip, in memory. It never writes to the notes, but run it on a copy anyway. `POINT_AUDIT_REPORT` names where each report goes. The first check saves the notes, quotes and cleared notes and confirms nothing else changes. It also writes the list of clips that the second check needs:
+
+  ```bash
+  cd Packages/ClipKit && POINT_AUDIT_COPY=~/path/to/copy POINT_AUDIT_CLIPS=/tmp/clips.txt swift test --filter ReaderNotesAudit
+  ```
+
+  The second highlights random selections in each clip, and confirms that only highlight markers change and that taking them off again leaves the text as it was:
+
+  ```bash
+  cd Packages/EditorKit && POINT_AUDIT_COPY=~/path/to/copy POINT_AUDIT_CLIPS=/tmp/clips.txt swift test --filter HighlightingAudit
+  ```
 
 ### Keeping an eye on a real vault
 
