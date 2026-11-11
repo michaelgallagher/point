@@ -199,11 +199,14 @@ struct NotesSheet: View {
 
     var body: some View {
         NavigationStack {
-            NotesEditor(text: session.notes, session: session)
+            NotesEditor(text: session.notesToEdit, session: session)
                 .ignoresSafeArea(.container, edges: .bottom)
                 .navigationTitle("Your notes")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        HighlightsMenu(session: session) { dismiss() }
+                    }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Done") { dismiss() }
                     }
@@ -211,6 +214,35 @@ struct NotesSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+    }
+}
+
+/// The article's highlights, in order: choosing one closes the sheet and goes to it.
+private struct HighlightsMenu: View {
+    @ObservedObject var session: NoteSession
+    let close: () -> Void
+
+    var body: some View {
+        let highlights = session.highlights
+        Menu("Highlights", systemImage: "highlighter") {
+            if highlights.isEmpty {
+                Text("No highlights yet. Select text in the article, then choose Highlight.")
+            }
+            ForEach(Array(highlights.enumerated()), id: \.offset) { _, highlight in
+                Button(Self.shortened(highlight.text)) {
+                    close()
+                    // Once the sheet's out of the way.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { session.go(to: highlight.range) }
+                }
+            }
+        }
+    }
+
+    /// The highlight's words, Markdown left out, short enough for a menu.
+    static func shortened(_ text: String) -> String {
+        let plain = text.replacingOccurrences(of: #"\[([^\]]*)\]\([^)]*\)"#, with: "$1", options: .regularExpression)
+            .replacingOccurrences(of: #"[*_`~]"#, with: "", options: .regularExpression)
+        return plain.count > 80 ? String(plain.prefix(80)).trimmingCharacters(in: .whitespaces) + "…" : plain
     }
 }
 
@@ -232,6 +264,7 @@ private struct NotesEditor: UIViewRepresentable {
         textView.onTextChange = { [weak session] in session?.notesChanged($0) }
         textView.onOpenLink = { [weak session] in session?.open($0) }
         textView.load(text)
+        session.notesView = textView
         DispatchQueue.main.async {
             textView.placeCursor(at: (textView.text as NSString).length)
             textView.becomeFirstResponder()

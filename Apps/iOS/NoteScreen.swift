@@ -218,7 +218,8 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     weak var textView: PhoneTextView?
     weak var titleField: TitleView?
     weak var header: NoteHeader?
-    weak var formatBar: FormatBar?
+    /// Held here too, as it's taken off the text view while reading.
+    var formatBar: FormatBar?
     /// The note's frontmatter, as its text is now.
     @Published private(set) var frontmatter: Frontmatter?
     @Published var showsProperties = false
@@ -564,6 +565,12 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         let page = isReading ? reader.page : .system
         textView.backgroundColor = page.background
         textView.overrideUserInterfaceStyle = page.style
+        // Selecting while reading is for highlighting, not formatting.
+        let accessory = isReading ? nil : formatBar
+        if textView.inputAccessoryView !== accessory {
+            textView.inputAccessoryView = accessory
+            if textView.isFirstResponder { textView.reloadInputViews() }
+        }
         titleField?.setReading(isReading, serif: reader.isSerif)
         header?.showReading(isReading ? Reading.byline(of: frontmatter, minutes: minutesToRead) : nil)
         textView.setNeedsLayout()
@@ -657,10 +664,14 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
 
     /// Your notes, as the file has them.
     var notes: String { ReaderNotes.notes(in: onDisk ?? "") }
+    /// What the notes sheet opens with: your notes, or with a quote just added, a blank line
+    /// under it for the cursor.
+    private(set) var notesToEdit = ""
 
     func openNotes() {
         guard isReading, onDisk != nil else { return }
         notesBase = notes
+        notesToEdit = notes
         showsNotes = true
     }
 
@@ -679,6 +690,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     func finishNotes() {
         if let pending = pendingNotes { saveNotes(pending.text) }
         notesBase = nil
+        notesView = nil
     }
 
     /// Saves your notes into the file as it is on disk now: the properties and the saved text
@@ -718,6 +730,121 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
             saveProblem = (fileIsMissing ? "This note was deleted, renamed or moved on another device, so your notes weren’t saved."
                 : "Point couldn’t save your notes (\(error.localizedDescription)).")
                 + (kept ? " They’re kept." : " Copy them somewhere safe.")
+            return false
+        }
+    }
+
+    // MARK: Highlights
+
+    /// The notes sheet's editor while it's open, to take a quote added from the article.
+    weak var notesView: PhoneTextView?
+
+    /// The reader's edit menu over a selection: Highlight, Remove highlight (if it touches
+    /// one) and Add to notes (from the saved text). Nothing while editing.
+    func readerMenu(for range: NSRange) -> [UIMenuElement] {
+        guard isReading, let onDisk, let textView, textView.text == onDisk else { return [] }
+        let editing = MarkdownEditing(text: onDisk, selection: range)
+        let marker = ReaderNotes.marker
+        var actions: [UIMenuElement] = []
+        if editing.highlightingSelection(skipping: marker) != nil {
+            actions.append(UIAction(title: "Highlight", image: UIImage(systemName: "highlighter")) { [weak self] _ in
+                self?.highlight(range)
+            })
+        }
+        if editing.removingHighlights(skipping: marker) != nil {
+            actions.append(UIAction(title: "Remove highlight", image: UIImage(systemName: "eraser")) { [weak self] _ in
+                self?.removeHighlights(range)
+            })
+        }
+        let inArticle = ReaderNotes.markerLine(in: onDisk).map { range.location > $0.location } ?? true
+        if inArticle, range.length > 0, !editing.quotableSelection(skipping: marker).isEmpty {
+            actions.append(UIAction(title: "Add to notes", image: UIImage(systemName: "text.badge.plus")) { [weak self] _ in
+                self?.addToNotes(range)
+            })
+        }
+        return actions
+    }
+
+    func highlight(_ range: NSRange) {
+        writeWhileReading { text in
+            MarkdownEditing(text: text, selection: range).highlightingSelection(skipping: ReaderNotes.marker)
+                .map { (text as NSString).replacingCharacters(in: $0.range, with: $0.replacement) }
+        }
+    }
+
+    func removeHighlights(_ range: NSRange) {
+        writeWhileReading { text in
+            MarkdownEditing(text: text, selection: range).removingHighlights(skipping: ReaderNotes.marker)
+                .map { (text as NSString).replacingCharacters(in: $0.range, with: $0.replacement) }
+        }
+    }
+
+    /// Quotes the selection at the end of your notes, highlights it in the article, in one
+    /// write, and opens your notes there, for a comment under it.
+    func addToNotes(_ range: NSRange) {
+        // What's being typed in the sheet goes in first.
+        if let pending = pendingNotes { saveNotes(pending.text) }
+        var added: String?
+        let wrote = writeWhileReading { text in
+            let editing = MarkdownEditing(text: text, selection: range)
+            let quote = editing.quotableSelection(skipping: ReaderNotes.marker)
+            guard !quote.isEmpty else { return nil }
+            let highlighted = editing.highlightingSelection(skipping: ReaderNotes.marker)
+                .map { (text as NSString).replacingCharacters(in: $0.range, with: $0.replacement) } ?? text
+            let notes = ReaderNotes.addingQuote(quote, to: ReaderNotes.notes(in: highlighted)).notes
+            added = notes
+            return ReaderNotes.settingNotes(notes, in: highlighted)
+        }
+        guard wrote, let added else { return }
+        notesBase = ReaderNotes.notes(in: onDisk ?? "")
+        if let notesView {
+            notesView.load(added)
+            notesView.placeCursor(at: (added as NSString).length)
+        } else {
+            notesToEdit = added
+            showsNotes = true
+        }
+    }
+
+    /// The note's highlights in the saved text, for the notes sheet's list.
+    var highlights: [(range: NSRange, text: String)] {
+        guard let onDisk else { return [] }
+        let start = ReaderNotes.markerLine(in: onDisk).map(NSMaxRange) ?? 0
+        return MarkdownEditing.highlights(in: onDisk, from: start, skipping: ReaderNotes.marker)
+    }
+
+    /// Goes to a highlight: its paragraph at the top of the screen.
+    func go(to highlight: NSRange) {
+        textView?.scroll(toTop: highlight.location)
+        updateProgress()
+        keepPlace()
+    }
+
+    /// Changes the note while reading, as `change` makes it from the file as shown, and writes
+    /// it. Changed on another device since it was shown, it's shown as it is now and nothing's
+    /// written: a selection made in the old version might not be the same words.
+    @discardableResult
+    private func writeWhileReading(_ change: (String) -> String?) -> Bool {
+        guard isReading, let onDisk else { return false }
+        do {
+            let disk = try NoteReader.read(note)
+            guard disk == onDisk else {
+                showWhileReading(disk)
+                notice = "This note was changed on another device, so it’s been read again. Try that again."
+                return false
+            }
+            guard let changed = change(disk), changed != disk else { return false }
+            let outcome = try NoteWriter.write(changed, to: note.url, expecting: disk, ifChanged: .saveCopy)
+            saveProblem = nil
+            if case .savedAsConflictCopy(let copy) = outcome { continueInCopy(copy) }
+            showWhileReading(changed)
+            store.noteEdited(note.id)
+            return true
+        } catch {
+            fileIsMissing = (error as? NoteWriter.WriteError) == .missing
+                || (error as? NoteReader.ReadError) != nil && store.hasScanned && store.note(note.id) == nil
+            saveProblem = fileIsMissing ? "This note was deleted, renamed or moved on another device, so that wasn’t saved."
+                : "Point couldn’t save that (\(error.localizedDescription))."
             return false
         }
     }
@@ -1394,6 +1521,7 @@ struct EditorView: UIViewRepresentable {
         }
         textView.onTextChange = { [weak session] in session?.changed($0) }
         textView.onOpenLink = { [weak session] in session?.open($0) }
+        textView.editMenuActions = { [weak session] in session?.readerMenu(for: $0) ?? [] }
         // Images and lists embedded in the note, drawn over it, as on the Mac.
         textView.makeBlockEmbedView = { [weak session] in session?.makeEmbedView($0) ?? UIView() }
         textView.blockEmbedHeight = { [weak session] in session?.listEmbedHeight($0) }
