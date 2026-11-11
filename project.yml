@@ -111,7 +111,7 @@ targets:
         # Signed with Mike's personal team (a free account: builds last 7 days, and can't
         # have extensions until the paid account).
         CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: H8S9H25AJ7
+        DEVELOPMENT_TEAM: K67KF5MM38
   # The Dock tile plug-in: loaded by the Dock, to show the app icon chosen in Settings while
   # Point isn't running. Embedded in Point.app/Contents/PlugIns.
   PointDockTile:
