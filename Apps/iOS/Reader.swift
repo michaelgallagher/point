@@ -190,3 +190,54 @@ struct ReadingProgress: View {
         .accessibilityElement(children: .combine)
     }
 }
+
+/// Your notes on a clip, in a sheet: only what's between its properties and the marker, in the
+/// usual editor. Half height to start, so the article stays readable (and scrolls) behind it.
+struct NotesSheet: View {
+    @ObservedObject var session: NoteSession
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            NotesEditor(text: session.notes, session: session)
+                .ignoresSafeArea(.container, edges: .bottom)
+                .navigationTitle("Your notes")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                    }
+                }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+    }
+}
+
+/// The editor in the notes sheet, with the format bar, the cursor at the end.
+private struct NotesEditor: UIViewRepresentable {
+    let text: String
+    let session: NoteSession
+
+    func makeUIView(context: Context) -> PhoneTextView {
+        let textView = PhoneTextView()
+        textView.accessibilityLabel = "Your notes"
+        textView.typography = session.store.typography
+        let bar = FormatBar(textView: textView)
+        bar.linkText = { [weak session] in session?.store.linkText(forTitle: $0) ?? $0 }
+        textView.inputAccessoryView = bar
+        textView.onCompletionChange = { [weak bar, weak session] completion in
+            bar?.show(completion, choices: completion.flatMap { session?.choices(for: $0) } ?? [])
+        }
+        textView.onTextChange = { [weak session] in session?.notesChanged($0) }
+        textView.onOpenLink = { [weak session] in session?.open($0) }
+        textView.load(text)
+        DispatchQueue.main.async {
+            textView.placeCursor(at: (textView.text as NSString).length)
+            textView.becomeFirstResponder()
+        }
+        return textView
+    }
+
+    func updateUIView(_ textView: PhoneTextView, context: Context) {}
+}

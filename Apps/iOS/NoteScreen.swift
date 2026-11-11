@@ -46,6 +46,9 @@ struct NoteScreen: View {
                         ReadingProgress(progress: session.progress, minutesLeft: session.minutesLeft)
                     }
                     ToolbarItem(placement: .topBarTrailing) {
+                        Button("Your notes", systemImage: "note.text") { session.openNotes() }
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
                         Button("Text and page", systemImage: "textformat.size") { showsReaderControls = true }
                             .popover(isPresented: $showsReaderControls) {
                                 ReaderControls(settings: $store.reader)
@@ -91,6 +94,9 @@ struct NoteScreen: View {
             .toolbarVisibility(session.isWriting ? .hidden : .automatic, for: .bottomBar)
             .sheet(isPresented: $session.showsProperties) {
                 PropertiesSheet(session: session).environmentObject(store)
+            }
+            .sheet(isPresented: $session.showsNotes, onDismiss: { session.finishNotes() }) {
+                NotesSheet(session: session).environmentObject(store)
             }
             .sheet(isPresented: $session.showsRelated) {
                 RelatedSheet(session: session).environmentObject(store)
@@ -549,6 +555,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         let reader = store.reader
         textView.typography = isReading ? reader.typography : store.typography
         textView.isSerif = isReading && reader.isSerif
+        textView.dividerLine = isReading ? ReaderNotes.marker : nil
         let margin: CGFloat = isReading ? 24 : 16
         if textView.textContainerInset.left != margin {
             textView.textContainerInset.left = margin
@@ -623,6 +630,96 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         if abs(clamped - progress) > 0.002 || (clamped == 1) != (progress == 1) { progress = clamped }
         let left = clamped >= 0.995 ? 0 : max(1, Int((Double(minutesToRead) * (1 - clamped)).rounded(.up)))
         if left != minutesLeft { minutesLeft = left }
+    }
+
+    /// Shows the note as it is now (changed on another device, or your notes saved), while
+    /// reading: the same paragraph stays at the top.
+    private func showWhileReading(_ text: String) {
+        guard let textView else { return }
+        let place = Reading.place(at: textView.topVisibleLocation, in: textView.text)
+        textView.load(text)
+        onDisk = text
+        minutesToRead = Reading.minutes(toRead: text)
+        noteFrontmatter(of: text)
+        header?.showReading(Reading.byline(of: frontmatter, minutes: minutesToRead))
+        textView.layoutIfNeeded()
+        textView.scroll(toTop: Reading.location(of: place, in: text))
+        updateProgress()
+    }
+
+    // MARK: Your notes
+
+    /// Your notes as the sheet opened with them, or as last saved: if they're different on
+    /// disk when saving, they were changed elsewhere meanwhile.
+    private var notesBase: String?
+    private var pendingNotes: (text: String, task: Task<Void, Never>)?
+    @Published var showsNotes = false
+
+    /// Your notes, as the file has them.
+    var notes: String { ReaderNotes.notes(in: onDisk ?? "") }
+
+    func openNotes() {
+        guard isReading, onDisk != nil else { return }
+        notesBase = notes
+        showsNotes = true
+    }
+
+    /// Typed in the notes sheet: saved a second after typing stops.
+    func notesChanged(_ text: String) {
+        pendingNotes?.task.cancel()
+        let task = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.saveNotes(text)
+        }
+        pendingNotes = (text, task)
+    }
+
+    /// The sheet closed: what's waiting is saved now.
+    func finishNotes() {
+        if let pending = pendingNotes { saveNotes(pending.text) }
+        notesBase = nil
+    }
+
+    /// Saves your notes into the file as it is on disk now: the properties and the saved text
+    /// are whatever it holds, so a change synced from elsewhere while you wrote is kept. If your
+    /// notes themselves were changed elsewhere meanwhile, yours go to a conflict copy, as typing
+    /// in the editor does. Nothing changed, nothing's written (an old clip gets no marker).
+    @discardableResult
+    func saveNotes(_ typed: String) -> Bool {
+        pendingNotes?.task.cancel()
+        pendingNotes = nil
+        guard let base = notesBase, let onDisk else { return true }
+        let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != base.trimmingCharacters(in: .whitespacesAndNewlines) else { return true }
+        var spliced = ReaderNotes.settingNotes(typed, in: onDisk)
+        do {
+            let disk = try NoteReader.read(note)
+            let expecting: String
+            if ReaderNotes.notes(in: disk) == base {
+                spliced = ReaderNotes.settingNotes(typed, in: disk)
+                expecting = disk
+            } else {
+                // Your notes changed elsewhere too: written over what was read, which no longer
+                // matches, so they go to a copy.
+                expecting = onDisk
+            }
+            let outcome = try NoteWriter.write(spliced, to: note.url, expecting: expecting, ifChanged: .saveCopy)
+            notesBase = ReaderNotes.notes(in: spliced)
+            saveProblem = nil
+            store.drafts.remove(for: note.id)
+            if case .savedAsConflictCopy(let copy) = outcome { continueInCopy(copy) }
+            showWhileReading(spliced)
+            store.noteEdited(note.id)
+            return true
+        } catch {
+            let kept = (try? store.drafts.keep(spliced, for: note.id)) != nil
+            fileIsMissing = (error as? NoteWriter.WriteError) == .missing
+            saveProblem = (fileIsMissing ? "This note was deleted, renamed or moved on another device, so your notes weren’t saved."
+                : "Point couldn’t save your notes (\(error.localizedDescription)).")
+                + (kept ? " They’re kept." : " Copy them somewhere safe.")
+            return false
+        }
     }
 
     /// Keeps where the reader is: the paragraph at the top of the screen.
@@ -792,6 +889,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     /// Reads the note again if it's changed on disk and not here.
     private func reloadIfUnedited() {
         guard let textView, let onDisk, textView.text == onDisk, let text = try? NoteReader.read(note), text != onDisk else { return }
+        if isReading { return showWhileReading(text) }
         let selection = textView.selectedRange
         textView.load(text)
         self.onDisk = text
