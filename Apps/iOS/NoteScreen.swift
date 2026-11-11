@@ -481,7 +481,13 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         let readStart = CACurrentMediaTime()
         let text: String
         do {
-            text = try NoteReader.read(note)
+            // What was read as the screen was made, the first time.
+            if let firstRead {
+                text = firstRead
+                self.firstRead = nil
+            } else {
+                text = try NoteReader.read(note)
+            }
         } catch {
             // A note that's gone from the vault isn't downloading.
             let isGone = store.hasScanned && store.note(note.id) == nil
@@ -642,8 +648,8 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         }
     }
 
-    /// Scrolled on a little by hand, the bars go; scrolled back a little, or at the top or the
-    /// end, they come back. Measured by the finger, as the offset jumps as the bars go.
+    /// Scrolled on by hand, the bars go; scrolled back, or at the top or the end, they come
+    /// back. Measured by the finger, as the offset jumps as the bars go.
     private func hideOrShowBars() {
         guard let textView else { return }
         let offset = textView.contentOffset.y
@@ -651,9 +657,14 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         let end = textView.contentSize.height - textView.bounds.height + textView.adjustedContentInset.bottom
         if offset <= top + 20 || offset >= end - 4 { return setBarsHidden(false) }
         guard textView.isTracking else { return }
+        // Well past a nudge either way: a short adjustment while reading leaves them be.
         let dragged = textView.panGestureRecognizer.translation(in: textView).y
-        if dragged < -24 { setBarsHidden(true) } else if dragged > 24 { setBarsHidden(false) }
+        if dragged < -Self.hideDistance { setBarsHidden(true) } else if dragged > Self.showDistance { setBarsHidden(false) }
     }
+
+    /// How far a drag goes on before the bars go, and back before they return, in points.
+    private static let hideDistance: CGFloat = 90
+    private static let showDistance: CGFloat = 120
 
     func setBarsHidden(_ hidden: Bool) {
         guard hidden != barsHidden, isReading || !hidden else { return }
