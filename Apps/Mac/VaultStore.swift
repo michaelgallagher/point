@@ -208,6 +208,12 @@ final class VaultStore: ObservableObject {
             notes = listed
             for (gone, new) in moved { followMovedElsewhere(gone, to: new) }
             waitForMoves()
+            // Once a vault's opened, every note checked for conflict versions iCloud kept
+            // while Point wasn't running (those arriving later, the conflict watcher hears of).
+            if !hasLookedForConflicts, !notes.isEmpty {
+                hasLookedForConflicts = true
+                surfaceConflicts(notes.filter(\.isDownloaded).map(\.url))
+            }
             forgetDeletedNotes()
             propertyTypes = PropertyTypes.load(vault: root) // Obsidian may have changed them.
             loadBookmarks() // The iPhone may have.
@@ -245,6 +251,8 @@ final class VaultStore: ObservableObject {
         scanning = nil
         rescanWanted = false
         watcher?.stop()
+        conflictWatcher?.stop()
+        hasLookedForConflicts = false
         root?.stopAccessingSecurityScopedResource()
         _ = url.startAccessingSecurityScopedResource()
         root = url
@@ -271,6 +279,7 @@ final class VaultStore: ObservableObject {
         }, onMissedChanges: { [weak self] in
             Task { @MainActor in self?.missedChanges() }
         })
+        conflictWatcher = ConflictWatcher(root: url) { [weak self] note in self?.surfaceConflicts([note]) }
         if watcher?.isWatching != true {
             Self.showProblem("Point can’t watch this vault for changes",
                              detail: "Changes made in Obsidian or on other devices will show when Point next comes to the front.")
@@ -316,9 +325,46 @@ final class VaultStore: ObservableObject {
         }
     }
 
+    // MARK: iCloud's conflict versions
+
+    private var conflictWatcher: ConflictWatcher?
+    private var hasLookedForConflicts = false
+
+    /// Writes out iCloud's hidden conflict versions of these notes as conflict copies beside
+    /// them (off the main thread), and says so, as the iPhone does. A note open in an editor
+    /// is left to it: it asks which version to keep.
+    private func surfaceConflicts(_ urls: [URL]) {
+        let open = EditorSession.openPaths()
+        let notes = urls.filter { $0.pathExtension.lowercased() == "md" && !open.contains($0.resolvingSymlinksInPath().path) }
+        guard !notes.isEmpty else { return }
+        let generation = vaultGeneration
+        Task {
+            let copied = await Task.detached(priority: .utility) {
+                notes.compactMap { url -> String? in
+                    guard ICloudConflicts.has(url) else { return nil }
+                    do {
+                        return try ICloudConflicts.surface(url).isEmpty ? nil : url.deletingPathExtension().lastPathComponent
+                    } catch {
+                        NSLog("Point: couldn't copy out an iCloud conflict of \(url.lastPathComponent): \(error.localizedDescription)")
+                        return nil
+                    }
+                }
+            }.value
+            guard !copied.isEmpty, generation == vaultGeneration else { return }
+            Trace.mark("wrote out iCloud conflicts: \(copied.joined(separator: ", "))")
+            vaultChangeNotice = VaultChangeNotice(
+                text: copied.count == 1
+                    ? "“\(copied[0])” was changed on two devices at once: the other version is in a conflict copy"
+                    : "\(copied.count) notes were changed on two devices at once: the other versions are in conflict copies",
+                canUndo: false, symbol: "exclamationmark.triangle", isWarning: true)
+            await reload()
+        }
+    }
+
     /// Something in the vault changed, here or elsewhere: rescan, and tell open notes.
     private func filesChanged(_ urls: [URL]) {
         NotificationCenter.default.post(name: .pointFilesChanged, object: self, userInfo: ["urls": urls])
+        surfaceConflicts(urls)
         Task { await reload() }
     }
 
@@ -775,6 +821,8 @@ final class VaultStore: ObservableObject {
         var symbol = "checkmark.circle"
         /// Still under way (clipping a page): shown with a spinner until replaced.
         var isWorking = false
+        /// Shown longer, to be read (a note changed on two devices).
+        var isWarning = false
     }
 
     /// Renames a property, a value or a tag in every note that has it, as one change that can

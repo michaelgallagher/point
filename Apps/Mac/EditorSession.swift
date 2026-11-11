@@ -313,6 +313,12 @@ final class EditorSession: NSObject, ObservableObject {
         }
     }
 
+    /// The files open in an editor, by resolved path: each asks what to do with iCloud's
+    /// conflict versions of its note itself.
+    static func openPaths() -> Set<String> {
+        Set(live.allObjects.filter { !$0.isReleased }.map { $0.note.url.resolvingSymlinksInPath().path })
+    }
+
     private static func sessions(of url: URL) -> [EditorSession] {
         let path = url.resolvingSymlinksInPath().path
         return live.allObjects.filter { $0.note.url.resolvingSymlinksInPath().path == path }
