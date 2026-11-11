@@ -40,6 +40,13 @@ public struct NoteDrafts: Sendable {
         try? FileManager.default.removeItem(at: url(for: noteID))
     }
 
+    /// A note renamed or moved: its draft, if it has one, goes with it.
+    public func move(from oldID: String, to newID: String) {
+        guard oldID != newID, let draft = draft(for: oldID) else { return }
+        guard (try? keep(draft.text, for: newID, at: draft.saved)) != nil else { return }
+        remove(for: oldID)
+    }
+
     /// Every draft kept for the vault.
     public func all() -> [Draft] {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []

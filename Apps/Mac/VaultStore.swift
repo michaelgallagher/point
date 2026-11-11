@@ -184,18 +184,30 @@ final class VaultStore: ObservableObject {
         #if DEBUG
         debugScans.started += 1
         #endif
+        let idsAtStart = noteIDs
         do {
             let scanned = try await Task.detached(priority: .userInitiated) {
                 try VaultScanner.scanAll(root)
             }.value
             guard generation == vaultGeneration else { return Trace.mark("scan dropped: another vault opened") }
+            // A note made, renamed or deleted here while the vault was being read: what was
+            // read is out of date (a rename here would look like one elsewhere, undone), so
+            // read it again.
+            guard noteIDs == idsAtStart else {
+                rescanWanted = true
+                return Trace.mark("scan dropped: notes changed here meanwhile")
+            }
             Trace.mark("rescanned: \(scanned.notes.count) notes")
             #if DEBUG
             debugScans.shown += 1
             #endif
             folders = scanned.folders
             if scanned.images != images { images = scanned.images }
-            notes = scanned.notes.sorted(by: sort)
+            let listed = scanned.notes.sorted(by: sort)
+            let moved = moves.match(before: notes, after: listed)
+            notes = listed
+            for (gone, new) in moved { followMovedElsewhere(gone, to: new) }
+            waitForMoves()
             forgetDeletedNotes()
             propertyTypes = PropertyTypes.load(vault: root) // Obsidian may have changed them.
             loadBookmarks() // The iPhone may have.
@@ -238,6 +250,7 @@ final class VaultStore: ObservableObject {
         root = url
         folders = []
         notes = []
+        moves = NotesMovedElsewhere()
         settings = ObsidianSettings.load(vault: url)
         propertyTypes = PropertyTypes.load(vault: url)
         pointTypes = PointTypes.load(vault: url)
@@ -265,6 +278,42 @@ final class VaultStore: ObservableObject {
         NotificationCenter.default.post(name: .pointVaultOpened, object: self)
         refreshTrash()
         Task { await reload() }
+    }
+
+    // MARK: Notes renamed or moved elsewhere
+
+    /// Notes gone and appeared between scans, matched as renamed or moved outside Point.
+    private var moves = NotesMovedElsewhere()
+    /// Notes gone in the last scan and not yet found renamed, by ID: windows keep showing
+    /// them meanwhile (see `VaultModel.note`), as a rename can arrive over two scans.
+    private(set) var notesGoingElsewhere: [Note.ID: Note] = [:]
+    private var moveCheck: Task<Void, Never>?
+
+    /// A note renamed or moved on the iPhone, in Obsidian or in Finder: its editors, what
+    /// Point knows about it, and windows showing it follow it, as for a rename here. (Its
+    /// bookmark is moved by whatever renamed it, and read again with the scan.)
+    private func followMovedElsewhere(_ gone: Note, to new: Note) {
+        Trace.mark("followed a note moved elsewhere: \(gone.id) → \(new.id)")
+        EditorSession.follow(gone.url, to: new)
+        if untitled.remove(gone.id) != nil { untitled.insert(new.id) }
+        searchHistory.renamed(from: gone.id, to: new.id)
+        if pendingOpen?.id == gone.id { pendingOpen?.id = new.id }
+        saveSearchHistory()
+        NotificationCenter.default.post(name: .pointNoteMoved, object: self, userInfo: ["old": gone.id, "new": new.id])
+    }
+
+    /// Notes gone and not yet matched are kept showing for one more scan, which runs shortly
+    /// if nothing else starts one: then they're gone (deleted), or followed.
+    private func waitForMoves() {
+        let waiting = Dictionary(moves.vanishedBefore.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        if waiting != notesGoingElsewhere { notesGoingElsewhere = waiting }
+        moveCheck?.cancel()
+        guard !waiting.isEmpty else { return }
+        moveCheck = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.reload()
+        }
     }
 
     /// Something in the vault changed, here or elsewhere: rescan, and tell open notes.
