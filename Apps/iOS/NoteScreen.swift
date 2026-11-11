@@ -46,9 +46,6 @@ struct NoteScreen: View {
                         ReadingProgress(progress: session.progress, minutesLeft: session.minutesLeft)
                     }
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button("Your notes", systemImage: "note.text") { session.openNotes() }
-                    }
-                    ToolbarItem(placement: .topBarTrailing) {
                         Button("Text and page", systemImage: "textformat.size") { showsReaderControls = true }
                             .popover(isPresented: $showsReaderControls) {
                                 ReaderControls(settings: $store.reader)
@@ -69,7 +66,9 @@ struct NoteScreen: View {
                     }
                 }
             }
-            .pageBar(.find { session.find("") }) {
+            .pageBar(.find({ session.find("") }, beside: session.isReading
+                ? AnyView(Button("Your notes", systemImage: "note.text") { session.openNotes() })
+                : nil)) {
                 Button("New note", systemImage: "square.and.pencil") { newNote(FolderTree.folder(of: session.note.id)) }
                 Divider()
                 Button("Move note", systemImage: "folder") { showsMove = true }
@@ -91,7 +90,10 @@ struct NoteScreen: View {
                 Button("Delete note", systemImage: "trash", role: .destructive) { confirmsDelete = true }
             }
             // A hardware keyboard leaves the format bar at the bottom, on top of this one.
-            .toolbarVisibility(session.isWriting ? .hidden : .automatic, for: .bottomBar)
+            .toolbarVisibility(session.isWriting || session.barsHidden ? .hidden : .automatic, for: .bottomBar)
+            // Reading, the bars go as the text scrolls on, and come back as it scrolls back.
+            .toolbarVisibility(session.barsHidden ? .hidden : .automatic, for: .navigationBar)
+            .statusBarHidden(session.barsHidden)
             .sheet(isPresented: $session.showsProperties) {
                 PropertiesSheet(session: session).environmentObject(store)
             }
@@ -249,6 +251,8 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     @Published private(set) var progress: Double = 0
     @Published private(set) var minutesLeft = 0
     private var minutesToRead = 1
+    /// Reading, the bars (and the status bar) are out of the way, for the text alone.
+    @Published private(set) var barsHidden = false
     private var scrolling: NSKeyValueObservation?
     private var pendingPlace: Task<Void, Never>?
     /// Why a title couldn't be used (the name's taken, say), until dismissed.
@@ -557,7 +561,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         textView.typography = isReading ? reader.typography : store.typography
         textView.isSerif = isReading && reader.isSerif
         textView.dividerLine = isReading ? ReaderNotes.marker : nil
-        let margin: CGFloat = isReading ? 24 : 16
+        let margin: CGFloat = isReading ? reader.margin : 16
         if textView.textContainerInset.left != margin {
             textView.textContainerInset.left = margin
             textView.textContainerInset.right = margin
@@ -587,6 +591,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         keepPlace()
         let top = textView.topVisibleLocation
         isReading = false
+        setBarsHidden(false)
         applyReading()
         textView.isEditable = true
         textView.scroll(toTop: top)
@@ -619,6 +624,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     private func scrolled() {
         guard isReading else { return }
         updateProgress()
+        hideOrShowBars()
         // Kept once scrolling stops, not at every step.
         pendingPlace?.cancel()
         pendingPlace = Task { [weak self] in
@@ -626,6 +632,34 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
             guard !Task.isCancelled else { return }
             self?.keepPlace()
         }
+    }
+
+    /// Scrolled on a little by hand, the bars go; scrolled back a little, or at the top or the
+    /// end, they come back. Measured by the finger, as the offset jumps as the bars go.
+    private func hideOrShowBars() {
+        guard let textView else { return }
+        let offset = textView.contentOffset.y
+        let top = -textView.adjustedContentInset.top
+        let end = textView.contentSize.height - textView.bounds.height + textView.adjustedContentInset.bottom
+        if offset <= top + 20 || offset >= end - 4 { return setBarsHidden(false) }
+        guard textView.isTracking else { return }
+        let dragged = textView.panGestureRecognizer.translation(in: textView).y
+        if dragged < -24 { setBarsHidden(true) } else if dragged > 24 { setBarsHidden(false) }
+    }
+
+    func setBarsHidden(_ hidden: Bool) {
+        guard hidden != barsHidden, isReading || !hidden else { return }
+        withAnimation(.easeInOut(duration: 0.25)) { barsHidden = hidden }
+        // No fading at the edges, with nothing there to keep clear of.
+        textView?.topEdgeEffect.isHidden = hidden
+        textView?.bottomEdgeEffect.isHidden = hidden
+    }
+
+    /// A tap on the text while reading (not on a link or a selection) brings the bars back, or
+    /// puts them away.
+    func readerTapped() {
+        guard isReading, let textView, textView.selectedRange.length == 0 else { return }
+        setBarsHidden(!barsHidden)
     }
 
     private func updateProgress() {
@@ -1522,6 +1556,7 @@ struct EditorView: UIViewRepresentable {
         textView.onTextChange = { [weak session] in session?.changed($0) }
         textView.onOpenLink = { [weak session] in session?.open($0) }
         textView.editMenuActions = { [weak session] in session?.readerMenu(for: $0) ?? [] }
+        textView.onPlainTap = { [weak session] in session?.readerTapped() }
         // Images and lists embedded in the note, drawn over it, as on the Mac.
         textView.makeBlockEmbedView = { [weak session] in session?.makeEmbedView($0) ?? UIView() }
         textView.blockEmbedHeight = { [weak session] in session?.listEmbedHeight($0) }

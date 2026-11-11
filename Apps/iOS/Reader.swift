@@ -10,8 +10,26 @@ struct ReaderSettings: Codable, Equatable {
     var size: Double = 19
     var isSerif = true
     var page: Page = .system
+    /// The space a line takes, as a multiple of the type's size.
+    var lineHeight: Double = 1.4
+    /// The space either side of the text, in points.
+    var margin: Double = 24
 
     static let sizes = 14.0...28.0
+    static let lineHeights = 1.2...1.8
+    static let margins = 12.0...48.0
+
+    init() {}
+
+    /// Settings kept before line height and margins came in still read, with those as standard.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        size = try values.decodeIfPresent(Double.self, forKey: .size) ?? size
+        isSerif = try values.decodeIfPresent(Bool.self, forKey: .isSerif) ?? isSerif
+        page = try values.decodeIfPresent(Page.self, forKey: .page) ?? page
+        lineHeight = try values.decodeIfPresent(Double.self, forKey: .lineHeight) ?? lineHeight
+        margin = try values.decodeIfPresent(Double.self, forKey: .margin) ?? margin
+    }
 
     enum Page: String, Codable, CaseIterable, Identifiable {
         case system, paper, sepia, night
@@ -46,12 +64,12 @@ struct ReaderSettings: Codable, Equatable {
         }
     }
 
-    /// The type for reading: the body at the chosen size, lines further apart, headings a
-    /// little smaller against it than when writing.
+    /// The type for reading: the body at the chosen size, lines as far apart as chosen,
+    /// headings a little smaller against it than when writing.
     var typography: Typography {
         var typography = PhoneTextView.standardTypography
         typography.bodySize = size
-        typography.lineHeight = 1.5
+        typography.lineHeight = lineHeight
         typography.headings[0].size = 1.3
         typography.headings[1].size = 1.15
         return typography
@@ -114,7 +132,7 @@ final class ReadingPlaces {
     }
 }
 
-/// The Aa menu: text size, serif or sans, and the page's colour.
+/// The Aa menu: text size, serif or sans, line spacing, margins, and the page's colour.
 struct ReaderControls: View {
     @Binding var settings: ReaderSettings
 
@@ -136,6 +154,10 @@ struct ReaderControls: View {
                 Text("Sans").tag(false)
             }
             .pickerStyle(.segmented)
+            VStack(spacing: 10) {
+                stepper("Line spacing", value: $settings.lineHeight, by: 0.1, in: ReaderSettings.lineHeights)
+                stepper("Margins", value: $settings.margin, by: 6, in: ReaderSettings.margins)
+            }
             HStack(spacing: 14) {
                 ForEach(ReaderSettings.Page.allCases) { page in
                     Button {
@@ -153,6 +175,31 @@ struct ReaderControls: View {
         // Light or dark as the page is.
         .preferredColorScheme(settings.page.style == .dark ? .dark : settings.page.style == .light ? .light : nil)
         .presentationCompactAdaptation(.popover)
+    }
+
+    /// A setting stepped up and down, by `step`, within `range`.
+    private func stepper(_ title: String, value: Binding<Double>, by step: Double, in range: ClosedRange<Double>) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            HStack(spacing: 0) {
+                Button("Less", systemImage: "minus") {
+                    value.wrappedValue = max(range.lowerBound, ((value.wrappedValue - step) * 100).rounded() / 100)
+                }
+                .disabled(value.wrappedValue <= range.lowerBound + 0.001)
+                .frame(width: 44, height: 32)
+                Divider().frame(height: 18)
+                Button("More", systemImage: "plus") {
+                    value.wrappedValue = min(range.upperBound, ((value.wrappedValue + step) * 100).rounded() / 100)
+                }
+                .disabled(value.wrappedValue >= range.upperBound - 0.001)
+                .frame(width: 44, height: 32)
+            }
+            .labelStyle(.iconOnly)
+            .background(Color.secondary.opacity(0.12), in: .capsule)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(title)
+        }
     }
 
     /// A page colour as a circle, ringed when chosen; Automatic half light, half dark.
