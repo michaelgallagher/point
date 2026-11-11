@@ -72,17 +72,8 @@ struct NoteScreen: View {
             .sheet(isPresented: $session.showsProperties) {
                 PropertiesSheet(session: session).environmentObject(store)
             }
-            .sheet(isPresented: $session.showsBacklinks) {
-                BacklinksSheet(session: session).environmentObject(store)
-            }
-            .sheet(isPresented: $session.showsEarlier) {
-                if let recall = session.recall {
-                    RecallSheet(recall: recall, ids: session.earlier) { id in
-                        session.showsEarlier = false
-                        store.linkedRoute = .note(id)
-                    }
-                    .environmentObject(store)
-                }
+            .sheet(isPresented: $session.showsRelated) {
+                RelatedSheet(session: session).environmentObject(store)
             }
             .sheet(isPresented: $showsMove) {
                 FolderPicker(title: "Move note", current: FolderTree.folder(of: session.note.id)) { session.move(to: $0) }
@@ -104,7 +95,7 @@ struct NoteScreen: View {
             .onChange(of: store.showsMarkdown) { _, shows in session.showMarkdown(shows) }
             .onChange(of: store.typography) { _, typography in session.textView?.typography = typography }
             // The index has taken in changed notes: what links here may have changed.
-            .onChange(of: store.indexUpdates) { _, _ in session.refreshBacklinks() }
+            .onChange(of: store.indexUpdates) { _, _ in session.refreshRelated() }
             .onDisappear {
                 guard !isDeleting else { return session.moveToTrash() }
                 // Left: its title taken, saved, then (if it has no title) named from its first
@@ -203,14 +194,22 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     /// The note's frontmatter, as its text is now.
     @Published private(set) var frontmatter: Frontmatter?
     @Published var showsProperties = false
-    /// The notes linking to this one, by title.
-    @Published private(set) var backlinks: [Backlink] = []
-    @Published var showsBacklinks = false
-    /// What came before this note (earlier meetings with the same people), and those notes,
-    /// newest first.
-    @Published private(set) var recall: Recall?
-    @Published private(set) var earlier: [Note.ID] = []
-    @Published var showsEarlier = false
+    /// What's related to this note, as on the Mac (links and recall made one): the notes
+    /// sharing its topics or people, most shared first, then those linking here, by relation.
+    /// Narrowed to `relatedType` when one's chosen.
+    @Published private(set) var related = RelatedNotes.empty
+    @Published var relatedType: String? { didSet { if relatedType != oldValue { rebuildRelated() } } }
+    /// Whether the related notes have been asked for once, so the sheet can say "Nothing related".
+    @Published private(set) var relatedIsLoaded = false
+    @Published var showsRelated = false
+    /// What it shares, as its frontmatter says, and its own type.
+    private(set) var recall: Recall?
+    private(set) var ownType: String?
+    /// The notes linking here, and those sharing something (newest first) with their values.
+    private var backlinks: [Backlink] = []
+    private var sharedIDs: [Note.ID] = []
+    private var sharedValues: [Note.ID: [String: [String]]] = [:]
+    private var relatedTask: Task<Void, Never>?
     /// Writing in the note, when the format bar takes the bottom of the screen.
     @Published private(set) var isWriting = false
     /// Why a title couldn't be used (the name's taken, say), until dismissed.
@@ -465,7 +464,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
             // Opened from one of another note's backlinks: at the link to that note.
             textView.scrollRangeToVisible(link)
         }
-        refreshBacklinks()
+        refreshRelated()
         openedTimings = "Read \(Int(read)) ms, shown \(Int(load)) ms (\(text.count / 1000)k characters)"
         if showsTimings {
             timings = openedTimings
@@ -491,23 +490,62 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         textView?.setNeedsLayout()
     }
 
-    /// Reads which notes link here, from the search index.
-    func refreshBacklinks() {
-        let note = note
-        refreshEarlier()
-        Task { [weak self] in
-            guard let self else { return }
-            let found = await store.backlinks(to: note)
-            guard self.note == note, found != backlinks else { return }
-            backlinks = found
-            header?.showLinks(count: found.count)
-            textView?.setNeedsLayout()
+    /// Asks the index what's related to the note: what links here, and what shares its topics
+    /// or people (see `Recall`), then ranks and groups them (`RelatedNotes`), as the Mac does.
+    func refreshRelated(after delay: Double = 0) {
+        relatedTask?.cancel()
+        let note = note, recall = recall
+        relatedTask = Task { [weak self] in
+            if delay > 0 { try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
+            guard let self, !Task.isCancelled else { return }
+            let store = self.store
+            let typeProperty = store.kinds.property
+            let backlinks = await store.backlinks(to: note)
+            var sharedIDs: [Note.ID] = []
+            var sharedValues: [Note.ID: [String: [String]]] = [:]
+            if let recall, let index = store.searchIndex {
+                sharedIDs = ((try? await index.notes(matching: recall.query)) ?? []).filter { $0 != note.id }
+                let ranked = Array(sharedIDs.prefix(RelatedNotes.sharedLimit + backlinks.count))
+                sharedValues = await store.embeds.propertyValues(RecallDetails.keys(for: recall, typeProperty: typeProperty), of: ranked)
+            }
+            guard !Task.isCancelled, self.note == note, self.recall == recall else { return }
+            self.backlinks = backlinks
+            self.sharedIDs = sharedIDs
+            self.sharedValues = sharedValues
+            self.relatedIsLoaded = true
+            self.rebuildRelated()
         }
     }
 
-    /// Opens a note linking here, at its link, from the backlinks sheet.
+    /// Ranks and groups what was found (quick: no lookups), and updates the readout.
+    private func rebuildRelated() {
+        let store = store
+        let make = { [note, recall, sharedIDs, sharedValues, backlinks] (type: String?) in
+            RelatedNotes(noteID: note.id, recall: recall, sharedIDs: sharedIDs, values: sharedValues,
+                         title: { store.note($0)?.title }, name: { store.note($0)?.name },
+                         typeProperty: store.kinds.property, backlinks: backlinks, type: type)
+        }
+        let all = make(nil)
+        if let type = relatedType, !all.types.contains(where: { $0.type.caseInsensitiveCompare(type) == .orderedSame }) {
+            relatedType = nil // Rebuilds again.
+            return
+        }
+        let narrowed = relatedType == nil ? all : make(relatedType)
+        if narrowed != related { related = narrowed }
+        let icon = all.sharedTotal > 0 ? (recall?.basis == .topics ? "rectangle.stack" : "clock.arrow.circlepath") : "link"
+        header?.showRelated(all.readout(ownType: ownType, unlinkedMentions: 0), icon: icon)
+        textView?.setNeedsLayout()
+    }
+
+    /// Opens a note sharing something with this one, from the related notes.
+    func openRelated(_ id: Note.ID) {
+        showsRelated = false
+        store.linkedRoute = .note(id)
+    }
+
+    /// Opens a note linking here, at its link, from the related notes.
     func open(_ backlink: Backlink) {
-        showsBacklinks = false
+        showsRelated = false
         store.open(backlink)
     }
 
@@ -704,31 +742,19 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         frontmatter = parsed
         header?.showProperties(count: shownProperties.count)
         showList(ListDefinition(frontmatter: parsed))
+        let typeProperty = store.kinds.property
+        let type = parsed?.properties.first { $0.key.caseInsensitiveCompare(typeProperty) == .orderedSame }?
+            .values.first?.trimmingCharacters(in: .whitespaces)
+        let typeChanged = (type?.isEmpty == false ? type : nil) != ownType
+        ownType = type?.isEmpty == false ? type : nil
         let changed = store.recall(of: parsed, name: note.name)
         if changed != recall {
             recall = changed
-            refreshEarlier()
+            // While it's typed (as the note opens, its loading asks at once, after this).
+            refreshRelated(after: 0.3)
+        } else if typeChanged {
+            rebuildRelated()
         }
-    }
-
-    /// Asks the index for the notes that came before this one.
-    func refreshEarlier() {
-        guard let recall, let index = store.searchIndex else {
-            earlier = []
-            return showEarlier()
-        }
-        let id = note.id
-        Task { [weak self] in
-            let found = ((try? await index.notes(matching: recall.query)) ?? []).filter { $0 != id }
-            guard let self, self.recall == recall, found != earlier else { return }
-            earlier = found
-            showEarlier()
-        }
-    }
-
-    private func showEarlier() {
-        header?.showEarlier(count: earlier.count, byTopics: recall?.basis == .topics)
-        textView?.setNeedsLayout()
     }
 
     /// The properties to show, as on the Mac: all but the `title:` of a note Point named (that's
@@ -881,16 +907,15 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     }
 }
 
-/// What's above a note's text: its title, and below that, side by side, a button to its
-/// properties, saying how many there are, and one to the notes linking to it, if any.
+/// What's above a note's text: its title, and below that, side by side (or one under the other
+/// when they don't fit), a button to its properties, saying how many there are, and one to its
+/// related notes saying what they are, if it has any.
 final class NoteHeader: UIView {
     let title = TitleView()
     var onProperties: (() -> Void)?
-    var onLinks: (() -> Void)?
-    var onEarlier: (() -> Void)?
+    var onRelated: (() -> Void)?
     private let properties = NoteHeader.button()
-    private let links = NoteHeader.button()
-    private let earlier = NoteHeader.button()
+    private let related = NoteHeader.button()
     private static let gap: CGFloat = 8
     /// Between the buttons, side by side.
     private static let between: CGFloat = 8
@@ -923,14 +948,11 @@ final class NoteHeader: UIView {
         super.init(frame: .zero)
         addSubview(title)
         addSubview(properties)
-        addSubview(links)
-        addSubview(earlier)
-        earlier.addAction(UIAction { [weak self] _ in self?.onEarlier?() }, for: .touchUpInside)
+        addSubview(related)
         properties.addAction(UIAction { [weak self] _ in self?.onProperties?() }, for: .touchUpInside)
-        links.addAction(UIAction { [weak self] _ in self?.onLinks?() }, for: .touchUpInside)
+        related.addAction(UIAction { [weak self] _ in self?.onRelated?() }, for: .touchUpInside)
         showProperties(count: 0)
-        showLinks(count: 0)
-        showEarlier(count: 0)
+        showRelated(nil, icon: "link")
     }
 
     @available(*, unavailable)
@@ -959,172 +981,61 @@ final class NoteHeader: UIView {
         setNeedsLayout()
     }
 
-    /// "2 links": how many notes link here. None, and the button goes.
-    func showLinks(count: Int) {
-        links.configuration?.title = "\(count) \(count == 1 ? "link" : "links")"
-        links.accessibilityHint = "Shows the notes linking to this one."
-        links.isHidden = count == 0
-        setNeedsLayout()
-    }
-
-    /// "4 earlier": how many notes came before this one (earlier meetings with the same
-    /// people), or "23 on its topics". None, and the button goes.
-    func showEarlier(count: Int, byTopics: Bool = false) {
-        var configuration = earlier.configuration
-        configuration?.title = byTopics ? "\(count.formatted()) on its topics" : "\(count.formatted()) earlier"
-        configuration?.image = UIImage(systemName: byTopics ? "rectangle.stack" : "clock.arrow.circlepath", withConfiguration: UIImage.SymbolConfiguration(textStyle: .footnote))
+    /// What's related, as the Mac's readout says it: "4 earlier meetings · last on 21 October",
+    /// "23 notes on Org design", or "4 links (articles by this person and mentions)". Nothing
+    /// related (nil), and the button goes.
+    func showRelated(_ readout: String?, icon: String) {
+        var configuration = related.configuration
+        configuration?.title = readout
+        configuration?.image = UIImage(systemName: icon, withConfiguration: UIImage.SymbolConfiguration(textStyle: .footnote))
         configuration?.imagePadding = 4
-        earlier.configuration = configuration
-        earlier.accessibilityHint = byTopics ? "Shows the notes on the same topics." : "Shows the earlier notes with the same people."
-        earlier.isHidden = count == 0
+        configuration?.titleLineBreakMode = .byWordWrapping // A long one wraps, at the phone's width.
+        related.configuration = configuration
+        related.accessibilityHint = "Shows the related notes."
+        related.isHidden = readout == nil
         setNeedsLayout()
     }
 
     /// The buttons showing, in order.
-    private var buttons: [UIButton] { [properties, links, earlier].filter { !$0.isHidden } }
+    private var buttons: [UIButton] { [properties, related].filter { !$0.isHidden } }
+
+    /// Where each button goes, below the title: along a line, onto the next when it doesn't fit,
+    /// each no wider than the header.
+    private func buttonFrames(width: CGFloat, top: CGFloat) -> [CGRect] {
+        var frames: [CGRect] = []
+        var x: CGFloat = 0, y = top, lineHeight: CGFloat = 0
+        for button in buttons {
+            let size = button.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+            let fitted = min(size.width, width)
+            if x > 0, x + fitted > width {
+                x = 0
+                y += lineHeight + Self.between
+                lineHeight = 0
+            }
+            frames.append(CGRect(x: x, y: y, width: fitted, height: size.height))
+            x += fitted + Self.between
+            lineHeight = max(lineHeight, size.height)
+        }
+        return frames
+    }
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
         let height = title.sizeThatFits(size).height
-        let row = buttons.map { $0.sizeThatFits(size).height }.max()
-        return CGSize(width: size.width, height: height + (row.map { Self.gap + $0 + Self.below } ?? Self.below) + listRoom)
+        let bottom = buttonFrames(width: size.width, top: height + Self.gap).map(\.maxY).max()
+        return CGSize(width: size.width, height: (bottom.map { $0 + Self.below } ?? height + Self.below) + listRoom)
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         let height = title.sizeThatFits(bounds.size).height
         title.frame = CGRect(x: 0, y: 0, width: bounds.width, height: height)
-        var x: CGFloat = 0
-        for button in buttons {
-            let size = button.sizeThatFits(bounds.size)
-            button.frame = CGRect(x: x, y: height + Self.gap, width: min(size.width, bounds.width - x), height: size.height)
-            x += size.width + Self.between
+        for (button, frame) in zip(buttons, buttonFrames(width: bounds.width, top: height + Self.gap)) {
+            button.frame = frame
         }
         if let list {
             let top = (buttons.map { $0.frame.maxY }.max() ?? height) + Self.listGap
             list.frame = CGRect(x: 0, y: top, width: bounds.width, height: listHeight)
         }
-    }
-}
-
-/// The notes linking to a note, as the Mac's links panel lists them: each with the line its link
-/// is on, opening at that link.
-private struct BacklinksSheet: View {
-    @EnvironmentObject private var store: PhoneStore
-    @Environment(\.dismiss) private var dismiss
-    @ObservedObject var session: NoteSession
-
-    var body: some View {
-        NavigationStack {
-            List(session.backlinks) { backlink in
-                Button { session.open(backlink) } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(backlink.title)
-                        if !backlink.context.isEmpty {
-                            Text(backlink.context)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(3)
-                        }
-                    }
-                }
-                .foregroundStyle(.primary)
-            }
-            .navigationTitle("Links to this note")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close", systemImage: "xmark") { dismiss() }
-                }
-            }
-            .overlay { if session.backlinks.isEmpty { ContentUnavailableView("No links", systemImage: "link") } }
-        }
-        .presentationDetents([.medium, .large])
-    }
-}
-
-/// The notes that came before one (its earlier meetings with the same people, or those on a
-/// post's topics, in groups by type), newest first, as on the Mac: each with its day and who or
-/// what it shares, and its first line.
-private struct RecallSheet: View {
-    @EnvironmentObject private var store: PhoneStore
-    @Environment(\.dismiss) private var dismiss
-    let recall: Recall
-    let ids: [Note.ID]
-    let open: (Note.ID) -> Void
-    @State private var details = RecallDetails()
-
-    var body: some View {
-        NavigationStack {
-            List {
-                let groups = details.groups(of: ids, recall: recall)
-                ForEach(Array(groups.enumerated()), id: \.element.title) { index, group in
-                    Section {
-                        ForEach(group.ids, id: \.self) { id in
-                            Button { open(id) } label: { row(id) }
-                                .foregroundStyle(.primary)
-                        }
-                    } header: {
-                        if group.title.isEmpty {
-                            Text(recall.heading)
-                        } else if index == 0 {
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text(recall.heading).textCase(nil)
-                                Text(group.title)
-                            }
-                        } else {
-                            Text(group.title)
-                        }
-                    } footer: {
-                        if index == groups.count - 1, ids.count > RecallDetails.shown {
-                            Text("And \((ids.count - RecallDetails.shown).formatted()) more")
-                        }
-                    }
-                }
-            }
-            .navigationTitle(recall.basis == .topics ? "\(ids.count.formatted()) on its topics" : recall.summary(count: ids.count, lastDay: nil))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close", systemImage: "xmark") { dismiss() }
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
-        .task { await load() }
-    }
-
-    private func row(_ id: Note.ID) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(store.note(id)?.title ?? id)
-                .lineLimit(1)
-            if let detail = details.detail(id) {
-                Text(detail)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            if let line = details.lines[id] {
-                Text(line)
-                    .font(.subheadline)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(2)
-            }
-        }
-    }
-
-    private func load() async {
-        let shown = Array(ids.prefix(RecallDetails.shown))
-        let typeProperty = store.kinds.property
-        let values = await store.embeds.propertyValues(RecallDetails.keys(for: recall, typeProperty: typeProperty), of: shown)
-        details.take(values, for: shown, recall: recall, typeProperty: typeProperty) { store.note($0)?.name }
-        let notes = shown.compactMap { store.note($0) }
-        details.lines = await Task.detached(priority: .userInitiated) {
-            var lines: [Note.ID: String] = [:]
-            for note in notes {
-                if let text = try? NoteReader.read(note), let line = PlainText.firstLine(of: text) { lines[note.id] = line }
-            }
-            return lines
-        }.value
     }
 }
 
@@ -1183,8 +1094,7 @@ struct EditorView: UIViewRepresentable {
         session.titleField = title
         session.header = header
         header.onProperties = { [weak session] in session?.showsProperties = true }
-        header.onLinks = { [weak session] in session?.showsBacklinks = true }
-        header.onEarlier = { [weak session] in session?.showsEarlier = true }
+        header.onRelated = { [weak session] in session?.showsRelated = true }
         textView.header = header
         let bar = FormatBar(textView: textView)
         textView.inputAccessoryView = bar

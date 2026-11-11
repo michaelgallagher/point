@@ -56,4 +56,12 @@ A first version of all of the above, made easy to change.
 - **One readout, under the properties** (under the title for a note with none): recall's line when something's shared ("4 earlier meetings · last on 21 October"), otherwise "4 links (articles by this person, meetings with this person, and unlinked mentions)". Clicking it opens or closes the panel. The links button and the strip's button are gone.
 - **The open question, as a setting:** Settings › Notes › Related notes › "Links with multiple connections" (Mike's wording, 10 November): "As part of topics" (the default) or "As part of backlinks". Try both. Location there is Bottom, Side or Do not show (which turns the feature off).
 - Where to change things: `RelatedNotes` (IndexKit) ranks and words it; `RelatedPanel.swift` (Mac) draws it.
-- Not done yet: the iPhone; trying other places for the readout.
+- Not done yet: trying other places for the readout.
+
+## The iPhone (11 November)
+
+The same list on the phone (`RelatedSheet`, from `RelatedNotes` in IndexKit, as the Mac's):
+- **One readout** under the title replaces the "2 links" and "4 earlier" buttons, beside the properties button, or on a line of its own (wrapping to two) when it doesn't fit. Tapping it opens the sheet.
+- **The sheet** opens half way, with the note above still scrolling (as decided for the Mac's slide-up), and goes up to the whole screen. Type chips stay under its title; then the shared notes in tiers, then the links by relation, each group folding, headings bold in the text colour. Rows have the title, the type and date, and what's shared or the line the link is on. Tapping one closes the sheet and opens the note (a link, at the link).
+- **Left out on the phone:** unlinked mentions (and linking them), and the "Links with multiple connections" setting (the phone uses the default, "As part of topics").
+- **Tried** in the Simulator (iOS 26) with test meetings, a person, an article and a post: the readout for a meeting and for a person (wrapping), the tiers with partly shared names, the link groups, the Meeting chip, and opening a note from the sheet. **Not tried:** a real iPhone, a large vault, dark mode, VoiceOver.

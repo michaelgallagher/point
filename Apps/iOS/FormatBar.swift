@@ -35,6 +35,7 @@ final class FormatBar: UIView {
             button("Quote", symbol: "text.quote") { $0.format { $0.toggleBlockQuote() } },
             button("Checklist", symbol: "checklist") { $0.format { $0.toggleChecklist() } },
             button("Bulleted list", symbol: "list.bullet") { $0.format { $0.toggleBulletList() } },
+            button("Numbered list", symbol: "list.number") { $0.format { $0.toggleNumberedList() } },
             button("Outdent", symbol: "decrease.indent") { $0.format { $0.outdent() } },
             button("Indent", symbol: "increase.indent") { $0.format { $0.indent() } },
         ])
