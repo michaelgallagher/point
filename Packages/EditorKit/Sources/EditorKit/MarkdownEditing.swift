@@ -207,10 +207,11 @@ public struct MarkdownEditing {
         return NSRange(location: start, length: end - start)
     }
 
+    /// (Half of an emoji, a lone surrogate, isn't a space.)
     func trimmingWhitespace(_ range: NSRange) -> NSRange {
         var start = range.location, end = NSMaxRange(range)
-        while start < end, CharacterSet.whitespacesAndNewlines.contains(Unicode.Scalar(text.character(at: start)) ?? " ") { start += 1 }
-        while end > start, CharacterSet.whitespacesAndNewlines.contains(Unicode.Scalar(text.character(at: end - 1)) ?? " ") { end -= 1 }
+        while start < end, CharacterSet.whitespacesAndNewlines.contains(Unicode.Scalar(text.character(at: start)) ?? "x") { start += 1 }
+        while end > start, CharacterSet.whitespacesAndNewlines.contains(Unicode.Scalar(text.character(at: end - 1)) ?? "x") { end -= 1 }
         return NSRange(location: start, length: end - start)
     }
 

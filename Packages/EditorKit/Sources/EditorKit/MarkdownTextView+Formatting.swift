@@ -53,8 +53,8 @@ extension MarkdownTextView {
     func trimmingWhitespace(_ range: NSRange) -> NSRange {
         let text = string as NSString
         var start = range.location, end = NSMaxRange(range)
-        while start < end, CharacterSet.whitespacesAndNewlines.contains(Unicode.Scalar(text.character(at: start)) ?? " ") { start += 1 }
-        while end > start, CharacterSet.whitespacesAndNewlines.contains(Unicode.Scalar(text.character(at: end - 1)) ?? " ") { end -= 1 }
+        while start < end, CharacterSet.whitespacesAndNewlines.contains(Unicode.Scalar(text.character(at: start)) ?? "x") { start += 1 }
+        while end > start, CharacterSet.whitespacesAndNewlines.contains(Unicode.Scalar(text.character(at: end - 1)) ?? "x") { end -= 1 }
         return NSRange(location: start, length: end - start)
     }
 
