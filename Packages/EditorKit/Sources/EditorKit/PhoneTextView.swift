@@ -230,6 +230,17 @@ public final class PhoneTextView: UITextView {
         }
     }
 
+    /// A line drawn as a rule rather than its text (reader mode's marker), or nil.
+    public var dividerLine: String? {
+        get { styler.theme.dividerLine }
+        set {
+            guard newValue != styler.theme.dividerLine else { return }
+            styler.theme.dividerLine = newValue
+            pointLayoutManager.theme = styler.theme
+            restyle(NSRange(location: 0, length: textStorage.length))
+        }
+    }
+
     /// Where the text at the top of the screen starts: the first character on the first line
     /// showing below the bars.
     public var topVisibleLocation: Int {

@@ -83,6 +83,7 @@ struct MarkdownStyler {
         for token in tokens where intersects(token.range, range) {
             apply(token, to: storage, text: text)
         }
+        if let divider = theme.dividerLine { styleDividers(divider, in: range, storage: storage, text: text) }
         // Tables last, once the formatting in their cells (which sets how wide they are) is on.
         for token in tokens where token.kind == .table && intersects(token.range, range) {
             layOutTable(token.range, storage: storage, text: text)
@@ -104,6 +105,15 @@ struct MarkdownStyler {
             }
         }
         return range
+    }
+
+    /// Lines that are exactly `divider` (spaces around it aside): hidden, and a rule drawn across.
+    private func styleDividers(_ divider: String, in range: NSRange, storage: NSTextStorage, text: NSString) {
+        text.enumerateSubstrings(in: range, options: .byLines) { line, lineRange, _, _ in
+            guard let line, lineRange.length > 0, line.trimmingCharacters(in: .whitespaces) == divider else { return }
+            storage.removeAttribute(.pointRoundedBackground, range: lineRange)
+            storage.addAttributes([.pointHidden: true, .pointRule: true], range: lineRange)
+        }
     }
 
     // MARK: Images

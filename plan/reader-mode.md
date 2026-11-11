@@ -1,4 +1,4 @@
-# Reader mode on the iPhone (11 November 2026; step 1 built)
+# Reader mode on the iPhone (11 November 2026; steps 1 and 2 built)
 
 Part of [the plan](../PLAN.md). Builds on [the clipper](clipper.md).
 
@@ -65,6 +65,17 @@ Part of [the plan](../PLAN.md). Builds on [the clipper](clipper.md).
 - **Your place:** `Reading.Place` (the paragraph at the top of the screen, its first 60 characters and where it was), kept once scrolling stops, on leaving and on going to the background, in `Reading/places.json` in the app's own storage (`ReadingPlaces`, at most 500 notes, following renames and moves, dropped with deleted notes).
 - **Tried:** `ReadingTests` (9: which notes, minutes, bylines, places found again after an edit above, gone, repeated, or only mid-line). In the Simulator, on a 3,500-word Media note: it opens for reading with its byline; scrolling, leaving and coming back returns to the same paragraph; size, Sepia and Night; size changes keep the top line; Edit and Done; a meeting note still opens for writing; the file unchanged throughout.
 - **Not tried:** a real iPhone, the real vault's clips (images, tables, very long ones), VoiceOver, and the Simulator's first tap in the Aa menu sometimes went to closing it.
+
+## Step 2, built (11 November, branch `reader-notes`)
+
+- **The marker and your notes** (`ReaderNotes`, ClipKit): the marker's line (the first line that's exactly the marker, after the properties), your notes (between the two, without the blank lines around them), and `settingNotes`, which puts new notes in and leaves the rest of the file exactly as it was: a blank line between your notes and the marker, none above an empty set of notes, and for a note without the marker, the marker straight under the properties.
+- **New clips write the marker** (`ClipNote`, both apps): the selected text as a quote, the template's own text, the marker, then the article (or its link). A template that has the marker itself keeps it, and the article follows.
+- **Reading:** the marker is drawn as a plain rule across the page (`EditorTheme.dividerLine`), your notes above it. Editing, it's the highlighted line, as on the Mac.
+- **Your notes:** a notes button beside Aa opens a sheet with only your notes, in the usual editor with the format bar, the cursor at the end. It opens at half height over the article, which still scrolls; with the keyboard up it takes the screen. Saved a second after typing stops and when the sheet closes: read from disk, your notes spliced in, written with `NoteWriter`, then the reader shows the file as it is now, the same paragraph at the top. Nothing typed, nothing written, so opening the sheet on an old clip adds no marker.
+- **Changed elsewhere:** a change outside your notes, made while the sheet is open, is kept, and yours spliced in around it. A change to your notes themselves sends yours to a conflict copy, with the usual notice, and reading carries on in the copy. A change synced while reading (no sheet) is shown in place, the same paragraph at the top.
+- **Tried:** `ReaderNotesTests` (9) and the clip tests changed for the marker (4, one new). In the Simulator, on an old clip without the marker: typing a note added it under the properties, the properties and article byte for byte unchanged; the article changed from outside while typing, both kept, no copy; the notes changed from outside, a conflict copy with mine and the original with the other. Notes then rule then article in reader mode.
+- **Not tried:** a real iPhone, a clip made on the phone or the Mac since (only the tests), the Mac with the marker in a real clip.
+- **Decided on the way:** your notes are set off by the rule alone for now, not tinted; easy to change once tried.
 
 ## The steps
 

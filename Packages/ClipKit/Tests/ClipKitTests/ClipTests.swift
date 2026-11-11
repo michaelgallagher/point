@@ -30,6 +30,8 @@ struct ClipTests {
         saved: 2026-11-07
         read:
         ---
+        ==---- Text ----==
+
         If you’ve used Photoshop…
 
         ![The paint bucket](https://www.robinsloan.com/img/flood-fill.webp)
@@ -53,6 +55,8 @@ struct ClipTests {
         >
         > Another.
 
+        ==---- Text ----==
+
         [A: the sequel](https://example.com/a)
 
         """)
@@ -62,7 +66,14 @@ struct ClipTests {
         let clip = Clip(url: URL(string: "https://example.com/b")!, title: "B")
         let text = ClipNote.text(for: clip, template: "---\ntype: Book\n---\nNotes:\n", kind: "Media", saved: saved, calendar: calendar)
         #expect(text.hasPrefix("---\ntype: Book\n"))
-        #expect(text.contains("\n---\nNotes:\n\n[B](https://example.com/b)\n"))
+        #expect(text.contains("\n---\nNotes:\n\n==---- Text ----==\n\n[B](https://example.com/b)\n"))
+    }
+
+    @Test func aTemplateWithTheMarkerKeepsItsOwn() {
+        let clip = Clip(url: URL(string: "https://example.com/c")!, title: "C", markdown: "The article.")
+        let text = ClipNote.text(for: clip, template: "---\ntype: Media\n---\n## Notes\n\n==---- Text ----==\n", kind: "Media", saved: saved, calendar: calendar)
+        #expect(text.hasSuffix("\n---\n## Notes\n\n==---- Text ----==\n\nThe article.\n"))
+        #expect(ReaderNotes.notes(in: text) == "## Notes")
     }
 
     @Test func readsClipAddresses() throws {
