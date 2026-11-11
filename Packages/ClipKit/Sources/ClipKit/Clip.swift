@@ -259,8 +259,9 @@ public enum ClipNote {
     /// The note's text. Of the template's properties, `title`, `author`, `published`, `format`,
     /// `source` and `saved` are filled in (any missing are added, but `published` only if
     /// known), and the type property is set to `kind` unless the template sets it. With no
-    /// template, those properties alone. The selection, if any, is quoted above the article;
-    /// with no article, there's a link to the page.
+    /// template, those properties alone. The selection, if any, is quoted above the article,
+    /// then the template's own text, then the marker (`ReaderNotes.marker`) between them and
+    /// the article; with no article, there's a link to the page.
     public static func text(for clip: Clip, selection: String? = nil, template: String? = nil,
                             typeProperty: String = "type", kind: String? = nil, saved: Date = Date(),
                             calendar: Calendar = .current) -> String {
@@ -302,6 +303,10 @@ public enum ClipNote {
             parts.append(selection.components(separatedBy: "\n").map { $0.isEmpty ? ">" : "> " + $0 }.joined(separator: "\n"))
         }
         if !templateBody.isEmpty { parts.append(templateBody) }
+        // Your notes (the selection and the template's own text) above the marker, the page
+        // under it; unless the template has the marker itself, when the page follows its text.
+        let hasMarker = templateBody.components(separatedBy: .newlines).contains { $0.trimmingCharacters(in: .whitespaces) == ReaderNotes.marker }
+        if !hasMarker { parts.append(ReaderNotes.marker) }
         parts.append(clip.markdown.isEmpty ? "[\(clip.title.isEmpty ? clip.url.absoluteString : clip.title)](\(clip.url.absoluteString))" : clip.markdown)
         return head + parts.joined(separator: "\n\n") + "\n"
     }
