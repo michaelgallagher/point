@@ -89,7 +89,7 @@ Part of [the plan](../PLAN.md). Builds on [the clipper](clipper.md).
 
 ## After step 3 (11 November, branch `reader-polish`)
 
-- **The bars get out of the way:** reading, a scroll on by hand (90 points of drag) hides the top and bottom bars and the status bar; a scroll back (120 points), a tap on the text (not a link), or reaching the top or the end brings them back. Measured by the finger, not the scroll offset, which jumps as the bars go.
+- **The bars get out of the way:** reading, a scroll on by hand (90 points of drag) hides the top and bottom bars and the status bar; a scroll back (120 points), a double tap on the text (not a link), or reaching the top or the end brings them back. Measured by the finger, not the scroll offset, which jumps as the bars go.
 - **Your notes moved to the bottom,** sharing the action menu's glass, so the top has only progress, Aa and Edit. It's the system's own grouping (two items with no spacer), so the spacing matches the other groups; that needs the button there from the first draw, so whether a note opens for reading is decided when the screen is made, not after.
 - **Lines closer:** 1.4 rather than 1.5 by default.
 - **Line spacing and margins in Aa:** line spacing 1.2 to 1.8 in tenths, margins 12 to 48 points in sixes (24 by default). Settings kept before these came in still read, with these as standard.
