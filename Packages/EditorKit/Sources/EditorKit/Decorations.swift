@@ -139,6 +139,9 @@ struct EditorTheme {
     /// Text, headings included, set in the system's serif (New York) rather than its sans: for
     /// reading, on the phone.
     var isSerif = false
+    /// A line drawn as a rule rather than as its text: reader mode's marker between your notes
+    /// and the saved text (`==---- Text ----==`). Nil when writing.
+    var dividerLine: String?
     var body: PlatformFont { isSerif ? PlatformFont.systemFont(ofSize: bodySize).serif : .systemFont(ofSize: bodySize) }
     var mono: PlatformFont { .monospacedSystemFont(ofSize: bodySize - 2, weight: .regular) }
 
