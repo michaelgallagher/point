@@ -192,6 +192,12 @@ struct InlineTests {
         ])
     }
 
+    @Test func aURLStraightAfterAHighlightsMarkers() {
+        let found = parse("==https://a.com/v (a talk)== and a=https://b.org/")
+        #expect(found.contains(Found(.url, "https://a.com/v")))
+        #expect(!found.contains(Found(.url, "https://b.org/")))
+    }
+
     @Test func escapes() {
         #expect(parse(#"\*not\*"#) == [
             Found(.escape, #"\*"#, [#"\"#]),

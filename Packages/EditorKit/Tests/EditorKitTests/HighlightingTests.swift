@@ -84,4 +84,41 @@ struct HighlightingTests {
         let start = (text as NSString).range(of: "An ").location
         #expect(MarkdownEditing.highlights(in: text, from: start).map(\.text) == ["important", "another one"])
     }
+
+    // From the audit of a vault's clips (plan/reader-mode.md).
+
+    @Test func anEdgeWhereTheMarkersWouldBeTextGoesToTheWordsEdge() {
+        // `don==’t`, `,==` before a word: not read as highlights, so out to the word's edge.
+        #expect(highlighted("I don«’t know, but» more.\n") == "I ==don’t know, but== more.\n")
+        #expect(highlighted("Some groups«—some» left.\n") == "Some ==groups—some== left.\n")
+        #expect(highlighted("Words«, then more» here.\n") == "==Words, then more== here.\n")
+        // Within a word, between letters, it's read: left as chosen.
+        #expect(highlighted("The I«DEO site» here.\n") == "The I==DEO site== here.\n")
+    }
+
+    @Test func anEmojiIsntSplit() {
+        #expect(highlighted("«🛡️ Governance»\n") == "==🛡️ Governance==\n")
+        #expect(highlighted("«Rules 🏳️‍⚧️»\n") == "==Rules 🏳️‍⚧️==\n")
+    }
+
+    @Test func aBareLinkAtTheEndIsLeftOut() {
+        #expect(highlighted("«See this video: https://e.x/v»\n") == "==See this video:== https://e.x/v\n")
+        #expect(highlighted("«https://e.x/v»\n") == nil)
+        #expect(highlighted("«https://e.x/v and more»\n") == "==https://e.x/v and more==\n")
+    }
+
+    @Test func aParagraphSeparatorIsntALineBreak() {
+        // U+2029 at a line's end, as some clipped pages have: Markdown reads it as text, so
+        // the closing marker goes after it, where it's read.
+        #expect(highlighted("- «What are we after?\u{2029}\n- Why» now\n") == "- ==What are we after?\u{2029}==\n- ==Why== now\n")
+    }
+
+    @Test func equalsSignsAtTheEdgesAreLeftOut() {
+        #expect(highlighted("Perfectly OK «= where you started» from\n") == "Perfectly OK = ==where you started== from\n")
+        #expect(highlighted("One\n\n«==»\n\nTwo\n") == nil)
+    }
+
+    @Test func aFootnotesLabelStaysOutside() {
+        #expect(highlighted("«[^4]: A source.»\n") == "[^4]: ==A source.==\n")
+    }
 }

@@ -44,6 +44,22 @@ private func isPunctuation(_ c: UInt16) -> Bool {
     return CharacterSet.punctuationCharacters.contains(scalar) || CharacterSet.symbols.contains(scalar)
 }
 
+extension MarkdownParser {
+    /// Whether a run of `*`, `~` or `=` between `before` and `after` (nil at the edge of a
+    /// line) can open a span, by the parser's own flanking rules: so an edit can place `==`
+    /// where it will be read as a highlight.
+    public static func delimiterCanOpen(before: UInt16?, after: UInt16?) -> Bool {
+        let before = before ?? space, after = after ?? space
+        return !isWhitespace(after) && (!isPunctuation(after) || isWhitespace(before) || isPunctuation(before))
+    }
+
+    /// Whether such a run can close a span.
+    public static func delimiterCanClose(before: UInt16?, after: UInt16?) -> Bool {
+        let before = before ?? space, after = after ?? space
+        return !isWhitespace(before) && (!isPunctuation(before) || isWhitespace(after) || isPunctuation(after))
+    }
+}
+
 /// Letters and digits in any script, plus `_`, `-` and `/`, as Obsidian allows in tags.
 private func isTagCharacter(_ c: UInt16) -> Bool {
     if c == underscore || c == dash || c == u("/") { return true }
@@ -375,8 +391,7 @@ private struct Parser {
             } else if c == hash, i == r.lowerBound || isWhitespace(s[i - 1]), let tagEnd = tagEnd(from: i + 1, end: end) {
                 add(.tag(string((i + 1)..<tagEnd)), i..<tagEnd)
                 i = tagEnd
-            } else if c == u("h"), i == r.lowerBound || isWhitespace(s[i - 1]) || s[i - 1] == openParen || s[i - 1] == u("<"),
-                      let urlEnd = urlEnd(from: i, end: end) {
+            } else if c == u("h"), startsBareURL(at: i, from: r.lowerBound), let urlEnd = urlEnd(from: i, end: end) {
                 add(.url, i..<urlEnd)
                 i = urlEnd
             } else if c == star || c == underscore || c == tilde || c == equals {
@@ -479,7 +494,16 @@ private struct Parser {
         return k > start && hasNonDigit ? k : nil
     }
 
-    func urlEnd(from start: Int, end: Int) -> Int? {
+    /// Whether a bare link can start at `i`: at the start, after a space or `(` or `<`, or
+    /// straight after an emphasis marker (`*`, `_`, `~`, as GitHub has it) or a highlight's `==`.
+    func startsBareURL(at i: Int, from lower: Int) -> Bool {
+        guard i > lower else { return true }
+        let before = s[i - 1]
+        if isWhitespace(before) || [openParen, u("<"), star, underscore, tilde].contains(before) { return true }
+        return before == equals && i - 2 >= lower && s[i - 2] == equals
+    }
+
+        func urlEnd(from start: Int, end: Int) -> Int? {
         let scheme: Int
         if start + 8 <= end, matches(start..<(start + 8), "https://") { scheme = 8 }
         else if start + 7 <= end, matches(start..<(start + 7), "http://") { scheme = 7 }

@@ -48,8 +48,8 @@ extension MarkdownEditing {
     public func quotableSelection(skipping: String? = nil) -> String {
         var quoted = ""
         var lastLineEnd: Int?
-        for segment in highlightSegments(skipping: skipping, joiningHighlights: false) {
-            let line = text.lineRange(for: NSRange(location: segment.location, length: 0))
+        for segment in highlightSegments(skipping: skipping, forQuoting: true) {
+            let line = parserLine(at: segment.location, withBreak: true)
             if let lastLineEnd {
                 // A blank line (or more) between them: another paragraph.
                 let between = text.substring(with: NSRange(location: lastLineEnd, length: max(0, line.location - lastLineEnd)))
@@ -76,7 +76,7 @@ extension MarkdownEditing {
     /// Whether `range` is on a line that's exactly `skipping`.
     private func isSkipped(_ range: NSRange, _ skipping: String?) -> Bool {
         guard let skipping else { return false }
-        let line = text.lineRange(for: NSRange(location: range.location, length: 0))
+        let line = parserLine(at: range.location, withBreak: true)
         return text.substring(with: line).trimmingCharacters(in: .whitespacesAndNewlines) == skipping
     }
 
@@ -98,50 +98,138 @@ extension MarkdownEditing {
         }
     }
 
-    /// Where a line's text starts, after its block markers: quote markers, a list item's marker
-    /// and checkbox, a heading's hashes.
+    /// Where a line's text starts, after its block markers: quote markers, a footnote's label,
+    /// a list item's marker and checkbox, a heading's hashes.
     private func contentStart(of line: NSRange) -> Int {
         let string = text.substring(with: line)
-        let pattern = #"^[ \t]*(?:>[ \t]?)*[ \t]*(?:(?:[-*+]|\d{1,9}[.)])[ \t]+(?:\[[ xX]\][ \t]+)?)?(?:#{1,6}[ \t]+)?"#
+        let pattern = #"^[ \t]*(?:>[ \t]?)*[ \t]*(?:\[\^[^\]\s]+\]:[ \t]*)?(?:(?:[-*+]|\d{1,9}[.)])[ \t]+(?:\[[ xX]\][ \t]+)?)?(?:#{1,6}[ \t]+)?"#
         guard let match = string.range(of: pattern, options: .regularExpression) else { return line.location }
         return line.location + (String(string[match]) as NSString).length
     }
 
     /// The selection's part of each line, ready to be highlighted: inside the line's text,
-    /// spaces trimmed, widened over any inline span it only partly covers, and (if
-    /// `joiningHighlights`) over highlights it touches.
-    func highlightSegments(skipping: String? = nil, joiningHighlights: Bool = true) -> [NSRange] {
+    /// spaces trimmed, widened over any inline span it only partly covers, and out to the
+    /// word's edge where `==` wouldn't be read as a highlight there (`don==’t`). For
+    /// highlighting (not `forQuoting`), also over highlights it touches, and short of a bare
+    /// link it ends on (which would take in the closing `==`).
+    func highlightSegments(skipping: String? = nil, forQuoting: Bool = false) -> [NSRange] {
         guard selection.length > 0, NSMaxRange(selection) <= text.length else { return [] }
         var segments: [NSRange] = []
-        let lines = text.lineRange(for: selection)
-        text.enumerateSubstrings(in: lines, options: .byLines) { _, line, _, _ in
-            guard !isInUnhighlightableBlock(line.location), !isSkipped(line, skipping) else { return }
-            var start = max(selection.location, contentStart(of: line))
-            var end = min(NSMaxRange(selection), NSMaxRange(line))
-            let trimmed = trimmingWhitespace(NSRange(location: start, length: max(0, end - start)))
-            guard trimmed.length > 0 else { return }
-            start = trimmed.location
-            end = NSMaxRange(trimmed)
-            var widened = true
-            while widened {
-                widened = false
-                for token in tokens where Self.isInline(token.kind)
-                    && token.range.location >= line.location && NSMaxRange(token.range) <= NSMaxRange(line) {
-                    let r = token.range
-                    let overlaps = r.location < end && NSMaxRange(r) > start
-                    let partly = overlaps && (r.location < start || NSMaxRange(r) > end)
-                    let touching = joiningHighlights && token.kind == .highlight
-                        && (isSpacesOnly(from: NSMaxRange(r), to: start) || isSpacesOnly(from: end, to: r.location))
-                    if partly || touching {
-                        start = min(start, r.location)
-                        end = max(end, NSMaxRange(r))
-                        widened = true
-                    }
-                }
-            }
-            segments.append(NSRange(location: start, length: end - start))
+        // Lines as the parser has them: split at line feeds only (not at U+2028 or U+2029).
+        var at = parserLine(at: selection.location, withBreak: false).location
+        while true {
+            let line = parserLine(at: at, withBreak: false)
+            if let segment = segment(on: line, skipping: skipping, forQuoting: forQuoting) { segments.append(segment) }
+            at = NSMaxRange(line) + 1
+            guard at < NSMaxRange(selection), at <= text.length else { break }
         }
         return segments
+    }
+
+    /// The selection's part of one line, as `highlightSegments` describes; nil if none.
+    private func segment(on line: NSRange, skipping: String?, forQuoting: Bool) -> NSRange? {
+        guard !isInUnhighlightableBlock(line.location), !isSkipped(line, skipping) else { return nil }
+        let lineStart = contentStart(of: line)
+        var start = max(selection.location, lineStart)
+        var end = min(NSMaxRange(selection), NSMaxRange(line))
+        let trimmed = trimmingWhitespace(NSRange(location: start, length: max(0, end - start)))
+        guard trimmed.length > 0 else { return nil }
+        // An `=` at an edge would run into the marker (`===`): left out, unless it's a
+        // highlight's own.
+        let ownMarkers = tokens.filter { $0.kind == .highlight && $0.syntax.count == 2 }
+        if !ownMarkers.contains(where: { $0.range.location == trimmed.location || NSMaxRange($0.range) == NSMaxRange(trimmed) }) {
+            let rest = trimmingEdges(trimmed, of: Self.equals)
+            guard rest.length > 0 else { return nil }
+            start = rest.location
+            end = NSMaxRange(rest)
+        } else {
+            start = trimmed.location
+            end = NSMaxRange(trimmed)
+        }
+        // Widening only grows the segment, within the line, so this ends; the cap is a guard.
+        var widened = true
+        var rounds = 0
+        while widened, rounds < 50 {
+            widened = false
+            rounds += 1
+            for token in tokens where Self.isInline(token.kind)
+                && token.range.location >= line.location && NSMaxRange(token.range) <= NSMaxRange(line) {
+                let r = token.range
+                let overlaps = r.location < end && NSMaxRange(r) > start
+                let partly = overlaps && (r.location < start || NSMaxRange(r) > end)
+                let touching = !forQuoting && token.kind == .highlight
+                    && (isSpacesOnly(from: NSMaxRange(r), to: start) || isSpacesOnly(from: end, to: r.location))
+                if partly || touching {
+                    start = min(start, r.location)
+                    end = max(end, NSMaxRange(r))
+                    widened = true
+                }
+            }
+            // (An edge that's a highlight's own marker already works where it is.)
+            if !ownMarkers.contains(where: { $0.range.location == start }),
+               !canOpen(at: start, lineStart: line.location), wordStart(start, from: lineStart) < start {
+                start = wordStart(start, from: lineStart)
+                widened = true
+            }
+            if !ownMarkers.contains(where: { NSMaxRange($0.range) == end }),
+               !canClose(at: end, lineEnd: NSMaxRange(line)), wordEnd(end, to: NSMaxRange(line)) > end {
+                end = wordEnd(end, to: NSMaxRange(line))
+                widened = true
+            }
+        }
+        if !forQuoting, let link = tokens.first(where: { $0.kind == .url && NSMaxRange($0.range) == end && $0.range.location >= start }) {
+            let before = trimmingWhitespace(NSRange(location: start, length: link.range.location - start))
+            guard before.length > 0 else { return nil }
+            end = NSMaxRange(before)
+        }
+        return NSRange(location: start, length: end - start)
+    }
+
+    /// The line `location` is in, ending at a line feed (included if `withBreak`) or the end.
+    private func parserLine(at location: Int, withBreak: Bool) -> NSRange {
+        let before = text.range(of: "\n", options: .backwards, range: NSRange(location: 0, length: min(location, text.length)))
+        let start = before.location == NSNotFound ? 0 : NSMaxRange(before)
+        let after = text.range(of: "\n", range: NSRange(location: start, length: text.length - start))
+        let end = after.location == NSNotFound ? text.length : (withBreak ? NSMaxRange(after) : after.location)
+        return NSRange(location: start, length: end - start)
+    }
+
+    // Where `==` can go, by the parser's rules (see `MarkdownParser.delimiterCanOpen`).
+    private func character(_ index: Int, from low: Int, to high: Int) -> UInt16? {
+        index >= low && index < high ? text.character(at: index) : nil
+    }
+
+    private func canOpen(at index: Int, lineStart: Int) -> Bool {
+        MarkdownParser.delimiterCanOpen(before: character(index - 1, from: lineStart, to: text.length), after: character(index, from: 0, to: text.length))
+    }
+
+    private func canClose(at index: Int, lineEnd: Int) -> Bool {
+        MarkdownParser.delimiterCanClose(before: character(index - 1, from: 0, to: text.length), after: character(index, from: 0, to: lineEnd))
+    }
+
+    private static func isSpace(_ c: UInt16) -> Bool { c == 0x20 || c == 0x09 || c == 0xA0 }
+    private static let equals = UInt16(UInt8(ascii: "="))
+
+    /// `range` without `character`s and spaces at either end.
+    private func trimmingEdges(_ range: NSRange, of character: UInt16) -> NSRange {
+        var start = range.location, end = NSMaxRange(range)
+        while start < end, text.character(at: start) == character || Self.isSpace(text.character(at: start)) { start += 1 }
+        while end > start, text.character(at: end - 1) == character || Self.isSpace(text.character(at: end - 1)) { end -= 1 }
+        return NSRange(location: start, length: end - start)
+    }
+
+    /// Back to the start of the word `index` is in, no further than `limit`.
+    private func wordStart(_ index: Int, from limit: Int) -> Int {
+        var at = index
+        while at > limit, !Self.isSpace(text.character(at: at - 1)) { at -= 1 }
+        return at
+    }
+
+    /// On to the end of the word `index` is in, no further than `limit`.
+    private func wordEnd(_ index: Int, to limit: Int) -> Int {
+        var at = index
+        while at < limit, !Self.isSpace(text.character(at: at)) { at += 1 }
+        return at
     }
 
     /// Whether from `start` to `end` is nothing, or only spaces and tabs.

@@ -94,7 +94,20 @@ Part of [the plan](../PLAN.md). Builds on [the clipper](clipper.md).
 - **Lines closer:** 1.4 rather than 1.5 by default.
 - **Line spacing and margins in Aa:** line spacing 1.2 to 1.8 in tenths, margins 12 to 48 points in sixes (24 by default). Settings kept before these came in still read, with these as standard.
 
-## The steps
+## Safety checks on a copy (11 November)
+
+Steps 2 and 3 write to the vault, so before the real one they were tried on a copy of it, outside iCloud, on every clip, in memory: `ReaderNotesAudit` (ClipKit) and `HighlightingAudit` (EditorKit), which run only with `POINT_AUDIT_COPY` set (the second also takes `POINT_AUDIT_CLIPS`, the list the first writes).
+- **Your notes:** set as they are, a note typed, a quote added, put back and cleared, on every clip. The properties and the saved text never changed, and the notes read back as written. Saving tidies a space and blank lines at the end of your notes (only once they're changed; opening the sheet writes nothing).
+- **Highlighting:** 20 selections of every size at random in each clip, and the whole article: only `==` may be added, the other formatting must read the same, highlighting again must change nothing, and removing must give back the text. It found, and these were fixed (each with a test in `HighlightingTests` or `MarkdownParserTests`):
+  - **An edge inside a word, against punctuation** (`don==’t`, `groups—==some`) wasn't read as a highlight, so the markers showed and Remove highlight couldn't find them. Such an edge goes out to the word's edge, by the parser's own rules (`MarkdownParser.delimiterCanOpen`).
+  - **Emoji were split** (`🛡==️`): the whitespace trim took each half of an emoji for a space. This was in the Mac's formatting commands too, and is fixed there.
+  - **A bare link at the end** took in the closing `==`; it's left out of the highlight. **A bare link straight after `==`** (or `*`, `_`, `~`, as GitHub has it) wasn't read as a link; now it is.
+  - **A footnote's label** (`[^4]:`) is kept outside, as list and quote markers are.
+  - **U+2029 at a line's end** (some clipped pages have it) counted as a line break when highlighting, but not to the parser, so the closing marker went where it wasn't read. Lines are now split as the parser splits them.
+  - **An `=` at an edge** (`OK = where…`) is left out, so it can't run into the marker (`===`).
+- **Left as they are** (in text that was odd already): raw HTML in clips, a literal `!==` in the text, links or images whose text runs over several lines (the parser doesn't read those as links at all), and broken fragments of clipped pages. Highlighting there adds markers that may not read as a highlight, but changes no other text.
+- **Not tried here:** the app's own writes on the copy (they go through `NoteWriter` like the editor's, and were tried in the Simulator in steps 2 and 3), and iCloud syncing a clip while you read (tried with a change from outside, not from another device).
+
 
 1. **The reader view:** the type, the header, the Aa menu, progress, your place, and Edit and Done. It never writes to the file, so it can be used on the real vault straight away.
 2. **The marker and your notes:** new clips write the marker (both apps, in `ClipNote`). The notes sheet, saving by splicing, and the marker added to old clips.
