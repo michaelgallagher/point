@@ -66,9 +66,7 @@ struct NoteScreen: View {
                     }
                 }
             }
-            .pageBar(.find({ session.find("") }, beside: session.isReading
-                ? AnyView(Button("Your notes", systemImage: "note.text") { session.openNotes() })
-                : nil)) {
+            .pageBar(.find({ session.find("") }, notes: session.isReading ? { session.openNotes() } : nil)) {
                 Button("New note", systemImage: "square.and.pencil") { newNote(FolderTree.folder(of: session.note.id)) }
                 Divider()
                 Button("Move note", systemImage: "folder") { showsMove = true }
@@ -251,6 +249,8 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     @Published private(set) var progress: Double = 0
     @Published private(set) var minutesLeft = 0
     private var minutesToRead = 1
+    /// The note as read when the screen was made, for its first showing.
+    private var firstRead: String?
     /// Reading, the bars (and the status bar) are out of the way, for the text alone.
     @Published private(set) var barsHidden = false
     private var scrolling: NSKeyValueObservation?
@@ -290,6 +290,14 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         self.store = store
         self.isNew = isNew
         super.init()
+        // Read now, not once the editor's made: a clip is set for reading before the screen
+        // first draws, so its bars are right from the start (an item added to them later
+        // wasn't grouped with the others).
+        if !isNew, let text = try? NoteReader.read(note) {
+            firstRead = text
+            canRead = !store.showsMarkdown && Reading.opensForReading(text, kinds: store.kinds)
+            isReading = canRead
+        }
         NotificationCenter.default.addObserver(self, selector: #selector(embedsChanged), name: .phoneEmbedsChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(resignActive), name: UIApplication.willResignActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(saveNow), name: .phoneSaveNow, object: nil)
@@ -473,7 +481,13 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         let readStart = CACurrentMediaTime()
         let text: String
         do {
-            text = try NoteReader.read(note)
+            // What was read as the screen was made, the first time.
+            if let firstRead {
+                text = firstRead
+                self.firstRead = nil
+            } else {
+                text = try NoteReader.read(note)
+            }
         } catch {
             // A note that's gone from the vault isn't downloading.
             let isGone = store.hasScanned && store.note(note.id) == nil
@@ -634,8 +648,8 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         }
     }
 
-    /// Scrolled on a little by hand, the bars go; scrolled back a little, or at the top or the
-    /// end, they come back. Measured by the finger, as the offset jumps as the bars go.
+    /// Scrolled on by hand, the bars go; scrolled back, or at the top or the end, they come
+    /// back. Measured by the finger, as the offset jumps as the bars go.
     private func hideOrShowBars() {
         guard let textView else { return }
         let offset = textView.contentOffset.y
@@ -643,9 +657,14 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         let end = textView.contentSize.height - textView.bounds.height + textView.adjustedContentInset.bottom
         if offset <= top + 20 || offset >= end - 4 { return setBarsHidden(false) }
         guard textView.isTracking else { return }
+        // Well past a nudge either way: a short adjustment while reading leaves them be.
         let dragged = textView.panGestureRecognizer.translation(in: textView).y
-        if dragged < -24 { setBarsHidden(true) } else if dragged > 24 { setBarsHidden(false) }
+        if dragged < -Self.hideDistance { setBarsHidden(true) } else if dragged > Self.showDistance { setBarsHidden(false) }
     }
+
+    /// How far a drag goes on before the bars go, and back before they return, in points.
+    private static let hideDistance: CGFloat = 90
+    private static let showDistance: CGFloat = 120
 
     func setBarsHidden(_ hidden: Bool) {
         guard hidden != barsHidden, isReading || !hidden else { return }
