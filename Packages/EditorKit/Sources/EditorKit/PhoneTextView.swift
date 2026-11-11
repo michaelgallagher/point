@@ -12,6 +12,10 @@ public final class PhoneTextView: UITextView {
     let pointLayoutManager: PointLayoutManager
     /// Decides which taps are for `PhoneTextView+Links`.
     var tapFilter: NSObject?
+    var plainTapFilter: NSObject?
+    /// Called for a tap on the text, not a link, checkbox or image, while it isn't editable
+    /// (reader mode's tap to show or hide the bars).
+    public var onPlainTap: (() -> Void)?
 
     /// How long the last edit took to parse and restyle, in milliseconds, and the slowest so
     /// far: what typing costs on this phone.

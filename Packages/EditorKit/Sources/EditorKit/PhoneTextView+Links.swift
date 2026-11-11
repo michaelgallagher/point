@@ -17,6 +17,22 @@ public enum LinkTarget: Equatable, Sendable {
     }
 }
 
+/// Taps on the text that aren't for a checkbox, link or image, while it isn't being edited,
+/// alongside the text view's own (which clears a selection).
+private final class PlainTapFilter: NSObject, UIGestureRecognizerDelegate {
+    weak var textView: PhoneTextView?
+
+    func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+        guard let textView, textView.onPlainTap != nil, !textView.isEditable else { return false }
+        let point = recognizer.location(in: textView)
+        return textView.checkboxState(at: point) == nil && textView.link(at: point) == nil && textView.image(at: point) == nil
+    }
+
+    func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        true
+    }
+}
+
 /// Lets the tap through only for a checkbox or a link: anywhere else it's the text view's own.
 private final class TapFilter: NSObject, UIGestureRecognizerDelegate {
     weak var textView: PhoneTextView?
@@ -44,6 +60,21 @@ extension PhoneTextView {
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
         tap.delegate = filter
         addGestureRecognizer(tap)
+        let plainFilter = PlainTapFilter()
+        plainFilter.textView = self
+        plainTapFilter = plainFilter
+        let plain = UITapGestureRecognizer(target: self, action: #selector(plainTapped))
+        plain.delegate = plainFilter
+        addGestureRecognizer(plain)
+    }
+
+    @objc private func plainTapped() {
+        // A selection being cleared by this tap isn't a tap on the text.
+        let hadSelection = selectedRange.length > 0
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !hadSelection else { return }
+            self.onPlainTap?()
+        }
     }
 
     @objc private func tapped(_ recognizer: UITapGestureRecognizer) {
