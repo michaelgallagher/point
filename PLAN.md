@@ -26,7 +26,7 @@ Mike travels soon with the laptop and the iPhone, and wants to use Point on both
 4. **Before leaving:** a snapshot (`scripts/vault-snapshot.sh take`; the first set for Thursday 12 November, 8:00), Obsidian Sync still off on every device, and the vault set to Keep Downloaded in Files on the iPhone, so nothing is a placeholder offline.
 5. **The fallback:** Obsidian stays installed on both, unopened. The files are plain Markdown, so it can take over at any point.
 
-**After the trip:** full screen on the Mac, and anything the week turns up, which comes first. (The iPhone caught up on 11 November: the related notes sheet, and Numbered list in the bar above the keyboard.)
+**After the trip:** full screen on the Mac, and anything the week turns up, which comes first. Then [reader mode on the iPhone](plan/reader-mode.md): Media notes set for reading, your place kept, highlights, and your notes above the saved text, under the marker `==---- Text ----==` (designed 11 November, not started). (The iPhone caught up on 11 November: the related notes sheet, and Numbered list in the bar above the keyboard.)
 
 **Later:** comparing drafts (Compare with…: two notes, or a note and an earlier version or conflict copy, shown as tracked changes; designed in [Beyond text](plan/structure.md), not started), daily notes as a meeting log ([Investigations](plan/investigations.md)), and the milestones meaning (M5) and extras (M6). See [Milestones](plan/milestones.md).
 
@@ -38,6 +38,7 @@ Mike travels soon with the laptop and the iPhone, and wants to use Point on both
 - [Milestones](plan/milestones.md): M0 to M6.
 
 **Work, newest first**
+- [Reader mode on the iPhone](plan/reader-mode.md) (11 November, designed): reading clipped Media notes with type set for reading, your place kept on the phone, highlights, and a notes sheet that writes above the `==---- Text ----==` marker; in four steps.
 - [The 8 November batch](plan/batch-2026-11-08.md): Mike's list of fixes and changes for the Mac and the iPhone.
 - [The iPhone on the real vault](plan/iphone-real-vault.md) (8 November): what's needed to use the iPhone app on the real notes, and in what order.
 - [Links and recall](plan/links-and-recall.md) (8 November): links and recall become one function, a panel sliding up from the bottom opened from the recall line; what's decided and what's left.
