@@ -49,6 +49,14 @@ final class PhoneStore: ObservableObject {
         didSet { UserDefaults.standard.set(try? JSONEncoder().encode(typography), forKey: "typography") }
     }
 
+    /// How notes are set for reading, from the Aa menu.
+    @Published var reader: ReaderSettings = UserDefaults.standard.data(forKey: "reader")
+        .flatMap { try? JSONDecoder().decode(ReaderSettings.self, from: $0) } ?? ReaderSettings() {
+        didSet { UserDefaults.standard.set(try? JSONEncoder().encode(reader), forKey: "reader") }
+    }
+    /// Where the reader was in each note, on this phone.
+    let places = ReadingPlaces(file: PhoneVault.storage("Reading/places.json"))
+
     let root = PhoneVault.root
     private var index: SearchIndex?
     /// How a clip is going, if one is (see `clip`).
@@ -327,6 +335,7 @@ final class PhoneStore: ObservableObject {
             let known = history
             history.keepOnly(scannedIDs.union(moves.vanishedBefore.map(\.id)))
             if history != known { historyFile.save(history) }
+            places.keepOnly(scannedIDs.union(moves.vanishedBefore.map(\.id)))
         }
         if let images = result?.images, images != embeds.images { embeds.images = images }
         if let result { folders = result.folders.sorted { $0.localizedStandardCompare($1) == .orderedAscending } }
@@ -959,6 +968,7 @@ final class PhoneStore: ObservableObject {
         }
         history.renamed(from: id, to: note.id)
         historyFile.save(history)
+        places.renamed(from: id, to: note.id)
         if UserDefaults.standard.string(forKey: PhoneVault.defaultsKey("workingOn")) == id {
             UserDefaults.standard.set(note.id, forKey: PhoneVault.defaultsKey("workingOn"))
         }
@@ -985,6 +995,7 @@ final class PhoneStore: ObservableObject {
         }
         history.renamed(from: note.id, to: newID)
         historyFile.save(history)
+        places.renamed(from: note.id, to: newID)
         if UserDefaults.standard.string(forKey: PhoneVault.defaultsKey("workingOn")) == note.id { UserDefaults.standard.set(newID, forKey: PhoneVault.defaultsKey("workingOn")) }
         if isBookmarked(note.id) {
             try? ObsidianBookmarks.rename(note.id, to: newID, vault: root)
