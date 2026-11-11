@@ -434,12 +434,19 @@ private struct PaneMenuButton: View {
 
     private func menu() -> NSMenu {
         let menu = NSMenu()
+        // Items are enabled as set here (Save Web Images to Vault isn't always).
+        menu.autoenablesItems = false
         let note = model.note(pane.tab.noteID)
         if let note {
             let bookmark = BlockMenuItem("Bookmark") { model.toggleBookmark(note.id) }
             bookmark.state = model.isBookmarked(note.id) ? .on : .off
             menu.addItem(bookmark)
             menu.addItem(BlockMenuItem("Move File…") { model.moving = note })
+            // As File › Save Web Images to Vault: only where the note has pictures from the web.
+            let saving = WebImageNotes.shared.saving.contains(note.id)
+            let webImages = BlockMenuItem(saving ? "Saving Web Images…" : "Save Web Images to Vault") { model.store.saveWebImages(in: note) }
+            webImages.isEnabled = WebImageNotes.shared.canSave(note.id)
+            menu.addItem(webImages)
             let markdown = BlockMenuItem("Show Markdown") { model.toggleMarkdown(inPane: pane.id) }
             markdown.state = model.showsMarkdown(inPane: pane.id) ? .on : .off
             menu.addItem(markdown)
