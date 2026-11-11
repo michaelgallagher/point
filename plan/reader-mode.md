@@ -1,4 +1,4 @@
-# Reader mode on the iPhone (11 November 2026; steps 1 and 2 built)
+# Reader mode on the iPhone (11 November 2026; steps 1 to 3 built)
 
 Part of [the plan](../PLAN.md). Builds on [the clipper](clipper.md).
 
@@ -76,6 +76,16 @@ Part of [the plan](../PLAN.md). Builds on [the clipper](clipper.md).
 - **Tried:** `ReaderNotesTests` (9) and the clip tests changed for the marker (4, one new). In the Simulator, on an old clip without the marker: typing a note added it under the properties, the properties and article byte for byte unchanged; the article changed from outside while typing, both kept, no copy; the notes changed from outside, a conflict copy with mine and the original with the other. Notes then rule then article in reader mode.
 - **Not tried:** a real iPhone, a clip made on the phone or the Mac since (only the tests), the Mac with the marker in a real clip.
 - **Decided on the way:** your notes are set off by the rule alone for now, not tinted; easy to change once tried.
+
+## Step 3, built (11 November, branch `reader-highlights`)
+
+- **Highlighting** (`MarkdownEditing+Highlights`, EditorKit): the selection becomes one `==…==` to each line it covers, inside the line's own markers (`> `, `- `, `- [ ] `, `## `), spaces at its edges left out. It takes in whole any bold, italic, link or code it only partly covers, so markers stay paired, and joins any highlight it overlaps or touches (only spaces between). Code blocks, tables, the properties and the marker are left alone.
+- **The edit menu while reading:** select text and the menu starts with Highlight, Remove highlight (when the selection touches one; it takes off every one it touches) and Add to notes (from the saved text only), then the system's Copy and the rest. The format bar is gone while reading.
+- **Add to notes:** the selection as Markdown that stands on its own (the same widening, highlight markers left out, paragraphs a blank line apart) goes at the end of your notes as a quote, and is highlighted in the article, in one write. The sheet opens with the cursor on a new line under the quote; if it's open already, the quote appears in it.
+- **The highlights list:** a highlighter button in the notes sheet lists the article's highlights in order; choosing one closes the sheet and puts its paragraph at the top.
+- **Saving:** each change is made to the file read from disk just then. If that's not what's showing (changed on another device), the reader shows the file as it is now, writes nothing, and says so: a selection made in the old text might not be the same words.
+- **Tried:** `HighlightingTests` (12). In the Simulator: a word highlighted; a selection half in bold made `==**everything**==` and the quote `> **everything**`; the list and going to a highlight; Remove highlight; the file changed from outside before Remove highlight, which then wrote nothing and showed the notice, and worked once tried again; a comment typed under a quote. The file stayed well-formed throughout, the rest byte for byte.
+- **Not tried:** a real iPhone, a selection across paragraphs in the app (only the tests), VoiceOver.
 
 ## The steps
 
