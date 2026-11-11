@@ -105,6 +105,7 @@ final class EditorSession: NSObject, ObservableObject {
             message = nil
             isLoaded = true
             textView?.load(text)
+            WebImageNotes.shared.note(note.id, in: text)
             applyPendingReveal()
             frontmatter = Frontmatter.parse(text)
             checkICloudConflicts()
@@ -263,6 +264,7 @@ final class EditorSession: NSObject, ObservableObject {
             switch try NoteWriter.write(text, to: note.url, expecting: onDisk, ifChanged: leaving ? .saveCopy : .report) {
             case .saved, .savedAsConflictCopy:
                 self.onDisk = text
+                WebImageNotes.shared.note(note.id, in: text)
                 if saveProblem != nil { saveProblem = nil }
                 fileIsMissing = false
                 drafts?.remove(for: note.id)
@@ -423,6 +425,28 @@ final class EditorSession: NSObject, ObservableObject {
         }
         textView.undoManager?.endUndoGrouping()
         textView.window?.makeFirstResponder(textView)
+    }
+
+    // MARK: Web images
+
+    /// The editor a note is open in, if it's open.
+    static func editing(_ id: Note.ID) -> EditorSession? {
+        live.allObjects.first { $0.note.id == id && $0.textView != nil && !$0.isReleased }
+    }
+
+    /// The note's text as it is in the editor, unsaved edits and all.
+    var text: String? { textView?.string }
+
+    /// Makes edits to the note's text (each range in it as it is now) as one step to undo,
+    /// keeping the cursor where it was in the text around them.
+    func applyEdits(_ edits: [(range: NSRange, replacement: String)]) {
+        guard !isReleased, let textView, !edits.isEmpty else { return }
+        textView.undoManager?.beginUndoGrouping()
+        for edit in edits.sorted(by: { $0.range.location > $1.range.location }) {
+            textView.applyEdit(replacing: edit.range, with: edit.replacement)
+        }
+        textView.undoManager?.endUndoGrouping()
+        textView.undoManager?.setActionName("Save Web Images")
     }
 
     // MARK: Commands from the palette

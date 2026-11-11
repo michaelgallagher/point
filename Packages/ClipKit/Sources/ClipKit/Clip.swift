@@ -7,7 +7,7 @@ public struct Clip: Equatable, Sendable {
     public var url: URL
     public var title: String
     public var authors: [String]
-    /// When it was published, `yyyy-MM-dd`, if the page says.
+    /// The year it was published, `yyyy`, if the page says (and it isn't in the future).
     public var published: String?
     public var siteName: String?
     /// What it is: Article, or Video for a video site's page.
@@ -34,7 +34,7 @@ public struct Clip: Equatable, Sendable {
         self.init(url: Self.cleaned(Self.canonical((found["canonical"] as? String).flatMap(URL.init(string:)), of: url)),
                   title: title,
                   authors: ((found["authors"] as? [String]) ?? []).flatMap(Self.authors(in:)),
-                  published: (found["published"] as? String).flatMap(Self.day),
+                  published: (found["published"] as? String).flatMap { Self.year($0) },
                   siteName: siteName,
                   format: format,
                   markdown: Self.withoutRepeats(Self.tidyMarkdown((found["markdown"] as? String) ?? ""), title: title))
@@ -105,6 +105,22 @@ public struct Clip: Equatable, Sendable {
         let text = text.trimmingCharacters(in: .whitespaces)
         guard let match = text.range(of: #"^\d{4}-\d{2}-\d{2}"#, options: .regularExpression) else { return nil }
         return String(text[match])
+    }
+
+    /// The year a date says, `yyyy`, from `2026-02-09T10:00:00Z`, `2026-02-09` or `2026`: none
+    /// if it's after `now` (a page's dates can be of what's coming, like an event), or isn't a
+    /// date at all.
+    public static func year(_ text: String, now: Date = Date(), calendar: Calendar = .current) -> String? {
+        let text = text.trimmingCharacters(in: .whitespaces)
+        guard let match = text.range(of: #"^\d{4}(-\d{2}-\d{2})?"#, options: .regularExpression) else { return nil }
+        let parts = text[match].split(separator: "-").compactMap { Int($0) }
+        let thisYear = calendar.component(.year, from: now)
+        guard let year = parts.first, year >= 1900, year <= thisYear else { return nil }
+        if parts.count == 3 {
+            guard let date = calendar.date(from: DateComponents(year: year, month: parts[1], day: parts[2])),
+                  date <= now.addingTimeInterval(24 * 60 * 60) else { return nil }
+        }
+        return String(year)
     }
 
     /// Text on one line, its spaces single.

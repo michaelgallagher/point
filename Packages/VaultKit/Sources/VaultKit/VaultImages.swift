@@ -260,7 +260,16 @@ public enum VaultImages {
         let name = availableName(forNote: note.name, ext: ext, in: folder)
         let url = folder.appendingPathComponent(name)
         try data.write(to: url, options: .withoutOverwriting)
-        return VaultImage(path: relativePath(of: url, in: root), url: url)
+        return image(named: name, in: folder, vault: root)
+    }
+
+    /// An image just saved as `name` in `folder`, named as Point chose it: the system writes
+    /// names decomposed (`a` and an accent), and read back from the disk, they'd be written
+    /// so in the note, unlike the rest of its text.
+    static func image(named name: String, in folder: URL, vault root: URL) -> VaultImage {
+        let folderPath = relativePath(of: folder, in: root)
+        let isRoot = folder.standardizedFileURL.resolvingSymlinksInPath().path == root.standardizedFileURL.resolvingSymlinksInPath().path
+        return VaultImage(path: isRoot || folderPath.isEmpty ? name : folderPath + "/" + name, url: folder.appendingPathComponent(name))
     }
 
     /// A file's path from the vault's root.

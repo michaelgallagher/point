@@ -13,7 +13,7 @@ struct ClipTests {
 
     @Test func fillsTheMediaTemplate() {
         let clip = Clip(url: URL(string: "https://www.robinsloan.com/winter-garden/magic-circle/")!,
-                        title: "Flood fill vs. the magic circle", authors: ["Robin Sloan"], published: "2026-02-09",
+                        title: "Flood fill vs. the magic circle", authors: ["Robin Sloan"], published: "2026",
                         markdown: "If you’ve used Photoshop…\n\n![The paint bucket](https://www.robinsloan.com/img/flood-fill.webp)")
         let text = ClipNote.text(for: clip, template: media, kind: "Media", saved: saved, calendar: calendar)
         #expect(text == """
@@ -22,7 +22,7 @@ struct ClipTests {
         title: Flood fill vs. the magic circle
         author:
           - "[[Robin Sloan]]"
-        published: 2026-02-09
+        published: 2026
         format: Article
         source: https://www.robinsloan.com/winter-garden/magic-circle/
         topics:
@@ -130,6 +130,23 @@ struct ClipTests {
         #expect(clip.markdown.components(separatedBy: "The bridge at dusk. Ann Lee").count == 5)
     }
 
+    @MainActor @Test func takesOnlyTheDateByTheHeadline() async throws {
+        let paragraph = "A long paragraph about contextual design, which goes on for a while so that Readability treats it as the article and not as a sidebar. "
+        // A course starting soon, and no date for the article: none.
+        let undated = """
+        <!doctype html><html><head><title>Contextual design</title></head><body>
+        <main><div><div><h1>Contextual design</h1></div></div><p>\(paragraph)\(paragraph)\(paragraph)</p></main>
+        <aside><p>Next course starts <time datetime="2026-11-18">18 November</time></p></aside></body></html>
+        """
+        #expect(try await ClipExtractor().clip(html: undated, url: URL(string: "https://example.com/a")!).published == nil)
+        let dated = """
+        <!doctype html><html><head><title>Night walks</title></head><body><article>
+        <header><h1>Night walks</h1><div><time datetime="2024-03-02T05:00:00-05:00">March 2, 2024</time></div></header>
+        <p>\(paragraph)\(paragraph)\(paragraph)</p></article></body></html>
+        """
+        #expect(try await ClipExtractor().clip(html: dated, url: URL(string: "https://example.com/b")!).published == "2024")
+    }
+
     @Test func dropsRepeatsAndTheTitleHeading() {
         let long = "A paragraph long enough that seeing it twice means it's a copy."
         #expect(Clip.withoutRepeats("\(long)\n\n## Night walks\n\n\(long)\n\nYes.\n\nYes.\n\n![](a.jpg)\n\n![](a.jpg)\n\n```\n\(long)\n\n\(long)\n```", title: "Night Walks")
@@ -170,6 +187,12 @@ struct ClipTests {
         #expect(Clip.authors(in: "https://example.com/sam") == [])
         #expect(Clip.day("2026-02-09T10:00:00Z") == "2026-02-09")
         #expect(Clip.day("February 9") == nil)
+        let now = Date(timeIntervalSince1970: 1_794_000_000) // 7 November 2026
+        #expect(Clip.year("2026-02-09T10:00:00Z", now: now) == "2026")
+        #expect(Clip.year("2019", now: now) == "2019")
+        #expect(Clip.year("2026-11-18", now: now) == nil)
+        #expect(Clip.year("2027", now: now) == nil)
+        #expect(Clip.year("219014", now: now) == nil)
         #expect(Clip.cleaned(URL(string: "https://example.com/a?utm_source=x&id=3&fbclid=y")!).absoluteString == "https://example.com/a?id=3")
         #expect(Clip.format(of: URL(string: "https://www.youtube.com/watch?v=1")!) == "Video")
         #expect(Clip.format(of: URL(string: "https://notyoutube.com/x")!) == "Article")
@@ -205,7 +228,7 @@ struct ClipTests {
         let clip = try await ClipExtractor().clip(html: html, url: URL(string: "https://example.com/posts/good?utm_source=feed")!)
         #expect(clip.title == "Good services")
         #expect(clip.authors == ["Lou Downe"])
-        #expect(clip.published == "2025-06-01")
+        #expect(clip.published == "2025")
         #expect(clip.siteName == "Example")
         #expect(clip.url.absoluteString == "https://example.com/posts/good")
         #expect(clip.markdown.contains("[relative link](https://example.com/rules)"))

@@ -1255,6 +1255,13 @@ final class VaultStore: ObservableObject {
         }
     }
 
+    /// Images just saved in the vault by Point, before the watcher reports them.
+    func add(_ new: [VaultImage]) {
+        let known = Set(images.map(\.path))
+        let added = new.filter { !known.contains($0.path) }
+        if !added.isEmpty { images.append(contentsOf: added) }
+    }
+
     /// The notes that show or link to an image, as the index knows them, by title.
     func notesShowing(_ image: VaultImage) async -> [Note] {
         guard let index, let links = try? await index.linking(to: image.name) else { return [] }

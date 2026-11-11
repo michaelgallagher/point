@@ -28,9 +28,18 @@ function pointClip(html, url) {
   const ldAuthors = [].concat(ld.author || []).map((a) => (typeof a === "string" ? a : a && a.name)).filter(Boolean);
 
   const metaAuthor = meta('meta[name="author"]') || meta('meta[property="author"]');
+  // The date it was published, where the page says so; failing that, a date by its headline
+  // (in the article's header). Not any date on the page: they can be of events, comments or
+  // what's coming next.
+  const marked = doc.querySelector('[itemprop="datePublished"]');
+  const headline = doc.querySelector("article h1, h1");
+  // By the headline: in a header that holds it, or no more than three levels from it.
+  const near = headline && (headline.closest("header") || headline.parentElement?.parentElement?.parentElement || null);
+  const byHeadline = near && near !== doc.body && near !== doc.documentElement ? Array.from(near.querySelectorAll("time[datetime]"))[0] : null;
   const published = ld.datePublished || meta('meta[property="article:published_time"]') ||
     meta('meta[name="date"]') || meta('meta[name="dc.date"]') || meta('meta[itemprop="datePublished"]') ||
-    doc.querySelector("time[datetime]")?.getAttribute("datetime") || null;
+    marked?.getAttribute("datetime") || marked?.getAttribute("content") ||
+    byHeadline?.getAttribute("datetime") || null;
 
   // Headings as the article has them. Readability drops anything whose class or id sounds
   // like the page around the article ("header", "comment", "share"…), and some sites give

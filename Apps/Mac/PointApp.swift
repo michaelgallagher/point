@@ -130,6 +130,8 @@ struct AppCommands: Commands {
     @Environment(\.openWindow) private var openWindow
     /// Each command's shortcut, as set in Settings (or its default).
     @ObservedObject private var shortcuts = ShortcutStore.shared
+    /// Which notes have pictures from the web, to offer to keep them.
+    @ObservedObject private var webImages = WebImageNotes.shared
 
     /// A binding to a property of the front window's model.
     private func bind<Value>(_ keyPath: ReferenceWritableKeyPath<VaultModel, Value>, _ fallback: Value) -> Binding<Value> {
@@ -219,6 +221,12 @@ struct AppCommands: Commands {
             Button("Add Tag…") { model?.tagging = model?.selectedNote }
                 .shortcut(.addTag, in: shortcuts)
                 .disabled(model?.selectedNote == nil)
+            // Keeps the note's pictures from the web in the vault, when asked (never unasked).
+            Button(webImages.saving.contains(model?.selectedNote?.id ?? "") ? "Saving Web Images…" : "Save Web Images to Vault") {
+                if let model, let note = model.selectedNote { store.saveWebImages(in: note) }
+            }
+            .shortcut(.saveWebImages, in: shortcuts)
+            .disabled(!webImages.canSave(model?.selectedNote?.id))
             Button(model.flatMap { m in m.selection.map(m.isBookmarked) } == true ? "Remove Bookmark" : "Add Bookmark") {
                 if let model, let id = model.selection { model.toggleBookmark(id) }
             }

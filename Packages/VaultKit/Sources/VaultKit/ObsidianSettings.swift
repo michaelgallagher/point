@@ -13,6 +13,10 @@ public struct ObsidianSettings: Sendable, Equatable {
     }
 
     public var attachmentFolder: String = ""
+    /// Whether links are written in Markdown (`[a](a.md)`) rather than as wikilinks (`[[a]]`).
+    public var usesMarkdownLinks = false
+    /// How a new link names its file: `shortest`, `relative` or `absolute`.
+    public var newLinkFormat = "shortest"
     public var trashOption: TrashOption = .system
     public var dailyNotesFolder: String = ""
     public var dailyNotesFormat: String = "YYYY-MM-DD"
@@ -78,6 +82,8 @@ public struct ObsidianSettings: Sendable, Equatable {
 
         let app = json("app.json")
         settings.attachmentFolder = string(app["attachmentFolderPath"]) ?? ""
+        settings.usesMarkdownLinks = app["useMarkdownLinks"] as? Bool ?? false
+        settings.newLinkFormat = string(app["newLinkFormat"]) ?? "shortest"
         settings.trashOption = string(app["trashOption"]).flatMap(TrashOption.init) ?? .system
 
         let daily = json("daily-notes.json")

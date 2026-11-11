@@ -58,7 +58,7 @@ struct Shortcut: Codable, Hashable {
 enum ShortcutAction: String, CaseIterable, Identifiable {
     // File
     case newNote, newNoteFromTemplate, newList, newFolder, newTab, newTabOnOtherSide, newWindow, todaysNote, applyTemplate,
-         openVault, closeTab, renameNote, moveToFolder, addTag, toggleBookmark, showInFinder, moveToTrash
+         openVault, closeTab, renameNote, moveToFolder, addTag, saveWebImages, toggleBookmark, showInFinder, moveToTrash
     // Edit
     case explorer, runCommand, searchVault, searchInList, findInNote
     // View
@@ -82,7 +82,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
     var menu: String {
         switch self {
         case .newNote, .newNoteFromTemplate, .newList, .newFolder, .newTab, .newTabOnOtherSide, .newWindow, .todaysNote, .applyTemplate,
-             .openVault, .closeTab, .renameNote, .moveToFolder, .addTag, .toggleBookmark, .showInFinder, .moveToTrash: "File"
+             .openVault, .closeTab, .renameNote, .moveToFolder, .addTag, .saveWebImages, .toggleBookmark, .showInFinder, .moveToTrash: "File"
         case .explorer, .runCommand, .searchVault, .searchInList, .findInNote: "Edit"
         case .toggleNoteList, .biggerText, .smallerText, .actualSize, .split, .moveTabToOtherSide, .nextTab, .previousTab,
              .switchToTab, .tab1, .tab2, .tab3, .tab4, .tab5, .tab6, .tab7, .tab8, .lastTab,
@@ -113,6 +113,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .renameNote: "Rename Note…"
         case .moveToFolder: "Move to Folder…"
         case .addTag: "Add Tag…"
+        case .saveWebImages: "Save Web Images to Vault"
         case .toggleBookmark: "Add or Remove Bookmark"
         case .showInFinder: "Show in Finder"
         case .moveToTrash: "Move to Trash"

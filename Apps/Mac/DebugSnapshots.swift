@@ -172,6 +172,42 @@ enum DebugSnapshots {
                 }
             }
         }
+        if let spec = UserDefaults.standard.string(forKey: "PointWebImages") {
+            // `-PointWebImages "note.md[|type][|undo]"`: Save Web Images to Vault on the note, as
+            // the menu does; with `type`, types at its start while they download; with `undo`,
+            // undoes once it's done (which should take the whole change back). Then saves.
+            let parts = spec.split(separator: "|").map(String.init)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                model.selection = parts[0]
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    guard let note = model.selectedNote, let session = EditorSession.editing(note.id),
+                          let view = session.debugTextView else { return Trace.mark("web images: no editor") }
+                    let offered = WebImageNotes.shared.canSave(note.id)
+                    Trace.mark("web images: offered \(offered)")
+                    model.store.saveWebImages(in: note)
+                    let started = WebImageNotes.shared.saving.contains(note.id)
+                    Trace.mark("web images: started, saving \(started)")
+                    if parts.contains("type") {
+                        view.setSelectedRange(NSRange(location: 0, length: 0))
+                        view.insertText("Typed while downloading. ", replacementRange: view.selectedRange())
+                        Trace.mark("web images: typed")
+                    }
+                    @MainActor func whenDone() {
+                        guard !WebImageNotes.shared.saving.contains(note.id) else {
+                            return DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: whenDone)
+                        }
+                        if parts.contains("undo") {
+                            view.undoManager?.undo()
+                            Trace.mark("web images: undone")
+                        }
+                        NotificationCenter.default.post(name: .pointSaveNow, object: nil)
+                        let offered = WebImageNotes.shared.canSave(note.id)
+                        Trace.mark("web images: saved note, offered \(offered)")
+                    }
+                    whenDone()
+                }
+            }
+        }
         if UserDefaults.standard.bool(forKey: "PointNewNote") {
             // `-PointNewNote YES`: makes a new note (as ⌘N does), three seconds in.
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {

@@ -679,6 +679,11 @@ struct PaletteCommand {
                 PaletteCommand(name: "Add Tag…", shortcut: nil) { model.tagging = note },
                 PaletteCommand(name: model.isBookmarked(note.id) ? "Remove Bookmark" : "Add Bookmark", shortcut: nil) { model.toggleBookmark(note.id) },
                 PaletteCommand(name: "Show in Finder", shortcut: ShortcutStore.shared.label(for: .showInFinder)) { model.showInFinder(note) },
+            ]
+            if WebImageNotes.shared.canSave(note.id) {
+                commands.append(PaletteCommand(name: "Save Web Images to Vault", shortcut: nil) { model.store.saveWebImages(in: note) })
+            }
+            commands += [
                 PaletteCommand(name: "Move Note to Trash", shortcut: nil) { model.moveToTrash(note) },
                 PaletteCommand(name: "Find in Note", shortcut: ShortcutStore.shared.label(for: .findInNote)) { FindInNote.show() },
             ]

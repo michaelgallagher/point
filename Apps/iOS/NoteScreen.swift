@@ -51,6 +51,13 @@ struct NoteScreen: View {
                 Divider()
                 Button("Move note", systemImage: "folder") { showsMove = true }
                 TemplateMenu(session: session)
+                // Keeps its pictures from the web in the vault, when asked (never unasked).
+                if session.hasWebImages || session.isSavingWebImages {
+                    Button(session.isSavingWebImages ? "Saving web images…" : "Save web images", systemImage: "photo.badge.arrow.down") {
+                        session.saveWebImages()
+                    }
+                    .disabled(session.isSavingWebImages)
+                }
                 Toggle("Show Markdown", systemImage: "chevron.left.forwardslash.chevron.right", isOn: $store.showsMarkdown)
                 let bookmarked = store.isBookmarked(session.note.id)
                 Button(bookmarked ? "Remove bookmark" : "Bookmark", systemImage: bookmarked ? "bookmark.slash" : "bookmark") {
@@ -221,6 +228,10 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     @Published private(set) var recoveredDraft: NoteDrafts.Draft?
     /// What opening and typing cost, shown only for the spike's typing test.
     @Published private(set) var timings = ""
+    /// Whether the note might show pictures from the web (a quick look, as it was last read or
+    /// saved), to offer to keep them in the vault; and whether they're being kept now.
+    @Published private(set) var hasWebImages = false
+    @Published private(set) var isSavingWebImages = false
 
     private var onDisk: String?
     private var pendingSave: Task<Void, Never>?
@@ -438,6 +449,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         header?.showsProperties = !store.showsMarkdown
         let load = textView.load(text)
         onDisk = text
+        noteWebImages(in: text)
         noteFrontmatter(of: text)
         if let draft = store.drafts.draft(for: note.id) {
             if draft.text == text { store.drafts.remove(for: note.id) } else { recoveredDraft = draft }
@@ -538,6 +550,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         do {
             let outcome = try NoteWriter.write(text, to: note.url, expecting: onDisk, ifChanged: .saveCopy)
             self.onDisk = text
+            noteWebImages(in: text)
             saveProblem = nil
             fileIsMissing = false
             store.drafts.remove(for: note.id)
@@ -623,6 +636,64 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
             textView.applyAboveBody(range, with: block)
         }
         textView.undoManager?.endUndoGrouping()
+    }
+
+    // MARK: Web images
+
+    private func noteWebImages(in text: String) {
+        let has = WebImages.mightHaveAny(in: text)
+        if has != hasWebImages { hasWebImages = has }
+    }
+
+    /// Keeps the note's pictures from the web in the vault, as on the Mac: all downloaded at
+    /// once, each saved in the attachment folder named after the note, and the note pointed at
+    /// the copies, as one step to undo, around anything typed meanwhile. Those that can't be
+    /// downloaded stay as they were; a notice says how it went.
+    func saveWebImages() {
+        guard !isSavingWebImages, let textView else { return }
+        commitTitle()
+        let addresses = WebImages.find(in: textView.text).map(\.address)
+        guard !addresses.isEmpty else {
+            hasWebImages = false
+            notice = "This note has no images from the web."
+            return
+        }
+        isSavingWebImages = true
+        let note = note, root = store.root, settings = store.settings
+        let taken = Set(store.embeds.images.map { $0.name.lowercased() })
+        let store = store
+        Task { [weak self] in
+            let downloads = await WebImages.download(addresses)
+            var unique: [String] = []
+            for address in addresses where !unique.contains(address) { unique.append(address) }
+            let ready = unique.compactMap { address in (try? downloads[address]?.get()).map { (address, $0) } }
+            let result = await Task.detached(priority: .userInitiated) {
+                WebImages.save(ready, forNote: note, vault: root, setting: settings.attachmentFolder, taken: taken)
+            }.value
+            store.embeds.images += result.saved.values
+            let style = WebImages.LinkStyle(settings: settings)
+            guard let self, let textView = self.textView else {
+                // The note was left meanwhile: pointed at them in its file, if it's as it was.
+                _ = VaultChanges.apply("Saved web images", to: [note]) { text in
+                    let edits = WebImages.edits(for: text, saved: result.saved, noteURL: note.url, root: root, style: style)
+                    return edits.isEmpty ? nil : WebImages.applying(edits, to: text)
+                }
+                return
+            }
+            isSavingWebImages = false
+            if !result.saved.isEmpty {
+                let edits = WebImages.edits(for: textView.text, saved: result.saved, noteURL: self.note.url, root: root, style: style)
+                textView.undoManager?.beginUndoGrouping()
+                for edit in edits { textView.applyAboveBody(edit.range, with: edit.replacement) }
+                textView.undoManager?.endUndoGrouping()
+            }
+            let count = unique.count, saved = result.saved.count
+            let images = { (n: Int) in n == 1 ? "1 image" : "\(n) images" }
+            notice = saved == count ? "Saved \(images(count)) in the vault."
+                : saved == 0 ? (count == 1 ? "The image couldn’t be downloaded, so it’s still shown from the web."
+                                : "None of the \(count) images could be downloaded, so they’re still shown from the web.")
+                : "Saved \(saved) of \(images(count)) in the vault. \(count - saved == 1 ? "1 couldn’t be downloaded, so it’s" : "\(count - saved) couldn’t be downloaded, so they’re") still shown from the web."
+        }
     }
 
     // MARK: Properties
