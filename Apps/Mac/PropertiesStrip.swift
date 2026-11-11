@@ -597,17 +597,18 @@ func wikiLinkBeingTyped(in text: String) -> (start: String.Index, partial: Strin
 /// link shows as the note's name, without its brackets.
 private struct SuggestionChips: View {
     let suggestions: [String]
+    /// The one Tab takes (macOS 14 and later), marked as it: the first, until ↑ or ↓ moves it.
+    let highlighted: Int
     let pick: (String) -> Void
 
-    /// The first is the one Tab takes (macOS 14 and later), and is marked as it.
-    private var tabTakesFirst: Bool {
+    private var tabTakesOne: Bool {
         if #available(macOS 14, *) { true } else { false }
     }
 
     var body: some View {
         FlowLayout(spacing: 4) {
-            ForEach(suggestions, id: \.self) { suggestion in
-                let isTabs = tabTakesFirst && suggestion == suggestions.first
+            ForEach(Array(suggestions.enumerated()), id: \.element) { index, suggestion in
+                let isTabs = tabTakesOne && index == highlighted
                 Button { pick(suggestion) } label: {
                     Text(suggestion.hasPrefix("[[") && suggestion.hasSuffix("]]") ? String(suggestion.dropFirst(2).dropLast(2)) : suggestion)
                         .lineLimit(1)
@@ -633,13 +634,14 @@ private struct SuggestionChips: View {
 /// inside its own shape).
 private struct FloatingSuggestions: ViewModifier {
     let suggestions: [String]
+    var highlighted: Int = 0
     let pick: (String) -> Void
 
     func body(content: Content) -> some View {
         content
             .preference(key: ShowsSuggestions.self, value: !suggestions.isEmpty)
             .anchorPreference(key: FloatingSuggestionsKey.self, value: .bounds) { bounds in
-                suggestions.isEmpty ? nil : FloatingField(field: bounds, suggestions: suggestions, pick: pick)
+                suggestions.isEmpty ? nil : FloatingField(field: bounds, suggestions: suggestions, highlighted: highlighted, pick: pick)
             }
     }
 }
@@ -653,6 +655,7 @@ private struct FloatingSuggestionsKey: PreferenceKey {
 private struct FloatingField {
     let field: Anchor<CGRect>
     let suggestions: [String]
+    let highlighted: Int
     let pick: (String) -> Void
 }
 
@@ -664,7 +667,7 @@ private struct FloatingSuggestionsPanel: View {
     var body: some View {
         GeometryReader { proxy in
             let field = proxy[floating.field]
-            SuggestionChips(suggestions: floating.suggestions, pick: floating.pick)
+            SuggestionChips(suggestions: floating.suggestions, highlighted: floating.highlighted, pick: floating.pick)
                 .padding(5)
                 .background {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -686,21 +689,70 @@ private struct ShowsSuggestions: PreferenceKey {
     static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
 }
 
-/// Tab takes the first suggestion, while there are any (macOS 14 and later).
-private struct TakesFirstSuggestion: ViewModifier {
+/// Which suggestion the keys take: the first, until ↑ or ↓ moves on from it. Return takes
+/// one only once it's been moved to, so Return still saves what's typed, as it always has.
+/// Escape puts the suggestions away until what's typed changes.
+private struct SuggestionHighlight: Equatable {
+    var index = 0
+    var wasMoved = false
+    var isDismissed = false
+
+    /// What to show of `suggestions`: none once put away.
+    func shown(_ suggestions: [String]) -> [String] { isDismissed ? [] : suggestions }
+
+    /// One on (or back, for a negative step), stopping at either end.
+    mutating func move(by step: Int, among count: Int) {
+        guard count > 0 else { return }
+        index = min(max(index + step, 0), count - 1)
+        wasMoved = true
+    }
+}
+
+/// While there are suggestions (macOS 14 and later): ↓ and ↑ move the highlight through them,
+/// Tab takes the highlighted one (the first, unless moved), and so does Return once the
+/// highlight has been moved; Escape puts them away. The highlight goes back to the first when
+/// the suggestions change.
+private struct SuggestionKeys: ViewModifier {
     let suggestions: [String]
+    @Binding var highlight: SuggestionHighlight
     let pick: (String) -> Void
+
+    private var highlighted: String? {
+        let shown = highlight.shown(suggestions)
+        return shown.indices.contains(highlight.index) ? shown[highlight.index] : shown.first
+    }
 
     func body(content: Content) -> some View {
         if #available(macOS 14, *) {
-            content.onKeyPress(.tab) {
-                guard let first = suggestions.first else { return .ignored }
-                pick(first)
-                return .handled
-            }
+            content
+                .onKeyPress(.tab) {
+                    guard let highlighted else { return .ignored }
+                    pick(highlighted)
+                    return .handled
+                }
+                .onKeyPress(.return) {
+                    guard highlight.wasMoved, let highlighted else { return .ignored }
+                    pick(highlighted)
+                    return .handled
+                }
+                .onKeyPress(.downArrow) { move(by: 1) }
+                .onKeyPress(.upArrow) { move(by: -1) }
+                .onKeyPress(.escape) {
+                    guard highlighted != nil else { return .ignored }
+                    highlight.isDismissed = true
+                    return .handled
+                }
+                .onChange(of: suggestions) { _ in if highlight != SuggestionHighlight() { highlight = SuggestionHighlight() } }
         } else {
             content
         }
+    }
+
+    @available(macOS 14, *)
+    private func move(by step: Int) -> KeyPress.Result {
+        guard highlighted != nil else { return .ignored }
+        highlight.move(by: step, among: suggestions.count)
+        return .handled
     }
 }
 
@@ -721,6 +773,7 @@ private struct TextValue: View {
     /// Worked out when what's typed changes, not each time the view is: it can mean going
     /// through every note's title.
     @State private var suggested: [String] = []
+    @State private var highlight = SuggestionHighlight()
 
     private var displayed: String { property.values.joined(separator: ", ") }
 
@@ -794,9 +847,12 @@ private struct TextValue: View {
 
     private var field: some View {
         plainField
-            .modifier(TakesFirstSuggestion(suggestions: suggested, pick: pick))
-            .modifier(FloatingSuggestions(suggestions: suggested, pick: pick))
-            .onChange(of: text) { _ in suggest() }
+            .modifier(SuggestionKeys(suggestions: suggested, highlight: $highlight, pick: pick))
+            .modifier(FloatingSuggestions(suggestions: highlight.shown(suggested), highlighted: highlight.index, pick: pick))
+            .onChange(of: text) { _ in
+                if highlight != SuggestionHighlight() { highlight = SuggestionHighlight() }
+                suggest()
+            }
             .onChange(of: isFocused) { _ in suggest() }
     }
 
@@ -906,6 +962,7 @@ private struct TokenEditor: View {
     /// Worked out when what's typed changes, not each time the view is: it can mean going
     /// through every note's title.
     @State private var matches: [String] = []
+    @State private var highlight = SuggestionHighlight()
 
     var body: some View {
         // The field fills the rest of its line, so a click anywhere beside the tokens goes
@@ -920,7 +977,7 @@ private struct TokenEditor: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         // Matching tags from the vault while typing one, or notes while typing a link.
-        .modifier(FloatingSuggestions(suggestions: matches, pick: pick))
+        .modifier(FloatingSuggestions(suggestions: highlight.shown(matches), highlighted: highlight.index, pick: pick))
     }
 
     private func match() {
@@ -948,7 +1005,7 @@ private struct TokenEditor: View {
         let base = TextField("", text: $draft)
             .textFieldStyle(.plain)
             .modifier(PropertyPlaceholder(text: items.isEmpty ? "Empty" : "Add…", isShown: draft.isEmpty))
-            .modifier(TakesFirstSuggestion(suggestions: matches, pick: pick))
+            .modifier(SuggestionKeys(suggestions: matches, highlight: $highlight, pick: pick))
             .frame(minWidth: 60, maxWidth: .infinity)
             // As tall as a token, focused or not, typed in or not, so the row's height never
             // changes while an item is added (it went shorter while typing, then back).
@@ -956,6 +1013,7 @@ private struct TokenEditor: View {
             .focused($isFocused)
             .onSubmit { add() }
             .onChange(of: draft) { text in
+                if highlight != SuggestionHighlight() { highlight = SuggestionHighlight() }
                 if text.contains(",") { add() }
                 match()
             }
@@ -965,15 +1023,25 @@ private struct TokenEditor: View {
             }
             .onChange(of: items) { _ in match() }
         if #available(macOS 14, *) {
-            // ⌫ in an empty field removes the last item.
-            base.onKeyPress(.delete) {
-                guard draft.isEmpty, !items.isEmpty else { return .ignored }
+            // ⌫ with the cursor at the start of the field (or in an empty one) removes the item
+            // just before it, the last, as its remove button does. Anywhere else it deletes text.
+            // (Mac's ⌫ sends DEL, not the backspace SwiftUI's `.delete` is, so it's matched by
+            // what it types: `.delete` alone never saw it.)
+            base.onKeyPress(keys: [.delete, KeyEquivalent("\u{7F}")]) { _ in
+                guard !items.isEmpty, draft.isEmpty || cursorIsAtStart() else { return .ignored }
                 commit(Array(items.dropLast()))
                 return .handled
             }
         } else {
             base
         }
+    }
+
+    /// Whether the focused field's cursor is at the start of its text, with nothing selected.
+    /// (SwiftUI's field doesn't say where its cursor is before macOS 15; its editor does.)
+    private func cursorIsAtStart() -> Bool {
+        guard let editor = (NSApp.keyWindow ?? model.window)?.firstResponder as? NSTextView else { return false }
+        return editor.selectedRange() == NSRange(location: 0, length: 0)
     }
 
     /// Adds what's typed (several, if commas separate them), skipping any already there.

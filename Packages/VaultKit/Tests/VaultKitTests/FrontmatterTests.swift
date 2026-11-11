@@ -179,6 +179,14 @@ struct FrontmatterRewriteTests {
         #expect(set("note", to: ["ends with #tag"], in: "---\nnote: old\n---\n") == "---\nnote: \"ends with #tag\"\n---\n")
     }
 
+    /// ⌫ after a list's last token, or its remove button, sets the list to the items before it.
+    @Test func removingTheLastItemsOfAList() {
+        let note = "---\ntopics:\n  - Alpha\n  - Beta\nstatus: draft\n---\nBody\n"
+        let one = set("topics", to: ["Alpha"], isList: true, in: note)
+        #expect(one == "---\ntopics:\n  - Alpha\nstatus: draft\n---\nBody\n")
+        #expect(set("topics", to: [], isList: true, in: one) == "---\ntopics:\nstatus: draft\n---\nBody\n")
+    }
+
     @Test func listItemsKeepHowTheyWereWritten() {
         let note = "---\nauthor:\n  - \"[[Ann Smith]]\"\n  - Bo\n---\n"
         #expect(set("author", to: ["[[Ann Smith]]", "Bo", "[[Cy]]"], in: note) == "---\nauthor:\n  - \"[[Ann Smith]]\"\n  - Bo\n  - \"[[Cy]]\"\n---\n")

@@ -687,15 +687,20 @@ enum DebugSnapshots {
                     guard let first = characters.first, let editor = window.firstResponder as? NSTextView else { return }
                     let character = String(first)
                     let start = CACurrentMediaTime()
-                    // As key presses through the window, as a person's come ("⌫" deletes back).
+                    // As key presses through the window, as a person's come ("⌫" deletes back;
+                    // "↓", "↑", "←", "⇥", "⏎" and "⎋" are those keys).
                     _ = editor
-                    let isDelete = character == "⌫"
+                    let special: [String: (String, UInt16)] = ["⌫": ("\u{7F}", 51), "↓": ("\u{F701}", 125), "↑": ("\u{F700}", 126),
+                                                               "←": ("\u{F702}", 123), "⇥": ("\t", 48), "⏎": ("\r", 36), "⎋": ("\u{1B}", 53)]
+                    let (keys, keyCode) = special[character] ?? (character, 0)
+                    let isArrow = [123, 125, 126].contains(keyCode)
                     for type in [NSEvent.EventType.keyDown, .keyUp] {
-                        if let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                        if let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: isArrow ? [.numericPad, .function] : [],
+                                                        timestamp: ProcessInfo.processInfo.systemUptime,
                                                         windowNumber: window.windowNumber, context: nil,
-                                                        characters: isDelete ? "\u{7F}" : character, charactersIgnoringModifiers: isDelete ? "\u{7F}" : character,
-                                                        isARepeat: false, keyCode: isDelete ? 51 : 0) {
-                            window.sendEvent(event)
+                                                        characters: keys, charactersIgnoringModifiers: keys,
+                                                        isARepeat: false, keyCode: keyCode) {
+                            NSApp.sendEvent(event)
                         }
                     }
                     DispatchQueue.main.async {
