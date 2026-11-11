@@ -217,6 +217,42 @@ public final class PhoneTextView: UITextView {
         }
     }
 
+    /// Text set in the system's serif (New York): for reading.
+    public var isSerif: Bool {
+        get { styler.theme.isSerif }
+        set {
+            guard newValue != styler.theme.isSerif else { return }
+            styler.theme.isSerif = newValue
+            pointLayoutManager.theme = styler.theme
+            typingAttributes = styler.baseAttributes
+            restyle(NSRange(location: 0, length: textStorage.length))
+            setNeedsLayout()
+        }
+    }
+
+    /// Where the text at the top of the screen starts: the first character on the first line
+    /// showing below the bars.
+    public var topVisibleLocation: Int {
+        guard textStorage.length > 0 else { return 0 }
+        let y = contentOffset.y + adjustedContentInset.top - textContainerInset.top + 1
+        let point = CGPoint(x: 0, y: max(y, 0))
+        let glyph = pointLayoutManager.glyphIndex(for: point, in: textContainer)
+        return pointLayoutManager.characterIndexForGlyph(at: glyph)
+    }
+
+    /// Scrolls so that the line with `location` is at the top of the screen, below the bars,
+    /// however far down it is.
+    public func scroll(toTop location: Int) {
+        let location = min(max(location, 0), textStorage.length)
+        guard location > 0 else { return }
+        layOut(through: location)
+        let glyph = pointLayoutManager.glyphIndexForCharacter(at: min(location, textStorage.length - 1))
+        let line = pointLayoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        let top = line.minY + textContainerInset.top - adjustedContentInset.top
+        let bottom = max(contentSize.height - bounds.height + adjustedContentInset.bottom, -adjustedContentInset.top)
+        setContentOffset(CGPoint(x: contentOffset.x, y: min(max(top, -adjustedContentInset.top), bottom)), animated: false)
+    }
+
     public var showsMarkdown: Bool {
         get { styler.showsMarkdown }
         set {

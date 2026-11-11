@@ -1,4 +1,4 @@
-# Reader mode on the iPhone (11 November 2026; designed, not started)
+# Reader mode on the iPhone (11 November 2026; step 1 built)
 
 Part of [the plan](../PLAN.md). Builds on [the clipper](clipper.md).
 
@@ -56,6 +56,15 @@ Part of [the plan](../PLAN.md). Builds on [the clipper](clipper.md).
 - **Highlights in the sheet:** under your notes, a list of the article's highlights. Tapping one closes the sheet and scrolls to it.
 - **Saving the notes splices them into the file as it is on disk at that moment:** the properties and the saved text are whatever the file holds then, not what Point read when the note opened. So a change synced from the Mac while you read is kept. It uses `NoteWriter`'s safe write and the same checks as the editor: a file changed since it was read, a file gone, and iCloud's conflict versions. If the file has changed in your notes too, your typing goes into a conflict copy, as it does in the editor.
 - **Highlights and quotes are saved the same way:** each is a small edit to the file on disk, made where the text still matches. If the text has changed so that it doesn't, nothing is written and a notice says so.
+
+## Step 1, built (11 November, branch `reader-view`)
+
+- **Which notes:** `Reading.opensForReading` (ClipKit): the note's kind is the clip kind. A new note, or one opened while the Markdown shows, opens for writing as before.
+- **The view:** the editor, not editable, set by `ReaderSettings`: New York (or the system sans) at 19 pt to start, lines at 1.5, margins of 24, headings a little smaller against the text. The title is set in the same face, with a byline under it in place of the properties and related notes buttons (`Reading.byline`: authors, the site from `source`, the date published, minutes to read).
+- **The bar:** how far through, and the minutes left, in the middle; **Aa** (size, serif or sans, Automatic, Paper, Sepia or Night) and **Edit** at the right. Edit gives the usual editor, with the cursor at the top of what was showing; **Done** saves and goes back to reading there. Changing the size or face keeps the same line at the top.
+- **Your place:** `Reading.Place` (the paragraph at the top of the screen, its first 60 characters and where it was), kept once scrolling stops, on leaving and on going to the background, in `Reading/places.json` in the app's own storage (`ReadingPlaces`, at most 500 notes, following renames and moves, dropped with deleted notes).
+- **Tried:** `ReadingTests` (9: which notes, minutes, bylines, places found again after an edit above, gone, repeated, or only mid-line). In the Simulator, on a 3,500-word Media note: it opens for reading with its byline; scrolling, leaving and coming back returns to the same paragraph; size, Sepia and Night; size changes keep the top line; Edit and Done; a meeting note still opens for writing; the file unchanged throughout.
+- **Not tried:** a real iPhone, the real vault's clips (images, tables, very long ones), VoiceOver, and the Simulator's first tap in the Aa menu sometimes went to closing it.
 
 ## The steps
 
