@@ -4,13 +4,15 @@ A simple, fast, native Markdown notes app for Mac and iPhone that feels like App
 
 The plan is in several documents, in [`plan/`](plan/). This page says where things stand and what's in each.
 
-## Where things stand (11 November 2026)
+## Where things stand (11 November 2026, evening)
 
 On `main`, which has everything so far.
 
 **The Mac is the daily notes app,** on the real vault since 29 October, and is ready to use without Obsidian. Since 3 November: kinds of note, recall, the clipper, types, links and lists, the 8 November batch, and stage 4 (list notes, the split target, and links and recall as one related notes panel sliding up from the bottom). On 10 November: Format › Numbered List (⌥⌘L), and a new note named by hand no longer renamed after its first line when it's left.
 
 **The iPhone app** is steps 0–4 of [M4](plan/m4-iphone.md) and the catch-up with the Mac, and since 10 November uses the vault in iCloud Drive, chosen in Files ([The iPhone on the real vault](plan/iphone-real-vault.md)): the safety tests passed on a copy there, and **on the real vault since 11 November**. The same day, the Mac learned to follow a note renamed on the phone while it's open, and to write out iCloud's conflict versions of every note, not only open ones.
+
+**Reader mode on the iPhone** is built and on `main` (11 November, steps 1–3 of [Reader mode](plan/reader-mode.md)): clips open for reading, with your place kept, bars that get out of the way, line spacing and margins; your notes above the marker; highlights, Add to notes and the list of highlights. Its writes were tried on every clip of a copy of the vault, which found and fixed six ways a highlight could be written where Markdown doesn't read it.
 
 **Still open:** full screen on the Mac ([Investigations](plan/investigations.md), set aside for now); performance (13–15 of the review, measured only if something feels slow).
 
@@ -23,10 +25,11 @@ Mike travels soon with the laptop and the iPhone, and wants to use Point on both
 1. **The iPhone on the real vault** (see [The iPhone on the real vault](plan/iphone-real-vault.md)): built and merged on 10 November, tried on a copy of the vault in iCloud Drive, and in use on the real vault since 11 November.
 2. **Signing:** the free account's 7-day builds are fine; the laptop comes along, so Xcode can reinstall on the road.
 3. **A shakedown at home:** two or three days on both apps, no Obsidian: write on the phone, edit the same note on the Mac, and `scripts/vault-snapshot.sh changes` to see exactly what Point wrote.
-4. **Before leaving:** a snapshot (`scripts/vault-snapshot.sh take`; the first set for Thursday 12 November, 8:00), Obsidian Sync still off on every device, and the vault set to Keep Downloaded in Files on the iPhone, so nothing is a placeholder offline.
+4. **Before leaving:** a snapshot (`scripts/vault-snapshot.sh take`: taken 11 November, evening), Obsidian Sync still off on every device, and the vault set to Keep Downloaded in Files on the iPhone, so nothing is a placeholder offline. Snapshots are taken by hand for now (from a Terminal, where the vault can be read): a daily one at 8:00 from a launch agent was tried, but macOS wouldn't let a background job read the vault in iCloud Drive, even with Full Disk Access for zsh. Later, perhaps: Point on the Mac taking one each day, as it can read the vault. There's no Time Machine backup, so the snapshots are the only copy outside iCloud.
+6. **The iPhone build lasts 7 days** (the free account): one installed on 11 November stops opening around 18 November, so reinstall from Xcode on the laptop before then.
 5. **The fallback:** Obsidian stays installed on both, unopened. The files are plain Markdown, so it can take over at any point.
 
-**After the trip:** full screen on the Mac, and anything the week turns up, which comes first. Then [reader mode on the iPhone](plan/reader-mode.md): Media notes set for reading, your place kept, highlights, and your notes above the saved text, under the marker `==---- Text ----==` (designed 11 November, not started). (The iPhone caught up on 11 November: the related notes sheet, and Numbered list in the bar above the keyboard.)
+**After the trip:** full screen on the Mac, and anything the week turns up, which comes first. Then, found while checking reader mode (11 November): the Mac's formatting commands may write `**` or `*` where Markdown doesn't read it, as highlighting did (a selection's edge inside a word, against punctuation); comparing how Point's parser reads every note with a standard one (cmark-gfm), to find where Point shows a note differently (links whose text runs over lines, already known); the same kind of check on a copy of the vault for typing, lists and formatting; and a look at the vault in Obsidian, to keep it a working fallback. Also to decide: the paid developer account, which brings the share sheet, Siri and controls at once, and ends the 7-day builds. (The iPhone caught up on 11 November: the related notes sheet, and Numbered list in the bar above the keyboard.)
 
 **Later:** comparing drafts (Compare with…: two notes, or a note and an earlier version or conflict copy, shown as tracked changes; designed in [Beyond text](plan/structure.md), not started), daily notes as a meeting log ([Investigations](plan/investigations.md)), and the milestones meaning (M5) and extras (M6). See [Milestones](plan/milestones.md).
 
@@ -38,7 +41,7 @@ Mike travels soon with the laptop and the iPhone, and wants to use Point on both
 - [Milestones](plan/milestones.md): M0 to M6.
 
 **Work, newest first**
-- [Reader mode on the iPhone](plan/reader-mode.md) (11 November, designed): reading clipped Media notes with type set for reading, your place kept on the phone, highlights, and a notes sheet that writes above the `==---- Text ----==` marker; in four steps.
+- [Reader mode on the iPhone](plan/reader-mode.md) (11 November, built; steps 1–3): reading clipped Media notes with type set for reading, your place kept on the phone, highlights, and a notes sheet that writes above the `==---- Text ----==` marker; in four steps.
 - [The 8 November batch](plan/batch-2026-11-08.md): Mike's list of fixes and changes for the Mac and the iPhone.
 - [The iPhone on the real vault](plan/iphone-real-vault.md) (8 November): what's needed to use the iPhone app on the real notes, and in what order.
 - [Links and recall](plan/links-and-recall.md) (8 November): links and recall become one function, a panel sliding up from the bottom opened from the recall line; what's decided and what's left.
