@@ -1,8 +1,8 @@
 # Point
 
-A notes app for Mac and iPhone. It's as simple as I could make it without it feeling useless. The Mac app is meant to be used mostly from the command palette.
+A notes app for Mac and iPhone. It's as simple as I could make it without it feeling useless. The Mac app is meant to be used mostly from the command palette. The whole project happened because I *really* hate Obsidian's mobile app. 
 
-Notes are plain Markdown files in folders. The app hides the Markdown, so editing feels like rich text.
+Notes are plain Markdown files in folders. The app hides the Markdown formatting garbage, so editing feels like rich text.
 
 It started out compatible with Obsidian and still opens an Obsidian vault. Since November it goes its own way where that's better, but loses nothing critical in Obsidian. It doesn't do everything Obsidian does, so some things won't work (Dataview, for example).
 
