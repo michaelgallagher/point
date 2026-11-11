@@ -26,7 +26,7 @@ Mike travels soon with the laptop and the iPhone, and wants to use Point on both
 4. **Before leaving:** a snapshot (`scripts/vault-snapshot.sh take`; the first set for Thursday 12 November, 8:00), Obsidian Sync still off on every device, and the vault set to Keep Downloaded in Files on the iPhone, so nothing is a placeholder offline.
 5. **The fallback:** Obsidian stays installed on both, unopened. The files are plain Markdown, so it can take over at any point.
 
-**After the trip:** the iPhone catching up again (the related notes panel, Numbered List in the bar above the keyboard), full screen on the Mac, and anything the week turns up, which comes first.
+**After the trip:** full screen on the Mac, and anything the week turns up, which comes first. (The iPhone caught up on 11 November: the related notes sheet, and Numbered list in the bar above the keyboard.)
 
 **Later:** comparing drafts (Compare with…: two notes, or a note and an earlier version or conflict copy, shown as tracked changes; designed in [Beyond text](plan/structure.md), not started), daily notes as a meeting log ([Investigations](plan/investigations.md)), and the milestones meaning (M5) and extras (M6). See [Milestones](plan/milestones.md).
 
