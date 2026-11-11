@@ -30,13 +30,14 @@ public struct Clip: Equatable, Sendable {
     init(url: URL, found: [String: Any]) {
         let format = Self.format(of: url)
         let siteName = (found["siteName"] as? String).map(Self.tidy).flatMap { $0.isEmpty ? nil : $0 }
-        self.init(url: Self.cleaned(url),
-                  title: Self.title(Self.tidy((found["title"] as? String) ?? ""), siteName: siteName),
+        let title = Self.title(Self.tidy((found["title"] as? String) ?? ""), siteName: siteName)
+        self.init(url: Self.cleaned(Self.canonical((found["canonical"] as? String).flatMap(URL.init(string:)), of: url)),
+                  title: title,
                   authors: ((found["authors"] as? [String]) ?? []).flatMap(Self.authors(in:)),
                   published: (found["published"] as? String).flatMap(Self.day),
                   siteName: siteName,
                   format: format,
-                  markdown: Self.tidyMarkdown((found["markdown"] as? String) ?? ""))
+                  markdown: Self.withoutRepeats(Self.tidyMarkdown((found["markdown"] as? String) ?? ""), title: title))
     }
 
     // MARK: Reading what pages say
@@ -65,13 +66,25 @@ public struct Clip: Equatable, Sendable {
     /// and the like) or a trailing `#`.
     public static func cleaned(_ url: URL) -> URL {
         guard var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
-        let tracking = ["fbclid", "gclid", "mc_cid", "mc_eid", "ref_src", "igshid"]
+        let tracking = ["fbclid", "gclid", "dclid", "msclkid", "mc_cid", "mc_eid", "ref_src", "igshid", "_hsenc", "_hsmi", "mkt_tok",
+                        "smid", "smtyp", "emc", "nl", "regi_id", "segment_id", "user_id", "instance_id", "campaign_id",
+                        "isfreemail", "triedredirect"]
         parts.queryItems = parts.queryItems?.filter { item in
             !item.name.lowercased().hasPrefix("utm_") && !tracking.contains(item.name.lowercased())
         }
         if parts.queryItems?.isEmpty == true { parts.queryItems = nil }
         if parts.fragment?.isEmpty == true { parts.fragment = nil }
         return parts.url ?? url
+    }
+
+    /// The page's own address for itself, if it gives one on the same site, else where it was
+    /// found: `…/budapest.html`, not `…/budapest.html?nl=the-world&user_id=…` from a newsletter.
+    public static func canonical(_ canonical: URL?, of url: URL) -> URL {
+        guard let canonical, ["http", "https"].contains(canonical.scheme?.lowercased() ?? ""),
+              let host = canonical.host?.lowercased(), let found = url.host?.lowercased() else { return url }
+        func site(_ host: String) -> String { host.hasPrefix("www.") ? String(host.dropFirst(4)) : host }
+        let (a, b) = (site(host), site(found))
+        return a == b || a.hasSuffix("." + b) || b.hasSuffix("." + a) ? canonical : url
     }
 
     /// People from a byline: "By Sam Lee and Ann Cole" is Sam Lee and Ann Cole. A byline
@@ -97,6 +110,42 @@ public struct Clip: Equatable, Sendable {
     /// Text on one line, its spaces single.
     static func tidy(_ text: String) -> String {
         text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    }
+
+    /// The article without what it repeats: a heading that's its title (the note has that), and
+    /// a paragraph or caption that's there already (a page's copies for other layouts). Code
+    /// is left as it is, and so are short lines and pictures, which may well repeat.
+    static func withoutRepeats(_ markdown: String, title: String) -> String {
+        var blocks: [[String]] = [[]]
+        var inFence = false
+        for line in markdown.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") { inFence.toggle() }
+            if line.isEmpty, !inFence {
+                if !(blocks.last?.isEmpty ?? true) { blocks.append([]) }
+            } else {
+                blocks[blocks.count - 1].append(line)
+            }
+        }
+        let titleKey = tidy(title).lowercased()
+        var seen = Set<String>()
+        var droppedTitle = false
+        var kept: [String] = []
+        for block in blocks where !block.isEmpty {
+            let text = block.joined(separator: "\n")
+            let key = tidy(text).lowercased()
+            if !droppedTitle, !titleKey.isEmpty, block.count == 1,
+               text.range(of: #"^#{1,6} "#, options: .regularExpression) != nil,
+               tidy(String(text.drop { $0 == "#" })).lowercased() == titleKey {
+                droppedTitle = true
+                continue
+            }
+            let isCode = text.hasPrefix("```") || text.hasPrefix("~~~") || text.hasPrefix("    ")
+            let isPicture = key.hasPrefix("![") || key.hasPrefix("[![")
+            if !isCode, !isPicture, key.count >= 40, !seen.insert(key).inserted { continue }
+            kept.append(text)
+        }
+        return kept.joined(separator: "\n\n")
     }
 
     /// Markdown as Point writes it: no spaces at line ends or soft hyphens in words, no more
@@ -131,17 +180,21 @@ public struct Clip: Equatable, Sendable {
 }
 
 /// A request to clip, as the browser extension and share sheet send it:
-/// `point://clip?url=…&title=…&selection=…`.
+/// `point://clip?url=…&title=…&selection=…&page=…`.
 public struct ClipRequest: Equatable, Sendable {
     public var url: URL
     public var title: String?
     /// The text selected on the page, if any: kept as a quote above the article.
     public var selection: String?
+    /// The page's HTML as the browser showed it, if sent: what's there when signed in, so
+    /// it's read instead of fetching the page (which Point does without the browser's sign-ins).
+    public var html: String?
 
-    public init(url: URL, title: String? = nil, selection: String? = nil) {
+    public init(url: URL, title: String? = nil, selection: String? = nil, html: String? = nil) {
         self.url = url
         self.title = title
         self.selection = selection
+        self.html = html
     }
 
     /// The request a `point://clip` address makes, if it is one, for a web page.
@@ -152,7 +205,7 @@ public struct ClipRequest: Equatable, Sendable {
             items.first { $0.name == name }?.value.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         }
         guard let page = value("url").flatMap(URL.init(string:)), ["http", "https"].contains(page.scheme?.lowercased() ?? "") else { return nil }
-        self.init(url: page, title: value("title"), selection: value("selection"))
+        self.init(url: page, title: value("title"), selection: value("selection"), html: value("page").flatMap(Self.unpack))
     }
 
     /// The `point://clip` address for this request.
@@ -161,8 +214,26 @@ public struct ClipRequest: Equatable, Sendable {
         parts.scheme = "point"
         parts.host = "clip"
         parts.queryItems = [URLQueryItem(name: "url", value: url.absoluteString)]
-            + [title.map { URLQueryItem(name: "title", value: $0) }, selection.map { URLQueryItem(name: "selection", value: $0) }].compactMap { $0 }
+            + [title.map { URLQueryItem(name: "title", value: $0) }, selection.map { URLQueryItem(name: "selection", value: $0) },
+               html.flatMap(Self.pack).map { URLQueryItem(name: "page", value: $0) }].compactMap { $0 }
         return parts.url!
+    }
+
+    /// A page as the extension sends it: raw deflate, in base64url (`-` and `_`, unpadded).
+    static func pack(_ html: String) -> String? {
+        guard let compressed = try? (Data(html.utf8) as NSData).compressed(using: .zlib) else { return nil }
+        return (compressed as Data).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+    }
+
+    /// The page from what the extension sent, or nil if it isn't one.
+    static func unpack(_ packed: String) -> String? {
+        var base64 = packed.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        base64 += String(repeating: "=", count: (4 - base64.count % 4) % 4)
+        guard let data = Data(base64Encoded: base64),
+              let html = try? (data as NSData).decompressed(using: .zlib) else { return nil }
+        let text = String(decoding: html as Data, as: UTF8.self)
+        return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
     }
 }
 

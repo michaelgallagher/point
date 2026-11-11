@@ -71,7 +71,8 @@ extension VaultStore {
             let (title, text) = Clipping.note(for: clip, request: request, kind: kind, template: template,
                                               typeProperty: kinds.property, settings: settings)
             if let root { try? FileManager.default.createDirectory(at: root.appendingPathComponent(folder), withIntermediateDirectories: true) }
-            guard let id = createNote(text: text, titled: title.isEmpty ? nil : title, inFolder: folder) else {
+            // Named as its title alone, without the day: a clip is the page's, not the day's.
+            guard let id = createNote(text: text, titled: title.isEmpty ? nil : title, inFolder: folder, dated: false) else {
                 vaultChangeNotice = nil
                 return
             }

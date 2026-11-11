@@ -698,13 +698,15 @@ final class PhoneStore: ObservableObject {
     func isUntitled(_ id: Note.ID) -> Bool { untitled.contains(id) }
 
     /// A new note in `folder` ("" for the vault's top level), starting with `text`, to be named
-    /// from its first line; or, given a title, named from that at once (a clip).
-    func createNote(in folder: String = "", text: String = "", titled title: String? = nil) -> Note.ID? {
+    /// from its first line; or, given a title, named from that at once (a clip). Named with
+    /// the day too unless `dated` is false (a clip, named as its title alone).
+    func createNote(in folder: String = "", text: String = "", titled title: String? = nil, dated: Bool = true) -> Note.ID? {
         do {
             // Named for its day, `2026-11-06-untitled.md`, until it's left and named from its first line.
-            let url = try NoteFiles.createDated(title: title, text: text, in: url(ofFolder: folder))
+            let url = dated || title == nil ? try NoteFiles.createDated(title: title, text: text, in: url(ofFolder: folder))
+                : try NoteFiles.create(title: title!, text: text, in: url(ofFolder: folder))
             let name = url.deletingPathExtension().lastPathComponent
-            let note = Note(id: id(of: url, in: folder), url: url, title: title ?? NoteNames.fallbackTitle(for: name),
+            let note = Note(id: id(of: url, in: folder), url: url, title: dated ? (title ?? NoteNames.fallbackTitle(for: name)) : name,
                             modified: Date(), created: Date(), isDownloaded: true)
             notes.append(note)
             guard title == nil else { return note.id }
@@ -1426,7 +1428,8 @@ extension PhoneStore {
             let (title, text) = Clipping.note(for: clip, request: request, kind: kind, template: template,
                                               typeProperty: kinds.property, settings: settings)
             try? FileManager.default.createDirectory(at: root.appendingPathComponent(folder), withIntermediateDirectories: true)
-            guard let id = createNote(in: folder, text: text, titled: title.isEmpty ? nil : title) else {
+            // Named as its title alone, without the day: a clip is the page's, not the day's.
+            guard let id = createNote(in: folder, text: text, titled: title.isEmpty ? nil : title, dated: false) else {
                 show(ClipStatus(text: "Couldn’t make the note", symbol: "exclamationmark.triangle"))
                 return
             }

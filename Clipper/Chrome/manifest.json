@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Clip to Point",
-  "version": "0.1",
+  "version": "0.2",
   "description": "Clips the page you're reading into Point, as a note with its article.",
   "permissions": ["activeTab", "scripting", "contextMenus"],
   "background": { "service_worker": "background.js" },

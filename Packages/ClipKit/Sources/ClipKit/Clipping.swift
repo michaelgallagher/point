@@ -26,13 +26,19 @@ public enum Clipping {
     }
 
     /// The page read, or if it can't be, a clip with only its address and title; `couldRead`
-    /// says which.
+    /// says which. A page the browser sent is read as it was shown; Point fetches it only if
+    /// none was sent, or no article could be found in it.
     @MainActor
     public static func read(_ request: ClipRequest) async -> (clip: Clip, couldRead: Bool) {
         var clip: Clip
         var couldRead = true
+        let extractor = ClipExtractor()
         do {
-            clip = try await ClipExtractor().clip(request.url)
+            if let html = request.html, let sent = try? await extractor.clip(html: html, url: request.url), !sent.markdown.isEmpty {
+                clip = sent
+            } else {
+                clip = try await extractor.clip(request.url)
+            }
             if clip.markdown.isEmpty { couldRead = false }
         } catch {
             couldRead = false

@@ -16,4 +16,6 @@ Point needs to be installed (it opens `point://clip` links). The first time, the
 - Select text first to keep it as a quote at the top of the note.
 - Right-click a link and choose **Clip to Point** to clip the page it goes to.
 
-A page clipped before opens its note again. Point fetches the page without the browser's sign-ins, so a page behind a login or paywall may give a note with only its link.
+A page clipped before opens its note again. The extension sends the page as you see it, so a page you're signed in to (or past a paywall you've paid for) is clipped whole. A link right-clicked is fetched by Point, without the browser's sign-ins, so a page behind a login may give only what's public, or a note with only its link.
+
+After updating the extension's files, click its reload button on the extensions page.
