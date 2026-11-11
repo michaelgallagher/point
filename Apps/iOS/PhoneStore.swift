@@ -434,7 +434,7 @@ final class PhoneStore: ObservableObject {
 
     /// The notes linking to `note`, each with the line its link is on, by title.
     func backlinks(to note: Note) async -> [Backlink] {
-        (try? await index?.backlinks(to: note, notes: notes)) ?? []
+        (try? await index?.backlinks(to: note, notes: notes, typeProperty: kinds.property)) ?? []
     }
 
     /// Where to take a note to as it opens (from its backlink, the link to the note it came
