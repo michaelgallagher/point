@@ -14,6 +14,8 @@ On `main`, which has everything so far.
 
 **Reader mode on the iPhone** is built and on `main` (11 November, steps 1–3 of [Reader mode](plan/reader-mode.md)): clips open for reading, with your place kept, bars that get out of the way, line spacing and margins; your notes above the marker; highlights, Add to notes and the list of highlights. Its writes were tried on every clip of a copy of the vault, which found and fixed six ways a highlight could be written where Markdown doesn't read it.
 
+**The 13 November batch** is on `main` ([Batch, 13 November](plan/batch-2026-11-13.md)): three rounds of iPhone fixes (the reader's notes box, Edit and Properties in the menus, Completed and Bookmarked in a note's header, the Mac's bookmark readout, recent notes in search), then, after a slip on the phone couldn't be undone, Undo and Redo buttons while writing and **Earlier versions** in each note's menu (`NoteVersions`, kept in the app's storage, the latest 20 a note). Earlier versions on the Mac aren't built.
+
 **Still open:** full screen on the Mac ([Investigations](plan/investigations.md), set aside for now); performance (13–15 of the review, measured only if something feels slow).
 
 **Not merged into `main`:** design experiments `animating-the-cursor`, `simple-but-bigger`, `tighter-and-lighter`, `capsules` and `skinny-bar`.

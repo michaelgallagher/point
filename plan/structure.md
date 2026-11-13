@@ -98,7 +98,7 @@ What that keeps, and what it lets go:
 - **Drafts are linked by a property:** `draft-of: [[Post]]`. "New draft" copies a note and sets it. A post's page lists its drafts, and Compare offers them first.
 - **The same engine serves:**
   - iCloud conflict copies, which must be "surfaced, never silently dropped"
-  - earlier versions of a note
+  - earlier versions of a note (kept on the iPhone since 13 November, `NoteVersions`; the Mac doesn't keep them yet)
   - what changed outside Point since you last looked
 - **Later:** taking a paragraph from the other draft with one click.
 
