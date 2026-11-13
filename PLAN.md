@@ -41,6 +41,7 @@ Mike travels soon with the laptop and the iPhone, and wants to use Point on both
 - [Milestones](plan/milestones.md): M0 to M6.
 
 **Work, newest first**
+- [The 13 November batch](plan/batch-2026-11-13.md): the iPhone after two days on the real vault: your notes in a box, mark read and file in Sources, near misses when clipping, what each note is in lists, recent notes in Search, property chips, and the reader's bars.
 - [Reader mode on the iPhone](plan/reader-mode.md) (11 November, built; steps 1–3): reading clipped Media notes with type set for reading, your place kept on the phone, highlights, and a notes sheet that writes above the `==---- Text ----==` marker; in four steps.
 - [The 8 November batch](plan/batch-2026-11-08.md): Mike's list of fixes and changes for the Mac and the iPhone.
 - [The iPhone on the real vault](plan/iphone-real-vault.md) (8 November): what's needed to use the iPhone app on the real notes, and in what order.

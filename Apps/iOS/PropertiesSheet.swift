@@ -323,7 +323,8 @@ private struct PropertyRow: View {
                 TokenEditor(items: Self.items(of: property, as: type), isTags: type == .tags,
                             placeholder: type == .tags ? "Add a tag" : "Add an item", open: open,
                             suggest: { typed, items in
-                                type == .tags ? store.tagSuggestions(for: typed).filter { !items.contains($0) } : []
+                                type == .tags ? (typed.isEmpty ? [] : store.tagSuggestions(for: typed).filter { !items.contains($0) })
+                                    : store.propertySuggestions(forKey: property.key, typed: typed, excluding: items)
                             }, commit: set)
             case .checkbox:
                 Toggle(property.key, isOn: Binding(
@@ -334,7 +335,10 @@ private struct PropertyRow: View {
             case .date, .datetime:
                 DateValue(property: property, hasTime: type == .datetime, set: set)
             case .text, .number:
-                TextValue(property: property, isNumber: type == .number, open: open, set: set)
+                TextValue(property: property, isNumber: type == .number, open: open,
+                          suggest: { typed in
+                              type == .number ? [] : store.propertySuggestions(forKey: property.key, typed: typed, excluding: property.values)
+                          }, set: set)
             }
         }
     }
@@ -399,6 +403,8 @@ private struct TextValue: View {
     let property: Frontmatter.Property
     let isNumber: Bool
     let open: (String) -> Void
+    /// Values to offer, as chips under the field while it's in use.
+    var suggest: (String) -> [String] = { _ in [] }
     let set: ([String]) -> Void
     @State private var text = ""
     @State private var isEditing = false
@@ -420,20 +426,33 @@ private struct TextValue: View {
             .onAppear { text = displayed }
             .onChange(of: property) { _, _ in text = displayed }
         } else {
-            TextField("Empty", text: $text)
-                .multilineTextAlignment(.trailing)
-                .keyboardType(isNumber ? .numbersAndPunctuation : .default)
-                .focused($isFocused)
-                .onSubmit(commit)
-                .onChange(of: isFocused) { _, focused in
-                    if !focused {
-                        isEditing = false
-                        commit()
+            VStack(alignment: .trailing, spacing: 6) {
+                TextField("Empty", text: $text)
+                    .multilineTextAlignment(.trailing)
+                    .keyboardType(isNumber ? .numbersAndPunctuation : .default)
+                    .focused($isFocused)
+                    .onSubmit(commit)
+                    .onChange(of: isFocused) { _, focused in
+                        if !focused {
+                            isEditing = false
+                            commit()
+                        }
+                    }
+                    .onChange(of: property) { _, _ in if !isFocused { text = displayed } }
+                    .onAppear { text = displayed }
+                    .onDisappear(perform: commit)
+                if isFocused {
+                    // What's typed, unless it's the value already: what to offer for it.
+                    let suggestions = suggest(text == displayed ? "" : text)
+                    if !suggestions.isEmpty {
+                        SuggestionChips(suggestions: suggestions) { picked in
+                            text = picked
+                            commit()
+                            isFocused = false
+                        }
                     }
                 }
-                .onChange(of: property) { _, _ in if !isFocused { text = displayed } }
-                .onAppear { text = displayed }
-                .onDisappear(perform: commit)
+            }
         }
     }
 
@@ -493,6 +512,7 @@ private struct TokenEditor: View {
     let suggest: (String, [String]) -> [String]
     let commit: ([String]) -> Void
     @State private var text = ""
+    @FocusState private var isFocused: Bool
 
     private var suggestions: [String] {
         Array(suggest(text, items).prefix(6))
@@ -515,22 +535,15 @@ private struct TokenEditor: View {
             TextField(placeholder, text: $text)
                 .autocorrectionDisabled(isTags)
                 .textInputAutocapitalization(isTags ? .never : .sentences)
+                .focused($isFocused)
                 .onSubmit(add)
                 .onChange(of: text) { _, new in if new.contains(",") { add() } }
                 .onDisappear(perform: add)
-            if !text.isEmpty, !suggestions.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack {
-                        ForEach(suggestions, id: \.self) { suggestion in
-                            Button(label(of: suggestion)) {
-                                text = ""
-                                commit(items + [suggestion])
-                            }
-                            .buttonStyle(.bordered)
-                            .buttonBorderShape(.capsule)
-                            .foregroundStyle(.primary)
-                        }
-                    }
+            // While typing, or as soon as the field's in use: the most used, to tap.
+            if isFocused || !text.isEmpty, !suggestions.isEmpty {
+                SuggestionChips(suggestions: suggestions, label: label) { suggestion in
+                    text = ""
+                    commit(items + [suggestion])
                 }
             }
         }
@@ -568,6 +581,32 @@ private struct TokenEditor: View {
             .filter { !$0.isEmpty && !items.contains($0) }
         text = ""
         if !new.isEmpty { commit(items + new) }
+    }
+}
+
+/// Suggestions under a field, as capsules to tap, scrolling sideways: the Mac's chips. A link
+/// shows without its brackets.
+private struct SuggestionChips: View {
+    let suggestions: [String]
+    var label: (String) -> String = { WikiLink($0)?.label ?? $0 }
+    let pick: (String) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack {
+                ForEach(suggestions, id: \.self) { suggestion in
+                    Button { pick(suggestion) } label: {
+                        Text(label(suggestion))
+                            .lineLimit(1)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color.accentColor.opacity(0.12), in: .capsule)
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
     }
 }
 

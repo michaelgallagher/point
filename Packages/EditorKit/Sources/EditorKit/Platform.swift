@@ -18,6 +18,11 @@ extension NSFont {
     var serif: NSFont {
         fontDescriptor.withDesign(.serif).flatMap { NSFont(descriptor: $0, size: pointSize) } ?? self
     }
+
+    /// The same font in the system's sans.
+    var sans: NSFont {
+        fontDescriptor.withDesign(.default).flatMap { NSFont(descriptor: $0, size: pointSize) } ?? self
+    }
 }
 
 enum PlatformTraits {
@@ -96,6 +101,11 @@ extension UIFont {
     /// The same font in the system's serif (New York), or itself if there's none.
     var serif: UIFont {
         fontDescriptor.withDesign(.serif).map { UIFont(descriptor: $0, size: pointSize) } ?? self
+    }
+
+    /// The same font in the system's sans.
+    var sans: UIFont {
+        fontDescriptor.withDesign(.default).map { UIFont(descriptor: $0, size: pointSize) } ?? self
     }
 }
 

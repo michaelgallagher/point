@@ -9,6 +9,34 @@ public enum Clipping {
     public static let kindNames = ["Media", "Clipping", "Clippings", "Clip", "Web clip", "Article"]
     /// Where clips go when the vault has no kind for them.
     public static let defaultFolder = "Clippings"
+    /// Where a clip is filed once it's read.
+    public static let readFolder = "Sources"
+    /// The property saying when a clip was read.
+    public static let readProperty = "read"
+
+    /// Today, as `read` has it (`2026-11-13`).
+    public static func today(_ date: Date = Date()) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
+    /// The note with `read` set to `date` (today), unless it has a read date already: added at
+    /// the end of its properties, or filled in where the template left it empty, the rest of the
+    /// file exactly as it was.
+    public static func markingRead(_ text: String, on date: String = today()) -> String {
+        let edit: (NSRange, String)
+        if let frontmatter = Frontmatter.parse(text) {
+            let existing = frontmatter.properties.first { $0.key.caseInsensitiveCompare(readProperty) == .orderedSame }
+            if let existing, existing.values.contains(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) { return text }
+            edit = frontmatter.edit(setting: existing?.key ?? readProperty, to: [date], isList: false)
+        } else {
+            edit = Frontmatter.edit(adding: readProperty, values: [date], isList: false)
+        }
+        return (text as NSString).replacingCharacters(in: edit.0, with: edit.1)
+    }
 
     /// The kind clipped pages are: Media, or the like, if the vault has one.
     public static func kind(in kinds: NoteKinds) -> NoteKinds.Kind? {

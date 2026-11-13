@@ -83,7 +83,10 @@ struct MarkdownStyler {
         for token in tokens where intersects(token.range, range) {
             apply(token, to: storage, text: text)
         }
-        if let divider = theme.dividerLine { styleDividers(divider, in: range, storage: storage, text: text) }
+        if let divider = theme.dividerLine {
+            styleDividers(divider, in: range, storage: storage, text: text)
+            styleNotes(above: divider, in: range, storage: storage, text: text, tokens: tokens)
+        }
         // Tables last, once the formatting in their cells (which sets how wide they are) is on.
         for token in tokens where token.kind == .table && intersects(token.range, range) {
             layOutTable(token.range, storage: storage, text: text)
@@ -114,6 +117,91 @@ struct MarkdownStyler {
             storage.removeAttribute(.pointRoundedBackground, range: lineRange)
             storage.addAttributes([.pointHidden: true, .pointRule: true], range: lineRange)
         }
+    }
+
+    /// Room above your notes for their label, and below them before the saved text.
+    static let notesLabelRoom: CGFloat = 34
+    static let notesRoomBelow: CGFloat = 40
+    /// How far your notes sit inside their box, at each side.
+    static let notesInset: CGFloat = 16
+
+    /// Reader mode's your notes (from the properties to the marker, blank lines left out): in
+    /// the sans, set apart from the saved text in a box (`pointNotesBox`), with room above for
+    /// its label and below it. The box takes the marker's place, so the rule goes.
+    private func styleNotes(above divider: String, in range: NSRange, storage: NSTextStorage, text: NSString, tokens: [MarkdownToken]) {
+        guard let notes = Self.notesRange(above: divider, in: text, tokens: tokens) else { return }
+        var after = NSMaxRange(notes)
+        while after < text.length {
+            let line = text.lineRange(for: NSRange(location: after, length: 0))
+            if text.substring(with: line).trimmingCharacters(in: .whitespacesAndNewlines) == divider {
+                if intersects(line, range) { storage.removeAttribute(.pointRule, range: line) }
+                // The blank lines and the marker between the box and the saved text take next
+                // to no room: the box sets the two apart, with room of its own below.
+                var gapEnd = NSMaxRange(line)
+                while gapEnd < text.length {
+                    let next = text.lineRange(for: NSRange(location: gapEnd, length: 0))
+                    guard text.substring(with: next).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { break }
+                    gapEnd = NSMaxRange(next)
+                }
+                let gap = NSIntersectionRange(NSRange(location: NSMaxRange(notes), length: gapEnd - NSMaxRange(notes)), range)
+                // The rest of the last line of your notes (its line break) keeps its own style.
+                let squeezed = text.lineRange(for: NSRange(location: NSMaxRange(notes), length: 0))
+                let start = max(gap.location, NSMaxRange(squeezed))
+                if gap.length > 0, NSMaxRange(gap) > start {
+                    let quiet = NSMutableParagraphStyle()
+                    quiet.paragraphSpacing = 0
+                    quiet.minimumLineHeight = 1
+                    quiet.maximumLineHeight = 1
+                    storage.addAttributes([.font: PlatformFont.systemFont(ofSize: 1), .paragraphStyle: quiet],
+                                          range: NSRange(location: start, length: NSMaxRange(gap) - start))
+                }
+                break
+            }
+            after = NSMaxRange(line)
+        }
+        let shown = NSIntersectionRange(notes, range)
+        guard shown.length > 0 else { return }
+        storage.enumerateAttribute(.font, in: shown) { value, part, _ in
+            guard let font = value as? PlatformFont else { return }
+            storage.addAttribute(.font, value: font.sans, range: part)
+        }
+        storage.addAttribute(.pointNotesBox, value: true, range: shown)
+        // Inset inside the box, whose outside is on the text's edges: every paragraph's indents,
+        // quotes' and lists' own included, moved in.
+        storage.enumerateAttribute(.paragraphStyle, in: shown) { value, part, _ in
+            let style = ((value as? NSParagraphStyle) ?? baseParagraphStyle).mutableCopy() as! NSMutableParagraphStyle
+            style.firstLineHeadIndent += Self.notesInset
+            style.headIndent += Self.notesInset
+            if style.tailIndent <= 0 { style.tailIndent -= Self.notesInset }
+            storage.addAttribute(.paragraphStyle, value: style, range: part)
+        }
+        let first = text.paragraphRange(for: NSRange(location: notes.location, length: 0))
+        let last = text.paragraphRange(for: NSRange(location: max(NSMaxRange(notes) - 1, notes.location), length: 0))
+        for (paragraph, isFirst) in [(first, true), (last, false)] where intersects(paragraph, range) {
+            let current = storage.attribute(.paragraphStyle, at: paragraph.location, effectiveRange: nil) as? NSParagraphStyle ?? baseParagraphStyle
+            let style = current.mutableCopy() as! NSMutableParagraphStyle
+            if isFirst { style.paragraphSpacingBefore = max(style.paragraphSpacingBefore, Self.notesLabelRoom) }
+            if !isFirst || first == last { style.paragraphSpacing = max(style.paragraphSpacing, Self.notesRoomBelow) }
+            storage.addAttribute(.paragraphStyle, value: style, range: paragraph)
+        }
+    }
+
+    /// Your notes: from the end of the properties to the first line that's the marker, blank
+    /// lines at either end left out. Nil without the marker, or with no notes.
+    static func notesRange(above divider: String, in text: NSString, tokens: [MarkdownToken]) -> NSRange? {
+        var start = tokens.first { $0.kind == .frontmatter }.map { NSMaxRange($0.range) } ?? 0
+        var location = start
+        var markerStart: Int?
+        while location < text.length {
+            let line = text.lineRange(for: NSRange(location: location, length: 0))
+            if text.substring(with: line).trimmingCharacters(in: .whitespacesAndNewlines) == divider { markerStart = line.location; break }
+            location = NSMaxRange(line)
+        }
+        guard var end = markerStart else { return nil }
+        let blank = CharacterSet.whitespacesAndNewlines
+        while start < end, let scalar = UnicodeScalar(text.character(at: start)), blank.contains(scalar) { start += 1 }
+        while end > start, let scalar = UnicodeScalar(text.character(at: end - 1)), blank.contains(scalar) { end -= 1 }
+        return end > start ? NSRange(location: start, length: end - start) : nil
     }
 
     // MARK: Images

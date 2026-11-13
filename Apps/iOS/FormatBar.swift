@@ -2,15 +2,19 @@ import EditorKit
 import UIKit
 
 /// The bar above the keyboard while writing a note: links, styles and lists in a glass capsule,
-/// scrolling sideways, in the order they're reached for. (Hiding the keyboard is at the note's
-/// top right.) While a `[[link` or `#tag` is being typed, what it could be takes the tools'
-/// place.
+/// scrolling sideways, in the order they're reached for, and at its right, in a glass circle of
+/// its own, hiding the keyboard, under the thumb. While a `[[link` or `#tag` is being typed, what
+/// it could be takes the tools' place.
 final class FormatBar: UIView {
     private weak var textView: PhoneTextView?
     private let scroller = UIScrollView()
     private let choices = UIScrollView()
     private let choiceStack = UIStackView()
     private let glass = UIVisualEffectView(effect: UIGlassEffect())
+    /// Hiding the keyboard, at the right, shown in the title too, where the tools aren't.
+    private let keyboardGlass = UIVisualEffectView(effect: UIGlassEffect())
+    /// What hiding the keyboard does: by default, the text view lets go of it.
+    var onHideKeyboard: (() -> Void)?
     private static let height: CGFloat = 44
     /// Off in the title, which has no styles.
     /// What goes in a link for a note title picked (its name, and its title as the label).
@@ -68,11 +72,35 @@ final class FormatBar: UIView {
         glass.contentView.addSubview(choices)
 
         addSubview(glass)
+
+        var hideConfiguration = UIButton.Configuration.plain()
+        hideConfiguration.image = UIImage(systemName: "keyboard.chevron.compact.down")
+        hideConfiguration.baseForegroundColor = .label
+        let hide = UIButton(configuration: hideConfiguration, primaryAction: UIAction { [weak self] _ in
+            guard let self else { return }
+            if let onHideKeyboard = self.onHideKeyboard { onHideKeyboard() } else { _ = self.textView?.resignFirstResponder() }
+        })
+        hide.accessibilityLabel = "Hide keyboard"
+        hide.translatesAutoresizingMaskIntoConstraints = false
+        keyboardGlass.cornerConfiguration = .capsule()
+        keyboardGlass.clipsToBounds = true
+        keyboardGlass.translatesAutoresizingMaskIntoConstraints = false
+        keyboardGlass.contentView.addSubview(hide)
+        addSubview(keyboardGlass)
+
         NSLayoutConstraint.activate([
+            keyboardGlass.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            keyboardGlass.centerYAnchor.constraint(equalTo: centerYAnchor),
+            keyboardGlass.heightAnchor.constraint(equalToConstant: Self.height),
+            keyboardGlass.widthAnchor.constraint(equalToConstant: Self.height),
+            hide.leadingAnchor.constraint(equalTo: keyboardGlass.contentView.leadingAnchor),
+            hide.trailingAnchor.constraint(equalTo: keyboardGlass.contentView.trailingAnchor),
+            hide.topAnchor.constraint(equalTo: keyboardGlass.contentView.topAnchor),
+            hide.bottomAnchor.constraint(equalTo: keyboardGlass.contentView.bottomAnchor),
             glass.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             glass.centerYAnchor.constraint(equalTo: centerYAnchor),
             glass.heightAnchor.constraint(equalToConstant: Self.height),
-            glass.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            glass.trailingAnchor.constraint(equalTo: keyboardGlass.leadingAnchor, constant: -8),
             scroller.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor),
             scroller.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor),
             scroller.topAnchor.constraint(equalTo: glass.contentView.topAnchor),

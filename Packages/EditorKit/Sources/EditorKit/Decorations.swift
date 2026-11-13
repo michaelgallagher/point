@@ -16,6 +16,8 @@ extension NSAttributedString.Key {
     static let pointListMarker = NSAttributedString.Key("point.listMarker")
     /// A horizontal rule drawn in place of the hidden `---`.
     static let pointRule = NSAttributedString.Key("point.rule")
+    /// Reader mode's your notes, above the marker: drawn in a tinted box, labelled.
+    static let pointNotesBox = NSAttributedString.Key("point.notesBox")
     /// A `#tag`, drawn as a pill.
     static let pointTag = NSAttributedString.Key("point.tag")
     /// The last letter of a link to a website, followed by the arrow symbol drawn after it.

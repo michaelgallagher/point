@@ -1,3 +1,4 @@
+import ClipKit
 import IndexKit
 import SwiftUI
 import VaultKit
@@ -80,6 +81,35 @@ struct HomeScreen: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(store.trashProblem ?? "")
+        }
+        .confirmationDialog("Saved already?", isPresented: Binding(get: { store.clipQuestion != nil }, set: { shown in
+            if !shown, let question = store.clipQuestion {
+                store.clipQuestion = nil
+                question.answer(.cancel)
+            }
+        }), titleVisibility: .visible, presenting: store.clipQuestion) { question in
+            ForEach(question.matches) { match in
+                Button("Open “\(match.title)”") {
+                    store.clipQuestion = nil
+                    question.answer(.open(match.id))
+                }
+            }
+            Button("Clip anyway") {
+                store.clipQuestion = nil
+                question.answer(.clip)
+            }
+            Button("Cancel", role: .cancel) {
+                store.clipQuestion = nil
+                question.answer(.cancel)
+            }
+        } message: { question in
+            Text("“\(question.title)” may be in your notes already:\n"
+                 + question.matches.map { "“\($0.title)”: \($0.why.lowercased())" }.joined(separator: "\n"))
+        }
+        .alert("Couldn’t mark it read", isPresented: Binding(get: { store.listProblem != nil }, set: { if !$0 { store.listProblem = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(store.listProblem ?? "")
         }
         .alert("Open this link?", isPresented: Binding(get: { store.linkToConfirm != nil }, set: { if !$0 { store.linkToConfirm = nil } }),
                presenting: store.linkToConfirm) { url in
@@ -208,7 +238,9 @@ struct HomeScreen: View {
         case .kind(let name):
             KindScreen(name: name).pageBar(add {
                 if let kind = store.kinds.kind(named: name) { createNote(kind: kind) } else { createNote() }
-            }, sorts: true)
+            }, sorts: true) {
+                if Clipping.kind(in: store.kinds)?.name == name { UnreadOnlyToggle() }
+            }
         case .tag(let tag):
             TagScreen(tag: tag).pageBar(add { createNote(text: Frontmatter.edit(adding: "tags", values: [tag], isList: true).1) }, sorts: true) {
                 FavouriteButton(favourite: .tag(tag))
@@ -540,19 +572,34 @@ struct KindScreen: View {
     }
 }
 
-/// Watches the query, which runs in the background, and lists what it finds.
+/// Watches the query, which runs in the background, and lists what it finds. The clip kind's
+/// list can show only what's not yet read.
 private struct KindNotes: View {
     @EnvironmentObject private var store: PhoneStore
     let name: String
     @ObservedObject var embeds: PhoneEmbeds
+    @AppStorage(UnreadOnlyToggle.key) private var unreadOnly = false
 
     var body: some View {
         let ids = embeds.noteIDs(matching: NoteQuery([.property(store.kinds.property, .equals(name))]))
         let found = Set(ids ?? [])
-        let notes = store.notes.filter { found.contains($0.id) }.sorted(by: store.sort)
+        let filters = unreadOnly && Clipping.kind(in: store.kinds)?.name == name
+        let notes = store.notes.filter { found.contains($0.id) && !(filters && store.isRead($0)) }.sorted(by: store.sort)
         List { NoteSections(notes: notes) }
-            .pageTitle(NoteKinds.plural(name))
-            .overlay { if ids != nil, notes.isEmpty { ContentUnavailableView("No notes", systemImage: "doc.text") } }
+            .pageTitle(filters ? "Unread" : NoteKinds.plural(name))
+            .overlay { if ids != nil, notes.isEmpty {
+                ContentUnavailableView(filters ? "Nothing unread" : "No notes", systemImage: filters ? "checkmark.circle" : "doc.text")
+            } }
+    }
+}
+
+/// The clip kind's list: everything, or only what's not yet read. Kept on the phone.
+private struct UnreadOnlyToggle: View {
+    static let key = "mediaUnreadOnly"
+    @AppStorage(key) private var unreadOnly = false
+
+    var body: some View {
+        Toggle("Unread only", systemImage: "circle", isOn: $unreadOnly)
     }
 }
 
@@ -640,7 +687,7 @@ struct FolderScreen: View {
                     }
                 }
             }
-            NoteSections(notes: notes)
+            NoteSections(notes: notes, inFolder: true)
         }
         .pageTitle(folder.isEmpty ? "Vault root" : (folder as NSString).lastPathComponent)
         .overlay { if folders.isEmpty && notes.isEmpty { ContentUnavailableView("No notes", systemImage: "folder") } }
@@ -937,18 +984,20 @@ struct FolderPicker: View {
 private struct NoteSections: View {
     @EnvironmentObject private var store: PhoneStore
     let notes: [Note]
+    /// A folder's notes: the folder isn't said again under each.
+    var inFolder = false
 
     var body: some View {
         if store.sort == .title {
             if !notes.isEmpty {
                 Section {
-                    ForEach(notes) { note in NoteLink(note: note, detail: HomeScreen.label(for: note.modified)) }
+                    ForEach(notes) { note in NoteLink(note: note, date: HomeScreen.label(for: note.modified), inFolder: inFolder) }
                 }
             }
         } else {
             ForEach(NoteDateGroup.grouped(notes, by: store.sort), id: \.label) { group in
                 Section(group.label) {
-                    ForEach(group.notes) { note in NoteLink(note: note) }
+                    ForEach(group.notes) { note in NoteLink(note: note, inFolder: inFolder) }
                 }
             }
         }
@@ -972,21 +1021,36 @@ private struct SortPicker: View {
     }
 }
 
-/// A note in a list, with a bookmark on long-press.
+/// A note in a list: under its title, what it is or where (`PhoneStore.detail(of:)`), and the
+/// date if given; a clip has a check at its left once read. A bookmark on long-press, and a
+/// clip not yet read or filed can be marked read (and filed in Sources) with a swipe.
 private struct NoteLink: View {
     @EnvironmentObject private var store: PhoneStore
     let note: Note
     var title: String?
-    var detail: String?
+    var date: String?
+    var inFolder = false
 
     var body: some View {
+        let isClip = store.isClip(note)
+        let isRead = isClip && store.isRead(note)
         NavigationLink(value: Route.note(note.id)) {
-            NoteRow(title: title ?? note.title, detail: detail, isList: store.listNoteIDs.contains(note.id))
+            NoteRow(title: title ?? note.title,
+                    detail: [store.detail(of: note, inFolder: inFolder), date].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
+                    isList: store.listNoteIDs.contains(note.id), read: isClip ? isRead : nil)
         }
         .contextMenu {
             let bookmarked = store.isBookmarked(note.id)
             Button(bookmarked ? "Remove bookmark" : "Bookmark", systemImage: bookmarked ? "bookmark.slash" : "bookmark") {
                 store.toggleBookmark(note.id)
+            }
+        }
+        .swipeActions(edge: .leading) {
+            if isClip, !isRead || store.isWaiting(note) {
+                Button(store.isWaiting(note) ? "Read, to Sources" : "Read", systemImage: "checkmark") {
+                    store.markReadAndFile(note.id)
+                }
+                .tint(.green)
             }
         }
     }
@@ -1162,12 +1226,19 @@ struct NoteRow: View {
     var detail: String?
     /// A list note, marked "List" at the right.
     var isList = false
+    /// A clip: whether it's been read, shown at the left as a check or an empty circle.
+    var read: Bool?
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
+            if let read {
+                Image(systemName: read ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(read ? AnyShapeStyle(Color.green) : AnyShapeStyle(.tertiary))
+                    .accessibilityLabel(read ? "Read" : "Not read")
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                if let detail {
+                if let detail, !detail.isEmpty {
                     Text(detail)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
