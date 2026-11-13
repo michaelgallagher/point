@@ -21,6 +21,7 @@ struct NoteScreen: View {
     @State private var confirmsDelete = false
     @State private var isDeleting = false
     @State private var showsMove = false
+    @State private var showsVersions = false
     @State private var showsReaderControls = false
     /// Makes a note in the given folder.
     private let newNote: (String) -> Void
@@ -63,7 +64,18 @@ struct NoteScreen: View {
                                 ReaderControls(settings: $store.reader)
                             }
                     }
-                } else if session.canRead {
+                }
+                // Writing, undo where it can be seen, not only by shaking or three fingers;
+                // kept while there's something to undo, with the keyboard down too.
+                if !session.isReading, session.isWriting || session.canUndo || session.canRedo {
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        Button("Undo", systemImage: "arrow.uturn.backward") { session.undo() }
+                            .disabled(!session.canUndo)
+                        Button("Redo", systemImage: "arrow.uturn.forward") { session.redo() }
+                            .disabled(!session.canRedo)
+                    }
+                }
+                if !session.isReading, session.canRead {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("Done") { session.doneEditing() }
                             .buttonStyle(.glassProminent)
@@ -82,6 +94,7 @@ struct NoteScreen: View {
                 Button("Properties", systemImage: "list.bullet.rectangle") { session.showsProperties = true }
                     .disabled(store.showsMarkdown)
                 Button("Move note", systemImage: "folder") { showsMove = true }
+                Button("Earlier versions", systemImage: "clock.arrow.circlepath") { showsVersions = true }
                 if let label = session.markReadLabel {
                     Button(label, systemImage: "checkmark.circle") { session.markReadAndFile() }
                 }
@@ -108,6 +121,9 @@ struct NoteScreen: View {
             .toolbarVisibility(session.barsHidden ? .hidden : .automatic, for: .navigationBar)
             .statusBarHidden(session.barsHidden)
             // Saved straight away: reading, a highlight needs the file as it shows.
+            .sheet(isPresented: $showsVersions) {
+                VersionsSheet(session: session)
+            }
             .sheet(isPresented: $session.showsProperties, onDismiss: { session.save() }) {
                 PropertiesSheet(session: session).environmentObject(store)
             }
@@ -134,6 +150,7 @@ struct NoteScreen: View {
             // A tapped image, full screen, to zoom, share or save.
             .quickLookPreview($embeds.shownImage)
             .onAppear {
+                session.observeUndo()
                 store.noteOpened(session.note.id)
                 store.search.noteShowing = session.note.id
             }
@@ -300,6 +317,12 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     /// saved), to offer to keep them in the vault; and whether they're being kept now.
     @Published private(set) var hasWebImages = false
     @Published private(set) var isSavingWebImages = false
+    /// Whether there's an edit to undo, or one undone to do again.
+    @Published private(set) var canUndo = false
+    @Published private(set) var canRedo = false
+    private var undoObservers: [NSObjectProtocol] = []
+    /// Whether the note's been kept, as it was opened, since editing began here.
+    private var keptAsOpened = false
 
     private var onDisk: String?
     private var pendingSave: Task<Void, Never>?
@@ -761,6 +784,73 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         updateProgress()
     }
 
+    // MARK: Undo, and earlier versions
+
+    /// The first change here since the note was opened keeps it as it was, to put back later
+    /// (Earlier versions), when undo can't reach it any more.
+    private func keepAsOpened(before text: String) {
+        guard !keptAsOpened, let onDisk, text != onDisk else { return }
+        keptAsOpened = true
+        try? store.versions.keep(onDisk, for: note.id)
+    }
+
+    /// Follows the note's undo, for the Undo and Redo buttons.
+    func observeUndo() {
+        undoObservers.forEach(NotificationCenter.default.removeObserver)
+        let names: [Notification.Name] = [.NSUndoManagerDidCloseUndoGroup, .NSUndoManagerDidUndoChange,
+                                          .NSUndoManagerDidRedoChange, .NSUndoManagerCheckpoint]
+        undoObservers = names.map {
+            NotificationCenter.default.addObserver(forName: $0, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.updateUndo() }
+            }
+        }
+    }
+
+    private func updateUndo() {
+        let manager = textView?.undoManager
+        let undo = manager?.canUndo ?? false, redo = manager?.canRedo ?? false
+        if undo != canUndo { canUndo = undo }
+        if redo != canRedo { canRedo = redo }
+    }
+
+    func undo() {
+        textView?.undoManager?.undo()
+        updateUndo()
+    }
+
+    func redo() {
+        textView?.undoManager?.redo()
+        updateUndo()
+    }
+
+    /// The note as it was, newest first.
+    var earlierVersions: [NoteVersions.Version] { store.versions.versions(for: note.id) }
+    /// The note's text as it is here now.
+    var currentText: String? { textView?.text }
+
+    /// Puts an earlier version back, keeping the note as it is now as a version too. Writing,
+    /// as an edit, which Undo takes back; reading, written to the file and shown, as your
+    /// notes are.
+    func restore(_ version: NoteVersions.Version) {
+        guard let textView, let current = textView.text, current != version.text else { return }
+        try? store.versions.keep(current, for: note.id)
+        if isReading {
+            guard save(), let onDisk else { return }
+            do {
+                let outcome = try NoteWriter.write(version.text, to: note.url, expecting: onDisk, ifChanged: .saveCopy)
+                if case .savedAsConflictCopy(let copy) = outcome { continueInCopy(copy) }
+                showWhileReading(version.text)
+                store.noteEdited(note.id)
+            } catch {
+                saveProblem = "Point couldn’t put that version back (\(error.localizedDescription))."
+            }
+        } else {
+            textView.applyAboveBody(NSRange(location: 0, length: (current as NSString).length), with: version.text)
+            save()
+        }
+        updateUndo()
+    }
+
     // MARK: Marking read
 
     /// What marking this clip read is called, if it can be: "Mark read", or from the clippings
@@ -1119,6 +1209,8 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         guard let textView else { return }
         noteFrontmatter(of: text)
         if text != onDisk { store.noteEdited(note.id) }
+        keepAsOpened(before: text)
+        updateUndo()
         if showsTimings {
             timings = "\(openedTimings)\nLast keystroke \(String(format: "%.1f", textView.lastEditMilliseconds)) ms, slowest \(String(format: "%.1f", textView.slowestEditMilliseconds)) ms"
         }

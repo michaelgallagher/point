@@ -75,6 +75,8 @@ final class PhoneStore: ObservableObject {
 
     /// Where edits that can't be saved are kept, outside the vault.
     let drafts = NoteDrafts(storage: PhoneVault.storage("Drafts"), vaultKey: PhoneVault.key)
+    /// Notes as they were before they changed here, to put back (Earlier versions).
+    let versions = NoteVersions(storage: PhoneVault.storage("Versions"), vaultKey: PhoneVault.key)
 
     init() {
         history = Self.loadHistory(from: historyFile)
@@ -1063,6 +1065,7 @@ final class PhoneStore: ObservableObject {
         history.renamed(from: id, to: note.id)
         historyFile.save(history)
         places.renamed(from: id, to: note.id)
+        versions.move(from: id, to: note.id)
         if UserDefaults.standard.string(forKey: PhoneVault.defaultsKey("workingOn")) == id {
             UserDefaults.standard.set(note.id, forKey: PhoneVault.defaultsKey("workingOn"))
         }
@@ -1090,6 +1093,7 @@ final class PhoneStore: ObservableObject {
         history.renamed(from: note.id, to: newID)
         historyFile.save(history)
         places.renamed(from: note.id, to: newID)
+        versions.move(from: note.id, to: newID)
         if UserDefaults.standard.string(forKey: PhoneVault.defaultsKey("workingOn")) == note.id { UserDefaults.standard.set(newID, forKey: PhoneVault.defaultsKey("workingOn")) }
         if isBookmarked(note.id) {
             try? ObsidianBookmarks.rename(note.id, to: newID, vault: root)
