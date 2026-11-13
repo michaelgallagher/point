@@ -122,6 +122,8 @@ struct MarkdownStyler {
     /// Room above your notes for their label, and below them before the saved text.
     static let notesLabelRoom: CGFloat = 34
     static let notesRoomBelow: CGFloat = 40
+    /// How far your notes sit inside their box, at each side.
+    static let notesInset: CGFloat = 16
 
     /// Reader mode's your notes (from the properties to the marker, blank lines left out): in
     /// the sans, set apart from the saved text in a box (`pointNotesBox`), with room above for
@@ -164,6 +166,15 @@ struct MarkdownStyler {
             storage.addAttribute(.font, value: font.sans, range: part)
         }
         storage.addAttribute(.pointNotesBox, value: true, range: shown)
+        // Inset inside the box, whose outside is on the text's edges: every paragraph's indents,
+        // quotes' and lists' own included, moved in.
+        storage.enumerateAttribute(.paragraphStyle, in: shown) { value, part, _ in
+            let style = ((value as? NSParagraphStyle) ?? baseParagraphStyle).mutableCopy() as! NSMutableParagraphStyle
+            style.firstLineHeadIndent += Self.notesInset
+            style.headIndent += Self.notesInset
+            if style.tailIndent <= 0 { style.tailIndent -= Self.notesInset }
+            storage.addAttribute(.paragraphStyle, value: style, range: part)
+        }
         let first = text.paragraphRange(for: NSRange(location: notes.location, length: 0))
         let last = text.paragraphRange(for: NSRange(location: max(NSMaxRange(notes) - 1, notes.location), length: 0))
         for (paragraph, isFirst) in [(first, true), (last, false)] where intersects(paragraph, range) {

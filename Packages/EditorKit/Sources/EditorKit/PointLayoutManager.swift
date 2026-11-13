@@ -218,20 +218,19 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         }
     }
 
-    /// Reader mode's your notes: a softly tinted box reaching a little into the margins (so the
-    /// text, and its quotes and lists, stay where they'd be), labelled at its top, in the room
-    /// the first paragraph leaves above itself.
+    /// Reader mode's your notes: a softly tinted box, its outside lined up with the article's
+    /// text and the notes inset inside it (`MarkdownStyler.notesInset`), labelled at its top,
+    /// in the room the first paragraph leaves above itself.
     private func drawNotesBox(for range: NSRange, container: NSTextContainer, origin: CGPoint) {
         let glyphs = glyphRange(forCharacterRange: range, actualCharacterRange: nil)
         guard glyphs.length > 0 else { return }
         let first = lineFragmentRect(forGlyphAt: glyphs.location, effectiveRange: nil)
         let last = lineFragmentUsedRect(forGlyphAt: NSMaxRange(glyphs) - 1, effectiveRange: nil)
         let padding = container.lineFragmentPadding
-        // Into the margin, never to the screen's edge.
-        let reach = max(0, min(16, origin.x - 8))
-        let left = origin.x + padding - reach, right = origin.x + container.size.width - padding + reach
+        // Its outside on the text's edges, as wide as the article; the notes inset within it.
+        let left = origin.x + padding, right = origin.x + container.size.width - padding
         let top = origin.y + first.minY + 2
-        let bottom = origin.y + last.maxY + 14
+        let bottom = origin.y + last.maxY + 16
         let box = CGRect(x: left, y: top, width: right - left, height: bottom - top)
         PlatformColor.textColor.withAlphaComponent(0.055).setFill()
         PlatformBezierPath(roundedRect: box, xRadius: 12, yRadius: 12).fill()
@@ -239,7 +238,13 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         let label = NSAttributedString(string: "YOUR NOTES", attributes: [
             .font: font, .foregroundColor: PlatformColor.secondaryLabelColor, .kern: 0.6,
         ])
-        label.draw(at: CGPoint(x: origin.x + padding, y: top + 11))
+        label.draw(at: CGPoint(x: left + MarkdownStyler.notesInset, y: top + 11))
+    }
+
+    /// How far your notes are inset in their box, at a character: none outside it.
+    private func notesInset(at index: Int, storage: NSTextStorage) -> CGFloat {
+        guard index < storage.length, storage.attribute(.pointNotesBox, at: index, effectiveRange: nil) != nil else { return 0 }
+        return MarkdownStyler.notesInset
     }
 
     /// A highlighted list item's background: its colour, faint, from just before its marker to
@@ -252,13 +257,13 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         var bounds = CGRect.null
         enumerateLineFragments(forGlyphRange: glyphs) { line, _, _, _, _ in bounds = bounds.union(line) }
         guard !bounds.isNull else { return }
-        let left = container.lineFragmentPadding + theme.indentPerLevel * CGFloat(decoration.level) - 4
+        let left = container.lineFragmentPadding + notesInset(at: range.location, storage: storage) + theme.indentPerLevel * CGFloat(decoration.level) - 4
         // Lowered to centre on the letters: the line has the font's room above its capitals
         // as well as the line height's, so the whole line's rect sat high on the text.
         let font = storage.attribute(.font, at: range.location, effectiveRange: nil) as? PlatformFont ?? theme.body
         let lowered = ((font.ascender - font.capHeight) / 2).rounded()
         let rect = CGRect(x: origin.x + left, y: origin.y + bounds.minY + lowered,
-                          width: bounds.maxX - container.lineFragmentPadding - left + 4, height: bounds.height)
+                          width: bounds.maxX - container.lineFragmentPadding - notesInset(at: range.location, storage: storage) - left + 4, height: bounds.height)
         color.withAlphaComponent(0.14).setFill()
         PlatformBezierPath(roundedRect: rect.insetBy(dx: 0, dy: 1), xRadius: 5, yRadius: 5).fill()
     }
@@ -375,10 +380,11 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         let before = (storage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacingBefore ?? 0
         let after = max(theme.paragraphSpacing,
                         (storage.attribute(.paragraphStyle, at: NSMaxRange(range) - 1, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacing ?? 0)
+        let inset = notesInset(at: range.location, storage: storage)
         return CGRect(
-            x: origin.x + first.minX + padding,
+            x: origin.x + first.minX + padding + inset,
             y: origin.y + first.minY + before,
-            width: first.width - padding * 2,
+            width: first.width - padding * 2 - inset * 2,
             height: last.maxY - first.minY - before - after
         )
     }
@@ -421,7 +427,7 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
             // An empty item: its hidden marker glyphs still sit on the baseline.
             baseline = origin.y + line.minY + location(forGlyphAt: glyphIndexForCharacter(at: index)).y
         }
-        let x = origin.x + container.lineFragmentPadding + theme.indentPerLevel * CGFloat(decoration.level)
+        let x = origin.x + container.lineFragmentPadding + notesInset(at: index, storage: storage) + theme.indentPerLevel * CGFloat(decoration.level)
 
         switch decoration.marker {
         case .bullet:
@@ -500,7 +506,7 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         let font = textFont(near: item.index, storage: storage)
         let first = firstVisibleCharacter(onLineOf: item.index, storage: storage) ?? item.index
         let baseline = origin.y + line.minY + location(forGlyphAt: glyphIndexForCharacter(at: first)).y
-        let x = origin.x + container.lineFragmentPadding + theme.indentPerLevel * CGFloat(item.decoration.level)
+        let x = origin.x + container.lineFragmentPadding + notesInset(at: item.index, storage: storage) + theme.indentPerLevel * CGFloat(item.decoration.level)
         return markerRect(item.decoration.marker, x: x, baseline: baseline, font: font)
     }
 

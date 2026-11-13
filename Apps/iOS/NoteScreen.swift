@@ -63,9 +63,6 @@ struct NoteScreen: View {
                                 ReaderControls(settings: $store.reader)
                             }
                     }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Edit") { session.edit() }
-                    }
                 } else if session.canRead {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("Done") { session.doneEditing() }
@@ -74,16 +71,20 @@ struct NoteScreen: View {
                 }
             }
             .pageBar(.find({ session.find("") }, notes: session.isReading ? { session.openNotes() } : nil)) {
+                // Reading, the bars keep to the reading: editing is first here, by itself.
                 if session.isReading {
-                    Button("Properties", systemImage: "list.bullet.rectangle") { session.showsProperties = true }
+                    Button("Edit", systemImage: "pencil") { session.edit() }
+                    Divider()
                 }
+                Button("New note", systemImage: "square.and.pencil") { newNote(FolderTree.folder(of: session.note.id)) }
+                Divider()
+                // For every note; with the Markdown showing, the properties are its text.
+                Button("Properties", systemImage: "list.bullet.rectangle") { session.showsProperties = true }
+                    .disabled(store.showsMarkdown)
+                Button("Move note", systemImage: "folder") { showsMove = true }
                 if let label = session.markReadLabel {
                     Button(label, systemImage: "checkmark.circle") { session.markReadAndFile() }
                 }
-                if session.isReading || session.markReadLabel != nil { Divider() }
-                Button("New note", systemImage: "square.and.pencil") { newNote(FolderTree.folder(of: session.note.id)) }
-                Divider()
-                Button("Move note", systemImage: "folder") { showsMove = true }
                 TemplateMenu(session: session)
                 // Keeps its pictures from the web in the vault, when asked (never unasked).
                 if session.hasWebImages || session.isSavingWebImages {
