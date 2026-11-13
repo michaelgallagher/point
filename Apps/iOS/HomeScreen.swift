@@ -830,7 +830,7 @@ private struct PageBar<Actions: View>: ViewModifier {
                 .scrollEdgeEffectHidden(true, for: .bottom)
                 .toolbar {
                     if hasActions || sorts {
-                        ToolbarItem(placement: .topBarTrailing) { menu(symbol: "ellipsis") }
+                        ToolbarItem(placement: .topBarTrailing) { topActions }
                     }
                     // Point's own search field, not the system's: Search opens out from it.
                     ToolbarItem(placement: .bottomBar) {
@@ -861,6 +861,20 @@ private struct PageBar<Actions: View>: ViewModifier {
                         }
                     }
                 }
+        }
+    }
+
+    /// What can be done here, at the top right: one thing alone is its own button (sorting, a
+    /// menu of the orders), not hidden in a menu of one; more than one, the ••• menu.
+    private var topActions: some View {
+        Group(subviews: actions) { subviews in
+            if subviews.isEmpty {
+                if sorts { SortMenu() }
+            } else if subviews.count == 1, !sorts {
+                subviews[0]
+            } else {
+                menu(symbol: "ellipsis")
+            }
         }
     }
 
@@ -1017,13 +1031,32 @@ private struct SortPicker: View {
 
     var body: some View {
         Picker(selection: $store.sort) {
-            Text("Date edited").tag(NoteSort.modified)
-            Text("Date created").tag(NoteSort.created)
-            Text("Title").tag(NoteSort.title)
+            SortOrders()
         } label: {
             Label("Sort by", systemImage: "arrow.up.arrow.down")
         }
         .pickerStyle(.menu)
+    }
+}
+
+/// Sorting as the page's only action: its own button, the orders straight under it.
+private struct SortMenu: View {
+    @EnvironmentObject private var store: PhoneStore
+
+    var body: some View {
+        Menu("Sort by", systemImage: "arrow.up.arrow.down") {
+            Picker("Sort by", selection: $store.sort) { SortOrders() }
+                .pickerStyle(.inline)
+        }
+        .menuOrder(.fixed)
+    }
+}
+
+private struct SortOrders: View {
+    var body: some View {
+        Text("Date edited").tag(NoteSort.modified)
+        Text("Date created").tag(NoteSort.created)
+        Text("Title").tag(NoteSort.title)
     }
 }
 
