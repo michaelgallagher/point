@@ -27,7 +27,7 @@ struct PaneView: View {
                 // note is laid out at its width from the start, even moving from note to note.
                 HStack(spacing: 0) {
                     if #available(macOS 26, *) {
-                        page(pane, index: index, underBar: model.topBarHeight)
+                        page(pane, index: index, underBar: TopBar.cover(for: pane, in: model))
                             .overlay(alignment: .top) { PaneTabBar(pane: pane, paneIndex: index) }
                     } else {
                         VStack(spacing: 0) {

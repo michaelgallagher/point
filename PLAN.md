@@ -61,6 +61,7 @@ Mike travels soon with the laptop and the iPhone, and wants to use Point on both
 - [The 25 October batch](plan/batch-2026-10-25.md): the links panel, templates, the properties view, palette defaults, tags and the home button, sorting in two columns, splits that slide, and the small fixes after.
 - [The sidebar widens the window](plan/sidebar-widens-window.md) (25 October): the design, the attempts, and the bugs fixed.
 - [Properties, redesigned](plan/properties.md) (25 October).
+- [Exploration: a flatter header](plan/exploration-flat-header.md) (13 November): no glass, row-shaped tabs above a path bar, the compact title bar.
 - [Exploration: no visible tabs](plan/exploration-no-visible-tabs.md) (25 October): tabs without a tab bar.
 - [Exploration: radically minimal](plan/exploration-minimal.md) (19 October).
 - [M3.5, Mac refinements](plan/m3.5-mac-refinements.md) (18–24 October): parts A to H.
