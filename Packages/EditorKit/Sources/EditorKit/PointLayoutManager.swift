@@ -235,7 +235,7 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         PlatformColor.textColor.withAlphaComponent(0.055).setFill()
         PlatformBezierPath(roundedRect: box, xRadius: 12, yRadius: 12).fill()
         let font = PlatformFont.systemFont(ofSize: max(11, theme.bodySize * 0.62), weight: .semibold)
-        let label = NSAttributedString(string: "YOUR NOTES", attributes: [
+        let label = NSAttributedString(string: "NOTES", attributes: [
             .font: font, .foregroundColor: PlatformColor.secondaryLabelColor, .kern: 0.6,
         ])
         label.draw(at: CGPoint(x: left + MarkdownStyler.notesInset, y: top + 11))

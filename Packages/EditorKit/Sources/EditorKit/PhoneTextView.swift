@@ -135,6 +135,7 @@ public final class PhoneTextView: UITextView {
     /// Places the header at the top, and starts the text below it.
     public override func layoutSubviews() {
         super.layoutSubviews()
+        layOutEndIfNear()
         noteTextWidth()
         if styler.theme.rendersImages, abs(contentSize.height - embedsSyncedHeight) > 0.5 { syncEmbedViews() }
         guard let header else { return }
@@ -179,6 +180,16 @@ public final class PhoneTextView: UITextView {
             }
         }
         step(from: 0)
+    }
+
+    /// Within two screens of the end, lays out what's left: restyling all of a note (an image
+    /// arriving, the reader's type) leaves the layout below the screen a guess, and a guess that
+    /// fell short stopped the scroll before the last lines.
+    private func layOutEndIfNear() {
+        let length = textStorage.length
+        guard length > 0, contentOffset.y + bounds.height * 3 >= contentSize.height,
+              pointLayoutManager.firstUnlaidCharacterIndex() < length else { return }
+        pointLayoutManager.ensureLayout(forCharacterRange: NSRange(location: 0, length: length))
     }
 
     /// Lays out everything up to `location`, so that its place on the page is real, not a guess.

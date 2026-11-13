@@ -7,13 +7,15 @@ import VaultKit
 /// phone, the same for every note.
 struct ReaderSettings: Codable, Equatable {
     /// The body's size in points, at the phone's standard text size.
-    var size: Double = 19
+    var size: Double = 18
     var isSerif = true
     var page: Page = .system
     /// The space a line takes, as a multiple of the type's size.
-    var lineHeight: Double = 1.4
+    var lineHeight: Double = 1.3
     /// The space either side of the text, in points.
-    var margin: Double = 24
+    var margin: Double = 18
+    /// Which standard the settings were kept under: 2 since the standard was set a step tighter.
+    var standard = 2
 
     static let sizes = 14.0...28.0
     static let lineHeights = 1.2...1.8
@@ -21,14 +23,21 @@ struct ReaderSettings: Codable, Equatable {
 
     init() {}
 
-    /// Settings kept before line height and margins came in still read, with those as standard.
+    /// Settings kept before line height and margins came in still read, with those as standard;
+    /// kept under the first standard (19 points, lines 1.4, margins 24), whatever was still as
+    /// standard then takes today's.
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        size = try values.decodeIfPresent(Double.self, forKey: .size) ?? size
+        let first = (try values.decodeIfPresent(Int.self, forKey: .standard) ?? 1) < 2
+        func kept(_ key: CodingKeys, was old: Double, now: Double) throws -> Double {
+            guard let value = try values.decodeIfPresent(Double.self, forKey: key) else { return now }
+            return first && abs(value - old) < 0.001 ? now : value
+        }
+        size = try kept(.size, was: 19, now: size)
         isSerif = try values.decodeIfPresent(Bool.self, forKey: .isSerif) ?? isSerif
         page = try values.decodeIfPresent(Page.self, forKey: .page) ?? page
-        lineHeight = try values.decodeIfPresent(Double.self, forKey: .lineHeight) ?? lineHeight
-        margin = try values.decodeIfPresent(Double.self, forKey: .margin) ?? margin
+        lineHeight = try kept(.lineHeight, was: 1.4, now: lineHeight)
+        margin = try kept(.margin, was: 24, now: margin)
     }
 
     enum Page: String, Codable, CaseIterable, Identifiable {
