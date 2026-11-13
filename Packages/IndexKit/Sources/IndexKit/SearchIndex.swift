@@ -538,6 +538,21 @@ public actor SearchIndex {
             .sorted { $0.count != $1.count ? $0.count > $1.count : $0.value.localizedStandardCompare($1.value) == .orderedAscending }
     }
 
+    /// Each note's first value of some properties (by name, lowercased), for every note that
+    /// has any: what a list of notes shows under each title (its type, its format, when it was read).
+    public func firstValues(of names: [String]) throws -> [Note.ID: [String: String]] {
+        let names = Array(Set(names.map { $0.lowercased() }))
+        guard !names.isEmpty else { return [:] }
+        var result: [Note.ID: [String: String]] = [:]
+        let sql = "SELECT n.id, v.name, v.value FROM property_values v JOIN notes n ON n.row = v.note "
+            + "WHERE v.name IN (\(names.map { _ in "?" }.joined(separator: ","))) AND v.value != '' ORDER BY v.rowid"
+        for row in try db.query(sql, names) {
+            guard let id = row[0] as? String, let name = row[1] as? String, let value = row[2] as? String else { continue }
+            if result[id]?[name] == nil { result[id, default: [:]][name] = value }
+        }
+        return result
+    }
+
     /// The notes that are lists: those with `list-from`, `list-tags` or `list-where`.
     public func listNotes() throws -> [Note.ID] {
         try db.query("SELECT DISTINCT n.id FROM property_names p JOIN notes n ON n.row = p.note WHERE p.lowered IN (?, ?, ?)",

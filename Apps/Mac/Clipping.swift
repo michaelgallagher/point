@@ -54,6 +54,14 @@ extension VaultStore {
                 vaultChangeNotice = VaultChangeNotice(text: "Clipped before", canUndo: false, symbol: "doc.on.doc")
                 return
             }
+            // Perhaps clipped before at another address, or under a title all but the same.
+            let candidates = await clipCandidates()
+            var asked = false
+            let early = ClipMatching.nearMisses(url: request.url, title: request.title, among: candidates)
+            if !early.isEmpty {
+                asked = true
+                guard decide(early, title: request.title ?? request.url.host ?? "This page") else { return }
+            }
             let shownTitle = request.title ?? request.url.host ?? "the page"
             vaultChangeNotice = VaultChangeNotice(text: "Clipping “\(shownTitle)”…", canUndo: false, symbol: "scissors", isWorking: true)
 
@@ -63,6 +71,14 @@ extension VaultStore {
                 open(existing)
                 vaultChangeNotice = VaultChangeNotice(text: "Clipped before", canUndo: false, symbol: "doc.on.doc")
                 return
+            }
+            // Its title, now it's known (the link may not have said), or where it led.
+            if !asked {
+                let late = ClipMatching.nearMisses(url: clip.url, title: clip.title, among: candidates)
+                if !late.isEmpty {
+                    vaultChangeNotice = nil
+                    guard decide(late, title: clip.title) else { return }
+                }
             }
 
             let kind = clipKind
@@ -79,6 +95,35 @@ extension VaultStore {
             open(id)
             vaultChangeNotice = VaultChangeNotice(text: couldRead ? "Clipped to \(folder)" : "Couldn’t read the page, so the note has its link",
                                                   canUndo: false, symbol: couldRead ? "checkmark.circle" : "exclamationmark.triangle")
+        }
+    }
+
+    /// Every note, with where it was clipped from if it says, to look for near misses in.
+    private func clipCandidates() async -> [ClipMatching.Candidate] {
+        let sources = (try? await index?.firstValues(of: ["source"])) ?? [:]
+        return notesByID.values.map { ClipMatching.Candidate(id: $0.id, title: $0.title, source: sources[$0.id]?["source"]) }
+            .sorted { $0.id < $1.id }
+    }
+
+    /// Asks whether a page that may be in the vault already should be clipped: true to clip it
+    /// anyway. Opening the note it most likely is, or cancelling, is false.
+    private func decide(_ matches: [ClipMatching.Match], title: String) -> Bool {
+        vaultChangeNotice = nil
+        let alert = NSAlert()
+        alert.messageText = "Saved already?"
+        alert.informativeText = "“\(title)” may be in your notes already:\n"
+            + matches.map { "“\($0.title)”: \($0.why.lowercased())" }.joined(separator: "\n")
+        alert.addButton(withTitle: "Open “\(matches[0].title)”")
+        alert.addButton(withTitle: "Clip anyway")
+        alert.addButton(withTitle: "Cancel")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            open(matches[0].id)
+            return false
+        case .alertSecondButtonReturn:
+            return true
+        default:
+            return false
         }
     }
 

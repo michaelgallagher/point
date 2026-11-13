@@ -152,6 +152,14 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         let characters = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
         let everything = NSRange(location: 0, length: storage.length)
 
+        storage.enumerateAttribute(.pointNotesBox, in: characters) { value, range, stop in
+            guard value != nil else { return }
+            var full = NSRange()
+            _ = storage.attribute(.pointNotesBox, at: range.location, longestEffectiveRange: &full, in: everything)
+            drawNotesBox(for: full, container: container, origin: origin)
+            stop.pointee = true
+        }
+
         var drawnBlocks = Set<Int>()
         storage.enumerateAttribute(.pointBlock, in: characters) { value, range, _ in
             guard let block = value as? BlockDecoration else { return }
@@ -208,6 +216,30 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
             path.lineWidth = 1
             path.stroke()
         }
+    }
+
+    /// Reader mode's your notes: a softly tinted box reaching a little into the margins (so the
+    /// text, and its quotes and lists, stay where they'd be), labelled at its top, in the room
+    /// the first paragraph leaves above itself.
+    private func drawNotesBox(for range: NSRange, container: NSTextContainer, origin: CGPoint) {
+        let glyphs = glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+        guard glyphs.length > 0 else { return }
+        let first = lineFragmentRect(forGlyphAt: glyphs.location, effectiveRange: nil)
+        let last = lineFragmentUsedRect(forGlyphAt: NSMaxRange(glyphs) - 1, effectiveRange: nil)
+        let padding = container.lineFragmentPadding
+        // Into the margin, never to the screen's edge.
+        let reach = max(0, min(16, origin.x - 8))
+        let left = origin.x + padding - reach, right = origin.x + container.size.width - padding + reach
+        let top = origin.y + first.minY + 2
+        let bottom = origin.y + last.maxY + 14
+        let box = CGRect(x: left, y: top, width: right - left, height: bottom - top)
+        PlatformColor.textColor.withAlphaComponent(0.055).setFill()
+        PlatformBezierPath(roundedRect: box, xRadius: 12, yRadius: 12).fill()
+        let font = PlatformFont.systemFont(ofSize: max(11, theme.bodySize * 0.62), weight: .semibold)
+        let label = NSAttributedString(string: "YOUR NOTES", attributes: [
+            .font: font, .foregroundColor: PlatformColor.secondaryLabelColor, .kern: 0.6,
+        ])
+        label.draw(at: CGPoint(x: origin.x + padding, y: top + 11))
     }
 
     /// A highlighted list item's background: its colour, faint, from just before its marker to
@@ -338,11 +370,16 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         let first = lineRect(containing: range.location, storage: storage)
         let last = lastLineRect(containing: NSMaxRange(range) - 1, storage: storage)
         let padding = container.lineFragmentPadding
+        // Without any room its first paragraph asks above it, or its last below more than
+        // usual (reader mode's notes make room for their label, and below their box).
+        let before = (storage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacingBefore ?? 0
+        let after = max(theme.paragraphSpacing,
+                        (storage.attribute(.paragraphStyle, at: NSMaxRange(range) - 1, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacing ?? 0)
         return CGRect(
             x: origin.x + first.minX + padding,
-            y: origin.y + first.minY,
+            y: origin.y + first.minY + before,
             width: first.width - padding * 2,
-            height: last.maxY - first.minY - theme.paragraphSpacing
+            height: last.maxY - first.minY - before - after
         )
     }
 

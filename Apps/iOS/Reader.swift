@@ -256,6 +256,8 @@ struct NotesSheet: View {
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Done") { dismiss() }
+                            .buttonStyle(.glassProminent)
+                            .tint(.blue)
                     }
                 }
         }

@@ -9,7 +9,7 @@ import VaultKit
 /// One note, filling the screen, in the shared editor, its title at the top (its file name, as
 /// on the Mac: changing it renames the note), and below it, its properties and the notes linking
 /// to it. Along the bottom, finding in it, Search (the map), and the actions: moving, bookmarking, sharing and
-/// deleting it among them. While writing, hiding the keyboard is at the top right. A new note
+/// deleting it among them. While writing, hiding the keyboard is at the right of the format bar. A new note
 /// opens with the cursor in its title. Opened with `-SpikeTypeTest`, what opening and typing
 /// cost shows across the top (see the spike).
 struct NoteScreen: View {
@@ -37,6 +37,18 @@ struct NoteScreen: View {
             // the system's bars do (the text view keeps clear of them while still).
             .ignoresSafeArea(.container, edges: [.top, .bottom])
             .safeAreaInset(edge: .top, spacing: 0) { banners }
+            // At the end of a clip not yet read (or waiting in Clippings): marking it read,
+            // where reading ends, rather than in the bars.
+            .overlay(alignment: .bottom) {
+                if session.isReading, session.progress >= 0.995, let label = session.markReadLabel {
+                    Button(label, systemImage: "checkmark.circle") { session.markReadAndFile() }
+                        .buttonStyle(.glassProminent)
+                        .tint(.green)
+                        .padding(.bottom, 20)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.smooth(duration: 0.3), value: session.isReading && session.progress >= 0.995 && session.markReadLabel != nil)
             // The title is in the note itself.
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -59,14 +71,16 @@ struct NoteScreen: View {
                         Button("Done") { session.doneEditing() }
                             .buttonStyle(.glassProminent)
                     }
-                } else if session.isWriting {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Hide keyboard", systemImage: "keyboard.chevron.compact.down") { session.hideKeyboard() }
-                            .buttonStyle(.glassProminent)
-                    }
                 }
             }
             .pageBar(.find({ session.find("") }, notes: session.isReading ? { session.openNotes() } : nil)) {
+                if session.isReading {
+                    Button("Properties", systemImage: "list.bullet.rectangle") { session.showsProperties = true }
+                }
+                if let label = session.markReadLabel {
+                    Button(label, systemImage: "checkmark.circle") { session.markReadAndFile() }
+                }
+                if session.isReading || session.markReadLabel != nil { Divider() }
                 Button("New note", systemImage: "square.and.pencil") { newNote(FolderTree.folder(of: session.note.id)) }
                 Divider()
                 Button("Move note", systemImage: "folder") { showsMove = true }
@@ -92,7 +106,8 @@ struct NoteScreen: View {
             // Reading, the bars go as the text scrolls on, and come back as it scrolls back.
             .toolbarVisibility(session.barsHidden ? .hidden : .automatic, for: .navigationBar)
             .statusBarHidden(session.barsHidden)
-            .sheet(isPresented: $session.showsProperties) {
+            // Saved straight away: reading, a highlight needs the file as it shows.
+            .sheet(isPresented: $session.showsProperties, onDismiss: { session.save() }) {
                 PropertiesSheet(session: session).environmentObject(store)
             }
             .sheet(isPresented: $session.showsNotes, onDismiss: { session.finishNotes() }) {
@@ -117,13 +132,17 @@ struct NoteScreen: View {
             }
             // A tapped image, full screen, to zoom, share or save.
             .quickLookPreview($embeds.shownImage)
-            .onAppear { store.noteOpened(session.note.id) }
+            .onAppear {
+                store.noteOpened(session.note.id)
+                store.search.noteShowing = session.note.id
+            }
             .onChange(of: store.showsMarkdown) { _, shows in session.showMarkdown(shows) }
             .onChange(of: store.typography) { _, _ in session.applyReading() }
             .onChange(of: store.reader) { _, _ in session.applyReading() }
             // The index has taken in changed notes: what links here may have changed.
             .onChange(of: store.indexUpdates) { _, _ in session.refreshRelated() }
             .onDisappear {
+                if store.search.noteShowing == session.note.id { store.search.noteShowing = nil }
                 guard !isDeleting else { return session.moveToTrash() }
                 session.keepPlace()
                 // Left: its title taken, saved, then (if it has no title) named from its first
@@ -576,6 +595,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         textView.isSerif = isReading && reader.isSerif
         textView.dividerLine = isReading ? ReaderNotes.marker : nil
         let margin: CGFloat = isReading ? reader.margin : 16
+        updateEndRoom()
         if textView.textContainerInset.left != margin {
             textView.textContainerInset.left = margin
             textView.textContainerInset.right = margin
@@ -606,6 +626,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         let top = textView.topVisibleLocation
         isReading = false
         setBarsHidden(false)
+        releaseInsets()
         applyReading()
         textView.isEditable = true
         textView.scroll(toTop: top)
@@ -662,16 +683,39 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         if dragged < -Self.hideDistance { setBarsHidden(true) } else if dragged > Self.showDistance { setBarsHidden(false) }
     }
 
-    /// How far a drag goes on before the bars go, and back before they return, in points.
+    /// How far a drag goes on before the bars go, and back before they return, in points:
+    /// coming back takes less, as wanting them is wanting them now.
     private static let hideDistance: CGFloat = 90
-    private static let showDistance: CGFloat = 120
+    private static let showDistance: CGFloat = 50
 
     func setBarsHidden(_ hidden: Bool) {
         guard hidden != barsHidden, isReading || !hidden else { return }
-        withAnimation(.easeInOut(duration: 0.25)) { barsHidden = hidden }
+        if hidden { holdInsets() }
+        withAnimation(.easeInOut(duration: hidden ? 0.25 : 0.18)) { barsHidden = hidden }
         // No fading at the edges, with nothing there to keep clear of.
         textView?.topEdgeEffect.isHidden = hidden
         textView?.bottomEdgeEffect.isHidden = hidden
+    }
+
+    /// The text view's own insets before they were held, while they are.
+    private var heldInsets: UIEdgeInsets?
+
+    /// Keeps the text's insets as they are with the bars showing, while they come and go: left
+    /// to follow the safe area, they changed as the bars did, and the text moved under the finger.
+    private func holdInsets() {
+        guard heldInsets == nil, let textView else { return }
+        heldInsets = textView.contentInset
+        let insets = textView.adjustedContentInset
+        textView.contentInsetAdjustmentBehavior = .never
+        textView.contentInset = insets
+    }
+
+    /// The insets following the safe area again, for writing.
+    private func releaseInsets() {
+        guard let held = heldInsets, let textView else { return }
+        heldInsets = nil
+        textView.contentInsetAdjustmentBehavior = .automatic
+        textView.contentInset = held
     }
 
     /// A double tap on the text while reading (not on a link or a selection) brings the bars
@@ -705,6 +749,63 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         textView.layoutIfNeeded()
         textView.scroll(toTop: Reading.location(of: place, in: text))
         updateProgress()
+    }
+
+    // MARK: Marking read
+
+    /// What marking this clip read is called, if it can be: "Mark read", or from the clippings
+    /// folder, "Mark read, move to Sources". Nil for other notes, or a clip read and filed.
+    var markReadLabel: String? {
+        guard canRead else { return nil }
+        let waiting = FolderTree.folder(of: note.id) == store.clippingsFolder
+        let read = frontmatter?.properties.contains {
+            $0.key.caseInsensitiveCompare(Clipping.readProperty) == .orderedSame && $0.values.contains { !$0.isEmpty }
+        } ?? false
+        if waiting { return read ? "Move to \(Clipping.readFolder)" : "Mark read, move to \(Clipping.readFolder)" }
+        return read ? nil : "Mark read"
+    }
+
+    /// Room under the text for Mark read, at the end of a clip still to be marked.
+    private func updateEndRoom() {
+        guard let textView else { return }
+        let below: CGFloat = isReading && markReadLabel != nil ? 96 : 40
+        if textView.textContainerInset.bottom != below { textView.textContainerInset.bottom = below }
+    }
+
+    /// Sets `read` to today, if it isn't set, and files the clip in Sources if it's waiting in
+    /// the clippings folder. Written to the file as it is, then shown, as your notes are.
+    func markReadAndFile() {
+        commitTitle()
+        guard save(), let textView, let onDisk else { return }
+        let marked = Clipping.markingRead(onDisk)
+        if marked != onDisk {
+            do {
+                let outcome = try NoteWriter.write(marked, to: note.url, expecting: onDisk, ifChanged: .saveCopy)
+                if case .savedAsConflictCopy(let copy) = outcome { continueInCopy(copy) }
+                if isReading {
+                    showWhileReading(marked)
+                } else {
+                    let selection = textView.selectedRange
+                    textView.load(marked)
+                    self.onDisk = marked
+                    noteFrontmatter(of: marked)
+                    textView.selectedRange = NSRange(location: min(selection.location + (marked as NSString).length - (onDisk as NSString).length,
+                                                                    (marked as NSString).length), length: 0)
+                }
+                store.noteMarkedRead(note.id)
+                store.noteEdited(note.id)
+            } catch {
+                saveProblem = "Point couldn’t mark this read (\(error.localizedDescription))."
+                return
+            }
+        }
+        let filed = FolderTree.folder(of: note.id) == store.clippingsFolder
+        if filed {
+            try? FileManager.default.createDirectory(at: store.root.appendingPathComponent(Clipping.readFolder), withIntermediateDirectories: true)
+            move(to: Clipping.readFolder)
+        }
+        store.show(ClipStatus(text: filed ? "Read, and moved to \(Clipping.readFolder)" : "Marked read", symbol: "checkmark.circle"))
+        applyReading()
     }
 
     // MARK: Your notes
@@ -1169,7 +1270,10 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         guard parsed != frontmatter || frontmatter == nil else { return }
         frontmatter = parsed
         header?.showProperties(count: shownProperties.count)
-        if isReading { header?.showReading(Reading.byline(of: parsed, minutes: minutesToRead)) }
+        if isReading {
+            header?.showReading(Reading.byline(of: parsed, minutes: minutesToRead))
+            updateEndRoom()
+        }
         showList(ListDefinition(frontmatter: parsed))
         let typeProperty = store.kinds.property
         let type = parsed?.properties.first { $0.key.caseInsensitiveCompare(typeProperty) == .orderedSame }?
@@ -1387,6 +1491,11 @@ final class NoteHeader: UIView {
         byline.textColor = .secondaryLabel
         byline.numberOfLines = 0
         byline.isHidden = true
+        // Reading, the byline stands for the properties: tapped, they open.
+        byline.isUserInteractionEnabled = true
+        byline.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(bylineTapped)))
+        byline.accessibilityTraits = .button
+        byline.accessibilityHint = "Shows the properties."
         addSubview(byline)
         properties.addAction(UIAction { [weak self] _ in self?.onProperties?() }, for: .touchUpInside)
         related.addAction(UIAction { [weak self] _ in self?.onRelated?() }, for: .touchUpInside)
@@ -1396,6 +1505,8 @@ final class NoteHeader: UIView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("Not used") }
+
+    @objc private func bylineTapped() { onProperties?() }
 
     /// A pale grey capsule.
     private static func button() -> UIButton {
@@ -1567,6 +1678,9 @@ struct EditorView: UIViewRepresentable {
         textView.header = header
         let bar = FormatBar(textView: textView)
         textView.inputAccessoryView = bar
+        // The title has the bar too, for hiding the keyboard; its tools are hidden there.
+        title.inputAccessoryView = bar
+        bar.onHideKeyboard = { [weak session] in session?.hideKeyboard() }
         session.formatBar = bar
         bar.linkText = { [weak session] in session?.store.linkText(forTitle: $0) ?? $0 }
         textView.onCompletionChange = { [weak bar, weak session] completion in

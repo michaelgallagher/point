@@ -363,6 +363,10 @@ final class PhoneStore: ObservableObject {
         let changed = (try? await index.update(notes: scanned)) ?? 0
         if changed > 0 || tagsByNote.isEmpty, let tags = try? await index.tagsByNote() { tagsByNote = tags }
         if changed > 0 || propertyNames.isEmpty, let names = try? await index.propertyNames() { propertyNames = names }
+        if changed > 0 || !hasNoteDetails, let values = try? await index.firstValues(of: [kinds.property, "format", "read"]) {
+            noteDetails = values.mapValues { NoteDetail(values: $0, typeProperty: kinds.property.lowercased()) }
+            hasNoteDetails = true
+        }
         if changed > 0 {
             indexUpdates += 1
             PhoneVault.log("indexed \(changed) notes in \(Int((CACurrentMediaTime() - indexStart) * 1000)) ms")
@@ -436,6 +440,30 @@ final class PhoneStore: ObservableObject {
     }
 
     /// Tags for completing a `#tag`: those starting with the typed text.
+    /// Values for a property, as chips under its field, as on the Mac: the values other notes
+    /// give it, starting with what's typed, then with a word starting with it (the most used
+    /// first, with nothing typed); while a `[[link` is typed, notes to link to. Each once,
+    /// whether written as a link or not, less those given already.
+    func propertySuggestions(forKey key: String, typed: String, excluding: [String] = [], limit: Int = 6) -> [String] {
+        let trimmed = typed.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("[[") {
+            let partial = String(trimmed.dropFirst(2)).replacingOccurrences(of: "]]", with: "")
+            let taken = Set(excluding.map { (PropertyLinks.linkedName($0) ?? $0).lowercased() })
+            return Array(titleSuggestions(for: partial).filter { !taken.contains($0.lowercased()) }
+                .prefix(limit).map { "[[\(linkText(forTitle: $0))]]" })
+        }
+        let query = trimmed.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        func shown(_ value: String) -> String { value.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]")) }
+        let taken = Set(excluding.map(shown))
+        let values = (propertyValues[key.lowercased()] ?? []).filter { !taken.contains(shown($0.value)) && shown($0.value) != query }
+        let starting = values.filter { shown($0.value).hasPrefix(query) }
+        let wordStarting = query.isEmpty ? [] : values.filter {
+            !shown($0.value).hasPrefix(query) && shown($0.value).split(separator: " ").contains { $0.hasPrefix(query) }
+        }
+        var seen = Set<String>()
+        return Array((starting + wordStarting).map(\.value).filter { seen.insert(shown($0)).inserted }.prefix(limit))
+    }
+
     func tagSuggestions(for partial: String) -> [String] {
         let query = partial.lowercased()
         return Array(tags.map(\.tag).filter { $0.lowercased().hasPrefix(query) }.prefix(20))
@@ -580,6 +608,70 @@ final class PhoneStore: ObservableObject {
             propertyTypes.set(definition.type.baseType, forKey: key)
             saveTypes()
         }
+    }
+
+    /// A clip waiting on whether it's in the vault already (`clip`).
+    @Published var clipQuestion: ClipQuestion?
+    /// Something that went wrong acting on a note from a list (marking it read), until dismissed.
+    @Published var listProblem: String?
+    /// Each note's type, format and read date, for lists of notes to show under its title.
+    @Published private(set) var noteDetails: [Note.ID: NoteDetail] = [:]
+    private var hasNoteDetails = false
+
+    /// What a list shows under a note's title: its format and where it is for a clip ("Article
+    /// · Sources"), its type for another typed note ("Meeting"), else its folder. `inFolder`:
+    /// the list is a folder's, so the folder isn't said again.
+    func detail(of note: Note, inFolder: Bool = false) -> String? {
+        let detail = noteDetails[note.id]
+        let folder = FolderTree.folder(of: note.id)
+        let folderName = folder.isEmpty || inFolder ? nil : (folder as NSString).lastPathComponent
+        if isClip(note) {
+            return [detail?.format ?? detail?.type, folderName].compactMap { $0 }.joined(separator: " · ")
+        }
+        return detail?.type ?? folderName
+    }
+
+    /// Whether a note is of the clip kind (Media), which can be read and marked read.
+    func isClip(_ note: Note) -> Bool {
+        guard let type = noteDetails[note.id]?.type, let kind = Clipping.kind(in: kinds) else { return false }
+        return type.caseInsensitiveCompare(kind.name) == .orderedSame
+    }
+
+    /// A clip with `read` set.
+    func isRead(_ note: Note) -> Bool { noteDetails[note.id]?.read != nil }
+
+    /// Where clips wait to be read: the clip kind's folder.
+    var clippingsFolder: String { Clipping.kind(in: kinds)?.folder ?? Clipping.defaultFolder }
+
+    /// Whether a clip is waiting in the clippings folder, to be filed once read.
+    func isWaiting(_ note: Note) -> Bool { FolderTree.folder(of: note.id) == clippingsFolder }
+
+    /// Mark read (`read:` today) and, from the clippings folder, file in Sources: from a list.
+    func markReadAndFile(_ id: Note.ID) {
+        guard let note = note(id) else { return }
+        do {
+            let disk = try NoteReader.read(note)
+            let marked = Clipping.markingRead(disk)
+            if marked != disk { _ = try NoteWriter.write(marked, to: note.url, expecting: disk, ifChanged: .saveCopy) }
+            noteDetails[id, default: NoteDetail()].read = Clipping.today()
+            let filed = isWaiting(note)
+            if filed { _ = try fileInSources(id) }
+            show(ClipStatus(text: filed ? "Read, and moved to \(Clipping.readFolder)" : "Marked read", symbol: "checkmark.circle"))
+            refresh()
+        } catch {
+            listProblem = "Point couldn’t mark “\(note.title)” read (\(error.localizedDescription))."
+        }
+    }
+
+    /// A note just marked read where it's open, so lists show it before the index catches up.
+    func noteMarkedRead(_ id: Note.ID) { noteDetails[id, default: NoteDetail()].read = Clipping.today() }
+
+    /// Moves a clip into Sources, making the folder if the vault hasn't one.
+    func fileInSources(_ id: Note.ID) throws -> (note: Note, links: Task<Void, Never>) {
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(Clipping.readFolder), withIntermediateDirectories: true)
+        let moved = try move(id, toFolder: Clipping.readFolder)
+        if let detail = noteDetails.removeValue(forKey: id) { noteDetails[moved.note.id] = detail }
+        return moved
     }
 
     /// The values each property is given across the vault (by its name, lowercased), most used
@@ -1334,6 +1426,8 @@ final class PhoneSearch: ObservableObject {
     /// Where the bar's search field was when Search opened, in the window, for Search's field
     /// to open out from (nil when Search opened from elsewhere).
     private(set) var from: CGRect?
+    /// The note on screen, if one is: Search doesn't offer it among the recent notes.
+    var noteShowing: Note.ID?
     private var task: Task<Void, Never>?
 
     /// Opens Search, from the bar's field at `frame`, or from nowhere in particular.
@@ -1380,6 +1474,26 @@ enum PropertyLinks {
 
 // MARK: Clipping
 
+/// A page that may be in the vault already: the notes it may be, to open one, clip it anyway,
+/// or not. Answered once (`answer`), however it's closed.
+final class ClipQuestion: Identifiable {
+    enum Decision { case open(Note.ID), clip, cancel }
+    let title: String
+    let matches: [ClipMatching.Match]
+    private var resume: ((Decision) -> Void)?
+
+    init(title: String, matches: [ClipMatching.Match], resume: @escaping (Decision) -> Void) {
+        self.title = title
+        self.matches = matches
+        self.resume = resume
+    }
+
+    @MainActor func answer(_ decision: Decision) {
+        resume?(decision)
+        resume = nil
+    }
+}
+
 /// How a clip is going, shown over home and the note: working, then done (for a moment).
 struct ClipStatus: Equatable {
     var text: String
@@ -1401,6 +1515,14 @@ extension PhoneStore {
                 show(ClipStatus(text: "Clipped before", symbol: "doc.on.doc"))
                 return
             }
+            // Perhaps clipped before at another address, or under a title all but the same.
+            let candidates = await clipCandidates()
+            var asked = false
+            let early = ClipMatching.nearMisses(url: request.url, title: request.title, among: candidates)
+            if !early.isEmpty {
+                asked = true
+                guard await decide(early, title: request.title ?? request.url.host ?? "This page") else { return }
+            }
             let shownTitle = request.title ?? request.url.host ?? "the page"
             clipStatus = ClipStatus(text: "Clipping “\(shownTitle)”…", symbol: "scissors", isWorking: true)
             let (clip, couldRead) = await Clipping.read(request)
@@ -1409,6 +1531,14 @@ extension PhoneStore {
                 linkedRoute = .note(existing)
                 show(ClipStatus(text: "Clipped before", symbol: "doc.on.doc"))
                 return
+            }
+            // Its title, now it's known (the link may not have said), or where it led.
+            if !asked {
+                let late = ClipMatching.nearMisses(url: clip.url, title: clip.title, among: candidates)
+                if !late.isEmpty {
+                    clipStatus = nil
+                    guard await decide(late, title: clip.title) else { return }
+                }
             }
             let kind = Clipping.kind(in: kinds)
             let folder = kind?.folder ?? Clipping.defaultFolder
@@ -1424,6 +1554,30 @@ extension PhoneStore {
             linkedRoute = .note(id)
             show(couldRead ? ClipStatus(text: "Clipped to \(folder)", symbol: "checkmark.circle")
                  : ClipStatus(text: "Couldn’t read the page, so the note has its link", symbol: "exclamationmark.triangle"))
+        }
+    }
+
+    /// Every note, with where it was clipped from if it says, to look for near misses in.
+    private func clipCandidates() async -> [ClipMatching.Candidate] {
+        let sources = (try? await searchIndex?.firstValues(of: ["source"])) ?? [:]
+        return notes.map { ClipMatching.Candidate(id: $0.id, title: $0.title, source: sources[$0.id]?["source"]) }
+    }
+
+    /// Asks whether a page that may be in the vault already should be clipped: true to clip it
+    /// anyway. Opening one of the notes, or cancelling, is false.
+    private func decide(_ matches: [ClipMatching.Match], title: String) async -> Bool {
+        clipStatus = nil
+        let decision = await withCheckedContinuation { continuation in
+            clipQuestion = ClipQuestion(title: title, matches: matches) { continuation.resume(returning: $0) }
+        }
+        switch decision {
+        case .clip:
+            return true
+        case .open(let id):
+            linkedRoute = .note(id)
+            return false
+        case .cancel:
+            return false
         }
     }
 
@@ -1443,7 +1597,7 @@ extension PhoneStore {
     }
 
     /// Shows how it went, for a few seconds.
-    private func show(_ status: ClipStatus) {
+    func show(_ status: ClipStatus) {
         clipStatus = status
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 3_000_000_000)
@@ -1457,5 +1611,20 @@ extension PhoneStore {
             if let id = await notes(withSource: address) { return id }
         }
         return nil
+    }
+}
+
+/// A note's type, format and read date, as its properties give them.
+struct NoteDetail: Equatable {
+    var type: String?
+    var format: String?
+    var read: String?
+
+    init() {}
+
+    init(values: [String: String], typeProperty: String) {
+        type = values[typeProperty]
+        format = values["format"]
+        read = values["read"]
     }
 }

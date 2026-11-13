@@ -4,7 +4,7 @@ import VaultKit
 
 /// Search: Point's own, not the system's `.searchable`. The bar's search field (`SearchCapsule`)
 /// opens Search (`SearchLayer`) over everything, in place: its field opens out from the bar's and
-/// rides up with the keyboard, and its lists (recent notes and bookmarks, or results as you type)
+/// rides up with the keyboard, and its lists (recent notes, bookmarks and searches, or results as you type)
 /// fade in over the page. Nothing under it moves. With the system's field, iOS moved the field
 /// from the bar to over the keyboard and took the bar out of the page's safe area as Search
 /// started and ended, moving the page, and hiding that meant cuts and waits.
@@ -309,10 +309,27 @@ private struct SearchList: View {
         .contentMargins(.bottom, 72, for: .scrollContent)
     }
 
-    /// Before typing: recent searches, to run again. Recent notes and bookmarks are on home, so
-    /// they aren't repeated here.
+    /// Before typing: the notes last opened, then bookmarks, for going straight between them,
+    /// then recent searches, to run again. The note showing isn't offered.
     @ViewBuilder private var lists: some View {
-        let searches = store.recentSearches(limit: 8)
+        let showing = search.noteShowing
+        let recent = store.recentlyOpened(limit: 6, excluding: showing)
+        if !recent.isEmpty {
+            Section("Recent") {
+                ForEach(recent) { note in row(note.id) { NoteRow(title: note.title, detail: store.detail(of: note)) } }
+            }
+        }
+        let bookmarks = store.bookmarks.filter { $0.path != showing }.compactMap { bookmark in
+            store.note(bookmark.path).map { (note: $0, title: bookmark.title) }
+        }
+        if !bookmarks.isEmpty {
+            Section("Bookmarks") {
+                ForEach(bookmarks, id: \.note.id) { bookmark in
+                    row(bookmark.note.id) { Label(bookmark.title ?? bookmark.note.title, systemImage: "bookmark") }
+                }
+            }
+        }
+        let searches = store.recentSearches(limit: 5)
         if !searches.isEmpty {
             Section("Recent searches") {
                 ForEach(searches, id: \.self) { query in

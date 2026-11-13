@@ -103,5 +103,10 @@ struct ListDefinitionTests {
         let values = try await index.propertyValues(["Author", "published"], of: ["Sources/Dune.md"])
         #expect(values["Sources/Dune.md"]?["author"] == ["Frank Herbert"])
         #expect(values["Sources/Dune.md"]?["published"] == ["1965"])
+        // Every note's first value of some properties, for lists' rows: a blank `read:` is none.
+        let first = try await index.firstValues(of: ["format", "Read"])
+        #expect(first["Sources/Read already.md"] == ["format": "Book", "read": "2024-01-01"])
+        #expect(first["Sources/Blank read.md"] == ["format": "Book"])
+        #expect(first["Sources/Talk.md"]?["format"] == "Video")
     }
 }
