@@ -118,6 +118,7 @@ private struct NoteHeader: View {
                 ListPanel(list: list, session: session, model: model, store: model.store, paneID: paneID)
             }
             if shownFrontmatter == nil || model.showsMarkdown(inPane: paneID) {
+                BookmarkReadout(store: model.store, note: session.note.id, standalone: true)
                 RelatedReadout(connections: model.connections(for: session.note), model: model, paneID: paneID, standalone: true)
             }
             if offersTemplates, session.isEmpty {

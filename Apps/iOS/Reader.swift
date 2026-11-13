@@ -118,6 +118,13 @@ final class ReadingPlaces {
         save()
     }
 
+    /// A note read to the end and marked read: it opens at the top next time.
+    func forget(_ id: Note.ID) {
+        guard places.removeValue(forKey: id) != nil else { return }
+        order.removeAll { $0 == id }
+        save()
+    }
+
     /// A note renamed or moved: its place follows it.
     func renamed(from id: Note.ID, to newID: Note.ID) {
         guard id != newID, let place = places.removeValue(forKey: id) else { return }

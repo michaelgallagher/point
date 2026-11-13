@@ -654,6 +654,8 @@ final class PhoneStore: ObservableObject {
             let marked = Clipping.markingRead(disk)
             if marked != disk { _ = try NoteWriter.write(marked, to: note.url, expecting: disk, ifChanged: .saveCopy) }
             noteDetails[id, default: NoteDetail()].read = Clipping.today()
+            // Read: next time, it opens at the top.
+            places.forget(id)
             let filed = isWaiting(note)
             if filed { _ = try fileInSources(id) }
             show(ClipStatus(text: filed ? "Read, and moved to \(Clipping.readFolder)" : "Marked read", symbol: "checkmark.circle"))

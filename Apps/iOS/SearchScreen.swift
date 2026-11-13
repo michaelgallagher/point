@@ -315,7 +315,7 @@ private struct SearchList: View {
         let showing = search.noteShowing
         let recent = store.recentlyOpened(limit: 6, excluding: showing)
         if !recent.isEmpty {
-            Section("Recent") {
+            Section("Recent notes") {
                 ForEach(recent) { note in row(note.id) { NoteRow(title: note.title, detail: store.detail(of: note)) } }
             }
         }

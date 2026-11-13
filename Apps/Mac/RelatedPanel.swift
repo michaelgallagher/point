@@ -203,6 +203,34 @@ enum LinksPlacement: String, CaseIterable, Identifiable {
 /// meetings · last on 21 October", "23 notes on Org design", or with nothing shared, "12 links
 /// (articles by this person, mentions, and meetings with this person)". Clicking it opens the
 /// panel, or closes it. Nothing while there's nothing, or while the index is being asked.
+/// A bookmarked note says so, as a line like the properties' and the links': a filled bookmark
+/// in the icon column, then "Bookmarked". Its menu removes the bookmark.
+struct BookmarkReadout: View {
+    @ObservedObject var store: VaultStore
+    let note: Note.ID
+    /// Alone under the title, not in the properties: spaced as they'd be.
+    var standalone = false
+
+    var body: some View {
+        if store.isBookmarked(note) {
+            HStack(spacing: 4) {
+                Image(systemName: "bookmark.fill")
+                    .font(.caption)
+                    .frame(width: PropertiesStrip.chevronWidth)
+                Text("Bookmarked")
+                    .lineLimit(1)
+            }
+            .foregroundStyle(.secondary)
+            .contentShape(Rectangle())
+            .contextMenu {
+                Button("Remove Bookmark") { store.toggleBookmark(note) }
+            }
+            .accessibilityElement(children: .combine)
+            .modifier(RelatedReadout.Standalone(isOn: standalone, columnWidth: store.textColumnWidth))
+        }
+    }
+}
+
 struct RelatedReadout: View {
     @ObservedObject var connections: Connections
     @ObservedObject var model: VaultModel
@@ -238,7 +266,7 @@ struct RelatedReadout: View {
     }
 
     /// Spaced as the properties are, under the title.
-    private struct Standalone: ViewModifier {
+    struct Standalone: ViewModifier {
         let isOn: Bool
         let columnWidth: Double
         func body(content: Content) -> some View {
