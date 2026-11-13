@@ -755,14 +755,14 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     // MARK: Marking read
 
     /// What marking this clip read is called, if it can be: "Mark read", or from the clippings
-    /// folder, "Mark read, move to Sources". Nil for other notes, or a clip read and filed.
+    /// folder, "Mark read and move to Sources". Nil for other notes, or a clip read and filed.
     var markReadLabel: String? {
         guard canRead else { return nil }
         let waiting = FolderTree.folder(of: note.id) == store.clippingsFolder
         let read = frontmatter?.properties.contains {
             $0.key.caseInsensitiveCompare(Clipping.readProperty) == .orderedSame && $0.values.contains { !$0.isEmpty }
         } ?? false
-        if waiting { return read ? "Move to \(Clipping.readFolder)" : "Mark read, move to \(Clipping.readFolder)" }
+        if waiting { return read ? "Move to \(Clipping.readFolder)" : "Mark read and move to \(Clipping.readFolder)" }
         return read ? nil : "Mark read"
     }
 

@@ -238,9 +238,7 @@ struct HomeScreen: View {
         case .kind(let name):
             KindScreen(name: name).pageBar(add {
                 if let kind = store.kinds.kind(named: name) { createNote(kind: kind) } else { createNote() }
-            }, sorts: true) {
-                if Clipping.kind(in: store.kinds)?.name == name { UnreadOnlyToggle() }
-            }
+            }, sorts: true)
         case .tag(let tag):
             TagScreen(tag: tag).pageBar(add { createNote(text: Frontmatter.edit(adding: "tags", values: [tag], isList: true).1) }, sorts: true) {
                 FavouriteButton(favourite: .tag(tag))
@@ -573,33 +571,41 @@ struct KindScreen: View {
 }
 
 /// Watches the query, which runs in the background, and lists what it finds. The clip kind's
-/// list can show only what's not yet read.
+/// list can show only what's not yet read, chosen under its title.
 private struct KindNotes: View {
     @EnvironmentObject private var store: PhoneStore
     let name: String
     @ObservedObject var embeds: PhoneEmbeds
-    @AppStorage(UnreadOnlyToggle.key) private var unreadOnly = false
+    /// Kept on the phone.
+    @AppStorage("mediaUnreadOnly") private var unreadOnly = false
 
     var body: some View {
         let ids = embeds.noteIDs(matching: NoteQuery([.property(store.kinds.property, .equals(name))]))
         let found = Set(ids ?? [])
-        let filters = unreadOnly && Clipping.kind(in: store.kinds)?.name == name
+        let isClips = Clipping.kind(in: store.kinds)?.name == name
+        let filters = unreadOnly && isClips
         let notes = store.notes.filter { found.contains($0.id) && !(filters && store.isRead($0)) }.sorted(by: store.sort)
-        List { NoteSections(notes: notes) }
-            .pageTitle(filters ? "Unread" : NoteKinds.plural(name))
-            .overlay { if ids != nil, notes.isEmpty {
-                ContentUnavailableView(filters ? "Nothing unread" : "No notes", systemImage: filters ? "checkmark.circle" : "doc.text")
-            } }
-    }
-}
-
-/// The clip kind's list: everything, or only what's not yet read. Kept on the phone.
-private struct UnreadOnlyToggle: View {
-    static let key = "mediaUnreadOnly"
-    @AppStorage(key) private var unreadOnly = false
-
-    var body: some View {
-        Toggle("Unread only", systemImage: "circle", isOn: $unreadOnly)
+        List {
+            if isClips {
+                Section {
+                    Picker("Show", selection: $unreadOnly) {
+                        Text("All").tag(false)
+                        Text("Unread").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                }
+                if ids != nil, notes.isEmpty {
+                    ContentUnavailableView(filters ? "Nothing unread" : "No notes", systemImage: filters ? "checkmark.circle" : "doc.text")
+                        .listRowBackground(Color.clear)
+                }
+            }
+            NoteSections(notes: notes)
+        }
+        .pageTitle(NoteKinds.plural(name))
+        .overlay { if !isClips, ids != nil, notes.isEmpty { ContentUnavailableView("No notes", systemImage: "doc.text") } }
     }
 }
 
@@ -1226,33 +1232,37 @@ struct NoteRow: View {
     var detail: String?
     /// A list note, marked "List" at the right.
     var isList = false
-    /// A clip: whether it's been read, shown at the left as a check or an empty circle.
+    /// A clip: whether it's been read, shown at the right, level with the middle of the row,
+    /// as a check or an empty circle.
     var read: Bool?
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
+        HStack(alignment: .center, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                    if let detail, !detail.isEmpty {
+                        Text(detail)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+                if isList {
+                    Spacer(minLength: 8)
+                    Text("List")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color(.tertiarySystemFill)))
+                }
+            }
             if let read {
+                Spacer(minLength: 0)
                 Image(systemName: read ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(read ? AnyShapeStyle(Color.green) : AnyShapeStyle(.tertiary))
                     .accessibilityLabel(read ? "Read" : "Not read")
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                if let detail, !detail.isEmpty {
-                    Text(detail)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-            }
-            if isList {
-                Spacer(minLength: 8)
-                Text("List")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 1)
-                    .background(Capsule().fill(Color(.tertiarySystemFill)))
             }
         }
     }
