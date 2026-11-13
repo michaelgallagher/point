@@ -140,6 +140,9 @@ struct NoteScreen: View {
             .onChange(of: store.showsMarkdown) { _, shows in session.showMarkdown(shows) }
             .onChange(of: store.typography) { _, _ in session.applyReading() }
             .onChange(of: store.reader) { _, _ in session.applyReading() }
+            // Bookmarked or not, here or on another device, or the note renamed.
+            .onReceive(store.$bookmarks) { _ in DispatchQueue.main.async { session.updateMarks() } }
+            .onReceive(session.$note) { _ in DispatchQueue.main.async { session.updateMarks() } }
             // The index has taken in changed notes: what links here may have changed.
             .onChange(of: store.indexUpdates) { _, _ in session.refreshRelated() }
             .onDisappear {
@@ -275,6 +278,9 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     @Published private(set) var barsHidden = false
     private var scrolling: NSKeyValueObservation?
     private var pendingPlace: Task<Void, Never>?
+    /// Marked read where reading ended: opened again, it starts at the top, unless the reader
+    /// goes back into it first, when the place is kept as ever.
+    private var startsOverNextTime = false
     /// Why a title couldn't be used (the name's taken, say), until dismissed.
     @Published private(set) var titleProblem: String?
 
@@ -612,6 +618,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         }
         titleField?.setReading(isReading, serif: reader.isSerif)
         header?.showReading(isReading ? Reading.byline(of: frontmatter, minutes: minutesToRead) : nil)
+        updateMarks()
         textView.setNeedsLayout()
         if let top {
             textView.layoutIfNeeded()
@@ -660,6 +667,8 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     private func scrolled() {
         guard isReading else { return }
         updateProgress()
+        // Gone back into it after marking it read: its place counts again.
+        if startsOverNextTime, textView?.isTracking == true, progress < 0.97 { startsOverNextTime = false }
         hideOrShowBars()
         // Kept once scrolling stops, not at every step.
         pendingPlace?.cancel()
@@ -759,11 +768,21 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     var markReadLabel: String? {
         guard canRead else { return nil }
         let waiting = FolderTree.folder(of: note.id) == store.clippingsFolder
-        let read = frontmatter?.properties.contains {
-            $0.key.caseInsensitiveCompare(Clipping.readProperty) == .orderedSame && $0.values.contains { !$0.isEmpty }
-        } ?? false
+        let read = hasReadDate
         if waiting { return read ? "Move to \(Clipping.readFolder)" : "Mark read and move to \(Clipping.readFolder)" }
         return read ? nil : "Mark read"
+    }
+
+    /// Whether the note says when it was read (`read:`, filled in).
+    private var hasReadDate: Bool {
+        frontmatter?.properties.contains {
+            $0.key.caseInsensitiveCompare(Clipping.readProperty) == .orderedSame && $0.values.contains { !$0.isEmpty }
+        } ?? false
+    }
+
+    /// Shows, at the top, whether the note's been read (a clip, while reading) and is bookmarked.
+    func updateMarks() {
+        header?.showMarks(completed: canRead && hasReadDate, bookmarked: store.isBookmarked(note.id))
     }
 
     /// Room under the text for Mark read, at the end of a clip still to be marked.
@@ -806,6 +825,8 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
             move(to: Clipping.readFolder)
         }
         store.show(ClipStatus(text: filed ? "Read, and moved to \(Clipping.readFolder)" : "Marked read", symbol: "checkmark.circle"))
+        startsOverNextTime = true
+        store.places.forget(note.id)
         applyReading()
     }
 
@@ -1008,6 +1029,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     func keepPlace() {
         guard canRead, let textView, textView.textStorage.length > 0 else { return }
         pendingPlace?.cancel()
+        if startsOverNextTime { return store.places.forget(note.id) }
         store.places.keep(Reading.place(at: textView.topVisibleLocation, in: textView.text), for: note.id)
     }
 
@@ -1275,6 +1297,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
             header?.showReading(Reading.byline(of: parsed, minutes: minutesToRead))
             updateEndRoom()
         }
+        updateMarks()
         showList(ListDefinition(frontmatter: parsed))
         let typeProperty = store.kinds.property
         let type = parsed?.properties.first { $0.key.caseInsensitiveCompare(typeProperty) == .orderedSame }?
@@ -1448,8 +1471,16 @@ final class NoteHeader: UIView {
     let title = TitleView()
     var onProperties: (() -> Void)?
     var onRelated: (() -> Void)?
+    var onRemoveBookmark: (() -> Void)?
     private let properties = NoteHeader.button()
+    /// A bookmarked note: a filled bookmark, between the properties and what's related.
+    private let bookmark = NoteHeader.button()
     private let related = NoteHeader.button()
+    /// Read (a `read` date) and bookmarked: while reading, said on a line of their own under the
+    /// byline; writing, the bookmark is a button.
+    private var isCompleted = false
+    private var isBookmarked = false
+    private var bylineText: String?
     /// While reading: who wrote it, where, when, and how long it takes to read, in place of
     /// the buttons.
     private let byline = UILabel()
@@ -1486,6 +1517,7 @@ final class NoteHeader: UIView {
         super.init(frame: .zero)
         addSubview(title)
         addSubview(properties)
+        addSubview(bookmark)
         addSubview(related)
         byline.font = .preferredFont(forTextStyle: .subheadline)
         byline.adjustsFontForContentSizeCategory = true
@@ -1500,6 +1532,14 @@ final class NoteHeader: UIView {
         addSubview(byline)
         properties.addAction(UIAction { [weak self] _ in self?.onProperties?() }, for: .touchUpInside)
         related.addAction(UIAction { [weak self] _ in self?.onRelated?() }, for: .touchUpInside)
+        bookmark.configuration?.image = UIImage(systemName: "bookmark.fill", withConfiguration: UIImage.SymbolConfiguration(textStyle: .footnote))
+        bookmark.configuration?.contentInsets = NSDirectionalEdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10)
+        bookmark.accessibilityLabel = "Bookmarked"
+        bookmark.menu = UIMenu(children: [UIAction(title: "Remove bookmark", image: UIImage(systemName: "bookmark.slash")) { [weak self] _ in
+            self?.onRemoveBookmark?()
+        }])
+        bookmark.showsMenuAsPrimaryAction = true
+        bookmark.isHidden = true
         showProperties(count: 0)
         showRelated(nil, icon: "link")
     }
@@ -1550,14 +1590,59 @@ final class NoteHeader: UIView {
     /// Reading, with this line under the title, or writing (nil), with the buttons.
     func showReading(_ line: String?) {
         isReading = line != nil
-        byline.text = line
+        bylineText = line
         byline.isHidden = line == nil
-        for button in [properties, related] { button.alpha = isReading ? 0 : 1 }
+        for button in [properties, bookmark, related] { button.alpha = isReading ? 0 : 1 }
+        showByline()
+    }
+
+    /// Whether the note's been read (reading, "Completed" under the byline) and is bookmarked.
+    func showMarks(completed: Bool, bookmarked: Bool) {
+        guard completed != isCompleted || bookmarked != isBookmarked else { return }
+        isCompleted = completed
+        isBookmarked = bookmarked
+        bookmark.isHidden = !bookmarked
+        showByline()
+    }
+
+    /// The byline, and under it, what's true of the note: completed, bookmarked.
+    private func showByline() {
+        guard let bylineText else {
+            byline.attributedText = nil
+            setNeedsLayout()
+            return
+        }
+        let font = UIFont.preferredFont(forTextStyle: .subheadline)
+        let text = NSMutableAttributedString(string: bylineText, attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel])
+        var marks: [NSAttributedString] = []
+        if isCompleted { marks.append(Self.mark("checkmark.circle.fill", tint: .systemGreen, "Completed", font: font)) }
+        if isBookmarked { marks.append(Self.mark("bookmark.fill", tint: .secondaryLabel, "Bookmarked", font: font)) }
+        if !marks.isEmpty {
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.paragraphSpacingBefore = 4
+            let line = NSMutableAttributedString(string: "\n", attributes: [.font: font])
+            for (index, mark) in marks.enumerated() {
+                if index > 0 { line.append(NSAttributedString(string: "    ", attributes: [.font: font])) }
+                line.append(mark)
+            }
+            line.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 1, length: line.length - 1))
+            text.append(line)
+        }
+        byline.attributedText = text
         setNeedsLayout()
     }
 
+    /// A symbol, then a word: "✓ Completed".
+    private static func mark(_ symbol: String, tint: UIColor, _ word: String, font: UIFont) -> NSAttributedString {
+        let image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(font: font))?
+            .withTintColor(tint, renderingMode: .alwaysOriginal)
+        let mark = NSMutableAttributedString(attachment: NSTextAttachment(image: image ?? UIImage()))
+        mark.append(NSAttributedString(string: "\u{2009}" + word, attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel]))
+        return mark
+    }
+
     /// The buttons showing, in order; none while reading.
-    private var buttons: [UIButton] { isReading ? [] : [properties, related].filter { !$0.isHidden } }
+    private var buttons: [UIButton] { isReading ? [] : [properties, bookmark, related].filter { !$0.isHidden } }
 
     private static let bylineGap: CGFloat = 6
     private func bylineHeight(width: CGFloat) -> CGFloat {
@@ -1676,6 +1761,10 @@ struct EditorView: UIViewRepresentable {
         session.header = header
         header.onProperties = { [weak session] in session?.showsProperties = true }
         header.onRelated = { [weak session] in session?.showsRelated = true }
+        header.onRemoveBookmark = { [weak session] in
+            guard let session else { return }
+            session.store.toggleBookmark(session.note.id)
+        }
         textView.header = header
         let bar = FormatBar(textView: textView)
         textView.inputAccessoryView = bar
