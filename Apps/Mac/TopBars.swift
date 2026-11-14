@@ -40,6 +40,12 @@ enum TopBar {
     /// A bar's icons: the symbol alone, in a square this size, shaded on hover.
     static let iconSize: CGFloat = 28
     static let iconFontSize: CGFloat = 15
+    /// The sidebar button's symbol, a wide box of thin lines, reads small at 15 points beside
+    /// the window buttons; a little larger, it's nearer the system's own sidebar button.
+    static let sidebarIconFontSize: CGFloat = 17
+    /// Back and forward's width each in a narrow bar: the chevrons are thin, and at the full
+    /// square they look far apart.
+    static let narrowArrowWidth: CGFloat = 22
     static let iconCornerRadius: CGFloat = 7
 
     /// How much of a side the top bar covers: the title bar's row.
@@ -151,7 +157,7 @@ struct PaneTabBar: View {
     var body: some View {
         HStack(spacing: TopBar.buttonSpacing) {
             if !hidesHistory {
-                BackForwardButtons(paneIndex: paneIndex)
+                BackForwardButtons(paneIndex: paneIndex, isNarrow: width > 0 && width < Self.narrowWidth)
             }
             // No tabs for just one note.
             if pane.tabs.count > 1 {
@@ -173,7 +179,9 @@ struct PaneTabBar: View {
         // glide with the notes, staying clear of the window buttons, rather than jumping. (Only
         // an animation moves during the window's animation; nothing is laid out again.)
         .animation(.easeInOut(duration: 0.25), value: startsAtWindowEdge)
-        .padding(.trailing, TopBar.edgeInset)
+        // As far from the side's edge as from the top, so the menu's hover square sits evenly
+        // in the corner.
+        .padding(.trailing, max((model.topBarHeight - TopBar.iconSize) / 2, TopBar.edgeInset))
         .frame(height: model.topBarHeight)
         .background(WindowDragArea())
         // A tab dropped on the bar, past the tabs, goes at the end of this side's tabs.
@@ -241,7 +249,6 @@ struct PaneTabs: View {
                         isCurrent: index == pane.current,
                         isActiveSide: paneIndex == model.activePane,
                         showsLine: next != nil && index != pane.current && next != pane.current,
-                        cutsFromMiddle: layout.cutsFromMiddle(index),
                         width: layout.widths[index] ?? 0,
                         select: { model.selectTab(index, inPane: paneIndex) },
                         close: { model.closeTab(index, inPane: paneIndex) },
@@ -270,11 +277,12 @@ struct PaneTabs: View {
 /// Where a side's tabs go in the room they have, and what each says. In stages, each tried
 /// only when the one before doesn't fit:
 /// 1. Every tab as wide as its whole title.
-/// 2. Titles shortened (see `TabLabels`), the tabs sharing the room, the widest cut first,
-///    while every tab still shows about ten characters.
+/// 2. The tabs sharing the room, the widest cut first, while every tab still shows about ten
+///    characters.
 /// 3. Compact: the current tab keeps a readable width; the others share what's left.
 /// 4. Compact, with the tabs that still don't fit in a menu at the end of the row: the current
 ///    one, and the others in order up to as many as fit.
+/// Then each tab's title is fitted to its width (see `TabLabels`).
 @MainActor
 struct TabLayout {
     /// Indices of the tabs shown, in order.
@@ -323,11 +331,8 @@ struct TabLayout {
             return
         }
 
-        // 2. Shortened, shared.
-        // The current tab, the one being read, only has its dates shortened.
-        labels = TabLabels.shorten(titles)
-        labels[current] = TabLabels.shortenDates(titles[current])
-        let shared = Self.share(labels.map(full), room(count, overflow: false))
+        // 2. Shared.
+        let shared = Self.share(natural, room(count, overflow: false))
         widths = Dictionary(uniqueKeysWithValues: zip(visible, shared))
         if shared.allSatisfy({ $0 >= Self.comfortable }) {
             finish()
@@ -336,12 +341,11 @@ struct TabLayout {
 
         // 3 and 4. Compact, with fewer tabs shown until they fit.
         isCompact = true
-        let selectedNatural = min(full(labels[current]), Self.selectedWidest)
-        let compact = labels.map(full)
+        let selectedNatural = min(natural[current], Self.selectedWidest)
         for shown in stride(from: count, through: 1, by: -1) {
             let others = Array((0..<count).filter { $0 != current }.prefix(shown - 1))
             let room = room(shown, overflow: shown < count)
-            let othersNatural = others.map { compact[$0] }
+            let othersNatural = others.map { natural[$0] }
             let selected = min(selectedNatural, room - othersNatural.map { min($0, Self.narrowest) }.reduce(0, +))
             let otherWidths = Self.share(othersNatural, room - selected)
             let fits = selected >= min(selectedNatural, Self.selectedNarrowest)
@@ -357,16 +361,9 @@ struct TabLayout {
         }
     }
 
-    /// Whether a tab's title is cut from the middle: when its end is what tells it apart (see
-    /// `TabLabels.cutsFromMiddle`), and only with room for a real start as well, as "Review…3147"
-    /// tells you something and "R…47" doesn't.
-    func cutsFromMiddle(_ index: Int) -> Bool {
-        guard let width = widths[index], labels.indices.contains(index) else { return false }
-        let padding = PaneTab.closeWidth + PaneTab.trailingPadding
-        return TabLabels.cutsFromMiddle(labels[index]) && width - padding >= 80
-    }
-
     private mutating func finish() {
+        let padding = PaneTab.closeWidth + PaneTab.trailingPadding
+        labels = TabLabels.fit(labels, rooms: labels.indices.map { widths[$0].map { $0 - padding } })
         rowWidth = visible.compactMap { widths[$0] }.reduce(0, +)
             + PaneTabs.spacing * CGFloat(max(visible.count - 1, 0)) + PaneTabs.inset * 2
             + (hidden.isEmpty ? 0 : PaneTabs.spacing + Self.overflowWidth)
@@ -393,28 +390,56 @@ struct TabLayout {
     }
 }
 
-/// Tab titles shortened to what tells them apart, for when they don't all fit. Depends only on
-/// which notes are open, not on which is current, so a title doesn't change as you click about.
+/// Tab titles fitted to their tabs. A title that fits is shown whole. One that doesn't has its
+/// dates shortened ("30 Oct" for "2026-10-30") and is cut at its end, as usual, unless what's
+/// left would look like another tab's: then the leading words it shares with that tab go, so
+/// "Weeknote - 2026-11-09" and "Weeknote - 2026-11-02" show as "9 Nov" and "2 Nov", where both
+/// would have been "Week…". (No "…" before them: it took room, and showed on some tabs and not
+/// others, as the rest fitted or didn't.) Titles that already look different where they're cut
+/// are only cut at their ends. The tooltip has the whole title.
 @MainActor
 enum TabLabels {
-    static func shorten(_ titles: [String]) -> [String] {
-        let dated = titles.map(shortenDates)
+    /// `rooms` holds the room for each title's text, or nil for a tab not shown.
+    static func fit(_ titles: [String], rooms: [CGFloat?]) -> [String] {
+        let dated = titles.indices.map { i in
+            guard let room = rooms[i], TabLayout.textWidth(titles[i]) > room else { return titles[i] }
+            return shortenDates(titles[i])
+        }
+        // What each shown tab would say, cut at its end.
+        let seen = titles.indices.map { i in rooms[i].map { visible(dated[i], in: $0) } }
         let words = dated.map { $0.split(separator: " ").map(String.init) }
-        return dated.indices.map { i in
-            // The most leading words this title shares with another, always leaving one.
+        return titles.indices.map { i in
+            guard rooms[i] != nil, let mine = seen[i], mine != dated[i] else { return dated[i] }
+            // The tabs this one would look like: one's start is the other's whole.
+            let twins = titles.indices.filter { j in
+                guard j != i, let theirs = seen[j] else { return false }
+                return theirs.hasPrefix(mine) || mine.hasPrefix(theirs)
+            }
             var shared = 0
-            for j in dated.indices where j != i {
+            for j in twins {
                 var same = 0
-                while same < words[i].count - 1, same < words[j].count - 1, words[i][same] == words[j][same] {
+                while same < words[i].count - 1, same < words[j].count, words[i][same] == words[j][same] {
                     same += 1
                 }
                 shared = max(shared, same)
             }
-            guard shared > 0, words[i][..<shared].joined(separator: " ").count >= 3 else { return dated[i] }
+            guard shared > 0 else { return dated[i] }
             let rest = words[i][shared...].joined(separator: " ")
-                .trimmingCharacters(in: CharacterSet(charactersIn: "-–—·:,").union(.whitespaces))
-            return rest.isEmpty ? dated[i] : "…" + rest
+                .trimmingCharacters(in: CharacterSet(charactersIn: "-–—·:,|").union(.whitespaces))
+            return rest.isEmpty ? dated[i] : rest
         }
+    }
+
+    /// What of `text` shows in `room`, cut at its end (without the "…").
+    static func visible(_ text: String, in room: CGFloat) -> String {
+        guard TabLayout.textWidth(text) > room else { return text }
+        let characters = Array(text)
+        var low = 0, high = characters.count
+        while low < high {
+            let middle = (low + high + 1) / 2
+            if TabLayout.textWidth(String(characters[..<middle]) + "…") <= room { low = middle } else { high = middle - 1 }
+        }
+        return String(characters[..<low]).trimmingCharacters(in: .whitespaces)
     }
 
     /// "2026-10-30" as "30 Oct".
@@ -427,11 +452,6 @@ enum TabLabels {
             result.replaceSubrange(range, with: formatter.string(from: date))
         }
         return result
-    }
-
-    /// Cut from the middle when the end is what tells it apart: a number, as in "Review 3147".
-    static func cutsFromMiddle(_ label: String) -> Bool {
-        label.split(separator: " ").last?.contains(where: \.isNumber) ?? false
     }
 
     private static let parser: DateFormatter = {
@@ -490,7 +510,6 @@ private struct PaneTab: View {
     let isActiveSide: Bool
     /// Whether to draw the line after this tab.
     let showsLine: Bool
-    let cutsFromMiddle: Bool
     let width: CGFloat
     let select: () -> Void
     let close: () -> Void
@@ -515,7 +534,6 @@ private struct PaneTab: View {
             .font(.system(size: Self.fontSize))
             .foregroundStyle((isCurrent && isActiveSide) || isHovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
             .lineLimit(1)
-            .truncationMode(cutsFromMiddle ? .middle : .tail)
             .padding(.leading, Self.closeWidth)
             .padding(.trailing, Self.trailingPadding)
             .frame(width: width, height: Self.height, alignment: .leading)
@@ -616,21 +634,24 @@ enum TabMenu {
 private struct BackForwardButtons: View {
     @EnvironmentObject private var model: VaultModel
     let paneIndex: Int
+    /// In a narrow bar, closer together (see `TopBar.narrowArrowWidth`).
+    var isNarrow = false
 
     var body: some View {
+        let width = isNarrow ? TopBar.narrowArrowWidth : TopBar.iconSize
         HStack(spacing: 0) {
-            BarIcon(symbol: "chevron.left", label: "Back", help: "Back (⌘[)", enabled: model.canTravel(back: true, inPane: paneIndex), weight: .medium) {
+            BarIcon(symbol: "chevron.left", label: "Back", help: "Back (⌘[)", enabled: model.canTravel(back: true, inPane: paneIndex), weight: .medium, width: width) {
                 model.travel(back: true, inPane: paneIndex)
             }
-            BarIcon(symbol: "chevron.right", label: "Forward", help: "Forward (⌘])", enabled: model.canTravel(back: false, inPane: paneIndex), weight: .medium) {
+            BarIcon(symbol: "chevron.right", label: "Forward", help: "Forward (⌘])", enabled: model.canTravel(back: false, inPane: paneIndex), weight: .medium, width: width) {
                 model.travel(back: false, inPane: paneIndex)
             }
         }
     }
 }
 
-/// The side's one menu, at the end of its bar: what can be done with its note, then the split
-/// (opening it, or closing it, which keeps both sides' notes as tabs).
+/// The side's one menu, at the end of its bar: what can be done with its note, deleting it,
+/// then last the split (opening it, or closing it, which keeps both sides' notes as tabs).
 private struct PaneMenuButton: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
@@ -669,15 +690,13 @@ private struct PaneMenuButton: View {
             menu.addItem(markdown)
             menu.addItem(BlockMenuItem("Reveal in Finder") { model.showInFinder(note) })
             menu.addItem(.separator())
+            menu.addItem(BlockMenuItem("Delete File") { model.moveToTrash(note) })
+            menu.addItem(.separator())
         }
         if model.isSplit {
             menu.addItem(BlockMenuItem("Close Split") { model.mergeIntoTabs() })
         } else {
             menu.addItem(BlockMenuItem("Split") { model.toggleSplit() })
-        }
-        if let note {
-            menu.addItem(.separator())
-            menu.addItem(BlockMenuItem("Delete File") { model.moveToTrash(note) })
         }
         return menu
     }
@@ -715,13 +734,15 @@ struct BarIconFace: View {
     var enabled = true
     var isHovering = false
     var weight: Font.Weight = .regular
+    var width = TopBar.iconSize
+    var fontSize = TopBar.iconFontSize
 
     var body: some View {
         Image(systemName: symbol)
-            .font(.system(size: TopBar.iconFontSize, weight: weight))
+            .font(.system(size: fontSize, weight: weight))
             .foregroundStyle(enabled ? AnyShapeStyle(.secondary) : AnyShapeStyle(.quaternary))
             .brightness(isHovering && enabled ? -0.15 : 0)
-            .frame(width: TopBar.iconSize, height: TopBar.iconSize)
+            .frame(width: width, height: TopBar.iconSize)
             .background {
                 RoundedRectangle(cornerRadius: TopBar.iconCornerRadius, style: .continuous)
                     .fill(isHovering && enabled ? TopBar.selectedTabColor : .clear)
@@ -737,11 +758,13 @@ struct BarIcon: View {
     let help: String
     var enabled = true
     var weight: Font.Weight = .regular
+    var width = TopBar.iconSize
+    var fontSize = TopBar.iconFontSize
     let action: () -> Void
     @State private var isHovering = false
 
     var body: some View {
-        BarIconFace(symbol: symbol, enabled: enabled, isHovering: isHovering, weight: weight)
+        BarIconFace(symbol: symbol, enabled: enabled, isHovering: isHovering, weight: weight, width: width, fontSize: fontSize)
             .allowsHitTesting(false) // The click area below takes the clicks.
             .background(ClickArea(enabled: enabled, help: help, action: action))
             .onHover { isHovering = $0 }
@@ -826,17 +849,19 @@ struct BarButton: View {
     let title: String
     let systemImage: String
     let help: String
+    var fontSize = TopBar.iconFontSize
     let action: () -> Void
 
-    init(_ title: String, systemImage: String, help: String, action: @escaping () -> Void) {
+    init(_ title: String, systemImage: String, help: String, fontSize: CGFloat = TopBar.iconFontSize, action: @escaping () -> Void) {
         self.title = title
         self.systemImage = systemImage
         self.help = help
+        self.fontSize = fontSize
         self.action = action
     }
 
     var body: some View {
-        BarIcon(symbol: systemImage, label: title, help: help, action: action)
+        BarIcon(symbol: systemImage, label: title, help: help, fontSize: fontSize, action: action)
     }
 }
 
