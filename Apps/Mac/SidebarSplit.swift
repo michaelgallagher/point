@@ -324,7 +324,7 @@ final class SidebarSplitController: NSSplitViewController {
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = false
         window.toolbar = toolbar
-        window.toolbarStyle = .unifiedCompact
+        window.toolbarStyle = .unified
         placeSidebarButton()
         // Placed again whenever the window buttons move (as the toolbar makes the title bar
         // taller, which can come after this), and as the window resizes or comes to the front:
