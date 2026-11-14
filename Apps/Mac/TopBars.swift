@@ -137,9 +137,22 @@ struct PaneTabBar: View {
         return model.windowButtonsInset + TopBar.sidebarButtonWidth
     }
 
+    @State private var width: CGFloat = 0
+
+    /// Experiment (`-PointNarrowHidesHistory YES`, or `defaults write org.mikegallagher.point
+    /// PointNarrowHidesHistory -bool YES`): in a narrow bar with three or more tabs, back and
+    /// forward go into the side's menu (⌘[ and ⌘] still work), leaving their room to the tabs.
+    static let narrowWidth: CGFloat = 520
+    private var hidesHistory: Bool {
+        UserDefaults.standard.bool(forKey: "PointNarrowHidesHistory")
+            && pane.tabs.count > 2 && width > 0 && width < Self.narrowWidth
+    }
+
     var body: some View {
         HStack(spacing: TopBar.buttonSpacing) {
-            BackForwardButtons(paneIndex: paneIndex)
+            if !hidesHistory {
+                BackForwardButtons(paneIndex: paneIndex)
+            }
             // No tabs for just one note.
             if pane.tabs.count > 1 {
                 PaneTabs(pane: pane, paneIndex: paneIndex)
@@ -147,9 +160,14 @@ struct PaneTabBar: View {
             } else {
                 Spacer(minLength: 0)
             }
-            PaneMenuButton(pane: pane)
+            PaneMenuButton(pane: pane, paneIndex: paneIndex, includesHistory: hidesHistory)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(GeometryReader { geometry in
+            Color.clear
+                .onAppear { width = geometry.size.width }
+                .onChange(of: geometry.size.width) { width = $0 }
+        })
         .padding(.leading, leadingInset)
         // As the sidebar slides, on the window's own curve and duration, so the bar's contents
         // glide with the notes, staying clear of the window buttons, rather than jumping. (Only
@@ -188,11 +206,13 @@ private struct TopBarBackground: View {
 /// A side's tabs: a grey rail holding the tabs, the current one raised inside it. The rail and
 /// the current tab are shaped like a selected row in the sidebar (its height and its corners),
 /// not capsules, and there's no glass. It's as wide as its titles, leaving the rest of the row
-/// empty; when that's more than there's room for, the
-/// longest titles are cut first. Each tab's close button is always shown, at its leading edge,
-/// and the title follows it closely; right-click for its menu. Drag a tab along the row, to the other side's row or page, or to
-/// one half of the page to split the window. When the tabs don't all fit at their narrowest,
-/// the row scrolls.
+/// empty. Right-click a tab for its menu; drag it along the row, to the other side's row or
+/// page, or to one half of the page to split the window.
+///
+/// As room runs out, in stages (see `TabLayout`): the titles shorten to what tells them apart
+/// and the tabs share the room; then the current tab keeps a readable width, the others
+/// shrinking further; then the tabs that
+/// still don't fit go into a menu at the end of the row, the current one always shown.
 struct PaneTabs: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
@@ -204,77 +224,259 @@ struct PaneTabs: View {
     static let cornerRadius: CGFloat = 8
     /// Between a tab and the rail around it.
     static let inset: CGFloat = 2
-    private static let spacing: CGFloat = 2
-    private static let narrowest: CGFloat = 64
-    private static let font = NSFont.systemFont(ofSize: PaneTab.fontSize)
-
-    /// Each tab's width in `available`: the width of its title, or if they don't all fit, no
-    /// wider than the width that shares out the room between them.
-    private static func widths(of titles: [String], in available: CGFloat) -> [CGFloat] {
-        let natural = titles.map { title in
-            max(ceil((title as NSString).size(withAttributes: [.font: font]).width) + PaneTab.closeWidth + PaneTab.trailingPadding, narrowest)
-        }
-        var room = available - inset * 2 - spacing * CGFloat(titles.count - 1)
-        guard natural.reduce(0, +) > room else { return natural }
-        // Tabs narrower than their share keep their width, which leaves more for the others.
-        var left = titles.count
-        for width in natural.sorted() where width <= room / CGFloat(left) {
-            room -= width
-            left -= 1
-        }
-        let widest = (room / CGFloat(max(left, 1))).rounded(.down)
-        // The points left over from rounding down go one each to the first cut tabs, so the
-        // row ends exactly where its room does (one button's gap before the menu).
-        var spare = Int(room - widest * CGFloat(left))
-        return natural.map { natural in
-            guard natural > widest, widest >= narrowest else { return max(min(natural, widest), narrowest) }
-            defer { spare -= 1 }
-            return spare > 0 ? widest + 1 : widest
-        }
-    }
+    static let spacing: CGFloat = 2
 
     var body: some View {
         GeometryReader { geometry in
             let titles = pane.tabs.map { model.note($0.noteID)?.title ?? model.store.image($0.noteID)?.name ?? "New tab" }
-            let widths = Self.widths(of: titles, in: geometry.size.width)
-            let rowWidth = widths.reduce(0, +) + Self.spacing * CGFloat(widths.count - 1) + Self.inset * 2
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: Self.spacing) {
-                        ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
-                            PaneTab(
-                                id: tab.id,
-                                title: titles[index],
-                                help: tab.noteID ?? "",
-                                isCurrent: index == pane.current,
-                                isActiveSide: paneIndex == model.activePane,
-                                showsLine: index + 1 < pane.tabs.count && index != pane.current && index + 1 != pane.current,
-                                width: widths[index],
-                                select: { model.selectTab(index, inPane: paneIndex) },
-                                close: { model.closeTab(index, inPane: paneIndex) },
-                                menu: { TabMenu.menu(for: index, tab: tab, inPane: paneIndex, model: model) }
-                            )
-                            .modifier(TabDropTarget(paneIndex: paneIndex, index: index))
-                            .id(tab.id)
-                        }
+            let layout = TabLayout(titles: titles, current: pane.current, available: geometry.size.width)
+            HStack(spacing: Self.spacing) {
+                ForEach(Array(layout.visible.enumerated()), id: \.element) { position, index in
+                    let tab = pane.tabs[index]
+                    let next = position + 1 < layout.visible.count ? layout.visible[position + 1] : nil
+                    PaneTab(
+                        id: tab.id,
+                        title: layout.labels[index],
+                        help: tab.noteID ?? "",
+                        isCurrent: index == pane.current,
+                        isActiveSide: paneIndex == model.activePane,
+                        showsLine: next != nil && index != pane.current && next != pane.current,
+                        cutsFromMiddle: layout.cutsFromMiddle(index),
+                        width: layout.widths[index] ?? 0,
+                        select: { model.selectTab(index, inPane: paneIndex) },
+                        close: { model.closeTab(index, inPane: paneIndex) },
+                        menu: { TabMenu.menu(for: index, tab: tab, inPane: paneIndex, model: model) }
+                    )
+                    .modifier(TabDropTarget(paneIndex: paneIndex, index: index))
+                }
+                if !layout.hidden.isEmpty {
+                    TabOverflowButton(titles: layout.hidden.map { titles[$0] }) { picked in
+                        model.selectTab(layout.hidden[picked], inPane: paneIndex)
                     }
-                    .padding(Self.inset)
                 }
-                .scrollDisabled(rowWidth <= geometry.size.width)
-                // Solid, so text scrolling under the bars doesn't show through.
-                .background(TopBar.barColor.overlay(Color.primary.opacity(0.09)))
-                .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
-                // Only as wide as the tabs, so the bar's empty space still moves the window.
-                .frame(width: min(rowWidth, geometry.size.width))
-                // The current tab always in view.
-                .onAppear { proxy.scrollTo(pane.tab.id) }
-                .onChange(of: pane.tab.id) { id in
-                    withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id) }
-                }
-                .onChange(of: geometry.size.width) { _ in proxy.scrollTo(pane.tab.id) }
             }
+            .padding(Self.inset)
+            .animation(.easeInOut(duration: 0.2), value: pane.current)
+            // Solid, so text scrolling under the bars doesn't show through.
+            .background(TopBar.barColor.overlay(Color.primary.opacity(0.09)))
+            .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
+            // Only as wide as the tabs, so the bar's empty space still moves the window.
+            .frame(width: min(layout.rowWidth, geometry.size.width), alignment: .leading)
         }
         .frame(height: Self.height)
+    }
+}
+
+/// Where a side's tabs go in the room they have, and what each says. In stages, each tried
+/// only when the one before doesn't fit:
+/// 1. Every tab as wide as its whole title.
+/// 2. Titles shortened (see `TabLabels`), the tabs sharing the room, the widest cut first,
+///    while every tab still shows about ten characters.
+/// 3. Compact: the current tab keeps a readable width; the others share what's left.
+/// 4. Compact, with the tabs that still don't fit in a menu at the end of the row: the current
+///    one, and the others in order up to as many as fit.
+@MainActor
+struct TabLayout {
+    /// Indices of the tabs shown, in order.
+    var visible: [Int]
+    /// Indices of the tabs in the menu, in order.
+    var hidden: [Int] = []
+    var labels: [String]
+    var widths: [Int: CGFloat]
+    var isCompact = false
+    var rowWidth: CGFloat = 0
+
+    /// Stage 2's narrowest: room for about ten characters, and the close button.
+    static let comfortable: CGFloat = 96
+    /// Compact, the narrowest a tab other than the current one gets: its close button and
+    /// about five letters.
+    static let narrowest: CGFloat = 70
+    /// Compact, the current tab is never wider than this, nor narrower than `selectedNarrowest`
+    /// (unless its title is shorter). It needs the room least: its whole title is on its page,
+    /// just below.
+    static let selectedWidest: CGFloat = 150
+    static let selectedNarrowest: CGFloat = 80
+    static let overflowWidth: CGFloat = 38
+
+    private static let font = NSFont.systemFont(ofSize: PaneTab.fontSize)
+
+    static func textWidth(_ text: String) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: [.font: font]).width)
+    }
+
+    init(titles: [String], current: Int, available: CGFloat) {
+        let count = titles.count
+        let current = min(max(current, 0), count - 1)
+        func room(_ shown: Int, overflow: Bool) -> CGFloat {
+            available - PaneTabs.inset * 2 - PaneTabs.spacing * CGFloat(max(shown - 1, 0))
+                - (overflow ? PaneTabs.spacing + Self.overflowWidth : 0)
+        }
+        let full = { (text: String) in Self.textWidth(text) + PaneTab.closeWidth + PaneTab.trailingPadding }
+
+        // 1. Whole titles.
+        let natural = titles.map(full)
+        visible = Array(0..<count)
+        labels = titles
+        widths = Dictionary(uniqueKeysWithValues: zip(visible, natural))
+        if natural.reduce(0, +) <= room(count, overflow: false) {
+            finish()
+            return
+        }
+
+        // 2. Shortened, shared.
+        // The current tab, the one being read, only has its dates shortened.
+        labels = TabLabels.shorten(titles)
+        labels[current] = TabLabels.shortenDates(titles[current])
+        let shared = Self.share(labels.map(full), room(count, overflow: false))
+        widths = Dictionary(uniqueKeysWithValues: zip(visible, shared))
+        if shared.allSatisfy({ $0 >= Self.comfortable }) {
+            finish()
+            return
+        }
+
+        // 3 and 4. Compact, with fewer tabs shown until they fit.
+        isCompact = true
+        let selectedNatural = min(full(labels[current]), Self.selectedWidest)
+        let compact = labels.map(full)
+        for shown in stride(from: count, through: 1, by: -1) {
+            let others = Array((0..<count).filter { $0 != current }.prefix(shown - 1))
+            let room = room(shown, overflow: shown < count)
+            let othersNatural = others.map { compact[$0] }
+            let selected = min(selectedNatural, room - othersNatural.map { min($0, Self.narrowest) }.reduce(0, +))
+            let otherWidths = Self.share(othersNatural, room - selected)
+            let fits = selected >= min(selectedNatural, Self.selectedNarrowest)
+                && otherWidths.allSatisfy { $0 >= Self.narrowest }
+            if fits || shown == 1 {
+                visible = (others + [current]).sorted()
+                hidden = (0..<count).filter { !visible.contains($0) }
+                widths = Dictionary(uniqueKeysWithValues: zip(others, otherWidths))
+                widths[current] = max(selected, 0)
+                finish()
+                return
+            }
+        }
+    }
+
+    /// Whether a tab's title is cut from the middle: when its end is what tells it apart (see
+    /// `TabLabels.cutsFromMiddle`), and only with room for a real start as well, as "Review…3147"
+    /// tells you something and "R…47" doesn't.
+    func cutsFromMiddle(_ index: Int) -> Bool {
+        guard let width = widths[index], labels.indices.contains(index) else { return false }
+        let padding = PaneTab.closeWidth + PaneTab.trailingPadding
+        return TabLabels.cutsFromMiddle(labels[index]) && width - padding >= 80
+    }
+
+    private mutating func finish() {
+        rowWidth = visible.compactMap { widths[$0] }.reduce(0, +)
+            + PaneTabs.spacing * CGFloat(max(visible.count - 1, 0)) + PaneTabs.inset * 2
+            + (hidden.isEmpty ? 0 : PaneTabs.spacing + Self.overflowWidth)
+    }
+
+    /// Shares `room` between tabs wanting `natural`: those narrower than their share keep their
+    /// width, leaving more for the rest, which are cut to the same width. The points left over
+    /// from rounding down go one each to the first cut tabs, so the row ends where its room does.
+    static func share(_ natural: [CGFloat], _ room: CGFloat) -> [CGFloat] {
+        guard natural.reduce(0, +) > room, !natural.isEmpty else { return natural }
+        var room = room
+        var left = natural.count
+        for width in natural.sorted() where width <= room / CGFloat(left) {
+            room -= width
+            left -= 1
+        }
+        let widest = max((room / CGFloat(max(left, 1))).rounded(.down), 0)
+        var spare = Int(max(room - widest * CGFloat(left), 0))
+        return natural.map { width in
+            guard width > widest else { return width }
+            defer { spare -= 1 }
+            return spare > 0 ? widest + 1 : widest
+        }
+    }
+}
+
+/// Tab titles shortened to what tells them apart, for when they don't all fit. Depends only on
+/// which notes are open, not on which is current, so a title doesn't change as you click about.
+@MainActor
+enum TabLabels {
+    static func shorten(_ titles: [String]) -> [String] {
+        let dated = titles.map(shortenDates)
+        let words = dated.map { $0.split(separator: " ").map(String.init) }
+        return dated.indices.map { i in
+            // The most leading words this title shares with another, always leaving one.
+            var shared = 0
+            for j in dated.indices where j != i {
+                var same = 0
+                while same < words[i].count - 1, same < words[j].count - 1, words[i][same] == words[j][same] {
+                    same += 1
+                }
+                shared = max(shared, same)
+            }
+            guard shared > 0, words[i][..<shared].joined(separator: " ").count >= 3 else { return dated[i] }
+            let rest = words[i][shared...].joined(separator: " ")
+                .trimmingCharacters(in: CharacterSet(charactersIn: "-–—·:,").union(.whitespaces))
+            return rest.isEmpty ? dated[i] : "…" + rest
+        }
+    }
+
+    /// "2026-10-30" as "30 Oct".
+    static func shortenDates(_ title: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: #"\b(\d{4})-(\d{2})-(\d{2})\b"#) else { return title }
+        var result = title
+        for match in regex.matches(in: title, range: NSRange(title.startIndex..., in: title)).reversed() {
+            guard let range = Range(match.range, in: result),
+                  let date = parser.date(from: String(result[range])) else { continue }
+            result.replaceSubrange(range, with: formatter.string(from: date))
+        }
+        return result
+    }
+
+    /// Cut from the middle when the end is what tells it apart: a number, as in "Review 3147".
+    static func cutsFromMiddle(_ label: String) -> Bool {
+        label.split(separator: " ").last?.contains(where: \.isNumber) ?? false
+    }
+
+    private static let parser: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    private static let formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("d MMM")
+        return formatter
+    }()
+}
+
+/// At the end of the row, for the tabs that don't fit: a double chevron and how many, opening a
+/// menu of them. Choosing one makes it current, which brings it into the row.
+private struct TabOverflowButton: View {
+    let titles: [String]
+    let select: (Int) -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Image(systemName: "chevron.right.2")
+                .font(.system(size: 9, weight: .semibold))
+            Text("\(titles.count)")
+                .font(.system(size: 12).monospacedDigit())
+        }
+        .foregroundStyle(isHovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+        .frame(width: TabLayout.overflowWidth, height: PaneTab.height)
+        .background {
+            RoundedRectangle(cornerRadius: PaneTab.cornerRadius, style: .continuous)
+                .fill(isHovering ? TopBar.selectedTabColor : .clear)
+        }
+        .allowsHitTesting(false)
+        .background(MenuArea(help: titles.count == 1 ? "1 more tab" : "\(titles.count) more tabs") {
+            let menu = NSMenu()
+            for (index, title) in titles.enumerated() {
+                menu.addItem(BlockMenuItem(title) { select(index) })
+            }
+            return menu
+        })
+        .onHover { isHovering = $0 }
     }
 }
 
@@ -288,6 +490,7 @@ private struct PaneTab: View {
     let isActiveSide: Bool
     /// Whether to draw the line after this tab.
     let showsLine: Bool
+    let cutsFromMiddle: Bool
     let width: CGFloat
     let select: () -> Void
     let close: () -> Void
@@ -312,6 +515,7 @@ private struct PaneTab: View {
             .font(.system(size: Self.fontSize))
             .foregroundStyle((isCurrent && isActiveSide) || isHovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
             .lineLimit(1)
+            .truncationMode(cutsFromMiddle ? .middle : .tail)
             .padding(.leading, Self.closeWidth)
             .padding(.trailing, Self.trailingPadding)
             .frame(width: width, height: Self.height, alignment: .leading)
@@ -430,11 +634,25 @@ private struct BackForwardButtons: View {
 private struct PaneMenuButton: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
+    let paneIndex: Int
+    /// Back and forward first, when they're not in the bar.
+    var includesHistory = false
 
     private func menu() -> NSMenu {
         let menu = NSMenu()
         // Items are enabled as set here (Save Web Images to Vault isn't always).
         menu.autoenablesItems = false
+        if includesHistory {
+            let back = BlockMenuItem("Back") { model.travel(back: true, inPane: paneIndex) }
+            back.isEnabled = model.canTravel(back: true, inPane: paneIndex)
+            back.keyEquivalent = "["
+            menu.addItem(back)
+            let forward = BlockMenuItem("Forward") { model.travel(back: false, inPane: paneIndex) }
+            forward.isEnabled = model.canTravel(back: false, inPane: paneIndex)
+            forward.keyEquivalent = "]"
+            menu.addItem(forward)
+            menu.addItem(.separator())
+        }
         let note = model.note(pane.tab.noteID)
         if let note {
             let bookmark = BlockMenuItem("Bookmark") { model.toggleBookmark(note.id) }

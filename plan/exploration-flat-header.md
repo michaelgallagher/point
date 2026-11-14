@@ -37,3 +37,30 @@ Built on `header-tabs-below`:
 4. **Tighter tabs:** each tab's close button always shows, at its leading edge (tertiary, secondary on hover), the title follows it closely (22 points for the close button), and only 10 points after the title (was 20 either side). Tabs can narrow to 64 points (was 84) before the row scrolls.
 
 **Checked:** in the debug build, three tabs in a 420-point note side with the sidebar shown. Not yet: the sidebar hidden, a split.
+
+Later on this branch: the roomier standard title bar (`.unified`) is back, in place of the compact one.
+
+## Fourth try: tabs in narrow windows (branch `header-narrow-tabs`, 14 November 2026)
+
+Mike works in narrow windows (420–500 points) a lot, and three or more tabs barely fit there: at 440 points with the sidebar hidden, the tabs had about 230 points, so three tabs showed six or seven characters each and a fourth didn't fit. Built on `header-compact-tabs`, the tabs now give way in stages (`TabLayout` in `TopBars.swift`), each tried only when the one before doesn't fit:
+1. **Whole titles,** as before.
+2. **Shorter titles, shared room.** Titles shorten to what tells them apart (`TabLabels`): dates as "30 Oct" rather than "2026-10-30"; leading words shared with another open tab become "…" ("Review music 3147" and "Review letter 4166" show as "…music 3147" and "…letter 4166"). The current tab only has its dates shortened. Titles ending in a number are cut from the middle ("Review…3147"), but only with room for a real start. Kept while every tab shows about ten characters (96 points).
+3. **Compact.** The current tab keeps a readable width (80–150 points, or its title's, if less); the others share the rest, down to 70 points: the close button and about five letters. Every tab keeps its close button. (Hiding the others' until hovered was tried and felt odd; showing them cost the current tab 20 points of its narrowest, as its whole title is on its page just below anyway.)
+4. **Overflow.** Tabs that still don't fit go into a menu at the end of the row: a double chevron and how many ("›› 3"). The current tab is always shown, with the others in order up to as many as fit; choosing a hidden tab makes it current, so it comes into the row and the last of the others goes into the menu. The row no longer scrolls.
+
+**An experiment behind a switch:** `-PointNarrowHidesHistory YES` (or `defaults write org.mikegallagher.point PointNarrowHidesHistory -bool YES`). In a side's bar narrower than 520 points with three or more tabs, back and forward move to the top of the "…" menu (⌘[ and ⌘] still work), giving their 58 points to the tabs. At 440 and 500 points that shows one more tab.
+
+What shows, with the sidebar hidden and five or more tabs open:
+
+| Window | Back and forward shown | Hidden |
+|---|---|---|
+| 440 | current + 1, the rest in the menu | current + 2 |
+| 500 | current + 2 | current + 2, wider |
+| 600 | all five | all five |
+
+**Checked:** pictures of the debug build at 440, 500, 600 and 700 points with 3–6 tabs, with and without the switch (the table from the final tuning). Not yet: the overflow menu by hand, dragging tabs while some are hidden, a split, macOS before 26.
+
+**Open questions:**
+- Is "about five letters" enough to recognise an inactive tab, or should the row show fewer, longer tabs?
+- Should the overflow menu list every tab (with the current one ticked), as a tab list, rather than only the hidden ones?
+- Is hiding back and forward worth it? They're the biggest fixed cost in the bar.
