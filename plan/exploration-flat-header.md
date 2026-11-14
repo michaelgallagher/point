@@ -27,3 +27,13 @@ Mike found tabs above the other controls too jarring. Built on `header-redesign`
 3. **The path is back above the note's title,** as on `main` (`NotePath` in `NoteEditor.swift`); the bar's `PanePath` is gone.
 
 **Checked:** in the debug build, one tab and three, with the sidebar shown. Not yet: the sidebar hidden, a split, narrow windows by hand.
+
+## Third try: compact tabs in the top row (branch `header-compact-tabs`, 14 November 2026)
+
+Built on `header-tabs-below`:
+1. **Tabs back in the title bar's row,** between back and forward and the "…" menu, in the row-shaped rail. The path stays above the note's title.
+2. **Split goes back into the "…" menu** (Split, or Close Split); no separate button.
+3. **Tighter buttons:** 2 points between bar icons (was 8; the icons' own 28-point squares give the room), 6 points from a bar's ends to the sidebar's edge, the divider or the window's edge (was 8), and the sidebar button 10 points past the zoom button (was 16).
+4. **Tighter tabs:** each tab's close button always shows, at its leading edge (tertiary, secondary on hover), the title follows it closely (22 points for the close button), and only 10 points after the title (was 20 either side). Tabs can narrow to 64 points (was 84) before the row scrolls.
+
+**Checked:** in the debug build, three tabs in a 420-point note side with the sidebar shown. Not yet: the sidebar hidden, a split.

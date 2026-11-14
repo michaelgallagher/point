@@ -200,7 +200,7 @@ final class SidebarSplitController: NSSplitViewController {
               let zoom = window.standardWindowButton(.zoomButton),
               let close = window.standardWindowButton(.closeButton) else { return }
         let size = NSSize(width: TopBar.iconSize, height: TopBar.iconSize)
-        let fixedX = (zoom.convert(zoom.bounds, to: nil).maxX + 16).rounded()
+        let fixedX = (zoom.convert(zoom.bounds, to: nil).maxX + 10).rounded()
         let middle = close.convert(close.bounds, to: nil).midY
         let pane = sidebarContainer.view
         // The sidebar's edge as drawn now, also while it's sliding: its right edge, or where the
@@ -210,7 +210,7 @@ final class SidebarSplitController: NSSplitViewController {
         // at, and as it began to open the button showed for a moment at that far edge.)
         let notes = splitView.arrangedSubviews.last.map { $0.convert($0.bounds, to: nil).minX } ?? 0
         let edge = sidebarItem.isCollapsed && !isResizing ? 0 : min(pane.convert(pane.bounds, to: nil).maxX, notes)
-        let againstEdge = (edge - 8 - size.width).rounded()
+        let againstEdge = (edge - TopBar.edgeInset - size.width).rounded()
         if againstEdge > fixedX {
             if sidebarButton.superview !== pane || pane.subviews.last !== sidebarButton {
                 pane.addSubview(sidebarButton, positioned: .above, relativeTo: nil)

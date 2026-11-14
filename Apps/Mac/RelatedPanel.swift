@@ -601,7 +601,7 @@ struct RelatedSlideUp: View {
                     model.setLinksPanelOpen(false, for: paneID)
                 }
                 .modifier(EscapeCloses(isOn: isUp))
-                .padding(.trailing, TopBar.buttonSpacing)
+                .padding(.trailing, TopBar.edgeInset)
             }
             .padding(.top, 10)
             // As wide as the list, a hairline as the bars' is.
@@ -733,7 +733,7 @@ struct LinksSidePanel: View {
                 }
             }
             .padding(.leading, 16)
-            .padding(.trailing, TopBar.buttonSpacing)
+            .padding(.trailing, TopBar.edgeInset)
             .frame(height: model.topBarHeight)
             .background(WindowDragArea())
             // See-through, as the other bars are: once the list scrolls under it, it blurs
