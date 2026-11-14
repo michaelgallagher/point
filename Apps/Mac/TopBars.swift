@@ -39,13 +39,13 @@ enum TopBar {
     static let iconFontSize: CGFloat = 15
     static let iconCornerRadius: CGFloat = 7
 
-    /// The row with the path when tabs push it below the title bar's row.
-    static let headerRowHeight: CGFloat = 36
+    /// The tabs' row, below the title bar's row: the rail, and a little space under it.
+    static let tabRowHeight: CGFloat = 38 // The rail (32), 2 above it and 4 under it.
 
-    /// How much of a side the top bar covers: the title bar's row, and below it the path's
-    /// row when there are tabs.
+    /// How much of a side the top bar covers: the title bar's row, and below it the tabs'
+    /// row when there's more than one tab.
     @MainActor static func cover(for pane: VaultModel.NotePane, in model: VaultModel) -> CGFloat {
-        model.topBarHeight + (pane.tabs.count > 1 ? headerRowHeight : 0)
+        model.topBarHeight + (pane.tabs.count > 1 ? tabRowHeight : 0)
     }
 
 }
@@ -119,10 +119,10 @@ struct NoteListTopBar: View {
     }
 }
 
-/// One side's top bar. With one note: back and forward and the note's path on the left, its
-/// menu on the right, all in the title bar's row. With tabs: the tabs take the title bar's row,
-/// across the side's whole width, and the path's row moves down below them. Its empty space
-/// moves the window.
+/// One side's top bar. In the title bar's row: back and forward on the left; the split button
+/// and the note's menu on the right. With more than one tab, the tabs sit in a row of their own
+/// below, from the side's leading edge. Where the note is shows on its page, above its title.
+/// Its empty space moves the window.
 struct PaneTabBar: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
@@ -139,16 +139,27 @@ struct PaneTabBar: View {
         return model.windowButtonsInset + TopBar.sidebarButtonWidth
     }
 
-    private var hasTabs: Bool { pane.tabs.count > 1 }
-
     var body: some View {
         VStack(spacing: 0) {
-            if hasTabs {
+            HStack(spacing: TopBar.buttonSpacing) {
+                BackForwardButtons(paneIndex: paneIndex)
+                Spacer(minLength: 0)
+                SplitButton()
+                PaneMenuButton(pane: pane)
+            }
+            .padding(.leading, leadingInset)
+            .padding(.trailing, TopBar.buttonSpacing)
+            .frame(height: model.topBarHeight)
+            // As the sidebar slides, on the window's own curve and duration, so the bar's
+            // contents glide with the notes, staying clear of the window buttons, rather than
+            // jumping. (Only an animation moves during the window's animation.)
+            .animation(.easeInOut(duration: 0.25), value: startsAtWindowEdge)
+            if pane.tabs.count > 1 {
                 PaneTabs(pane: pane, paneIndex: paneIndex)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, leadingInset)
-                    .padding(.trailing, TopBar.buttonSpacing)
-                    .frame(height: model.topBarHeight)
+                    .padding(.horizontal, TopBar.buttonSpacing)
+                    .padding(.top, 2)
+                    .frame(height: TopBar.tabRowHeight, alignment: .top)
                     // A tab dropped on the row, past the tabs, goes at the end of this side's tabs.
                     .background(TabDropArea { id, _, _ in
                         id.map { model.location(ofTab: $0) != nil } ?? false
@@ -157,32 +168,23 @@ struct PaneTabBar: View {
                         model.moveTab(id, toPane: paneIndex, at: model.panes[paneIndex].tabs.count)
                         return true
                     })
-                headerRow
-                    .padding(.leading, TopBar.buttonSpacing)
-                    .frame(height: TopBar.headerRowHeight)
-            } else {
-                headerRow
-                    .padding(.leading, leadingInset)
-                    .frame(height: model.topBarHeight)
             }
         }
-        // As the sidebar slides, on the window's own curve and duration, so the bar's contents
-        // glide with the notes, staying clear of the window buttons, rather than jumping. (Only
-        // an animation moves during the window's animation; nothing is laid out again.)
-        .animation(.easeInOut(duration: 0.25), value: startsAtWindowEdge)
         .background(WindowDragArea())
         .background { TopBarBackground() }
     }
+}
 
-    /// Back and forward, the note's path, and its menu.
-    private var headerRow: some View {
-        HStack(spacing: TopBar.buttonSpacing) {
-            BackForwardButtons(paneIndex: paneIndex)
-            PanePath(pane: pane, paneIndex: paneIndex)
-            PaneMenuButton(pane: pane)
+/// Splits the window, or with a split, puts both sides back into one side's tabs (⇧⌘S).
+private struct SplitButton: View {
+    @EnvironmentObject private var model: VaultModel
+
+    var body: some View {
+        if model.isSplit {
+            BarButton("Close Split", systemImage: "rectangle", help: "Close split (⇧⌘S)") { model.mergeIntoTabs() }
+        } else {
+            BarButton("Split", systemImage: "rectangle.split.2x1", help: "Split (⇧⌘S)") { model.toggleSplit() }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.trailing, TopBar.buttonSpacing)
     }
 }
 
@@ -196,250 +198,6 @@ private struct TopBarBackground: View {
             TopBar.barColor
                 .overlay(alignment: .bottom) { Divider().opacity(0.5) }
         }
-    }
-}
-
-// MARK: The path
-
-/// Where a side's note is in the vault, then its name: "Projects / Point / Tabs idea". The
-/// folders are dimmed, and clicking one shows it (in the sidebar, or the explorer); clicking
-/// the name renames the note. When it doesn't fit, the folders after the first fold into "…"
-/// one at a time; only then is the name cut, in its middle. With a split, the side not being
-/// worked on is dimmed.
-struct PanePath: View {
-    @EnvironmentObject private var model: VaultModel
-    let pane: VaultModel.NotePane
-    let paneIndex: Int
-    @State private var isRenaming = false
-    /// The room the path had when the sidebar last settled. While it slides, the path keeps the
-    /// folding it had (clipped at its end if need be) and folds again once it stops: changing
-    /// on the way, its parts crossed over each other as the bar moved.
-    @State private var settledWidth: CGFloat = 0
-
-    var body: some View {
-        GeometryReader { geometry in
-            HStack(spacing: 0) {
-                if let note = model.note(pane.tab.noteID) {
-                    let width = model.isSidebarSliding && settledWidth > 0 ? settledWidth : geometry.size.width
-                    let parts = Self.parts(of: note, toFit: width)
-                    // By what each part is; parts shown or hidden come and go at once.
-                    ForEach(Self.identified(parts), id: \.id) { item in
-                        segment(item.part, note: note)
-                            .transition(.identity)
-                    }
-                } else if let image = model.store.image(pane.tab.noteID) {
-                    Text(image.name)
-                        .font(Self.font(.name))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .padding(.horizontal, Self.padding)
-                } else {
-                    Text("New tab")
-                        .font(Self.font(.name))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .padding(.horizontal, Self.padding)
-                }
-            }
-            // While sliding, at its own width, clipped at its end, rather than squeezed into
-            // less room (which pushed its parts over each other).
-            .fixedSize(horizontal: model.isSidebarSliding, vertical: false)
-            // From its leading edge (wider than its room, it would otherwise be centred in it).
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .help(model.note(pane.tab.noteID)?.id ?? "")
-            .contentTransition(.identity)
-            .onAppear { settledWidth = geometry.size.width }
-            .onChange(of: geometry.size.width) { width in
-                if !model.isSidebarSliding { settledWidth = width }
-            }
-            .onChange(of: model.isSidebarSliding) { sliding in
-                if !sliding { settledWidth = geometry.size.width }
-            }
-        }
-        .clipped()
-        .opacity(model.isSplit && paneIndex != model.activePane ? 0.55 : 1)
-        .onChange(of: pane.tab.noteID) { _ in isRenaming = false }
-    }
-
-    /// A piece of the path, as laid out.
-    enum Part: Equatable {
-        case folder(name: String, path: String)
-        /// Folders folded away, by path.
-        case folded([String])
-        case separator
-        /// The note's name, cut in its middle if `fits` is false.
-        case name(String, fits: Bool)
-    }
-
-    /// The parts, each with an identity: a folder by its path, the name as itself, a separator
-    /// by what comes after it.
-    static func identified(_ parts: [Part]) -> [(id: String, part: Part)] {
-        func id(_ part: Part) -> String {
-            switch part {
-            case .folder(_, let path): "folder:" + path
-            case .folded: "folded"
-            case .separator: "separator"
-            case .name: "name"
-            }
-        }
-        return parts.enumerated().map { index, part in
-            if case .separator = part, index + 1 < parts.count { return ("before:" + id(parts[index + 1]), part) }
-            return (id(part), part)
-        }
-    }
-
-    @ViewBuilder private func segment(_ part: Part, note: Note) -> some View {
-        switch part {
-        case .folder(let name, let path):
-            PathButton(text: name, style: .folder, help: "Show “\(name)”") { model.reveal(folder: path) }
-        case .folded(let paths):
-            Text("…")
-                .font(Self.font(.folder))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, Self.padding)
-                .help(paths.joined(separator: "\n"))
-        case .separator:
-            Text("/")
-                .font(Self.font(.folder))
-                .foregroundStyle(.tertiary)
-                .padding(.horizontal, Self.separatorPadding)
-        case .name(let name, let fits):
-            if isRenaming {
-                PathRenameField(note: note, isRenaming: $isRenaming)
-            } else {
-                PathButton(text: name, style: .name, cutsInMiddle: !fits, help: "Rename") { isRenaming = true }
-            }
-        }
-    }
-
-    // MARK: Fitting
-
-    enum Style { case folder, name }
-
-    static func font(_ style: Style) -> Font {
-        style == .name ? .system(size: nsFontSize, weight: .medium) : .system(size: nsFontSize)
-    }
-
-    private static let nsFontSize: CGFloat = 13
-    /// Around each folder and the name: room for the shading on hover.
-    static let padding: CGFloat = 5
-    static let separatorPadding: CGFloat = 1
-
-    private static func width(_ text: String, _ style: Style) -> CGFloat {
-        let font = NSFont.systemFont(ofSize: nsFontSize, weight: style == .name ? .medium : .regular)
-        return ceil((text as NSString).size(withAttributes: [.font: font]).width)
-    }
-
-    private static func width(of part: Part) -> CGFloat {
-        switch part {
-        case .folder(let name, _): width(name, .folder) + padding * 2
-        case .folded: width("…", .folder) + padding * 2
-        case .separator: width("/", .folder) + separatorPadding * 2
-        case .name(let name, _): width(name, .name) + padding * 2
-        }
-    }
-
-    /// The longest form of the path that fits: every folder; then the first folder, "…" and
-    /// fewer and fewer of the rest; then "…" and the name; then the name alone, cut to fit.
-    static func parts(of note: Note, toFit available: CGFloat) -> [Part] {
-        let names = note.id.split(separator: "/").dropLast().map(String.init)
-        let paths = names.indices.map { names[...$0].joined(separator: "/") }
-        let folders = zip(names, paths).map { Part.folder(name: $0, path: $1) }
-        let name = Part.name(note.title, fits: true)
-
-        func joined(_ pieces: [Part]) -> [Part] {
-            pieces.enumerated().flatMap { index, piece in index == 0 ? [piece] : [.separator, piece] }
-        }
-        func fits(_ parts: [Part]) -> Bool { parts.map(width(of:)).reduce(0, +) <= available }
-
-        let whole = joined(folders + [name])
-        if fits(whole) || folders.isEmpty { return fits(whole) ? whole : [.name(note.title, fits: false)] }
-        // Fold the folders after the first, one more each time, from the second on.
-        if folders.count > 1 {
-            for hidden in 1..<folders.count {
-                let kept = folders.dropFirst(1 + hidden)
-                let parts = joined([folders[0], .folded(Array(paths[1...hidden]))] + kept + [name])
-                if fits(parts) { return parts }
-            }
-        }
-        // Still too long: the first folder folds too ("… / Tabs idea"), and at last the name
-        // stands alone, cut in its middle. (Keeping the first folder whole squeezed the "…"
-        // and the name to nothing in a narrow side: "Projects / /".)
-        let first = folders.count > 1 ? [folders[0], .folded(Array(paths[1...]))] : [folders[0]]
-        if fits(joined(first + [name])) { return joined(first + [name]) }
-        if fits(joined([.folded(paths), name])) { return joined([.folded(paths), name]) }
-        return [.name(note.title, fits: false)]
-    }
-}
-
-/// A folder or the note's name in a side's path, taking clicks in AppKit (as the bar's other
-/// controls do), shaded on hover.
-private struct PathButton: View {
-    let text: String
-    let style: PanePath.Style
-    var cutsInMiddle = false
-    let help: String
-    let action: () -> Void
-    @State private var isHovering = false
-
-    var body: some View {
-        Text(text)
-            .font(PanePath.font(style))
-            .foregroundStyle(style == .name ? .primary : .secondary)
-            .lineLimit(1)
-            .truncationMode(.middle)
-            .fixedSize(horizontal: !cutsInMiddle, vertical: false)
-            .padding(.horizontal, PanePath.padding)
-            .padding(.vertical, 3)
-            .background {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(isHovering ? TopBar.selectedTabColor : .clear)
-            }
-            .layoutPriority(style == .name ? 0 : 1) // The name is what's cut.
-            .allowsHitTesting(false)
-            .background(ClickArea(help: help, action: action))
-            .onHover { isHovering = $0 }
-            .accessibilityElement()
-            .accessibilityLabel(text)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityAction { action() }
-    }
-}
-
-/// The note's name in a side's path, being renamed: Return or clicking away renames the note
-/// (and its file, updating links), Escape puts it back, as with the title on the page.
-private struct PathRenameField: View {
-    @EnvironmentObject private var model: VaultModel
-    let note: Note
-    @Binding var isRenaming: Bool
-    @State private var draft = ""
-    @FocusState private var isFocused: Bool
-
-    var body: some View {
-        TextField("Name", text: $draft)
-            .textFieldStyle(.plain)
-            .font(PanePath.font(.name))
-            .padding(.horizontal, PanePath.padding)
-            .padding(.vertical, 3)
-            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(TopBar.selectedTabColor))
-            .frame(minWidth: 120, maxWidth: 360)
-            .focused($isFocused)
-            .onSubmit { commit() }
-            .onExitCommand { isRenaming = false }
-            .onChange(of: isFocused) { focused in
-                if !focused, isRenaming { commit() }
-            }
-            .onAppear {
-                draft = note.title
-                DispatchQueue.main.async { isFocused = true }
-            }
-    }
-
-    private func commit() {
-        isRenaming = false
-        let title = NoteFiles.sanitizedTitle(draft)
-        guard !title.isEmpty, title != note.title else { return }
-        model.rename(note, to: title)
     }
 }
 
@@ -683,8 +441,7 @@ private struct BackForwardButtons: View {
     }
 }
 
-/// The side's one menu, at the end of its bar: what can be done with its note, then the split
-/// (opening it, or closing it, which keeps both sides' notes as tabs).
+/// The side's menu, at the end of its bar: what can be done with its note.
 private struct PaneMenuButton: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
@@ -710,13 +467,8 @@ private struct PaneMenuButton: View {
             menu.addItem(BlockMenuItem("Reveal in Finder") { model.showInFinder(note) })
             menu.addItem(.separator())
         }
-        if model.isSplit {
-            menu.addItem(BlockMenuItem("Close Split") { model.mergeIntoTabs() })
-        } else {
-            menu.addItem(BlockMenuItem("Split") { model.toggleSplit() })
-        }
+        // The split has its own button, beside this menu.
         if let note {
-            menu.addItem(.separator())
             menu.addItem(BlockMenuItem("Delete File") { model.moveToTrash(note) })
         }
         return menu

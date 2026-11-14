@@ -18,3 +18,12 @@ Part of [the plan](../PLAN.md).
 **Open questions:**
 - Is 40 points too tight? The rail leaves 4 points above and below.
 - Should the path row show even with one tab, so the header never changes height when a second tab opens?
+
+## Second try: tabs below the bar (branch `header-tabs-below`, 14 November 2026)
+
+Mike found tabs above the other controls too jarring. Built on `header-redesign`:
+1. **The title bar's row:** back and forward on the left; on the right, a split button (`rectangle.split.2x1`, or `rectangle` to close the split, which keeps both sides' notes as tabs) beside the "…" menu. Split and Close Split left the menu. No title or path in the bar.
+2. **Tabs, when there's more than one,** in a 38-point row of their own below that row, from the side's leading edge (not pushed past the window buttons), with the same row-shaped rail.
+3. **The path is back above the note's title,** as on `main` (`NotePath` in `NoteEditor.swift`); the bar's `PanePath` is gone.
+
+**Checked:** in the debug build, one tab and three, with the sidebar shown. Not yet: the sidebar hidden, a split, narrow windows by hand.
