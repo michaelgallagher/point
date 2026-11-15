@@ -56,6 +56,8 @@ The first version shortened titles by the open tabs alone, whatever their widths
 
 **Either side of the divider:** the sidebar button's symbol and the back arrow are both 16 points from the divider (`TopBar.dividerGap`), measured from the symbols rather than their squares, as the sidebar symbol nearly fills its square and the chevron is thin in the middle of its own: the sidebar button's square is 12 points in from the sidebar's edge (was 6), and back's 6 points (9 in a narrow bar) past the divider. **The filter at the list's foot** lost its glass: a flat field shaped like the tabs' rail (32 points, 8-point corners, a faint grey fill), below the list rather than floating over it, and in two columns the sort button beside it is a plain bar icon, as in the top bars.
 
+**The sidebar popped open, unanimated,** every time but the first after launch: uncollapsing brings the split view's sidebar back at the width its view was last left at, which after a show and hide was its whole width, so the window widened by it at once before the animation began. The sidebar's view is now set to the width the animation starts from just before it's uncollapsed. (It wasn't to do with where the window was, nor what had the keyboard.)
+
 **An experiment behind a switch:** `-PointNarrowHidesHistory YES` (or `defaults write org.mikegallagher.point PointNarrowHidesHistory -bool YES`). In a side's bar narrower than 520 points with three or more tabs, back and forward move to the top of the "…" menu (⌘[ and ⌘] still work), giving their 58 points to the tabs. At 440 and 500 points that shows one more tab.
 
 What shows, with the sidebar hidden and five or more tabs open:

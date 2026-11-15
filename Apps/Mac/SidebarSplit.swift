@@ -424,6 +424,9 @@ final class SidebarSplitController: NSSplitViewController {
             return
         }
         guard sidebarItem.isCollapsed == shown || isResizing else { return } // Already so.
+        #if DEBUG
+        FrameLog.shared.mark() // Probes each frame for a while, when asked for.
+        #endif
         if resizingWindow, canResize { resize(shown: shown) } else { collapseInPlace(shown: shown) }
     }
 
@@ -550,6 +553,11 @@ final class SidebarSplitController: NSSplitViewController {
             if shown, partway == 0 {
                 // Opened at no width (or, when the screen is too narrow for the whole sidebar,
                 // at what the notes have to give up), in the same pass, before it's drawn.
+                // The split view brings a collapsed sidebar back at the width its view was left
+                // at: shown and hidden before, that was its whole width, and the window jumped
+                // wider by it at once, with no animation.
+                let pane = splitView.arrangedSubviews[0]
+                pane.setFrameSize(NSSize(width: newAdjustment, height: pane.frame.height))
                 sidebarItem.isCollapsed = false
                 splitView.setPosition(newAdjustment, ofDividerAt: 0)
                 splitView.layoutSubtreeIfNeeded()

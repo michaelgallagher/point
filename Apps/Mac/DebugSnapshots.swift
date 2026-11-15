@@ -850,7 +850,10 @@ enum DebugSnapshots {
                         let cells = tables.map { table in table.rows(in: table.visibleRect).length > 0 ? table.view(atColumn: 0, row: table.rows(in: table.visibleRect).location, makeIfNecessary: false) : nil }
                         let split = model.sidebarSplit.splitView
                         let button = views(of: NSHostingView<SidebarButton>.self, in: window.contentView?.superview).first
-                        return "button \(place(button)) window \(Int(window.frame.width)) sidebar \(place(split.arrangedSubviews.first)) host \(place(split.arrangedSubviews.first?.subviews.first)) tables \(tables.map(place)) firstCells \(cells.map(place)) notes \(place(split.arrangedSubviews.last))"
+                        // Where the window server has the window, as against where AppKit has it.
+                        let info = (CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(window.windowNumber)) as? [[String: Any]])?.first
+                        let bounds = (info?[kCGWindowBounds as String] as? [String: CGFloat]).map { "\(Int($0["X"] ?? 0))+\(Int($0["Width"] ?? 0))" } ?? "-"
+                        return "server \(bounds) min \(Int(window.minSize.width))/\(Int(window.contentMinSize.width)) sliding \(model.isSidebarSliding) appkit \(Int(window.frame.minX))+\(Int(window.frame.width)) button \(place(button)) window \(Int(window.frame.width)) sidebar \(place(split.arrangedSubviews.first)) host \(place(split.arrangedSubviews.first?.subviews.first)) tables \(tables.map(place)) firstCells \(cells.map(place)) notes \(place(split.arrangedSubviews.last))"
                     }
                 }
                 // How many views each part of the window has: the window's layout visits them all.
@@ -1743,7 +1746,7 @@ final class FrameLog: NSObject {
     @available(macOS 14, *)
     @objc private func tick(_ link: CADisplayLink) {
         times.append(link.timestamp)
-        if let probe, CACurrentMediaTime() - since < 0.4 { Trace.mark("probe \(probe())") }
+        if let probe, CACurrentMediaTime() - since < 0.6 { Trace.mark("probe \(probe())") }
     }
 
     /// With `-PointFrameProbe YES`: where things are in the window, traced every frame of a slide.
