@@ -342,6 +342,7 @@ final class VaultModel: ObservableObject {
         split.slidingChanged = { [weak self] sliding in
             guard let self, self.isSidebarSliding != sliding else { return }
             self.sidebarSlide.isSliding = sliding
+            if !sliding { self.measureNotes() }
         }
         split.sidebarWidthChanged = { [weak self] width in self?.sidebarWidth = width }
         split.notesSplitMinimums = { [weak self] in self?.notesSplitMinimums ?? (240, 240) }
@@ -357,6 +358,27 @@ final class VaultModel: ObservableObject {
         }
         return split
     }()
+
+    /// The notes too narrow to spare the sidebar button's room (see
+    /// `TopBar.sidebarButtonHidingWidth`). By the notes' width, not the window's: shown or
+    /// hidden by hand, the sidebar widens or narrows the window and the notes keep theirs, so
+    /// it's measured only while the sidebar's still, and holds through a slide.
+    @Published private(set) var notesAreNarrow = false
+    /// The sidebar button gone, while the sidebar's hidden in narrow notes.
+    var hidesSidebarButtonForWidth: Bool { notesAreNarrow && !showsNoteList && !isFocused }
+
+    private func measureNotes() {
+        guard let window, !isSidebarSliding else { return }
+        let width = window.frame.width - (showsNoteList && !isFocused ? sidebarWidth : 0)
+        let narrow = width < TopBar.sidebarButtonHidingWidth
+        guard narrow != notesAreNarrow else { return }
+        notesAreNarrow = narrow
+        updateSidebarButton()
+    }
+
+    func updateSidebarButton() {
+        sidebarSplit.fadesSidebarButton = hidesSidebarButtonForWidth
+    }
 
     /// The width the sidebar shows at.
     @Published private(set) var sidebarWidth: CGFloat = 240
@@ -425,6 +447,7 @@ final class VaultModel: ObservableObject {
     /// it by hand in between sticks.
     private func windowResized() {
         measureTopBar()
+        measureNotes()
         guard let window else { return }
         // The set width, or the narrowest the window can be with the sidebar if that's wider
         // (the window can't narrow past it): narrowed to it, the sidebar hides.
@@ -1127,7 +1150,9 @@ final class VaultModel: ObservableObject {
     // MARK: Window
 
     /// Focus mode: just the text, with all other interface hidden.
-    @Published var isFocused = false
+    @Published var isFocused = false {
+        didSet { updateSidebarButton() }
+    }
     /// Whether the sidebar is showing (⌘S, or a two-finger swipe if turned on in Settings,
     /// hides and shows it).
     /// Remembered, so new windows open the way the last one was left: hiding the sidebar
@@ -1135,6 +1160,7 @@ final class VaultModel: ObservableObject {
     @Published var showsNoteList = UserDefaults.standard.object(forKey: "showsNoteList") == nil || UserDefaults.standard.bool(forKey: "showsNoteList") {
         didSet {
             UserDefaults.standard.set(showsNoteList, forKey: "showsNoteList")
+            updateSidebarButton()
             lastToggleWasAutomatic = isAutoToggling
             if !isAutoToggling { sidebarAutoHidden = false } // Shown or hidden by hand.
             // Sliding from now, before anything is laid out for the change (the split view says
