@@ -54,6 +54,8 @@ The first version shortened titles by the open tabs alone, whatever their widths
 
 **Smaller fixes:** back and forward are 22 points wide each (not 28) in a bar narrower than 520 points, as the thin chevrons looked far apart; the sidebar button's symbol is 17 points (the others 15), as it read small beside the window buttons once it lost its glass circle; the "…" menu sits as far from the side's edge as from the top (12 points, was 6), so its hover square is even in the corner; and Split (or Close Split) is last in that menu, after Delete File.
 
+**Either side of the divider:** the sidebar button's symbol and the back arrow are both 16 points from the divider (`TopBar.dividerGap`), measured from the symbols rather than their squares, as the sidebar symbol nearly fills its square and the chevron is thin in the middle of its own: the sidebar button's square is 12 points in from the sidebar's edge (was 6), and back's 6 points (9 in a narrow bar) past the divider. **The filter at the list's foot** lost its glass: a flat field shaped like the tabs' rail (32 points, 8-point corners, a faint grey fill), below the list rather than floating over it, and in two columns the sort button beside it is a plain bar icon, as in the top bars.
+
 **An experiment behind a switch:** `-PointNarrowHidesHistory YES` (or `defaults write org.mikegallagher.point PointNarrowHidesHistory -bool YES`). In a side's bar narrower than 520 points with three or more tabs, back and forward move to the top of the "…" menu (⌘[ and ⌘] still work), giving their 58 points to the tabs. At 440 and 500 points that shows one more tab.
 
 What shows, with the sidebar hidden and five or more tabs open:

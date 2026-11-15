@@ -261,9 +261,9 @@ private struct NoteList: View {
             // `NoteListTopBar`).
             if includesPlaces, model.place != .allNotes { PlaceHeader() }
             browser
+            // At the foot, below the list: flat, as the top bars are, with no glass.
+            filterField
         }
-        // Floating at the foot, in glass, with the list going on beneath it.
-        .overlay(alignment: .bottom) { filterField }
         .onChange(of: model.searchFocusRequest) { _ in searchFocused = true }
         .overlay {
             if let message = model.errorMessage {
@@ -275,27 +275,27 @@ private struct NoteList: View {
         }
     }
 
-    /// The filter field's height and the space around it.
-    private static let fieldHeight = VaultModel.SidebarDensity.comfortable.rowHeight
+    /// The filter field's height, its corners and the space around it: shaped like the tabs'
+    /// rail and a selected sidebar row (see `PaneTabs`).
+    private static let fieldHeight = PaneTabs.height
     private static let fieldPadding: CGFloat = 10
 
     /// Narrows the list to what's named with what's typed: in one column, the folders, tags
     /// and notes showing; in two, the notes, with how they're sorted on its right (in one
     /// column, that's in the Notes section's label). Searching the whole vault is the explorer's.
     private var filterField: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 4) {
             SearchField(text: $model.noteFilter, prompt: "Filter", isFocused: $searchFocused, height: Self.fieldHeight) {
                 // Return opens the top note.
                 if let first = model.sidebarRows(collapsed: [], content: content).lazy.compactMap(\.noteID).first { model.selection = first }
             }
             if !includesPlaces, model.place != .trash {
-                // In glass too, a circle as tall as the field.
+                // A plain icon, as in the top bars.
                 SortButton(opensUpward: true)
-                    .frame(width: Self.fieldHeight, height: Self.fieldHeight)
-                    .modifier(NoticeBackground())
             }
         }
-        .padding(Self.fieldPadding)
+        .padding(.horizontal, Self.fieldPadding)
+        .padding(.vertical, 8)
     }
 
     private var content: SidebarTable.Content { includesPlaces ? .everything : .notes }
@@ -306,7 +306,7 @@ private struct NoteList: View {
 
     /// Pins, folders (or nested tags), tags and notes for the current place.
     private var browser: some View {
-        SidebarTable(model: model, content: content, bottomInset: Self.fieldHeight + Self.fieldPadding * 2)
+        SidebarTable(model: model, content: content, bottomInset: 0)
             .overlay {
                 if model.place == .trash ? model.store.trashedNotes.isEmpty : model.notes(in: model.place).isEmpty, model.store.images(in: model.place).isEmpty, !listsPlaces || model.subplaces(of: model.place).isEmpty, model.place != .allNotes {
                     if let message = emptyMessage {
@@ -462,7 +462,7 @@ private struct SearchField: View {
         }
         .padding(.horizontal, 10)
         .frame(height: height)
-        .modifier(NoticeBackground())
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: PaneTabs.cornerRadius, style: .continuous))
     }
 }
 

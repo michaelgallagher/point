@@ -210,7 +210,7 @@ final class SidebarSplitController: NSSplitViewController {
         // at, and as it began to open the button showed for a moment at that far edge.)
         let notes = splitView.arrangedSubviews.last.map { $0.convert($0.bounds, to: nil).minX } ?? 0
         let edge = sidebarItem.isCollapsed && !isResizing ? 0 : min(pane.convert(pane.bounds, to: nil).maxX, notes)
-        let againstEdge = (edge - TopBar.edgeInset - size.width).rounded()
+        let againstEdge = (edge - TopBar.sidebarButtonInset - size.width).rounded()
         if againstEdge > fixedX {
             if sidebarButton.superview !== pane || pane.subviews.last !== sidebarButton {
                 pane.addSubview(sidebarButton, positioned: .above, relativeTo: nil)

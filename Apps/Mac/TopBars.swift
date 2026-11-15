@@ -29,6 +29,17 @@ enum TopBar {
     /// How far a side's bar starts past the sidebar's edge or the divider, and ends before the
     /// window's edge, so its buttons never touch either.
     static let edgeInset: CGFloat = 6
+    /// How far the nearest drawn part of a button is from the divider beside it: the sidebar
+    /// button's symbol on the sidebar's side, the back arrow on the notes' side. Measured from
+    /// the symbols, not their squares, as the sidebar symbol nearly fills its square and the
+    /// chevron is thin in the middle of its own.
+    static let dividerGap: CGFloat = 16
+    private static let sidebarSymbolWidth: CGFloat = 20
+    private static let chevronWidth: CGFloat = 8
+    /// The sidebar button's square from the sidebar's edge.
+    static let sidebarButtonInset: CGFloat = dividerGap - (iconSize - sidebarSymbolWidth) / 2
+    /// Back's square from the divider, at its width.
+    static func arrowInset(width: CGFloat) -> CGFloat { max(dividerGap - (width - chevronWidth) / 2, 0) }
 
     /// The top bar's background, in every layout: the page's own colour.
     static let barColor = Color(nsColor: .textBackgroundColor)
@@ -72,8 +83,8 @@ struct SidebarTopBar: View {
                 if model.browsingStyle == .singleColumn {
                     BarButton("Home", systemImage: "house", help: "All notes") { model.browse(.allNotes) }
                         .disabled(model.place == .allNotes)
-                        // Just left of the sidebar button, which sits `edgeInset` in from the edge.
-                        .padding(.trailing, TopBar.edgeInset + TopBar.sidebarButtonWidth)
+                        // Just left of the sidebar button (see `TopBar.sidebarButtonInset`).
+                        .padding(.trailing, TopBar.sidebarButtonInset + TopBar.sidebarButtonWidth)
                 }
             }
     }
@@ -105,7 +116,7 @@ struct NoteListTopBar: View {
         // In line with the list's text: its date headings, and its notes when not grouped
         // (the source list's row inset, then the row's own padding).
         .padding(.leading, 24)
-        .padding(.trailing, TopBar.edgeInset + TopBar.sidebarButtonWidth)
+        .padding(.trailing, TopBar.sidebarButtonInset + TopBar.sidebarButtonWidth)
         .frame(height: model.topBarHeight)
         .background(WindowDragArea())
     }
@@ -139,9 +150,15 @@ struct PaneTabBar: View {
     /// Past the window buttons and the sidebar button when the sidebar is hidden; otherwise
     /// just past the sidebar's edge or the divider.
     private var leadingInset: CGFloat {
-        guard startsAtWindowEdge else { return TopBar.edgeInset }
+        guard startsAtWindowEdge else {
+            // Past a divider: the back arrow as far from it as the sidebar button is on its side.
+            guard !hidesHistory else { return TopBar.edgeInset }
+            return TopBar.arrowInset(width: isNarrow ? TopBar.narrowArrowWidth : TopBar.iconSize)
+        }
         return model.windowButtonsInset + TopBar.sidebarButtonWidth
     }
+
+    private var isNarrow: Bool { width > 0 && width < Self.narrowWidth }
 
     @State private var width: CGFloat = 0
 
@@ -157,7 +174,7 @@ struct PaneTabBar: View {
     var body: some View {
         HStack(spacing: TopBar.buttonSpacing) {
             if !hidesHistory {
-                BackForwardButtons(paneIndex: paneIndex, isNarrow: width > 0 && width < Self.narrowWidth)
+                BackForwardButtons(paneIndex: paneIndex, isNarrow: isNarrow)
             }
             // No tabs for just one note.
             if pane.tabs.count > 1 {
