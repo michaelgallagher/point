@@ -62,6 +62,7 @@ Mike travels soon with the laptop and the iPhone, and wants to use Point on both
 - [The sidebar widens the window](plan/sidebar-widens-window.md) (25 October): the design, the attempts, and the bugs fixed.
 - [Properties, redesigned](plan/properties.md) (25 October).
 - [Exploration: a flatter header](plan/exploration-flat-header.md) (13 November): no glass, row-shaped tabs above a path bar, the compact title bar.
+- [Narrow-window tabs, for the glass header](plan/narrow-tabs-for-glass.md) (15 November): the narrow-tab strategies from the flat header, and how to try them on `main`.
 - [Exploration: no visible tabs](plan/exploration-no-visible-tabs.md) (25 October): tabs without a tab bar.
 - [Exploration: radically minimal](plan/exploration-minimal.md) (19 October).
 - [M3.5, Mac refinements](plan/m3.5-mac-refinements.md) (18–24 October): parts A to H.
