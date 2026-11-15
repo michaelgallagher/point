@@ -853,7 +853,7 @@ enum DebugSnapshots {
                         // Where the window server has the window, as against where AppKit has it.
                         let info = (CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(window.windowNumber)) as? [[String: Any]])?.first
                         let bounds = (info?[kCGWindowBounds as String] as? [String: CGFloat]).map { "\(Int($0["X"] ?? 0))+\(Int($0["Width"] ?? 0))" } ?? "-"
-                        return "server \(bounds) min \(Int(window.minSize.width))/\(Int(window.contentMinSize.width)) sliding \(model.isSidebarSliding) appkit \(Int(window.frame.minX))+\(Int(window.frame.width)) button \(place(button)) window \(Int(window.frame.width)) sidebar \(place(split.arrangedSubviews.first)) host \(place(split.arrangedSubviews.first?.subviews.first)) tables \(tables.map(place)) firstCells \(cells.map(place)) notes \(place(split.arrangedSubviews.last))"
+                        return "server \(bounds) min \(Int(window.minSize.width))/\(Int(window.contentMinSize.width)) sliding \(model.isSidebarSliding) appkit \(Int(window.frame.minX))+\(Int(window.frame.width)) button \(place(button)) alpha \(button.map { $0.isHidden ? "hidden" : String(format: "%.2f", $0.alphaValue) } ?? "-") window \(Int(window.frame.width)) sidebar \(place(split.arrangedSubviews.first)) host \(place(split.arrangedSubviews.first?.subviews.first)) tables \(tables.map(place)) firstCells \(cells.map(place)) notes \(place(split.arrangedSubviews.last))"
                     }
                 }
                 // How many views each part of the window has: the window's layout visits them all.

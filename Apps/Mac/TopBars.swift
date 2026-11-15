@@ -23,6 +23,11 @@ enum TopBar {
     /// How far the bar starts past the window buttons while the sidebar is hidden: the sidebar
     /// button (see `SidebarSplitController`), then the gap.
     static let sidebarButtonWidth: CGFloat = iconSize + buttonSpacing
+    /// Notes narrower than this can't spare the sidebar button's room: while the sidebar's
+    /// hidden, the button goes (⌘S, the View menu and a swipe still show the sidebar), and the
+    /// first side's bar starts just past the window buttons. The narrow bar's width (see
+    /// `PaneTabBar`).
+    static let sidebarButtonHidingWidth: CGFloat = 520
     /// The gap between buttons in a bar (the HStack's spacing): small, since the icons have no
     /// bezels and their own squares hold some space around each symbol.
     static let buttonSpacing: CGFloat = 2
@@ -155,7 +160,7 @@ struct PaneTabBar: View {
             guard !hidesHistory else { return TopBar.edgeInset }
             return TopBar.arrowInset(width: isNarrow ? TopBar.narrowArrowWidth : TopBar.iconSize)
         }
-        return model.windowButtonsInset + TopBar.sidebarButtonWidth
+        return model.windowButtonsInset + (model.hidesSidebarButtonForWidth ? 0 : TopBar.sidebarButtonWidth)
     }
 
     private var isNarrow: Bool { width > 0 && width < Self.narrowWidth }
@@ -196,6 +201,8 @@ struct PaneTabBar: View {
         // glide with the notes, staying clear of the window buttons, rather than jumping. (Only
         // an animation moves during the window's animation; nothing is laid out again.)
         .animation(.easeInOut(duration: 0.25), value: startsAtWindowEdge)
+        // And as the sidebar button fades in or out, so the tabs take or give up its room.
+        .animation(.easeInOut(duration: 0.25), value: model.hidesSidebarButtonForWidth)
         // As far from the side's edge as from the top, so the menu's hover square sits evenly
         // in the corner.
         .padding(.trailing, max((model.topBarHeight - TopBar.iconSize) / 2, TopBar.edgeInset))

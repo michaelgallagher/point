@@ -80,7 +80,27 @@ final class SidebarSplitController: NSSplitViewController {
     var slidingChanged: ((Bool) -> Void)?
     /// Hides the sidebar button (in focus mode, which has its own way back to the sidebar).
     var hidesSidebarButton = false {
-        didSet { sidebarButton.isHidden = hidesSidebarButton }
+        didSet { updateSidebarButtonVisibility() }
+    }
+    /// Fades the sidebar button out (or back in): while the sidebar's hidden, in notes too
+    /// narrow to spare its room (see `TopBar.sidebarButtonHidingWidth`). On the sidebar's own
+    /// curve and duration, so it goes as the sidebar slides away and comes as it slides in.
+    var fadesSidebarButton = false {
+        didSet {
+            guard fadesSidebarButton != oldValue else { return }
+            updateSidebarButtonVisibility()
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = Self.duration
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                sidebarButton.animator().alphaValue = fadesSidebarButton ? 0 : 1
+            } completionHandler: {
+                MainActor.assumeIsolated { self.updateSidebarButtonVisibility() }
+            }
+        }
+    }
+    /// Hidden in focus mode, and once faded out, so it can't be clicked where it can't be seen.
+    private func updateSidebarButtonVisibility() {
+        sidebarButton.isHidden = hidesSidebarButton || (fadesSidebarButton && sidebarButton.alphaValue == 0)
     }
     /// The sidebar button, in place of the split view's own toggle, so it shows and hides the
     /// sidebar as ⌘S does.

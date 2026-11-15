@@ -58,6 +58,8 @@ The first version shortened titles by the open tabs alone, whatever their widths
 
 **The sidebar popped open, unanimated,** every time but the first after launch: uncollapsing brings the split view's sidebar back at the width its view was last left at, which after a show and hide was its whole width, so the window widened by it at once before the animation began. The sidebar's view is now set to the width the animation starts from just before it's uncollapsed. (It wasn't to do with where the window was, nor what had the keyboard.)
 
+**No sidebar button in narrow notes:** while the sidebar's hidden and the notes are narrower than 520 points (`TopBar.sidebarButtonHidingWidth`, the narrow bar's width), the sidebar button fades out as the sidebar slides away and back in as it slides in, and the first side's bar starts just past the window buttons, giving the tabs its 30 points. ⌘S, the View menu and a swipe still show the sidebar. Measured by the notes' width rather than the window's, as the notes keep their width while the sidebar slides, so it doesn't change partway through.
+
 **An experiment behind a switch:** `-PointNarrowHidesHistory YES` (or `defaults write org.mikegallagher.point PointNarrowHidesHistory -bool YES`). In a side's bar narrower than 520 points with three or more tabs, back and forward move to the top of the "…" menu (⌘[ and ⌘] still work), giving their 58 points to the tabs. At 440 and 500 points that shows one more tab.
 
 What shows, with the sidebar hidden and five or more tabs open:
