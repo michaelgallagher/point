@@ -195,6 +195,7 @@ final class VaultModel: ObservableObject {
             noteRecentTab()
             if oldValue.count == 2, panes.count == 1 { noteSplitClosed(from: oldValue) }
             if oldValue.count == 1, panes.count == 2 { noteSplitOpened(from: oldValue) }
+            if oldValue.count != panes.count { firstSideResized(firstSideWidth) } // Its threshold changed.
         }
     }
 
@@ -342,7 +343,6 @@ final class VaultModel: ObservableObject {
         split.slidingChanged = { [weak self] sliding in
             guard let self, self.isSidebarSliding != sliding else { return }
             self.sidebarSlide.isSliding = sliding
-            if !sliding { self.measureNotes() }
         }
         split.sidebarWidthChanged = { [weak self] width in self?.sidebarWidth = width }
         split.notesSplitMinimums = { [weak self] in self?.notesSplitMinimums ?? (240, 240) }
@@ -359,18 +359,32 @@ final class VaultModel: ObservableObject {
         return split
     }()
 
-    /// The notes too narrow to spare the sidebar button's room (see
-    /// `TopBar.sidebarButtonHidingWidth`). By the notes' width, not the window's: shown or
-    /// hidden by hand, the sidebar widens or narrows the window and the notes keep theirs, so
-    /// it's measured only while the sidebar's still, and holds through a slide.
+    /// The first side of the notes (the whole of them, unsplit) too narrow to spare the sidebar
+    /// button's room, in its bar (see `TopBar.sidebarButtonHidingWidth`). As measured by that
+    /// side's bar: shown or hidden by hand, the sidebar widens or narrows the window and the
+    /// notes keep their width, so this holds through a slide.
     @Published private(set) var notesAreNarrow = false
     /// The sidebar button gone, while the sidebar's hidden in narrow notes.
     var hidesSidebarButtonForWidth: Bool { notesAreNarrow && !showsNoteList && !isFocused }
 
-    private func measureNotes() {
-        guard let window, !isSidebarSliding else { return }
-        let width = window.frame.width - (showsNoteList && !isFocused ? sidebarWidth : 0)
-        let narrow = width < TopBar.sidebarButtonHidingWidth
+    /// A side's bar is narrow enough to give up its buttons: while the sidebar's hidden, below
+    /// `TopBar.sidebarButtonHidingWidth`.
+    func hidesBarButtons(sideWidth width: CGFloat) -> Bool {
+        !showsNoteList && !isFocused && isNarrow(sideWidth: width)
+    }
+
+    /// Narrower than `TopBar.sidebarButtonHidingWidth`, or in a split, than
+    /// `TopBar.splitSidebarButtonHidingWidth`.
+    private func isNarrow(sideWidth width: CGFloat) -> Bool {
+        width > 0 && width < (isSplit ? TopBar.splitSidebarButtonHidingWidth : TopBar.sidebarButtonHidingWidth)
+    }
+
+    private var firstSideWidth: CGFloat = 0
+
+    /// The first side's width, from its bar.
+    func firstSideResized(_ width: CGFloat) {
+        firstSideWidth = width
+        let narrow = isNarrow(sideWidth: width)
         guard narrow != notesAreNarrow else { return }
         notesAreNarrow = narrow
         updateSidebarButton()
@@ -447,7 +461,6 @@ final class VaultModel: ObservableObject {
     /// it by hand in between sticks.
     private func windowResized() {
         measureTopBar()
-        measureNotes()
         guard let window else { return }
         // The set width, or the narrowest the window can be with the sidebar if that's wider
         // (the window can't narrow past it): narrowed to it, the sidebar hides.

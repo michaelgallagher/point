@@ -28,6 +28,9 @@ enum TopBar {
     /// first side's bar starts just past the window buttons. The narrow bar's width (see
     /// `PaneTabBar`).
     static let sidebarButtonHidingWidth: CGFloat = 520
+    /// The same, for each side of a split: higher, as a side's tabs have about half the room
+    /// they'd have unsplit, and run short of it long before 520 points.
+    static let splitSidebarButtonHidingWidth: CGFloat = 600
     /// The gap between buttons in a bar (the HStack's spacing): small, since the icons have no
     /// bezels and their own squares hold some space around each symbol.
     static let buttonSpacing: CGFloat = 2
@@ -166,20 +169,29 @@ struct PaneTabBar: View {
     private var isNarrow: Bool { width > 0 && width < Self.narrowWidth }
 
     @State private var width: CGFloat = 0
+    @State private var sideWidth: CGFloat = 0
 
-    /// Experiment (`-PointNarrowHidesHistory YES`, or `defaults write org.mikegallagher.point
-    /// PointNarrowHidesHistory -bool YES`): in a narrow bar with three or more tabs, back and
-    /// forward go into the side's menu (⌘[ and ⌘] still work), leaving their room to the tabs.
+    private func sideResized(_ width: CGFloat) {
+        sideWidth = width
+        if paneIndex == 0 { model.firstSideResized(width) }
+    }
+
+    /// Narrower than this, back and forward tighten (when they show: see `hidesHistory`).
     static let narrowWidth: CGFloat = 520
+
+    /// Back and forward go into the side's menu (⌘[ and ⌘] still work) while the sidebar's
+    /// hidden and this side is narrow: in the first side, with the sidebar button (see
+    /// `VaultModel.hidesSidebarButtonForWidth`); in a split's second, by its own width. Their
+    /// room goes to the tabs.
     private var hidesHistory: Bool {
-        UserDefaults.standard.bool(forKey: "PointNarrowHidesHistory")
-            && pane.tabs.count > 2 && width > 0 && width < Self.narrowWidth
+        paneIndex == 0 ? model.hidesSidebarButtonForWidth : model.hidesBarButtons(sideWidth: sideWidth)
     }
 
     var body: some View {
         HStack(spacing: TopBar.buttonSpacing) {
             if !hidesHistory {
                 BackForwardButtons(paneIndex: paneIndex, isNarrow: isNarrow)
+                    .transition(.opacity)
             }
             // No tabs for just one note.
             if pane.tabs.count > 1 {
@@ -203,10 +215,18 @@ struct PaneTabBar: View {
         .animation(.easeInOut(duration: 0.25), value: startsAtWindowEdge)
         // And as the sidebar button fades in or out, so the tabs take or give up its room.
         .animation(.easeInOut(duration: 0.25), value: model.hidesSidebarButtonForWidth)
+        .animation(.easeInOut(duration: 0.25), value: hidesHistory)
         // As far from the side's edge as from the top, so the menu's hover square sits evenly
         // in the corner.
         .padding(.trailing, max((model.topBarHeight - TopBar.iconSize) / 2, TopBar.edgeInset))
         .frame(height: model.topBarHeight)
+        // The side's whole width: the first side's decides whether the sidebar button shows
+        // in its bar (see `VaultModel.notesAreNarrow`).
+        .background(GeometryReader { geometry in
+            Color.clear
+                .onAppear { sideResized(geometry.size.width) }
+                .onChange(of: geometry.size.width) { sideResized($0) }
+        })
         .background(WindowDragArea())
         // A tab dropped on the bar, past the tabs, goes at the end of this side's tabs.
         .background(TabDropArea { id, _, _ in
