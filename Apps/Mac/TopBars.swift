@@ -466,6 +466,22 @@ struct PaneTabs: View {
 
     /// How far the row's scrolled along.
     @State private var scrolled: CGFloat = 0
+    @State private var scroller = TabScroller()
+
+    /// Scrolls the current tab into view, clear of the fades: the least distance that does,
+    /// and not at all if it's already clear.
+    private func reveal(_ span: ClosedRange<CGFloat>?, animated: Bool) {
+        guard let span else { return }
+        scroller.reveal(span.lowerBound - Self.fadeWidth, span.upperBound + Self.fadeWidth, animated: animated)
+    }
+
+    /// Where the current tab sits along the row.
+    private func currentSpan(_ layout: TabLayout) -> ClosedRange<CGFloat>? {
+        let index = min(max(pane.current, 0), layout.widths.count - 1)
+        guard index >= 0 else { return nil }
+        let start = Self.inset + layout.widths[..<index].reduce(0, +) + Self.spacing * CGFloat(index)
+        return start...(start + layout.widths[index])
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -475,48 +491,48 @@ struct PaneTabs: View {
             // Fades only at an end with tabs scrolled out of sight beyond it.
             let fadesLeading = scrolled > 0.5
             let fadesTrailing = scrolled + shown < layout.rowWidth - 0.5
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: Self.spacing) {
-                        ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
-                            PaneTab(
-                                id: tab.id,
-                                title: layout.labels[index],
-                                help: tab.noteID ?? "",
-                                isCurrent: index == pane.current,
-                                isActiveSide: paneIndex == model.activePane,
-                                width: layout.widths[index],
-                                select: { model.selectTab(index, inPane: paneIndex) },
-                                close: { model.closeTab(index, inPane: paneIndex) },
-                                menu: { TabMenu.menu(for: index, tab: tab, inPane: paneIndex, model: model) }
-                            )
-                            .modifier(TabDropTarget(paneIndex: paneIndex, index: index))
-                            .id(tab.id)
-                        }
-                    }
-                    .padding(Self.inset)
-                    .animation(.easeInOut(duration: 0.2), value: pane.current)
-                    .background(ScrollOffsetReader { scrolled = $0 })
-                }
-                .scrollDisabled(layout.rowWidth <= geometry.size.width)
-                .mask {
-                    HStack(spacing: 0) {
-                        LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
-                            .frame(width: fadesLeading ? Self.fadeWidth : 0)
-                        Color.black
-                        LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
-                            .frame(width: fadesTrailing ? Self.fadeWidth : 0)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Self.spacing) {
+                    ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
+                        PaneTab(
+                            id: tab.id,
+                            title: layout.labels[index],
+                            help: tab.noteID ?? "",
+                            isCurrent: index == pane.current,
+                            isActiveSide: paneIndex == model.activePane,
+                            showsLine: index + 1 < pane.tabs.count && index != pane.current && index + 1 != pane.current,
+                            width: layout.widths[index],
+                            select: { model.selectTab(index, inPane: paneIndex) },
+                            close: { model.closeTab(index, inPane: paneIndex) },
+                            menu: { TabMenu.menu(for: index, tab: tab, inPane: paneIndex, model: model) }
+                        )
+                        .modifier(TabDropTarget(paneIndex: paneIndex, index: index))
+                        .id(tab.id)
                     }
                 }
-                // Only as wide as the tabs, so the bar's empty space still moves the window.
-                .frame(width: min(layout.rowWidth, geometry.size.width), alignment: .leading)
-                // The current tab always in view.
-                .onAppear { proxy.scrollTo(pane.tab.id) }
-                .onChange(of: pane.tab.id) { id in
-                    withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id) }
-                }
-                .onChange(of: geometry.size.width) { _ in proxy.scrollTo(pane.tab.id) }
+                .padding(Self.inset)
+                .animation(.easeInOut(duration: 0.2), value: pane.current)
+                .background(ScrollOffsetReader(scroller: scroller) { scrolled = $0 })
             }
+            .scrollDisabled(layout.rowWidth <= geometry.size.width)
+            .mask {
+                HStack(spacing: 0) {
+                    LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: fadesLeading ? Self.fadeWidth : 0)
+                    Color.black
+                    LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: fadesTrailing ? Self.fadeWidth : 0)
+                }
+            }
+            // Only as wide as the tabs, so the bar's empty space still moves the window.
+            .frame(width: min(layout.rowWidth, geometry.size.width), alignment: .leading)
+            // The current tab always in view.
+            // The tab's place is passed in as the value that changed: values the closure reads
+            // from the view are the ones from before the change, which revealed the tab chosen
+            // before this one.
+            .onAppear { reveal(currentSpan(layout), animated: false) }
+            .onChange(of: currentSpan(layout)) { reveal($0, animated: true) }
+            .onChange(of: geometry.size.width) { _ in reveal(currentSpan(layout), animated: false) }
         }
         .frame(height: Self.height)
     }
@@ -525,12 +541,14 @@ struct PaneTabs: View {
 /// Reports how far the scroll view it's in is scrolled along, as it scrolls: for the tab row's
 /// fades. (SwiftUI's own geometry didn't follow the scrolling here.)
 private struct ScrollOffsetReader: NSViewRepresentable {
+    let scroller: TabScroller
     let changed: (CGFloat) -> Void
 
     func makeNSView(context: Context) -> ReaderView { ReaderView() }
 
     func updateNSView(_ view: ReaderView, context: Context) {
         view.changed = changed
+        scroller.view = view
     }
 
     final class ReaderView: NSView {
@@ -552,6 +570,56 @@ private struct ScrollOffsetReader: NSViewRepresentable {
             guard let clip = enclosingScrollView?.contentView else { return }
             changed(clip.bounds.origin.x)
         }
+    }
+}
+
+/// Moves a side's tab row to show a stretch of it, by its scroll view.
+@MainActor
+final class TabScroller {
+    fileprivate weak var view: NSView?
+
+    /// Bumped by each request, so only the latest, if it has to wait, goes ahead.
+    private var request = 0
+
+    /// Shows `start` to `end` (in the row's own points), moving the least it can, within the
+    /// row's ends, by the row's size as it is when it moves. While the mouse button is down
+    /// it waits: the row moving under a click on a half-hidden tab made it jump, or start
+    /// dragging the tab. It waits too, a little, for the row to be in its window.
+    func reveal(_ start: CGFloat, _ end: CGFloat, animated: Bool) {
+        request += 1
+        attempt(start, end, animated: animated, request: request, tries: 20)
+    }
+
+    private func attempt(_ start: CGFloat, _ end: CGFloat, animated: Bool, request: Int, tries: Int) {
+        guard request == self.request else { return }
+        let scrollView = view?.enclosingScrollView
+        guard NSEvent.pressedMouseButtons == 0, let scrollView, let document = scrollView.documentView else {
+            guard tries > 0 else { return }
+            // Only waiting for the window counts against the tries.
+            let left = scrollView == nil ? tries - 1 : tries
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                self?.attempt(start, end, animated: animated, request: request, tries: left)
+            }
+            return
+        }
+        let clip = scrollView.contentView
+        let shown = clip.bounds.width
+        let now = clip.bounds.origin.x
+        var target = now
+        if start < now { target = start } else if end > now + shown { target = end - shown }
+        target = min(max(target, 0), max(document.frame.width - shown, 0))
+        guard abs(target - now) > 0.5 else { return }
+        let origin = NSPoint(x: target, y: clip.bounds.origin.y)
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.2
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                clip.animator().setBoundsOrigin(origin)
+            }
+        } else {
+            clip.setBoundsOrigin(origin)
+        }
+        scrollView.reflectScrolledClipView(clip)
     }
 }
 
@@ -667,6 +735,8 @@ private struct PaneTab: View {
     let isCurrent: Bool
     /// False on the side of a split not being worked on, whose current tab is less raised.
     let isActiveSide: Bool
+    /// Whether to draw the line after this tab: between two tabs neither of which is current.
+    let showsLine: Bool
     let width: CGFloat
     let select: () -> Void
     let close: () -> Void
@@ -681,9 +751,12 @@ private struct PaneTab: View {
     /// After the title: just enough that it doesn't touch the tab's edge.
     static let trailingPadding: CGFloat = 10
 
-    /// The current tab's shading, as a selected sidebar row's: fainter on the side of a split
+    /// The current tab: white (in dark mode, a little lighter than the bar), with a hairline
+    /// edge and a faint shadow to lift it off the white page. Fainter on the side of a split
     /// not being worked on.
-    private var selectedColor: Color { Color.primary.opacity(isActiveSide ? 0.08 : 0.05) }
+    private var selectedColor: Color {
+        colorScheme == .dark ? .white.opacity(isActiveSide ? 0.14 : 0.08) : .white
+    }
 
     var body: some View {
         Text(title)
@@ -702,10 +775,24 @@ private struct PaneTab: View {
                     .frame(width: Self.closeWidth, height: Self.height)
                     .opacity(isCurrent || isHovering ? 1 : 0)
             }
+            .overlay(alignment: .trailing) {
+                if showsLine {
+                    Rectangle()
+                        .fill(Color(nsColor: .separatorColor))
+                        .frame(width: 1, height: 14)
+                        .offset(x: (PaneTabs.spacing + 1) / 2)
+                }
+            }
             .background {
-                // No rail and no raised tab: the current one shaded like a selected sidebar row.
+                // No rail: the current tab raised, white, on the bar.
                 if isCurrent {
-                    RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous).fill(selectedColor)
+                    RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+                        .fill(selectedColor)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+                                .strokeBorder(Color.primary.opacity(isActiveSide ? 0.12 : 0.08), lineWidth: 0.5)
+                        }
+                        .shadow(color: .black.opacity(isActiveSide ? 0.08 : 0.04), radius: 1.5, y: 0.5)
                 }
             }
             .allowsHitTesting(false) // Clicks go to the tab's mouse area, below.
