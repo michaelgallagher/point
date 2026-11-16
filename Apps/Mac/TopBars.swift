@@ -112,16 +112,10 @@ struct NoteListTopBar: View {
 
     var body: some View {
         HStack(spacing: TopBar.buttonSpacing) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text(model.place == .allNotes ? (model.root?.lastPathComponent ?? "Notes") : model.title(for: model.place))
-                    .font(.headline)
-                    .lineLimit(1)
-                Text(countLabel)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                    .lineLimit(1)
-            }
+            // The name alone: the count is the list's first line (see `SidebarRow.count`).
+            Text(model.place == .allNotes ? (model.root?.lastPathComponent ?? "Notes") : model.title(for: model.place))
+                .font(.headline)
+                .lineLimit(1)
             Spacer(minLength: 0)
             if model.place == .trash { EmptyTrashButton() }
         }
@@ -132,12 +126,14 @@ struct NoteListTopBar: View {
         .frame(height: model.topBarHeight)
         .background(WindowDragArea())
     }
+}
 
-    /// How much is here, under the name, as the sidebar counts it: notes, or for the lists
-    /// of tags and types, how many there are.
-    private var countLabel: String {
-        let count = model.noteCount(of: model.place)
-        let noun = switch model.place {
+extension VaultModel {
+    /// How much is here, as the sidebar counts it: notes, or for the lists of tags and types,
+    /// how many there are.
+    var listCountLabel: String {
+        let count = noteCount(of: place)
+        let noun = switch place {
         case .trash: count == 1 ? "item" : "items"
         case .types: count == 1 ? "type" : "types"
         case .tags: count == 1 ? "tag" : "tags"
@@ -784,8 +780,12 @@ private struct PaneTab: View {
                 }
             }
             .background {
-                // No rail: the current tab raised, white, on the bar.
-                if isCurrent {
+                // No rail: the current tab raised on the bar, in Liquid Glass where there is
+                // any, otherwise white.
+                if isCurrent, #available(macOS 26, *) {
+                    Color.clear
+                        .glassEffect(isActiveSide ? .regular.interactive() : .regular, in: RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
+                } else if isCurrent {
                     RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
                         .fill(selectedColor)
                         .overlay {

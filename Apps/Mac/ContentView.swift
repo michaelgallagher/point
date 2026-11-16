@@ -260,9 +260,10 @@ private struct NoteList: View {
             // In two columns, the name and sort are in the column's top bar (see
             // `NoteListTopBar`).
             if includesPlaces, model.place != .allNotes { PlaceHeader() }
+            // At the foot, over the list's end: a see-through bar, a hairline along its top,
+            // the list scrolling on beneath it (drawn by the list's scroll view).
             browser
-            // At the foot, below the list: flat, as the top bars are, with no glass.
-            filterField
+                .overlay(alignment: .bottom) { filterField }
         }
         .onChange(of: model.searchFocusRequest) { _ in searchFocused = true }
         .overlay {
@@ -279,26 +280,36 @@ private struct NoteList: View {
     /// rail and a selected sidebar row (see `PaneTabs`).
     private static let fieldHeight = PaneTabs.height
     private static let fieldPadding: CGFloat = 10
+    /// How far the sort arrows sit inside their square (measured): taken off the room on
+    /// each side of it, so the arrows are as far from the field and the column's edge as the
+    /// field is from the other edge.
+    private static let sortInset: CGFloat = 6
+    /// The bar at the foot: the field, and as much room above it as below.
+    private static let footHeight = fieldHeight + fieldPadding * 2
 
     /// Narrows the list to what's named with what's typed: in one column, the folders, tags
     /// and notes showing; in two, the notes, with how they're sorted on its right (in one
     /// column, that's in the Notes section's label). Searching the whole vault is the explorer's.
     private var filterField: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Self.fieldPadding - Self.sortInset) {
             SearchField(text: $model.noteFilter, prompt: "Filter", isFocused: $searchFocused, height: Self.fieldHeight) {
                 // Return opens the top note.
                 if let first = model.sidebarRows(collapsed: [], content: content).lazy.compactMap(\.noteID).first { model.selection = first }
             }
-            if !includesPlaces, model.place != .trash {
+            if showsSort {
                 // A plain icon, as in the top bars.
                 SortButton(opensUpward: true)
             }
         }
-        .padding(.horizontal, Self.fieldPadding)
-        .padding(.vertical, 8)
+        .padding(.leading, Self.fieldPadding)
+        .padding(.trailing, showsSort ? Self.fieldPadding - Self.sortInset : Self.fieldPadding)
+        .frame(height: Self.footHeight)
     }
 
     private var content: SidebarTable.Content { includesPlaces ? .everything : .notes }
+
+    /// How the notes are sorted, beside the field: in two columns, but not in the trash.
+    private var showsSort: Bool { !includesPlaces && model.place != .trash }
 
     /// Whether the list shows places as well as notes: always in one column, and in two for the
     /// lists of tags and types, which are places.
@@ -306,7 +317,7 @@ private struct NoteList: View {
 
     /// Pins, folders (or nested tags), tags and notes for the current place.
     private var browser: some View {
-        SidebarTable(model: model, content: content, bottomInset: 0)
+        SidebarTable(model: model, content: content, bottomInset: Self.footHeight)
             .overlay {
                 if model.place == .trash ? model.store.trashedNotes.isEmpty : model.notes(in: model.place).isEmpty, model.store.images(in: model.place).isEmpty, !listsPlaces || model.subplaces(of: model.place).isEmpty, model.place != .allNotes {
                     if let message = emptyMessage {
