@@ -300,10 +300,14 @@ struct PaneTabs: View {
                             .id(tab.id)
                         }
                     }
-                    .padding(Self.inset)
                     .animation(.easeInOut(duration: 0.2), value: pane.current)
                 }
                 .scrollDisabled(layout.rowWidth <= geometry.size.width)
+                // The tabs scroll inside the rail's margin, which stays put: a frame of the
+                // rail's grey all round, so the rail's ends show even with a white tab scrolled
+                // against them.
+                .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius - Self.inset, style: .continuous))
+                .padding(Self.inset)
                 // Solid, so text scrolling under the bars doesn't show through.
                 .background(TopBar.barColor.overlay(Color.primary.opacity(0.09)))
                 .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
