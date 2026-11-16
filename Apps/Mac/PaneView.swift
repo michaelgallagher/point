@@ -28,11 +28,13 @@ struct PaneView: View {
                 HStack(spacing: 0) {
                     if #available(macOS 26, *) {
                         page(pane, index: index, underBar: TopBar.cover(for: pane, in: model))
+                            .overlay { FloatingNoteMenu(pane: pane, paneIndex: index, below: TopBar.cover(for: pane, in: model)) }
                             .overlay(alignment: .top) { PaneTabBar(pane: pane, paneIndex: index) }
                     } else {
                         VStack(spacing: 0) {
                             PaneTabBar(pane: pane, paneIndex: index)
                             page(pane, index: index, underBar: 0)
+                                .overlay { FloatingNoteMenu(pane: pane, paneIndex: index, below: 0) }
                         }
                     }
                     if let linksNote {
