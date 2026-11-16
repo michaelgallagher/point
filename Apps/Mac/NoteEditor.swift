@@ -88,8 +88,8 @@ struct NoteEditor: View {
 }
 
 /// Above the text, scrolling with it: the note's title (its file name: most notes don't
-/// start with a heading), the folders it's in above it, its properties, and for a new note,
-/// templates. A hairline always separates it from the text.
+/// start with a heading), its properties, and for a new note, templates. (The folders it's in,
+/// and its bookmark, are in its side's bar.) A hairline always separates it from the text.
 private struct NoteHeader: View {
     @ObservedObject var session: EditorSession
     @ObservedObject var model: VaultModel
@@ -99,7 +99,6 @@ private struct NoteHeader: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 9) {
-                NotePath(note: session.note, model: model)
                 // Its file name, which can be edited here to rename the note.
                 TitleField(note: session.note, model: model, toText: { session.focusText() })
             }
@@ -118,7 +117,6 @@ private struct NoteHeader: View {
                 ListPanel(list: list, session: session, model: model, store: model.store, paneID: paneID)
             }
             if shownFrontmatter == nil || model.showsMarkdown(inPane: paneID) {
-                BookmarkReadout(store: model.store, note: session.note.id, standalone: true)
                 RelatedReadout(connections: model.connections(for: session.note), model: model, paneID: paneID, standalone: true)
             }
             if offersTemplates, session.isEmpty {
@@ -143,34 +141,6 @@ extension NoteHeader {
                 || (isList && ListDefinition.isListKey(property.key))
         }
         return shown.properties.isEmpty ? nil : shown
-    }
-}
-
-/// The folders a note is in, above its title: "Projects / Point". Clicking one shows it in
-/// the sidebar. Nothing for a note at the vault's top level.
-private struct NotePath: View {
-    let note: Note
-    @ObservedObject var model: VaultModel
-
-    var body: some View {
-        let names = note.id.split(separator: "/").dropLast().map(String.init)
-        if !names.isEmpty {
-            HStack(spacing: 4) {
-                ForEach(names.indices, id: \.self) { index in
-                    if index > 0 {
-                        Text("/").foregroundStyle(.tertiary)
-                    }
-                    Button(names[index]) { model.reveal(folder: names[...index].joined(separator: "/")) }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                        .help("Show “\(names[index])”")
-                }
-            }
-            // The same size as the properties below, and the menus and date pickers in them,
-            // which AppKit draws at 13pt whatever the text size.
-            .font(.body)
-            .lineLimit(1)
-        }
     }
 }
 

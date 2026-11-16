@@ -78,3 +78,29 @@ What shows, with the sidebar hidden and five or more tabs open:
 - Is "about five letters" enough to recognise an inactive tab, or should the row show fewer, longer tabs?
 - Should the overflow menu list every tab (with the current one ticked), as a tab list, rather than only the hidden ones?
 - Is hiding back and forward with the sidebar button right, or should they stay longer than it? They're the biggest fixed cost in the bar.
+
+## Fifth try: two rows (branch `header-two-rows`, 15 November 2026)
+
+Built on `header-narrow-tabs`. Mike asked for two rows, the tabs always shown, and a simpler tab design.
+
+1. **The title bar's row holds the tabs, always,** even with one. A split button sits at the window's far right, on the last side only: Split, or Close Split when split. Split and Close Split have left the "…" menu.
+2. **A thinner second row (30 points)** holds back and forward, the path (`PanePath`, back from `header-redesign`, but only the folders, without the note's name, so it can't rename the note; a note at the vault's top shows none), a bookmark button and the "…" menu. The bookmark is filled when the note is bookmarked. It replaces the Bookmark item in "…" and the "Bookmarked" line under the title.
+3. **The path above the title is gone** (`NotePath`), as the second row has it.
+4. **Simpler tabs.** The tabs were Point's own SwiftUI (`PaneTabs`, `PaneTab`), not a system control, so they could be pared down. They had no rail and no raised current tab. The current tab now has a soft grey rounded fill, a little fainter on the side that isn't active. The others are plain text, with their × on hover. The ×'s room is always kept, so titles don't shift.
+5. **No hiding in narrow windows.** The sidebar button and back and forward always show. Back and forward have their own row now, so they no longer cost the tabs any room. The staged tab fitting and the "›› N" overflow from the fourth try stay.
+6. **The "…" menu** now holds only Move File…, Save Web Images, Show Markdown, Reveal in Finder and Delete File.
+
+**Checked:** pictures of the debug build:
+- one tab and four;
+- a split at 1100 and 1200 points;
+- the sidebar shown;
+- a 440-point window, showing three tabs and "›› 2".
+
+**Not checked yet:**
+- text scrolling under the two rows in a live window (window snapshots don't draw the system's blur, so they show page text under the tabs);
+- dragging tabs;
+- macOS before 26.
+
+**Open questions:**
+- Is a tab row with one tab worth its height, or should one tab show only as the path?
+- Should the split button sit on each side, so a split side can be closed on its own?

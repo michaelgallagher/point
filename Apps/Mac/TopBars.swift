@@ -23,14 +23,14 @@ enum TopBar {
     /// How far the bar starts past the window buttons while the sidebar is hidden: the sidebar
     /// button (see `SidebarSplitController`), then the gap.
     static let sidebarButtonWidth: CGFloat = iconSize + buttonSpacing
-    /// Notes narrower than this can't spare the sidebar button's room: while the sidebar's
-    /// hidden, the button goes (⌘S, the View menu and a swipe still show the sidebar), and the
-    /// first side's bar starts just past the window buttons. The narrow bar's width (see
-    /// `PaneTabBar`).
-    static let sidebarButtonHidingWidth: CGFloat = 520
-    /// The same, for each side of a split: higher, as a side's tabs have about half the room
-    /// they'd have unsplit, and run short of it long before 520 points.
-    static let splitSidebarButtonHidingWidth: CGFloat = 600
+    /// The second row of a side's bar, under the tabs and a hairline: back and forward, where
+    /// the note is, and the note's menu. Thinner than the title bar's row above it.
+    static let secondRowHeight: CGFloat = 34
+    /// A side narrower than this can't spare the room for its bar's buttons. The sidebar
+    /// button goes while the sidebar's hidden (⌘S, the View menu and a swipe still show it),
+    /// and the split button goes into the side's "…" menu. In a split, each side by its own
+    /// width.
+    static let sidebarButtonHidingWidth: CGFloat = 580
     /// The gap between buttons in a bar (the HStack's spacing): small, since the icons have no
     /// bezels and their own squares hold some space around each symbol.
     static let buttonSpacing: CGFloat = 2
@@ -67,10 +67,14 @@ enum TopBar {
     static let narrowArrowWidth: CGFloat = 22
     static let iconCornerRadius: CGFloat = 7
 
-    /// How much of a side the top bar covers: the title bar's row.
+    /// How much of a side the top bar covers: the title bar's row, with the tabs, and the row
+    /// below it.
     @MainActor static func cover(for pane: VaultModel.NotePane, in model: VaultModel) -> CGFloat {
-        model.topBarHeight
+        model.topBarHeight + rowDividerHeight + secondRowHeight
     }
+
+    /// The hairline between the bar's two rows.
+    static let rowDividerHeight: CGFloat = 0.5
 
 }
 
@@ -143,32 +147,27 @@ struct NoteListTopBar: View {
     }
 }
 
-/// One side's top bar, in the title bar's row: back and forward, its tabs (when it has more
-/// than one), then on the far right its menu (the note's options and the split). Where the note
-/// is shows on its page, above its title. Its empty space moves the window.
+/// One side's top bar, in two rows, a hairline between them. In the title bar's row, its tabs
+/// (always, even just one), and at the window's far right the split button. Below, in a
+/// thinner row: back and forward, the note's folders, and its menu. The empty space in the
+/// tabs' row moves the window. Narrower than `TopBar.sidebarButtonHidingWidth`, the sidebar
+/// button and the split button give their room to the tabs.
 struct PaneTabBar: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
     let paneIndex: Int
 
-    /// With the sidebar hidden, the first side starts past the window buttons and the sidebar
-    /// button.
+    /// With the sidebar hidden, the first side's tabs start past the window buttons and the
+    /// sidebar button.
     private var startsAtWindowEdge: Bool { paneIndex == 0 && (!model.showsNoteList || model.isFocused) }
 
-    /// Past the window buttons and the sidebar button when the sidebar is hidden; otherwise
-    /// just past the sidebar's edge or the divider.
+    /// The tabs' row: past the window buttons and the sidebar button when the sidebar is
+    /// hidden; otherwise just past the sidebar's edge or the divider.
     private var leadingInset: CGFloat {
-        guard startsAtWindowEdge else {
-            // Past a divider: the back arrow as far from it as the sidebar button is on its side.
-            guard !hidesHistory else { return TopBar.edgeInset }
-            return TopBar.arrowInset(width: isNarrow ? TopBar.narrowArrowWidth : TopBar.iconSize)
-        }
+        guard startsAtWindowEdge else { return TopBar.edgeInset }
         return model.windowButtonsInset + (model.hidesSidebarButtonForWidth ? 0 : TopBar.sidebarButtonWidth)
     }
 
-    private var isNarrow: Bool { width > 0 && width < Self.narrowWidth }
-
-    @State private var width: CGFloat = 0
     @State private var sideWidth: CGFloat = 0
 
     private func sideResized(_ width: CGFloat) {
@@ -176,58 +175,31 @@ struct PaneTabBar: View {
         if paneIndex == 0 { model.firstSideResized(width) }
     }
 
-    /// Narrower than this, back and forward tighten (when they show: see `hidesHistory`).
-    static let narrowWidth: CGFloat = 520
+    /// The split button, on the last side, unless that side is narrow: then Split (or Close
+    /// Split) is in its "…" menu.
+    private var isLastSide: Bool { paneIndex == model.panes.count - 1 }
+    private var showsSplitButton: Bool { isLastSide && !model.isNarrow(sideWidth: sideWidth) }
 
-    /// Back and forward go into the side's menu (⌘[ and ⌘] still work) while the sidebar's
-    /// hidden and this side is narrow: in the first side, with the sidebar button (see
-    /// `VaultModel.hidesSidebarButtonForWidth`); in a split's second, by its own width. Their
-    /// room goes to the tabs.
-    private var hidesHistory: Bool {
-        paneIndex == 0 ? model.hidesSidebarButtonForWidth : model.hidesBarButtons(sideWidth: sideWidth)
-    }
+    /// As far from the side's edge as from the top of the tabs' row, so the split button's
+    /// hover square sits evenly in the corner; the menu below lines up under it.
+    private var trailingInset: CGFloat { max((model.topBarHeight - TopBar.iconSize) / 2, TopBar.edgeInset) }
 
     var body: some View {
-        HStack(spacing: TopBar.buttonSpacing) {
-            if !hidesHistory {
-                BackForwardButtons(paneIndex: paneIndex, isNarrow: isNarrow)
-                    .transition(.opacity)
-            }
-            // No tabs for just one note.
-            if pane.tabs.count > 1 {
-                PaneTabs(pane: pane, paneIndex: paneIndex)
-                    .padding(.horizontal, TopBar.edgeInset)
-            } else {
-                Spacer(minLength: 0)
-            }
-            PaneMenuButton(pane: pane, paneIndex: paneIndex, includesHistory: hidesHistory)
+        VStack(spacing: 0) {
+            tabRow
+            // A hairline between the two rows, across the side.
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor))
+                .frame(height: TopBar.rowDividerHeight)
+            noteRow
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(GeometryReader { geometry in
-            Color.clear
-                .onAppear { width = geometry.size.width }
-                .onChange(of: geometry.size.width) { width = $0 }
-        })
-        .padding(.leading, leadingInset)
-        // As the sidebar slides, on the window's own curve and duration, so the bar's contents
-        // glide with the notes, staying clear of the window buttons, rather than jumping. (Only
-        // an animation moves during the window's animation; nothing is laid out again.)
-        .animation(.easeInOut(duration: 0.25), value: startsAtWindowEdge)
-        // And as the sidebar button fades in or out, so the tabs take or give up its room.
-        .animation(.easeInOut(duration: 0.25), value: model.hidesSidebarButtonForWidth)
-        .animation(.easeInOut(duration: 0.25), value: hidesHistory)
-        // As far from the side's edge as from the top, so the menu's hover square sits evenly
-        // in the corner.
-        .padding(.trailing, max((model.topBarHeight - TopBar.iconSize) / 2, TopBar.edgeInset))
-        .frame(height: model.topBarHeight)
         // The side's whole width: the first side's decides whether the sidebar button shows
-        // in its bar (see `VaultModel.notesAreNarrow`).
+        // (see `VaultModel.notesAreNarrow`).
         .background(GeometryReader { geometry in
             Color.clear
                 .onAppear { sideResized(geometry.size.width) }
                 .onChange(of: geometry.size.width) { sideResized($0) }
         })
-        .background(WindowDragArea())
         // A tab dropped on the bar, past the tabs, goes at the end of this side's tabs.
         .background(TabDropArea { id, _, _ in
             id.map { model.location(ofTab: $0) != nil } ?? false
@@ -237,6 +209,57 @@ struct PaneTabBar: View {
             return true
         })
         .background { TopBarBackground() }
+    }
+
+    private var tabRow: some View {
+        HStack(spacing: TopBar.buttonSpacing) {
+            PaneTabs(pane: pane, paneIndex: paneIndex)
+            // One for the window, at its far right: on the last side.
+            if showsSplitButton {
+                SplitButton()
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, leadingInset)
+        // As the sidebar slides, on the window's own curve and duration, so the bar's contents
+        // glide with the notes, staying clear of the window buttons, rather than jumping. (Only
+        // an animation moves during the window's animation; nothing is laid out again.)
+        .animation(.easeInOut(duration: 0.25), value: startsAtWindowEdge)
+        // And as the sidebar button fades, so the tabs take or give up its room.
+        .animation(.easeInOut(duration: 0.25), value: model.hidesSidebarButtonForWidth)
+        .animation(.easeInOut(duration: 0.25), value: showsSplitButton)
+        .padding(.trailing, trailingInset)
+        .frame(height: model.topBarHeight)
+        .background(WindowDragArea())
+    }
+
+    private var noteRow: some View {
+        HStack(spacing: TopBar.buttonSpacing) {
+            BackForwardButtons(paneIndex: paneIndex, isNarrow: true)
+            PanePath(pane: pane, paneIndex: paneIndex)
+            if model.note(pane.tab.noteID) != nil || (isLastSide && !showsSplitButton) {
+                PaneMenuButton(pane: pane, paneIndex: paneIndex, includesSplit: isLastSide && !showsSplitButton)
+            }
+        }
+        // Back as far from the side's edge as the sidebar button is on its side of a divider.
+        .padding(.leading, TopBar.arrowInset(width: TopBar.narrowArrowWidth))
+        .padding(.trailing, trailingInset)
+        // In the middle of the row, the same room above and below.
+        .frame(height: TopBar.secondRowHeight)
+    }
+}
+
+/// Splits the window, or closes the split (keeping both sides' notes as tabs).
+private struct SplitButton: View {
+    @EnvironmentObject private var model: VaultModel
+
+    var body: some View {
+        BarButton(model.isSplit ? "Close Split" : "Split",
+                  systemImage: model.isSplit ? "rectangle" : "rectangle.split.2x1",
+                  help: model.isSplit ? "Close Split" : "Split") {
+            if model.isSplit { model.mergeIntoTabs() } else { model.toggleSplit() }
+        }
     }
 }
 
@@ -250,6 +273,171 @@ private struct TopBarBackground: View {
             TopBar.barColor
                 .overlay(alignment: .bottom) { Divider().opacity(0.5) }
         }
+    }
+}
+
+/// The folders a side's note is in, from the vault's top ("Projects / Archive"), each
+/// clickable to show it in the sidebar or the explorer. Not the note's name: that's its tab,
+/// and its title on the page. Empty for a note at the vault's top, an image or a new tab.
+struct PanePath: View {
+    @EnvironmentObject private var model: VaultModel
+    let pane: VaultModel.NotePane
+    let paneIndex: Int
+    /// The room the path had when the sidebar last settled. While it slides, the path keeps the
+    /// folding it had (clipped at its end if need be) and folds again once it stops: changing
+    /// on the way, its parts crossed over each other as the bar moved.
+    @State private var settledWidth: CGFloat = 0
+
+    var body: some View {
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                if let note = model.note(pane.tab.noteID) {
+                    let width = model.isSidebarSliding && settledWidth > 0 ? settledWidth : geometry.size.width
+                    // By what each part is; parts shown or hidden come and go at once.
+                    ForEach(Self.identified(Self.parts(of: note, toFit: width)), id: \.id) { item in
+                        segment(item.part)
+                            .transition(.identity)
+                    }
+                }
+            }
+            // While sliding, at its own width, clipped at its end, rather than squeezed into
+            // less room (which pushed its parts over each other).
+            .fixedSize(horizontal: model.isSidebarSliding, vertical: false)
+            // From its leading edge (wider than its room, it would otherwise be centred in it).
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .help(model.note(pane.tab.noteID)?.id ?? "")
+            .contentTransition(.identity)
+            .onAppear { settledWidth = geometry.size.width }
+            .onChange(of: geometry.size.width) { width in
+                if !model.isSidebarSliding { settledWidth = width }
+            }
+            .onChange(of: model.isSidebarSliding) { sliding in
+                if !sliding { settledWidth = geometry.size.width }
+            }
+        }
+        .clipped()
+        .opacity(model.isSplit && paneIndex != model.activePane ? 0.55 : 1)
+    }
+
+    /// A piece of the path, as laid out.
+    enum Part: Equatable {
+        case folder(name: String, path: String)
+        /// Folders folded away, by path.
+        case folded([String])
+        case separator
+    }
+
+    /// The parts, each with an identity: a folder by its path, a separator by what comes after it.
+    static func identified(_ parts: [Part]) -> [(id: String, part: Part)] {
+        func id(_ part: Part) -> String {
+            switch part {
+            case .folder(_, let path): "folder:" + path
+            case .folded: "folded"
+            case .separator: "separator"
+            }
+        }
+        return parts.enumerated().map { index, part in
+            if case .separator = part, index + 1 < parts.count { return ("before:" + id(parts[index + 1]), part) }
+            return (id(part), part)
+        }
+    }
+
+    @ViewBuilder private func segment(_ part: Part) -> some View {
+        switch part {
+        case .folder(let name, let path):
+            PathButton(text: name, help: "Show “\(name)”") { model.reveal(folder: path) }
+        case .folded(let paths):
+            Text("…")
+                .font(Self.font)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, Self.padding)
+                .help(paths.joined(separator: "\n"))
+        case .separator:
+            Text("/")
+                .font(Self.font)
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, Self.separatorPadding)
+        }
+    }
+
+    // MARK: Fitting
+
+    static let font = Font.system(size: nsFontSize)
+    private static let nsFontSize: CGFloat = 13
+    /// Around each folder: room for the shading on hover.
+    static let padding: CGFloat = 5
+    static let separatorPadding: CGFloat = 1
+
+    private static func width(_ text: String) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: nsFontSize)]).width)
+    }
+
+    private static func width(of part: Part) -> CGFloat {
+        switch part {
+        case .folder(let name, _): width(name) + padding * 2
+        case .folded: width("…") + padding * 2
+        case .separator: width("/") + separatorPadding * 2
+        }
+    }
+
+    /// The longest form of the path that fits: every folder; then the first folder, "…" and
+    /// fewer and fewer of the rest, ending with the innermost; then "…" and the innermost;
+    /// then "…" alone.
+    static func parts(of note: Note, toFit available: CGFloat) -> [Part] {
+        let names = note.id.split(separator: "/").dropLast().map(String.init)
+        guard !names.isEmpty else { return [] }
+        let paths = names.indices.map { names[...$0].joined(separator: "/") }
+        let folders = zip(names, paths).map { Part.folder(name: $0, path: $1) }
+
+        func joined(_ pieces: [Part]) -> [Part] {
+            pieces.enumerated().flatMap { index, piece in index == 0 ? [piece] : [.separator, piece] }
+        }
+        func fits(_ parts: [Part]) -> Bool { parts.map(width(of:)).reduce(0, +) <= available }
+
+        let whole = joined(folders)
+        if fits(whole) { return whole }
+        // Fold the folders between the first and the innermost, one more each time.
+        if folders.count > 2 {
+            for hidden in 1...(folders.count - 2) {
+                let parts = joined([folders[0], .folded(Array(paths[1...hidden]))] + folders.dropFirst(1 + hidden))
+                if fits(parts) { return parts }
+            }
+        }
+        if folders.count > 1 {
+            let parts = joined([.folded(Array(paths.dropLast())), folders[folders.count - 1]])
+            if fits(parts) { return parts }
+        }
+        return [.folded(paths)]
+    }
+}
+
+/// A folder in a side's path, taking clicks in AppKit (as the bar's other controls do),
+/// shaded on hover.
+private struct PathButton: View {
+    let text: String
+    let help: String
+    let action: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Text(text)
+            .font(PanePath.font)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, PanePath.padding)
+            .padding(.vertical, 3)
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isHovering ? TopBar.selectedTabColor : .clear)
+            }
+            .allowsHitTesting(false)
+            .background(ClickArea(help: help, action: action))
+            .onHover { isHovering = $0 }
+            .accessibilityElement()
+            .accessibilityLabel(text)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { action() }
     }
 }
 
@@ -285,14 +473,12 @@ struct PaneTabs: View {
             HStack(spacing: Self.spacing) {
                 ForEach(Array(layout.visible.enumerated()), id: \.element) { position, index in
                     let tab = pane.tabs[index]
-                    let next = position + 1 < layout.visible.count ? layout.visible[position + 1] : nil
                     PaneTab(
                         id: tab.id,
                         title: layout.labels[index],
                         help: tab.noteID ?? "",
                         isCurrent: index == pane.current,
                         isActiveSide: paneIndex == model.activePane,
-                        showsLine: next != nil && index != pane.current && next != pane.current,
                         width: layout.widths[index] ?? 0,
                         select: { model.selectTab(index, inPane: paneIndex) },
                         close: { model.closeTab(index, inPane: paneIndex) },
@@ -308,9 +494,6 @@ struct PaneTabs: View {
             }
             .padding(Self.inset)
             .animation(.easeInOut(duration: 0.2), value: pane.current)
-            // Solid, so text scrolling under the bars doesn't show through.
-            .background(TopBar.barColor.overlay(Color.primary.opacity(0.09)))
-            .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
             // Only as wide as the tabs, so the bar's empty space still moves the window.
             .frame(width: min(layout.rowWidth, geometry.size.width), alignment: .leading)
         }
@@ -552,8 +735,6 @@ private struct PaneTab: View {
     let isCurrent: Bool
     /// False on the side of a split not being worked on, whose current tab is less raised.
     let isActiveSide: Bool
-    /// Whether to draw the line after this tab.
-    let showsLine: Bool
     let width: CGFloat
     let select: () -> Void
     let close: () -> Void
@@ -568,10 +749,9 @@ private struct PaneTab: View {
     /// After the title: just enough that it doesn't touch the tab's edge.
     static let trailingPadding: CGFloat = 10
 
-    /// The raised current tab: lighter than what's around it.
-    private var raisedColor: Color {
-        colorScheme == .dark ? .white.opacity(isActiveSide ? 0.16 : 0.08) : .white.opacity(isActiveSide ? 0.95 : 0.55)
-    }
+    /// The current tab's shading, as a selected sidebar row's: fainter on the side of a split
+    /// not being worked on.
+    private var selectedColor: Color { Color.primary.opacity(isActiveSide ? 0.08 : 0.05) }
 
     var body: some View {
         Text(title)
@@ -582,28 +762,19 @@ private struct PaneTab: View {
             .padding(.trailing, Self.trailingPadding)
             .frame(width: width, height: Self.height, alignment: .leading)
             .overlay(alignment: .leading) {
-                // Always shown; clicked through the tab's mouse area, which knows where it is.
+                // On the current tab, and any tab hovered; its room is kept either way, so the
+                // title doesn't move. Clicked through the tab's mouse area, which knows where it is.
                 Image(systemName: "xmark")
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(isHovering ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
                     .frame(width: Self.closeWidth, height: Self.height)
-            }
-            .overlay(alignment: .trailing) {
-                if showsLine {
-                    Rectangle()
-                        .fill(Color(nsColor: .separatorColor))
-                        .frame(width: 1, height: 14)
-                        .offset(x: 1.5)
-                }
+                    .opacity(isCurrent || isHovering ? 1 : 0)
             }
             .background {
+                // No rail and no raised tab: the current one shaded like a selected sidebar row.
                 if isCurrent {
-                    let shape = RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
-                    shape.fill(raisedColor)
-                        .overlay { shape.strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5) }
-                        .shadow(color: .black.opacity(isActiveSide ? 0.08 : 0), radius: 1, y: 0.5)
+                    RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous).fill(selectedColor)
                 }
-                // Hovering shows only the close button and darker text: no shape behind.
             }
             .allowsHitTesting(false) // Clicks go to the tab's mouse area, below.
             // Clicks, drags, hover and the menu are handled in AppKit: the tabs sit where a
@@ -694,32 +865,21 @@ private struct BackForwardButtons: View {
     }
 }
 
-/// The side's one menu, at the end of its bar: what can be done with its note, deleting it,
-/// then last the split (opening it, or closing it, which keeps both sides' notes as tabs).
+/// The side's menu, at the end of its second row: what can be done with its note, then deleting
+/// it.
 private struct PaneMenuButton: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
     let paneIndex: Int
-    /// Back and forward first, when they're not in the bar.
-    var includesHistory = false
+    /// Split or Close Split, last, while the split button is hidden.
+    var includesSplit = false
 
     private func menu() -> NSMenu {
         let menu = NSMenu()
         // Items are enabled as set here (Save Web Images to Vault isn't always).
         menu.autoenablesItems = false
-        if includesHistory {
-            let back = BlockMenuItem("Back") { model.travel(back: true, inPane: paneIndex) }
-            back.isEnabled = model.canTravel(back: true, inPane: paneIndex)
-            back.keyEquivalent = "["
-            menu.addItem(back)
-            let forward = BlockMenuItem("Forward") { model.travel(back: false, inPane: paneIndex) }
-            forward.isEnabled = model.canTravel(back: false, inPane: paneIndex)
-            forward.keyEquivalent = "]"
-            menu.addItem(forward)
-            menu.addItem(.separator())
-        }
-        let note = model.note(pane.tab.noteID)
-        if let note {
+        // The split has its own button (but see `includesSplit`).
+        if let note = model.note(pane.tab.noteID) {
             let bookmark = BlockMenuItem("Bookmark") { model.toggleBookmark(note.id) }
             bookmark.state = model.isBookmarked(note.id) ? .on : .off
             menu.addItem(bookmark)
@@ -735,12 +895,15 @@ private struct PaneMenuButton: View {
             menu.addItem(BlockMenuItem("Reveal in Finder") { model.showInFinder(note) })
             menu.addItem(.separator())
             menu.addItem(BlockMenuItem("Delete File") { model.moveToTrash(note) })
-            menu.addItem(.separator())
         }
-        if model.isSplit {
-            menu.addItem(BlockMenuItem("Close Split") { model.mergeIntoTabs() })
-        } else {
-            menu.addItem(BlockMenuItem("Split") { model.toggleSplit() })
+        // Last, when the split button has no room.
+        if includesSplit {
+            if menu.numberOfItems > 0 { menu.addItem(.separator()) }
+            if model.isSplit {
+                menu.addItem(BlockMenuItem("Close Split") { model.mergeIntoTabs() })
+            } else {
+                menu.addItem(BlockMenuItem("Split") { model.toggleSplit() })
+            }
         }
         return menu
     }
