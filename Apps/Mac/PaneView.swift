@@ -65,7 +65,10 @@ struct PaneView: View {
     /// scroll view runs up beneath the bar (and is inset to match), anything else starts
     /// below it.
     private func page(_ pane: VaultModel.NotePane, index: Int, underBar: CGFloat) -> some View {
-                Group {
+                // A stack, not a Group: a Group's modifiers go to each of its children, so the
+                // top bar laid over the page went with the note, and was made afresh (its tabs
+                // and all) every time the note changed.
+                ZStack {
                     if let note = model.note(pane.tab.noteID) {
                         NoteEditor(note: note, model: model, paneID: paneID, tabID: pane.tab.id, offersTemplates: note.id == model.freshNoteID)
                             .environment(\.topBarCover, underBar)
