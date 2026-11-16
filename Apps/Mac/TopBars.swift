@@ -443,16 +443,12 @@ private struct PathButton: View {
 
 // MARK: The tabs
 
-/// A side's tabs: a grey rail holding the tabs, the current one raised inside it. The rail and
-/// the current tab are shaped like a selected row in the sidebar (its height and its corners),
-/// not capsules, and there's no glass. It's as wide as its titles, leaving the rest of the row
-/// empty. Right-click a tab for its menu; drag it along the row, to the other side's row or
-/// page, or to one half of the page to split the window.
-///
-/// As room runs out, in stages (see `TabLayout`): the titles shorten to what tells them apart
-/// and the tabs share the room; then the current tab keeps a readable width, the others
-/// shrinking further; then the tabs that
-/// still don't fit go into a menu at the end of the row, the current one always shown.
+/// A side's tabs: plain titles, the current one on a soft grey fill. Each tab is as wide as
+/// its title, up to `TabLayout.widest`; tabs never shrink to fit. When they don't all fit,
+/// the row scrolls sideways, keeping the current tab in view, and fades at an end with tabs
+/// scrolled out of sight beyond it. Right-click a tab for its menu;
+/// drag it along the row, to the other side's row or page, or to one half of the page to
+/// split the window.
 struct PaneTabs: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
@@ -465,73 +461,111 @@ struct PaneTabs: View {
     /// Between a tab and the rail around it.
     static let inset: CGFloat = 2
     static let spacing: CGFloat = 2
+    /// How far in from an end the tabs fade, where the row's scrolled past them.
+    static let fadeWidth: CGFloat = 24
+
+    /// How far the row's scrolled along.
+    @State private var scrolled: CGFloat = 0
 
     var body: some View {
         GeometryReader { geometry in
             let titles = pane.tabs.map { model.note($0.noteID)?.title ?? model.store.image($0.noteID)?.name ?? "New tab" }
-            let layout = TabLayout(titles: titles, current: pane.current, available: geometry.size.width)
-            HStack(spacing: Self.spacing) {
-                ForEach(Array(layout.visible.enumerated()), id: \.element) { position, index in
-                    let tab = pane.tabs[index]
-                    PaneTab(
-                        id: tab.id,
-                        title: layout.labels[index],
-                        help: tab.noteID ?? "",
-                        isCurrent: index == pane.current,
-                        isActiveSide: paneIndex == model.activePane,
-                        width: layout.widths[index] ?? 0,
-                        select: { model.selectTab(index, inPane: paneIndex) },
-                        close: { model.closeTab(index, inPane: paneIndex) },
-                        menu: { TabMenu.menu(for: index, tab: tab, inPane: paneIndex, model: model) }
-                    )
-                    .modifier(TabDropTarget(paneIndex: paneIndex, index: index))
+            let layout = TabLayout(titles: titles)
+            let shown = min(layout.rowWidth, geometry.size.width)
+            // Fades only at an end with tabs scrolled out of sight beyond it.
+            let fadesLeading = scrolled > 0.5
+            let fadesTrailing = scrolled + shown < layout.rowWidth - 0.5
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Self.spacing) {
+                        ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
+                            PaneTab(
+                                id: tab.id,
+                                title: layout.labels[index],
+                                help: tab.noteID ?? "",
+                                isCurrent: index == pane.current,
+                                isActiveSide: paneIndex == model.activePane,
+                                width: layout.widths[index],
+                                select: { model.selectTab(index, inPane: paneIndex) },
+                                close: { model.closeTab(index, inPane: paneIndex) },
+                                menu: { TabMenu.menu(for: index, tab: tab, inPane: paneIndex, model: model) }
+                            )
+                            .modifier(TabDropTarget(paneIndex: paneIndex, index: index))
+                            .id(tab.id)
+                        }
+                    }
+                    .padding(Self.inset)
+                    .animation(.easeInOut(duration: 0.2), value: pane.current)
+                    .background(ScrollOffsetReader { scrolled = $0 })
                 }
-                if !layout.hidden.isEmpty {
-                    TabOverflowButton(titles: layout.hidden.map { titles[$0] }) { picked in
-                        model.selectTab(layout.hidden[picked], inPane: paneIndex)
+                .scrollDisabled(layout.rowWidth <= geometry.size.width)
+                .mask {
+                    HStack(spacing: 0) {
+                        LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+                            .frame(width: fadesLeading ? Self.fadeWidth : 0)
+                        Color.black
+                        LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                            .frame(width: fadesTrailing ? Self.fadeWidth : 0)
                     }
                 }
+                // Only as wide as the tabs, so the bar's empty space still moves the window.
+                .frame(width: min(layout.rowWidth, geometry.size.width), alignment: .leading)
+                // The current tab always in view.
+                .onAppear { proxy.scrollTo(pane.tab.id) }
+                .onChange(of: pane.tab.id) { id in
+                    withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id) }
+                }
+                .onChange(of: geometry.size.width) { _ in proxy.scrollTo(pane.tab.id) }
             }
-            .padding(Self.inset)
-            .animation(.easeInOut(duration: 0.2), value: pane.current)
-            // Only as wide as the tabs, so the bar's empty space still moves the window.
-            .frame(width: min(layout.rowWidth, geometry.size.width), alignment: .leading)
         }
         .frame(height: Self.height)
     }
 }
 
-/// Where a side's tabs go in the room they have, and what each says. In stages, each tried
-/// only when the one before doesn't fit:
-/// 1. Every tab as wide as its whole title.
-/// 2. The tabs sharing the room, the widest cut first, while every tab still shows about ten
-///    characters.
-/// 3. Compact: the current tab keeps a readable width; the others share what's left.
-/// 4. Compact, with the tabs that still don't fit in a menu at the end of the row: the current
-///    one, and the others in order up to as many as fit.
-/// Then each tab's title is fitted to its width (see `TabLabels`).
+/// Reports how far the scroll view it's in is scrolled along, as it scrolls: for the tab row's
+/// fades. (SwiftUI's own geometry didn't follow the scrolling here.)
+private struct ScrollOffsetReader: NSViewRepresentable {
+    let changed: (CGFloat) -> Void
+
+    func makeNSView(context: Context) -> ReaderView { ReaderView() }
+
+    func updateNSView(_ view: ReaderView, context: Context) {
+        view.changed = changed
+    }
+
+    final class ReaderView: NSView {
+        var changed: (CGFloat) -> Void = { _ in }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        // Observed by selector, which the notification centre lets go of with the view.
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: nil)
+            guard window != nil, let clip = enclosingScrollView?.contentView else { return }
+            clip.postsBoundsChangedNotifications = true
+            NotificationCenter.default.addObserver(self, selector: #selector(scrolled), name: NSView.boundsDidChangeNotification, object: clip)
+            DispatchQueue.main.async { self.scrolled() }
+        }
+
+        @objc private func scrolled() {
+            guard let clip = enclosingScrollView?.contentView else { return }
+            changed(clip.bounds.origin.x)
+        }
+    }
+}
+
+/// How wide each of a side's tabs is, and what each says: as wide as its whole title, up to
+/// `widest`, whatever room there is (the row scrolls when they don't all fit). A longer title
+/// is fitted to its tab (see `TabLabels`).
 @MainActor
 struct TabLayout {
-    /// Indices of the tabs shown, in order.
-    var visible: [Int]
-    /// Indices of the tabs in the menu, in order.
-    var hidden: [Int] = []
     var labels: [String]
-    var widths: [Int: CGFloat]
-    var isCompact = false
-    var rowWidth: CGFloat = 0
+    var widths: [CGFloat]
+    var rowWidth: CGFloat
 
-    /// Stage 2's narrowest: room for about ten characters, and the close button.
-    static let comfortable: CGFloat = 96
-    /// Compact, the narrowest a tab other than the current one gets: its close button and
-    /// about five letters.
-    static let narrowest: CGFloat = 70
-    /// Compact, the current tab is never wider than this, nor narrower than `selectedNarrowest`
-    /// (unless its title is shorter). It needs the room least: its whole title is on its page,
-    /// just below.
-    static let selectedWidest: CGFloat = 150
-    static let selectedNarrowest: CGFloat = 80
-    static let overflowWidth: CGFloat = 38
+    /// The widest a tab gets: a longer title is cut to fit.
+    static let widest: CGFloat = 200
 
     private static let font = NSFont.systemFont(ofSize: PaneTab.fontSize)
 
@@ -539,81 +573,11 @@ struct TabLayout {
         ceil((text as NSString).size(withAttributes: [.font: font]).width)
     }
 
-    init(titles: [String], current: Int, available: CGFloat) {
-        let count = titles.count
-        let current = min(max(current, 0), count - 1)
-        func room(_ shown: Int, overflow: Bool) -> CGFloat {
-            available - PaneTabs.inset * 2 - PaneTabs.spacing * CGFloat(max(shown - 1, 0))
-                - (overflow ? PaneTabs.spacing + Self.overflowWidth : 0)
-        }
-        let full = { (text: String) in Self.textWidth(text) + PaneTab.closeWidth + PaneTab.trailingPadding }
-
-        // 1. Whole titles.
-        let natural = titles.map(full)
-        visible = Array(0..<count)
-        labels = titles
-        widths = Dictionary(uniqueKeysWithValues: zip(visible, natural))
-        if natural.reduce(0, +) <= room(count, overflow: false) {
-            finish()
-            return
-        }
-
-        // 2. Shared.
-        let shared = Self.share(natural, room(count, overflow: false))
-        widths = Dictionary(uniqueKeysWithValues: zip(visible, shared))
-        if shared.allSatisfy({ $0 >= Self.comfortable }) {
-            finish()
-            return
-        }
-
-        // 3 and 4. Compact, with fewer tabs shown until they fit.
-        isCompact = true
-        let selectedNatural = min(natural[current], Self.selectedWidest)
-        for shown in stride(from: count, through: 1, by: -1) {
-            let others = Array((0..<count).filter { $0 != current }.prefix(shown - 1))
-            let room = room(shown, overflow: shown < count)
-            let othersNatural = others.map { natural[$0] }
-            let selected = min(selectedNatural, room - othersNatural.map { min($0, Self.narrowest) }.reduce(0, +))
-            let otherWidths = Self.share(othersNatural, room - selected)
-            let fits = selected >= min(selectedNatural, Self.selectedNarrowest)
-                && otherWidths.allSatisfy { $0 >= Self.narrowest }
-            if fits || shown == 1 {
-                visible = (others + [current]).sorted()
-                hidden = (0..<count).filter { !visible.contains($0) }
-                widths = Dictionary(uniqueKeysWithValues: zip(others, otherWidths))
-                widths[current] = max(selected, 0)
-                finish()
-                return
-            }
-        }
-    }
-
-    private mutating func finish() {
+    init(titles: [String]) {
         let padding = PaneTab.closeWidth + PaneTab.trailingPadding
-        labels = TabLabels.fit(labels, rooms: labels.indices.map { widths[$0].map { $0 - padding } })
-        rowWidth = visible.compactMap { widths[$0] }.reduce(0, +)
-            + PaneTabs.spacing * CGFloat(max(visible.count - 1, 0)) + PaneTabs.inset * 2
-            + (hidden.isEmpty ? 0 : PaneTabs.spacing + Self.overflowWidth)
-    }
-
-    /// Shares `room` between tabs wanting `natural`: those narrower than their share keep their
-    /// width, leaving more for the rest, which are cut to the same width. The points left over
-    /// from rounding down go one each to the first cut tabs, so the row ends where its room does.
-    static func share(_ natural: [CGFloat], _ room: CGFloat) -> [CGFloat] {
-        guard natural.reduce(0, +) > room, !natural.isEmpty else { return natural }
-        var room = room
-        var left = natural.count
-        for width in natural.sorted() where width <= room / CGFloat(left) {
-            room -= width
-            left -= 1
-        }
-        let widest = max((room / CGFloat(max(left, 1))).rounded(.down), 0)
-        var spare = Int(max(room - widest * CGFloat(left), 0))
-        return natural.map { width in
-            guard width > widest else { return width }
-            defer { spare -= 1 }
-            return spare > 0 ? widest + 1 : widest
-        }
+        widths = titles.map { min(Self.textWidth($0) + padding, Self.widest) }
+        labels = TabLabels.fit(titles, rooms: widths.map { $0 - padding })
+        rowWidth = widths.reduce(0, +) + PaneTabs.spacing * CGFloat(max(titles.count - 1, 0)) + PaneTabs.inset * 2
     }
 }
 
@@ -693,38 +657,6 @@ enum TabLabels {
         formatter.setLocalizedDateFormatFromTemplate("d MMM")
         return formatter
     }()
-}
-
-/// At the end of the row, for the tabs that don't fit: a double chevron and how many, opening a
-/// menu of them. Choosing one makes it current, which brings it into the row.
-private struct TabOverflowButton: View {
-    let titles: [String]
-    let select: (Int) -> Void
-    @State private var isHovering = false
-
-    var body: some View {
-        HStack(spacing: 2) {
-            Image(systemName: "chevron.right.2")
-                .font(.system(size: 9, weight: .semibold))
-            Text("\(titles.count)")
-                .font(.system(size: 12).monospacedDigit())
-        }
-        .foregroundStyle(isHovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-        .frame(width: TabLayout.overflowWidth, height: PaneTab.height)
-        .background {
-            RoundedRectangle(cornerRadius: PaneTab.cornerRadius, style: .continuous)
-                .fill(isHovering ? TopBar.selectedTabColor : .clear)
-        }
-        .allowsHitTesting(false)
-        .background(MenuArea(help: titles.count == 1 ? "1 more tab" : "\(titles.count) more tabs") {
-            let menu = NSMenu()
-            for (index, title) in titles.enumerated() {
-                menu.addItem(BlockMenuItem(title) { select(index) })
-            }
-            return menu
-        })
-        .onHover { isHovering = $0 }
-    }
 }
 
 private struct PaneTab: View {
