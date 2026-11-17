@@ -199,6 +199,34 @@ enum LinksPlacement: String, CaseIterable, Identifiable {
 
 // MARK: The readout
 
+/// A bookmarked note says so, as a line like the properties' and the links': a filled bookmark
+/// in the icon column, then "Bookmarked". Its menu removes the bookmark.
+struct BookmarkReadout: View {
+    @ObservedObject var store: VaultStore
+    let note: Note.ID
+    /// Alone under the title, not in the properties: spaced as they'd be.
+    var standalone = false
+
+    var body: some View {
+        if store.isBookmarked(note) {
+            HStack(spacing: 4) {
+                Image(systemName: "bookmark.fill")
+                    .font(.caption)
+                    .frame(width: PropertiesStrip.chevronWidth)
+                Text("Bookmarked")
+                    .lineLimit(1)
+            }
+            .foregroundStyle(.secondary)
+            .contentShape(Rectangle())
+            .contextMenu {
+                Button("Remove Bookmark") { store.toggleBookmark(note) }
+            }
+            .accessibilityElement(children: .combine)
+            .modifier(RelatedReadout.Standalone(isOn: standalone, columnWidth: store.textColumnWidth))
+        }
+    }
+}
+
 /// Under a note's properties (or its title, without any), what's related to it: "4 earlier
 /// meetings · last on 21 October", "23 notes on Org design", or with nothing shared, "12 links
 /// (articles by this person, mentions, and meetings with this person)". Clicking it opens the
@@ -511,6 +539,8 @@ struct RelatedSlideUp: View {
             ZStack(alignment: .bottom) {
                 if isPresent {
                     panel(height: height, room: room)
+                        // A tab let go over the panel goes nowhere, not to the note beneath.
+                        .background { if isUp { TabDropArea.blocking } }
                         .offset(y: isUp ? 0 : height + 2)
                         .allowsHitTesting(isUp)
                 }
@@ -539,8 +569,6 @@ struct RelatedSlideUp: View {
     }
 
     /// Out of the way for a note with nothing related (it has no readout to close it with);
-                        // A tab let go over the panel goes nowhere, not to the note beneath.
-                        .background { if isUp { TabDropArea.blocking } }
     /// back for the next one that has.
     private var wantsOpen: Bool { model.isLinksPanelOpen(paneID) && !isEmpty }
 

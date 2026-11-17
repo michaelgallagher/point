@@ -103,6 +103,8 @@ struct PropertiesStrip: View {
                 // The rows' backgrounds reach into the margin; their text lines up with the summary.
                 .padding(.leading, -Self.rowInset)
             }
+            // Bookmarked, said between the properties and what's related.
+            BookmarkReadout(store: model.store, note: session.note.id)
             // What's related to it, and what came before: under the summary, or the rows when open.
             RelatedReadout(connections: model.connections(for: session.note), model: model, paneID: paneID)
             // Drawn like a horizontal rule in the note: one point, the separator colour.
