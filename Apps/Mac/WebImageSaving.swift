@@ -53,7 +53,7 @@ extension VaultStore {
             var unique: [String] = []
             for address in addresses where !unique.contains(address) { unique.append(address) }
             let ready = unique.compactMap { address in (try? downloads[address]?.get()).map { (address, $0) } }
-            for address in unique { if case .failure(let failure)? = downloads[address] { NSLog("Point: couldn't download \(address): \(failure)") } }
+            for address in unique { if case .failure(let failure)? = downloads[address] { PointLog.problem("couldn't download \(address): \(failure)") } }
             let result = await Task.detached(priority: .userInitiated) {
                 WebImages.save(ready, forNote: note, vault: root, setting: settings.attachmentFolder, taken: taken)
             }.value

@@ -274,7 +274,7 @@ final class EditorSession: NSObject, ObservableObject {
                 return false
             }
         } catch {
-            NSLog("Point: couldn't save \(note.id): \(error.localizedDescription)")
+            PointLog.problem("couldn't save \(note.id): \(error.localizedDescription)")
             let kept = (try? drafts?.keep(text, for: note.id)) != nil
             fileIsMissing = (error as? NoteWriter.WriteError) == .missing
             saveProblem = (fileIsMissing ? "This note’s file was deleted or moved outside Point, so your changes weren’t saved."
