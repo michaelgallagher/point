@@ -1033,18 +1033,8 @@ public final class BarEdgeScrollView: NSScrollView {
     public var footWash: NSColor? = .textBackgroundColor {
         didSet { updateEdge(animated: false) }
     }
-    /// The foot as a bar: the blur just its height, unfaded, always there, with a hairline
-    /// along its top. Otherwise the soft style, showing only with more beneath.
-    public var footIsBar = false {
-        didSet { needsLayout = true; tile() }
-    }
     /// How far above the inset the foot's blur reaches, as it fades.
     private static let footFade: CGFloat = 16
-    private let footLine: NSView = {
-        let line = NSView()
-        line.wantsLayer = true
-        return line
-    }()
     private let edgeBlur: NSView = {
         let view = NSView()
         view.wantsLayer = true
@@ -1123,25 +1113,14 @@ public final class BarEdgeScrollView: NSScrollView {
 
     private func tileFoot() {
         let inset = contentInsets.bottom
-        guard inset > 0 else {
-            footLine.removeFromSuperview()
-            return footBlur.removeFromSuperview()
-        }
+        guard inset > 0 else { return footBlur.removeFromSuperview() }
         if footBlur.superview == nil { addSubview(footBlur, positioned: .above, relativeTo: contentView) }
-        let height = min(inset + (footIsBar ? 0 : Self.footFade), bounds.height)
+        let height = min(inset + Self.footFade, bounds.height)
         footBlur.frame = NSRect(x: 0, y: isFlipped ? bounds.height - height : 0, width: bounds.width, height: height)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        footBlur.layer?.mask?.frame = footIsBar ? .zero : footBlur.bounds
-        if footIsBar { footBlur.layer?.mask = nil }
+        footBlur.layer?.mask?.frame = footBlur.bounds
         CATransaction.commit()
-        if footIsBar {
-            if footLine.superview == nil { addSubview(footLine, positioned: .above, relativeTo: footBlur) }
-            let pixel = 1 / (window?.backingScaleFactor ?? 2)
-            footLine.frame = NSRect(x: 0, y: isFlipped ? bounds.height - height : height - pixel, width: bounds.width, height: pixel)
-        } else {
-            footLine.removeFromSuperview()
-        }
         updateFoot(animated: false)
     }
 
@@ -1155,12 +1134,7 @@ public final class BarEdgeScrollView: NSScrollView {
     private func updateFoot(animated: Bool) {
         guard footBlur.superview != nil else { return }
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            footBlur.layer?.backgroundColor = footWash?.withAlphaComponent(footIsBar ? 0.7 : 0.45).cgColor
-            footLine.layer?.backgroundColor = NSColor.separatorColor.cgColor
-        }
-        if footIsBar {
-            footBlur.alphaValue = 1
-            return
+            footBlur.layer?.backgroundColor = footWash?.withAlphaComponent(0.45).cgColor
         }
         let documentHeight = documentView?.frame.height ?? 0
         let more = documentHeight > contentView.bounds.maxY - contentInsets.bottom + 0.5

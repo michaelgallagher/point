@@ -293,8 +293,6 @@ struct SidebarTable: NSViewRepresentable {
         let scrollView = BarEdgeScrollView()
         // On the sidebar's material, the blur alone; on the page's colour, washed with it.
         scrollView.footWash = content == .notes ? .textBackgroundColor : nil
-        // The filter field's bar, see-through, the list scrolling on beneath it.
-        scrollView.footIsBar = bottomInset > 0
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentInsets = insets
         scrollView.documentView = table

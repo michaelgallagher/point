@@ -260,8 +260,8 @@ private struct NoteList: View {
             // In two columns, the name and sort are in the column's top bar (see
             // `NoteListTopBar`).
             if includesPlaces, model.place != .allNotes { PlaceHeader() }
-            // At the foot, over the list's end: a see-through bar, a hairline along its top,
-            // the list scrolling on beneath it (drawn by the list's scroll view).
+            // At the foot, floating over the list's end, which scrolls on beneath it, softly
+            // blurred (drawn by the list's scroll view).
             browser
                 .overlay(alignment: .bottom) { filterField }
         }
