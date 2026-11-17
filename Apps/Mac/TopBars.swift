@@ -419,13 +419,9 @@ struct PaneTabs: View {
 
     /// How far the row's scrolled along, and moving it.
     @StateObject private var scroll = TabRowScroll()
-
-    /// Scrolls the current tab into view, clear of the fades: the least distance that does,
-    /// and not at all if it's already clear.
-    private func reveal(_ span: ClosedRange<CGFloat>?, animated: Bool) {
-        guard let span else { return }
-        scroll.reveal(span.lowerBound - Self.fadeWidth, span.upperBound + Self.fadeWidth, animated: animated)
-    }
+    /// Where the scroll view's to go. The view's own state: kept in `scroll`, published, each
+    /// move the scroll view reported back laid the row out again, which moved it again.
+    @State private var position = ScrollPosition(x: 0)
 
     /// Where each tab starts along the row.
     private static func starts(_ layout: TabLayout) -> [CGFloat] {
@@ -437,11 +433,11 @@ struct PaneTabs: View {
     }
 
     /// Where the current tab sits along the row.
-    private func currentSpan(_ layout: TabLayout) -> ClosedRange<CGFloat>? {
+    private func current(_ layout: TabLayout) -> TabRowScroll.Span? {
         let index = min(max(pane.current, 0), layout.widths.count - 1)
         guard index >= 0 else { return nil }
         let start = Self.starts(layout)[index]
-        return start...(start + layout.widths[index])
+        return TabRowScroll.Span(start: start, end: start + layout.widths[index])
     }
 
     var body: some View {
@@ -455,39 +451,55 @@ struct PaneTabs: View {
             // Fades only at an end with tabs scrolled out of sight beyond it.
             let fadesLeading = offset > 0.5
             let fadesTrailing = offset + shown < layout.rowWidth - 0.5
-            // The row slides by its offset, and the trackpad or wheel scrolls it (see
-            // `ScrollWheelArea`). It was made this way, not as a scroll view, believing the scroll
-            // view let a dragged tab move the window. It didn't: the window server decides at
-            // mouse-down, and the window is now unmovable but for `WindowDragArea`. A scroll
-            // view may do here again (the 17 November review, item 8).
-            HStack(spacing: Self.spacing) {
-                ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
-                    // The part of the tab in sight, in its own points: only that takes clicks
-                    // and drops (the rest is under the bar's buttons, or past its end).
-                    let shownPart = (offset - starts[index])...(offset + shown - starts[index])
-                    PaneTab(
-                        id: tab.id,
-                        title: layout.labels[index],
-                        help: tab.noteID ?? "",
-                        isCurrent: index == pane.current,
-                        isActiveSide: paneIndex == model.activePane,
-                        showsLine: index + 1 < pane.tabs.count && index != pane.current && index + 1 != pane.current,
-                        width: layout.widths[index],
-                        shownPart: shownPart,
-                        select: { model.selectTab(index, inPane: paneIndex) },
-                        close: { model.closeTab(index, inPane: paneIndex) },
-                        menu: { TabMenu.menu(for: index, tab: tab, inPane: paneIndex, model: model) }
-                    )
-                    .modifier(TabDropTarget(paneIndex: paneIndex, index: index, shownPart: shownPart))
-                    .id(tab.id)
+            // A scroll view, only as wide as the tabs, so the bar's empty space still moves the
+            // window. A press on a tab doesn't: the window holds still while the pointer's over
+            // one (`WindowMoveGuard`).
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Self.spacing) {
+                    ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
+                        // The part of the tab in sight, in its own points: only that takes
+                        // clicks and drops.
+                        let shownPart = (offset - starts[index])...(offset + shown - starts[index])
+                        PaneTab(
+                            id: tab.id,
+                            title: layout.labels[index],
+                            help: tab.noteID ?? "",
+                            isCurrent: index == pane.current,
+                            isActiveSide: paneIndex == model.activePane,
+                            showsLine: index + 1 < pane.tabs.count && index != pane.current && index + 1 != pane.current,
+                            width: layout.widths[index],
+                            shownPart: shownPart,
+                            select: { model.selectTab(index, inPane: paneIndex) },
+                            close: { model.closeTab(index, inPane: paneIndex) },
+                            menu: { TabMenu.menu(for: index, tab: tab, inPane: paneIndex, model: model) }
+                        )
+                        .modifier(TabDropTarget(paneIndex: paneIndex, index: index, shownPart: shownPart))
+                        .id(tab.id)
+                    }
                 }
+                .padding(Self.inset)
+                // The gaps between tabs, and around them, take a press and do nothing with it,
+                // rather than it going through to the bar, which moves the window.
+                .background(HoldsWindowStill(part: .presses))
+                .fixedSize(horizontal: true, vertical: false)
+                .animation(.easeInOut(duration: 0.2), value: pane.current)
             }
-            .padding(Self.inset)
-            .fixedSize(horizontal: true, vertical: false)
-            .animation(.easeInOut(duration: 0.2), value: pane.current)
-            .offset(x: -offset)
+            .scrollDisabled(layout.rowWidth <= shown)
+            .scrollPosition($position)
+            .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.x }) { _, x in scroll.scrolled(to: x) }
+            // A mouse's wheel, up and down, scrolls it too (the trackpad's sideways swipe is the
+            // scroll view's own).
+            .background(WheelArea { delta in
+                guard layout.rowWidth > shown else { return false }
+                scroll.scroll(by: delta)
+                return true
+            })
             .frame(width: shown, alignment: .leading)
-            .clipped()
+            // While the pointer's anywhere over the row, the window holds still. Tracked here,
+            // outside the scroll view: AppKit doesn't move the tracking areas of the views
+            // inside as SwiftUI scrolls them, so the row's far end, scrolled into sight, had
+            // none, and a press on a tab there dragged the window too.
+            .background(HoldsWindowStill(part: .pointer))
             .mask {
                 HStack(spacing: 0) {
                     LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
@@ -497,30 +509,35 @@ struct PaneTabs: View {
                         .frame(width: fadesTrailing ? Self.fadeWidth : 0)
                 }
             }
-            // The trackpad and wheel, over the row (only as wide as the tabs, so the bar's
-            // empty space still moves the window).
-            .background(ScrollWheelArea { delta in
-                guard layout.rowWidth > shown else { return false }
-                scroll.scroll(by: delta)
-                return true
-            })
-            // The current tab always in view.
+            // The current tab always in view, clear of the fades.
             // The tab's place is passed in as the value that changed: values the closure reads
             // from the view are the ones from before the change, which revealed the tab chosen
             // before this one.
-            .onAppear { reveal(currentSpan(layout), animated: false) }
-            .onChange(of: currentSpan(layout)) { reveal($0, animated: true) }
-            .onChange(of: geometry.size.width) { _ in reveal(currentSpan(layout), animated: false) }
+            .onAppear {
+                let position = $position
+                scroll.move = { x in position.wrappedValue.scrollTo(x: x) }
+                scroll.reveal(current(layout), margin: Self.fadeWidth, animated: false)
+            }
+            .onChange(of: current(layout)) { scroll.reveal($0, margin: Self.fadeWidth, animated: true) }
+            .onChange(of: geometry.size.width) { _ in scroll.reveal(current(layout), margin: Self.fadeWidth, animated: false) }
         }
         .frame(height: Self.height)
     }
 }
 
-/// How far a side's tab row is scrolled along, and moving it: by the trackpad or wheel, or to
-/// show the current tab.
+/// How far a side's tab row is scrolled along, and scrolling it to show the current tab.
 @MainActor
 final class TabRowScroll: ObservableObject {
+    /// A tab's place along the row.
+    struct Span: Equatable {
+        var start: CGFloat
+        var end: CGFloat
+    }
+
+    /// As the scroll view last reported it.
     @Published private(set) var offset: CGFloat = 0
+    /// Scrolls the row to a place along it.
+    var move: (CGFloat) -> Void = { _ in }
     /// The row's size as last laid out.
     private var shown: CGFloat = 0
     private var rowWidth: CGFloat = 0
@@ -535,44 +552,49 @@ final class TabRowScroll: ObservableObject {
         self.rowWidth = rowWidth
     }
 
+    func scrolled(to offset: CGFloat) {
+        if abs(offset - self.offset) > 0.25 { self.offset = offset }
+    }
+
     func scroll(by delta: CGFloat) {
         request += 1 // A reveal waiting on the mouse gives way.
         let target = min(max(offset + delta, 0), maxOffset)
-        if target != offset { offset = target }
+        if abs(target - offset) > 0.5 { move(target) }
     }
 
-    /// Shows `start` to `end` (in the row's own points), moving the least it can, within the
-    /// row's ends. While the mouse button is down it waits: the row moving under a click on a
-    /// half-hidden tab made it jump, or start dragging the tab.
-    func reveal(_ start: CGFloat, _ end: CGFloat, animated: Bool) {
+    /// Shows `span`, `margin` clear of each end, moving the least it can. While the mouse
+    /// button is down it waits: the row moving under a click on a half-hidden tab made it jump,
+    /// or start dragging the tab.
+    func reveal(_ span: Span?, margin: CGFloat, animated: Bool) {
+        guard let span else { return }
         request += 1
-        attempt(start, end, animated: animated, request: request)
+        attempt(span, margin: margin, animated: animated, request: request)
     }
 
-    private func attempt(_ start: CGFloat, _ end: CGFloat, animated: Bool, request: Int) {
+    private func attempt(_ span: Span, margin: CGFloat, animated: Bool, request: Int) {
         guard request == self.request else { return }
         guard NSEvent.pressedMouseButtons == 0 else {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                self?.attempt(start, end, animated: animated, request: request)
+                self?.attempt(span, margin: margin, animated: animated, request: request)
             }
             return
         }
         let now = min(offset, maxOffset)
         var target = now
-        if start < now { target = start } else if end > now + shown { target = end - shown }
+        if span.start - margin < now { target = span.start - margin } else if span.end + margin > now + shown { target = span.end + margin - shown }
         target = min(max(target, 0), maxOffset)
-        guard abs(target - offset) > 0.5 else { return }
+        guard abs(target - now) > 0.5 else { return }
         if animated {
-            withAnimation(.easeInOut(duration: 0.2)) { offset = target }
+            withAnimation(.easeInOut(duration: 0.2)) { move(target) }
         } else {
-            offset = target
+            move(target)
         }
     }
 }
 
-/// Takes the trackpad's and wheel's scrolling over it, sideways or up and down, for a row that
-/// scrolls sideways, when `scrolled` says it was used. Takes no clicks.
-private struct ScrollWheelArea: NSViewRepresentable {
+/// Takes a mouse wheel's scrolling, up and down, over it, for a row that scrolls sideways,
+/// when `scrolled` says it was used. Takes no clicks. A trackpad's scrolling is left alone.
+private struct WheelArea: NSViewRepresentable {
     /// By how much (positive towards the row's end); false if it can't scroll.
     let scrolled: (CGFloat) -> Bool
 
@@ -592,13 +614,11 @@ private struct ScrollWheelArea: NSViewRepresentable {
             guard window != nil else { return }
             // Watched for, as the tabs over it take the events.
             monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-                guard let self, let window, event.window === window,
+                guard let self, let window, event.window === window, !event.hasPreciseScrollingDeltas,
+                      event.scrollingDeltaY != 0, event.scrollingDeltaX == 0,
                       bounds.contains(convert(event.locationInWindow, from: nil)) else { return event }
-                let x = event.scrollingDeltaX, y = event.scrollingDeltaY
-                // Swiping right, or the wheel up, goes back towards the row's start.
-                var delta = -(abs(x) >= abs(y) ? x : y)
-                if !event.hasPreciseScrollingDeltas { delta *= 10 }
-                return scrolled(delta) ? nil : event
+                // The wheel up goes back towards the row's start.
+                return scrolled(-event.scrollingDeltaY * 10) ? nil : event
             }
         }
     }
@@ -1727,12 +1747,64 @@ enum WindowMoveGuard {
             self.area = area
         }
 
-        @objc func mouseEntered(with event: NSEvent) {
+        // Named for AppKit: as a plain object's methods, Swift would call them
+        // `mouseEnteredWith:` and `mouseExitedWith:`, which a tracking area never calls.
+        @objc(mouseEntered:) func mouseEntered(with event: NSEvent) {
             if let view { WindowMoveGuard.pointer(isOver: true, view) }
         }
 
-        @objc func mouseExited(with event: NSEvent) {
+        @objc(mouseExited:) func mouseExited(with event: NSEvent) {
             if let view { WindowMoveGuard.pointer(isOver: false, view) }
+        }
+    }
+}
+
+/// Keeps the window still over a stretch of the title bar's strip: while the pointer's over it
+/// (see `WindowMoveGuard`), or by taking a press there and doing nothing with it. Scrolling
+/// goes on up to whatever scrolls.
+struct HoldsWindowStill: NSViewRepresentable {
+    enum Part { case pointer, presses }
+    let part: Part
+
+    func makeNSView(context: Context) -> GuardView { GuardView(part: part) }
+    func updateNSView(_ view: GuardView, context: Context) {}
+
+    final class GuardView: NSView {
+        private let part: Part
+        private let moveGuard = WindowMoveGuard.Tracker()
+
+        init(part: Part) {
+            self.part = part
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("Not used") }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            part == .presses ? super.hitTest(point) : nil
+        }
+
+        override var mouseDownCanMoveWindow: Bool { false }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+        override func mouseDown(with event: NSEvent) {}
+        override func mouseDragged(with event: NSEvent) {}
+        override func mouseUp(with event: NSEvent) {}
+
+        // AppKit asks a view to update its tracking areas only once it has some.
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window != nil, part == .pointer { moveGuard.track(self) }
+        }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            if part == .pointer { moveGuard.track(self) }
+        }
+
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            WindowMoveGuard.leaving(self)
+            super.viewWillMove(toWindow: newWindow)
         }
     }
 }
