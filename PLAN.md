@@ -18,6 +18,11 @@ On `main`, which has everything so far.
 
 **Still open:** full screen on the Mac ([Investigations](plan/investigations.md), set aside for now); performance (13–15 of the review, measured only if something feels slow).
 
+**To do, from the code review's items 7 and 8 (17 November, on `header-one-row`):**
+- Check by hand on the Mac: tiling the window by dragging it to a screen edge, Stage Manager, a real trackpad's sideways swipe on a tab row (and its elastic ends), VoiceOver on the tab row, and a long row of tabs on the real vault. Synthetic pointer events can't do these.
+- Run the package tests (`swift test` in each of `Packages/*`): not run since the Mac's minimum went to macOS 26.
+- Remove the code kept for systems before macOS 26: about 28 `#available` checks and the fallbacks they guard (see [Architecture](plan/architecture.md)).
+
 **Not merged into `main`:** design experiments `animating-the-cursor`, `simple-but-bigger`, `tighter-and-lighter`, `capsules` and `skinny-bar`.
 
 ## Next: a week on Point alone, Mac and iPhone (from 10 November 2026)

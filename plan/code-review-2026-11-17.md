@@ -85,7 +85,8 @@ The weak points are at the edges:
    - **Tiling:** Window › Move & Resize was greyed out. An unmovable window can't be tiled from the menu, the green button or (presumably) a drag to the screen's edge. TextEdit tiled from the same menu.
    - **Fixed:** the window is now movable except while the pointer is over one of Point's own controls in that strip (`WindowMoveGuard`: tabs, bar buttons, menu buttons). Move & Resize › Left then tiled it.
    - **Tab drags with the fix:** a tab dragged onto the other side's page moved there, twice, and the window stayed put (the trace has the window at the same place at the start and end of each drag). A press on a bar's ⋯ button didn't move the window either. The empty bar, beside the last tab, still dragged the window, out of its tiled half.
-  - **Still to check by hand:** tiling by dragging to a screen edge (synthetic drags can't move even TextEdit's window); Stage Manager.
+   - **Found while doing item 8:** two holes in the fix. A press in the 2-point gap between two tabs went through to the bar, which drags the window. And the guard's own tracking (`WindowMoveGuard.Tracker`, used by the ⋯ buttons) never fired: as a plain object's methods, Swift named them `mouseEnteredWith:` and `mouseExitedWith:`, which a tracking area never calls. Both fixed with item 8; the ⋯ buttons had only seemed fine because their menu takes the press.
+   - **Still to check by hand:** tiling by dragging to a screen edge (synthetic drags can't move even TextEdit's window); Stage Manager.
 
 ### Low
 
@@ -95,6 +96,10 @@ The weak points are at the edges:
      - The custom row has no elastic edges and no scroll bar, and VoiceOver doesn't see it as scrolling.
      - Its sign was wrong once already. With a monitor per row and a scroll vector worked out by hand, it's easy to get wrong again.
    - **Fix:** try `ScrollView(.horizontal)` with `ScrollViewReader` again, now that the window holds still. Keep the custom row only if a scroll view brings back a problem.
+   - **Done, 17 November:** the Mac app's minimum went from macOS 13 to 26 for this (see `decisions.md`), so the row uses `ScrollPosition` and `onScrollGeometryChange` rather than a reader and a measured offset.
+     - **The row:** a `ScrollView(.horizontal)` with no scroll bar, only as wide as its tabs; scrolling is disabled while they all fit. The fades, the current tab kept in view clear of them, and waiting for the mouse button to come up before scrolling, all as before. The trackpad's sideways swipe is the scroll view's own, with its elastic ends. A mouse wheel's up and down still scroll it, through a monitor that takes only the wheel's.
+     - **What came back:** keeping the `ScrollPosition` in `TabRowScroll` (published) made a layout loop at full CPU: each position the scroll view wrote back laid the row out again. It's the view's own `@State` now. Views inside the scroll view keep the tracking areas they had before it scrolled, so the row's far end, scrolled into sight, didn't hold the window still: a press on a tab there dragged the tab and the window at once. The row's guard is tracked on the scroll view's own frame (`HoldsWindowStill`), and a view inside the row takes presses in the gaps.
+     - **Checked** with real pointer events in a renamed copy: the wheel both ways, a sideways scroll, a half-hidden tab chosen and scrolled clear of the fade, tabs dragged to the other side (from the row's start and far end), a press in a gap, and the empty bar (it moves the window). The app idles at 0% CPU. **Not checked:** a real trackpad's swipe and its elastic ends, VoiceOver, a row of many tabs on the big vault.
 
 9. **Tab labels are measured afresh on every redraw.**
    - **Where:** `PaneTabs.body` builds a `TabLayout` each time (`TopBars.swift:449-450`).
