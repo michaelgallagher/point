@@ -300,6 +300,36 @@ struct SettingsView: View {
             Section("Images") {
                 Toggle("Show images from the web", isOn: $store.showsWebImages)
             }
+            ClipperKeySettings()
+        }
+    }
+}
+
+/// The key to give the Chrome clipper, so Point knows its requests from a link's.
+private struct ClipperKeySettings: View {
+    @State private var key = ClipperKey.current
+
+    var body: some View {
+        Section {
+            LabeledContent("Clipper key") {
+                HStack {
+                    Text(key)
+                        .font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                        .foregroundStyle(.secondary)
+                    Button("Copy") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(key, forType: .string)
+                    }
+                    Button("New key") { key = ClipperKey.renew() }
+                }
+            }
+        } header: {
+            Text("Clipper")
+        } footer: {
+            Text("Paste this into the Point clipper’s options in Chrome. Clips that come without it are asked about first, and Point reads the page itself. A new key stops the old one working.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
         }
     }
 }

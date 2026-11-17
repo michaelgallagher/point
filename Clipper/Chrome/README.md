@@ -10,6 +10,8 @@ A browser extension for Dia, Chrome and other Chromium browsers. It clips the pa
 
 Point needs to be installed (it opens `point://clip` links). The first time, the browser asks whether to open Point: allow it, and tick the box to always allow it.
 
+Then give the clipper its key: in Point, open Settings › Notes and click **Copy** beside **Clipper key**; in the browser, right-click the extension's button, choose **Options**, and paste it. Any page or app can open a `point://clip` link, so Point asks before a clip that comes without the key, and reads that page itself rather than taking what was sent. **New key** in Point's settings stops the old one working: paste the new one in again.
+
 ## Use
 
 - Click the extension's button, or press **⌥⇧P** (change it at `chrome://extensions/shortcuts`).

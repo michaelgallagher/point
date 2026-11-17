@@ -84,13 +84,27 @@ async function pack(html) {
   }
 }
 
-function send(tab, { url, title, selection, page }) {
+// The key Point gave the clipper (Point › Settings › Notes, pasted into the clipper's options),
+// sent with each clip to show it's from the clipper: Point asks about a clip without it, as any
+// page or app could have sent it, and reads the page itself.
+async function clipperKey() {
+  try {
+    const { key } = await chrome.storage.local.get("key");
+    return typeof key === "string" ? key.trim() : "";
+  } catch (e) {
+    return "";
+  }
+}
+
+async function send(tab, { url, title, selection, page }) {
   const address = new URL("point://clip");
   address.searchParams.set("url", url);
   if (title) address.searchParams.set("title", title);
   // Long selections are cut: they're a quote, not the article.
   if (selection) address.searchParams.set("selection", selection.slice(0, 8000));
   if (page) address.searchParams.set("page", page);
+  const key = await clipperKey();
+  if (key) address.searchParams.set("key", key);
   // Opens Point; the page stays as it is. The browser may ask the first time.
   chrome.tabs.update(tab.id, { url: address.href });
 }

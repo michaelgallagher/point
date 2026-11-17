@@ -28,6 +28,37 @@ final class ClipInbox {
     }
 }
 
+/// The key the Chrome clipper sends with each request (`key=` in `point://clip`), to show it's
+/// the clipper's: any page or app can open a `point://clip` address, and one without the key
+/// is asked about, and read from its address alone. Made at random the first time it's
+/// needed, and shown in Settings › Notes to give to the clipper.
+enum ClipperKey {
+    private static let defaultsKey = "clipperKey"
+
+    static var current: String {
+        if let key = UserDefaults.standard.string(forKey: defaultsKey), !key.isEmpty { return key }
+        return renew()
+    }
+
+    /// A new key, in place of the old (which clips then stop being taken with).
+    @discardableResult
+    static func renew() -> String {
+        var generator = SystemRandomNumberGenerator() // Cryptographically secure, on Apple's systems.
+        let key = (0..<16).map { _ in String(format: "%02x", UInt8.random(in: .min ... .max, using: &generator)) }.joined()
+        UserDefaults.standard.set(key, forKey: defaultsKey)
+        return key
+    }
+
+    /// Whether a request carries the key: compared in full whatever differs, so how long it
+    /// takes says nothing of how much matched.
+    static func matches(_ key: String?) -> Bool {
+        guard let key else { return false }
+        let mine = Array(current.utf8), theirs = Array(key.utf8)
+        guard mine.count == theirs.count else { return false }
+        return zip(mine, theirs).reduce(0) { $0 | ($1.0 ^ $1.1) } == 0
+    }
+}
+
 /// Receives `point://` addresses. With this, SwiftUI doesn't open a window for each one.
 final class PointAppDelegate: NSObject, NSApplicationDelegate {
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -48,6 +79,13 @@ extension VaultStore {
             for _ in 0..<100 where root == nil || index == nil { try? await Task.sleep(nanoseconds: 100_000_000) }
             guard root != nil else { return }
             NSApp.activate(ignoringOtherApps: true)
+
+            // Not from the clipper: only once asked, and only the address taken.
+            var request = request
+            if !ClipperKey.matches(request.key) {
+                guard confirmClip(of: request) else { return }
+                request = request.addressOnly
+            }
 
             if let existing = await clippedNote(of: request.url) {
                 open(existing)
@@ -96,6 +134,20 @@ extension VaultStore {
             vaultChangeNotice = VaultChangeNotice(text: couldRead ? "Clipped to \(folder)" : "Couldn’t read the page, so the note has its link",
                                                   canUndo: false, symbol: couldRead ? "checkmark.circle" : "exclamationmark.triangle")
         }
+    }
+
+    /// Asks whether to clip a page a link asked for, which didn't come from the clipper (it had
+    /// no key, or the wrong one): any page or app can ask.
+    private func confirmClip(of request: ClipRequest) -> Bool {
+        let host = request.url.host ?? request.url.absoluteString
+        let alert = NSAlert()
+        alert.messageText = "Clip a page from \(host)?"
+        alert.informativeText = "A link asked Point to clip \(request.url.absoluteString). "
+            + "It didn’t come from the Point clipper in Chrome, so Point will read the page itself, without your sign-ins.\n\n"
+            + "To clip from Chrome without this question, give the clipper its key, from Settings › Notes."
+        alert.addButton(withTitle: "Clip")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     /// Every note, with where it was clipped from if it says, to look for near misses in.

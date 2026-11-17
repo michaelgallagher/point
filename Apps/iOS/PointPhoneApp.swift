@@ -56,9 +56,11 @@ private struct VaultRoot: View {
             } message: {
                 Text(store.conflictNotice ?? "")
             }
-            // `point://clip?url=…`, from the share sheet's Clip to Point shortcut.
+            // `point://clip?url=…`, from the share sheet's Clip to Point shortcut. Any page or
+            // app can open such an address (Safari asks first), so only the address is taken:
+            // a title, selection or page sent with it could say anything.
             .onOpenURL { url in
-                if let request = ClipRequest(url) { store.clip(request) }
+                if let request = ClipRequest(url) { store.clip(request.addressOnly) }
             }
     }
 }
