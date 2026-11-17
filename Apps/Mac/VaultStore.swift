@@ -3,8 +3,24 @@ import CryptoKit
 import EditorKit
 import IndexKit
 import MarkdownKit
+import OSLog
 import UniformTypeIdentifiers
 import VaultKit
+
+/// What went wrong, for the unified log. Messages name notes, folders and web addresses,
+/// which can be private, so in a release build they're logged as private: hidden in Console
+/// and in diagnostic reports, unlike `NSLog`, whose text is public. Readable in debug builds.
+enum PointLog {
+    private static let logger = Logger(subsystem: "org.mikegallagher.point", category: "vault")
+
+    static func problem(_ message: String) {
+        #if DEBUG
+        logger.error("\(message, privacy: .public)")
+        #else
+        logger.error("\(message, privacy: .private)")
+        #endif
+    }
+}
 
 extension Notification.Name {
     /// A note moved or was renamed: `userInfo` has "old" and "new" IDs. Windows follow it.
@@ -345,7 +361,7 @@ final class VaultStore: ObservableObject {
                     do {
                         return try ICloudConflicts.surface(url).isEmpty ? nil : url.deletingPathExtension().lastPathComponent
                     } catch {
-                        NSLog("Point: couldn't copy out an iCloud conflict of \(url.lastPathComponent): \(error.localizedDescription)")
+                        PointLog.problem("couldn't copy out an iCloud conflict of \(url.lastPathComponent): \(error.localizedDescription)")
                         return nil
                     }
                 }
@@ -442,7 +458,7 @@ final class VaultStore: ObservableObject {
         do {
             text = try NoteReader.read(contentsOf: note.url)
         } catch {
-            NSLog("Point: couldn't read \(note.id) to name it: \(error.localizedDescription)")
+            PointLog.problem("couldn't read \(note.id) to name it: \(error.localizedDescription)")
             return
         }
         let isEmpty = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -475,7 +491,7 @@ final class VaultStore: ObservableObject {
             url = try NoteFiles.rename(note.url, to: available.deletingPathExtension().lastPathComponent)
         } catch {
             // Kept as it is, under its untitled name, and still saving.
-            NSLog("Point: couldn't name \(note.id) “\(title)”: \(error.localizedDescription)")
+            PointLog.problem("couldn't name \(note.id) “\(title)”: \(error.localizedDescription)")
             return
         }
         EditorSession.release(note.url)
@@ -539,7 +555,7 @@ final class VaultStore: ObservableObject {
                 url = try NoteFiles.rename(note.url, to: available.deletingPathExtension().lastPathComponent)
             } catch {
                 // The title's set; the file keeps its name, which is fine (links still work).
-                NSLog("Point: couldn't rename \(note.id) for its new title: \(error.localizedDescription)")
+                PointLog.problem("couldn't rename \(note.id) for its new title: \(error.localizedDescription)")
             }
         }
         if url != note.url {
@@ -569,7 +585,7 @@ final class VaultStore: ObservableObject {
             do {
                 try ObsidianBookmarks.rename(note.id, to: newID, vault: root)
             } catch {
-                NSLog("Point: couldn't move the bookmark of \(note.id): \(error.localizedDescription)")
+                PointLog.problem("couldn't move the bookmark of \(note.id): \(error.localizedDescription)")
             }
             loadBookmarks()
         }
@@ -618,7 +634,7 @@ final class VaultStore: ObservableObject {
             do {
                 try trashBook?.set(newValue)
             } catch {
-                NSLog("Point: couldn't keep the trash's records: \(error.localizedDescription)")
+                PointLog.problem("couldn't keep the trash's records: \(error.localizedDescription)")
             }
         }
     }
@@ -647,7 +663,7 @@ final class VaultStore: ObservableObject {
                 VaultTrash.delete(records[item.name]?.images ?? [], vault: root)
                 removed.insert(item.name)
             } catch {
-                NSLog("Point: couldn't remove \(item.name) from the trash: \(error.localizedDescription)")
+                PointLog.problem("couldn't remove \(item.name) from the trash: \(error.localizedDescription)")
             }
         }
         var items: [VaultTrash.Item] = []
@@ -728,9 +744,18 @@ final class VaultStore: ObservableObject {
         }
     }
 
+    /// Whether `url`, its links followed, is inside `root` (or is `root`, if allowed).
+    static func isInside(_ url: URL, _ root: URL, allowingRoot: Bool) -> Bool {
+        let path = url.standardizedFileURL.resolvingSymlinksInPath().path
+        let rootPath = root.standardizedFileURL.resolvingSymlinksInPath().path
+        return path.hasPrefix(rootPath + "/") || (allowingRoot && path == rootPath)
+    }
+
     /// Moves a folder, with its notes and folders, into another folder ("" is the vault
     /// root). Open notes save first and keep showing, under their new paths. Links by name,
     /// as Obsidian makes them, keep working; links written as paths aren't rewritten.
+    /// Only folders the vault has, both resolving to places inside it: a path dropped from
+    /// elsewhere (`../..`, or a link out of the vault) moves nothing.
     func moveFolder(_ path: String, into parent: String) {
         guard let root, !path.isEmpty, FolderTree.parent(of: path) != parent,
               folders.contains(path), parent.isEmpty || folders.contains(parent) else { return }
@@ -747,18 +772,9 @@ final class VaultStore: ObservableObject {
             for note in moving {
                 let newID = newPath + "/" + note.id.dropFirst(prefix.count)
                 replace(note, with: newID, url: root.appendingPathComponent(newID))
-    /// Whether `url`, its links followed, is inside `root` (or is `root`, if allowed).
-    static func isInside(_ url: URL, _ root: URL, allowingRoot: Bool) -> Bool {
-        let path = url.standardizedFileURL.resolvingSymlinksInPath().path
-        let rootPath = root.standardizedFileURL.resolvingSymlinksInPath().path
-        return path.hasPrefix(rootPath + "/") || (allowingRoot && path == rootPath)
-    }
-
             }
             // Pins to the folder, or to folders inside it, follow it.
             let moved = pins.map { pin -> SidebarPlace in
-    /// Only folders the vault has, both resolving to places inside it: a path dropped from
-    /// elsewhere (`../..`, or a link out of the vault) moves nothing.
                 guard case .folder(let pinned) = pin, pinned == path || pinned.hasPrefix(prefix) else { return pin }
                 return .folder(newPath + pinned.dropFirst(path.count))
             }
@@ -927,7 +943,7 @@ final class VaultStore: ObservableObject {
     private static func report(_ result: LinkUpdater.Result, for title: String) {
         let missed = result.skippedNotes + result.unreadNotes
         guard !missed.isEmpty else { return }
-        NSLog("Point: links to \(title) not updated in \(result.skippedNotes) (changed while updating) and \(result.unreadNotes) (unreadable)")
+        PointLog.problem("links to \(title) not updated in \(result.skippedNotes) (changed while updating) and \(result.unreadNotes) (unreadable)")
         let alert = NSAlert()
         alert.messageText = "Some links to “\(title)” weren’t updated"
         let names = missed.prefix(8).map { "• " + ($0 as NSString).deletingPathExtension }.joined(separator: "\n")
@@ -967,7 +983,7 @@ final class VaultStore: ObservableObject {
 
     /// Says something went wrong, over the window in front (or on its own, with none).
     static func showProblem(_ message: String, _ error: Error? = nil, detail: String? = nil) {
-        NSLog("Point: \(message)\(error.map { ": \($0.localizedDescription)" } ?? "")")
+        PointLog.problem("\(message)\(error.map { ": \($0.localizedDescription)" } ?? "")")
         #if DEBUG
         // `-PointNoAlerts YES`: to the trace instead, for tests run in the background.
         if UserDefaults.standard.bool(forKey: "PointNoAlerts") { return Trace.mark("alert: \(message)") }
@@ -1434,7 +1450,7 @@ final class VaultStore: ObservableObject {
                 try FileManager.default.trashItem(at: image.url, resultingItemURL: nil)
                 gone.insert(image.path)
             } catch {
-                NSLog("Point: couldn't move \(image.path) to the Trash: \(error.localizedDescription)")
+                PointLog.problem("couldn't move \(image.path) to the Trash: \(error.localizedDescription)")
             }
         }
         images.removeAll { gone.contains($0.path) }
@@ -1487,7 +1503,7 @@ final class VaultStore: ObservableObject {
             do {
                 try FileManager.default.moveItem(at: image.url, to: destination)
             } catch {
-                NSLog("Point: couldn't rename \(image.path): \(error.localizedDescription)")
+                PointLog.problem("couldn't rename \(image.path): \(error.localizedDescription)")
                 continue
             }
             let folder = (image.path as NSString).deletingLastPathComponent
@@ -1525,7 +1541,7 @@ final class VaultStore: ObservableObject {
             return changed ? result : nil
         }
         if !change.skippedNotes.isEmpty || !change.unreadNotes.isEmpty {
-            NSLog("Point: couldn't update image embeds in \(change.skippedNotes + change.unreadNotes)")
+            PointLog.problem("couldn't update image embeds in \(change.skippedNotes + change.unreadNotes)")
         }
     }
 
@@ -1649,12 +1665,12 @@ final class VaultStore: ObservableObject {
                 changed = try await index.update(notes: notes)
             } catch {
                 // Searches go on using the index as it was; the next scan tries again.
-                NSLog("Point: couldn't update the search index: \(error.localizedDescription)")
+                PointLog.problem("couldn't update the search index: \(error.localizedDescription)")
                 return Trace.mark("index update failed: \(error.localizedDescription)")
             }
             let unreadable = await index.unreadableNotes
             Trace.mark("index updated: \(changed) notes changed\(unreadable.isEmpty ? "" : ", \(unreadable.count) unreadable")")
-            if !unreadable.isEmpty { NSLog("Point: couldn't read \(unreadable.count) notes to index them; they'll be tried again") }
+            if !unreadable.isEmpty { PointLog.problem("couldn't read \(unreadable.count) notes to index them; they'll be tried again") }
             guard generation == vaultGeneration else { return }
             if changed > 0 { indexGeneration += 1 }
             if changed > 0 || propertyValues.isEmpty, let values = try? await index.propertyValues(), generation == vaultGeneration {
@@ -2131,7 +2147,7 @@ final class VaultStore: ObservableObject {
             for id in kept { try ObsidianBookmarks.add(id, vault: root) }
             UserDefaults.standard.removeObject(forKey: key)
         } catch {
-            NSLog("Point: couldn't move this Mac's bookmarks into the vault: \(error.localizedDescription)")
+            PointLog.problem("couldn't move this Mac's bookmarks into the vault: \(error.localizedDescription)")
         }
     }
 
