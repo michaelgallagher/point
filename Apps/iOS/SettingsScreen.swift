@@ -3,11 +3,12 @@ import SwiftUI
 import VaultKit
 
 /// Settings, from home's top right: where the notes are, and how many, what home shows, how
-/// note text is set, and forgetting what search has learned.
+/// note text is set, and forgetting what search has learned and earlier versions of notes.
 struct SettingsScreen: View {
     @EnvironmentObject private var store: PhoneStore
     @Environment(\.dismiss) private var dismiss
     @State private var confirmsForget = false
+    @State private var confirmsClearVersions = false
 
     var body: some View {
         NavigationStack {
@@ -22,6 +23,11 @@ struct SettingsScreen: View {
                     Text("Search puts the notes you open and pick most first. What it learns stays on this iPhone.")
                 }
                 Section {
+                    Button("Clear earlier versions", role: .destructive) { confirmsClearVersions = true }
+                } footer: {
+                    Text("Each note’s menu has its earlier versions, kept on this iPhone (and in its backups), not in your notes. A note deleted for good takes its versions with it.")
+                }
+                Section {
                     LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
                 }
             }
@@ -29,6 +35,11 @@ struct SettingsScreen: View {
                 Button("Forget", role: .destructive) { store.forgetSearchHistory() }
             } message: {
                 Text("Your notes aren’t changed.")
+            }
+            .confirmationDialog("Clear earlier versions?", isPresented: $confirmsClearVersions, titleVisibility: .visible) {
+                Button("Clear", role: .destructive) { store.clearVersions() }
+            } message: {
+                Text("Every note’s earlier versions are deleted from this iPhone. Your notes aren’t changed.")
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)

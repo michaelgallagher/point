@@ -56,6 +56,28 @@ public struct NoteVersions: Sendable {
         try? FileManager.default.removeItem(at: noteFolder(for: oldID))
     }
 
+    /// Forgets the versions of every note not in `noteIDs`: a note deleted for good mustn't
+    /// live on here (nor in the phone's backups, which include the app's storage). Each
+    /// note's folder is named by a hash, so its newest version says which note it is.
+    public func keepOnly(_ noteIDs: Set<String>) {
+        let folders = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+        for notes in folders {
+            guard let newest = files(in: notes).first,
+                  let data = try? Data(contentsOf: newest),
+                  let version = try? JSONDecoder().decode(Version.self, from: data) else {
+                // Nothing readable in it: nothing to keep.
+                try? FileManager.default.removeItem(at: notes)
+                continue
+            }
+            if !noteIDs.contains(version.noteID) { try? FileManager.default.removeItem(at: notes) }
+        }
+    }
+
+    /// Forgets every note's versions (Settings › Clear earlier versions).
+    public func removeAll() {
+        try? FileManager.default.removeItem(at: folder)
+    }
+
     /// The note's version files, newest first (their names are the times they were kept).
     private func files(in notes: URL) -> [URL] {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: notes.path)) ?? []
