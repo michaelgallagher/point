@@ -35,6 +35,7 @@ final class FormatBar: UIView {
             button("Link to a note", title: "[[") { $0.format { $0.wikiLink() } },
             button("Bold", symbol: "bold") { $0.format { $0.toggleBold() } },
             button("Italic", symbol: "italic") { $0.format { $0.toggleItalic() } },
+            button("Highlight", symbol: "highlighter") { $0.format { $0.toggleHighlight() } },
             headingButton(),
             button("Quote", symbol: "text.quote") { $0.format { $0.toggleBlockQuote() } },
             button("Checklist", symbol: "checklist") { $0.format { $0.toggleChecklist() } },

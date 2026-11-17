@@ -43,6 +43,7 @@ Mike travels soon with the laptop and the iPhone, and wants to use Point on both
 - [Milestones](plan/milestones.md): M0 to M6.
 
 **Work, newest first**
+- [Branches: what's active](plan/branches-2026-11-16.md) (16 November, 07:43): the branches not merged into `main`, mostly the flat-header experiments, and what each is for.
 - [The 13 November batch](plan/batch-2026-11-13.md): the iPhone after two days on the real vault: your notes in a box, mark read and file in Sources, near misses when clipping, what each note is in lists, recent notes in Search, property chips, and the reader's bars.
 - [Reader mode on the iPhone](plan/reader-mode.md) (11 November, built; steps 1–3): reading clipped Media notes with type set for reading, your place kept on the phone, highlights, and a notes sheet that writes above the `==---- Text ----==` marker; in four steps.
 - [The 8 November batch](plan/batch-2026-11-08.md): Mike's list of fixes and changes for the Mac and the iPhone.
@@ -63,7 +64,7 @@ Mike travels soon with the laptop and the iPhone, and wants to use Point on both
 - [The sidebar widens the window](plan/sidebar-widens-window.md) (25 October): the design, the attempts, and the bugs fixed.
 - [Properties, redesigned](plan/properties.md) (25 October).
 - [Exploration: a flatter header](plan/exploration-flat-header.md) (13 November): no glass, row-shaped tabs above a path bar, the compact title bar.
-- [Narrow-window tabs, for the glass header](plan/narrow-tabs-for-glass.md) (15 November): the narrow-tab strategies from the flat header, and how to try them on `main`.
+- [Narrow-window tabs, for the glass header](plan/narrow-tabs-for-glass.md) (15 November): the narrow-tab strategies from the flat header (branch `header-narrow-tabs`), tried on the glass header (branch `glass-narrow-tabs`).
 - [Exploration: no visible tabs](plan/exploration-no-visible-tabs.md) (25 October): tabs without a tab bar.
 - [Exploration: radically minimal](plan/exploration-minimal.md) (19 October).
 - [M3.5, Mac refinements](plan/m3.5-mac-refinements.md) (18–24 October): parts A to H.

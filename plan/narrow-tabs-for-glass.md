@@ -1,6 +1,6 @@
 # Narrow-window tabs, for the glass header
 
-Part of [the plan](../PLAN.md). A brief for trying the narrow-window tab work from the flat-header exploration (branch `header-narrow-tabs`, see [Exploration: a flatter header](exploration-flat-header.md)) in `main`'s Liquid Glass header, on a branch of its own.
+Part of [the plan](../PLAN.md). A brief for trying the narrow-window tab work from the flat-header exploration (branch `header-narrow-tabs`; its `plan/exploration-flat-header.md` has the whole story) in `main`'s Liquid Glass header, on a branch of its own.
 
 **The problem** (Mike, 14 November 2026). Mike works in narrow windows, 420–500 points, a lot, and three or more tabs barely fit there. The window should still feel of the Mac, glass or not.
 
@@ -81,6 +81,21 @@ Most of it is layout and text, and doesn't care about glass. Start a branch from
 6. **The history switch** (`PointNarrowHidesHistory`), last, as a comparison.
 
 Things in `header-narrow-tabs` not to bring along: the flat button faces (`BarIconFace`), the row-shaped rail and its corner radii, and the spacing constants (`TopBar.buttonSpacing` 2, `edgeInset` 6, `dividerGap`), which are the flat header's own. The sidebar's popping open, unanimated, after its first show (fixed on `header-narrow-tabs` in `SidebarSplitController.resize`) is in `main`'s code too, and is worth fixing there on its own.
+
+## Tried on glass (branch `glass-narrow-tabs`, 15 November 2026)
+
+From `main`, in this order:
+1. **`TabLayout` and `TabLabels`** replace `PaneTabs.widths(of:in:)` and the scrolling row. Retuned for the glass tabs' 20 points either side: 104 points shared (was 96), 78 the narrowest other tab (was 70), the current tab 88–158 (was 80–150).
+2. **The overflow menu** ("›› N", 40 points) sits inside the tabs' capsule, at its end, shaded with a capsule on hover.
+3. **The close button** still shows only on hover, as on `main`.
+4. **Back and forward** are 26 points each (not 32) in a bar narrower than 520 points; their hover shape is a capsule, a circle at full width.
+5. **No sidebar button in narrow notes,** as on `header-narrow-tabs`: here it frees 44 points.
+6. **Back and forward go with the sidebar button:** while the sidebar's hidden and the notes are narrower than 520 points, they move to the top of the "…" menu (⌘[ and ⌘] still work), freeing another 64 points; with the sidebar showing, or wider notes, they're back. This replaced the `PointNarrowHidesHistory` switch (narrow bars with three or more tabs) after a first try. With both gone, the tabs start just past the window buttons. **In a split,** each side goes by its own width, as its bar measures it, below 600 points rather than 520 (`TopBar.splitSidebarButtonHidingWidth`; 700 at first was too soon), as a split side's tabs have about half the room: the first side loses the sidebar button and its back and forward together, the second its back and forward (at first both went by the whole notes area, so a split never lost them).
+7. **The sidebar's popping open** after its first show is fixed, as on `header-narrow-tabs`.
+
+**Checked:** pictures of the debug build (test vault, sidebar hidden, four tabs). With only the sidebar button gone: at 440 points the current tab and one other, with "›› 2"; at 500, the current tab whole and one other, "›› 2"; at 600, all four, compact. With back and forward gone too: at 440, a wider current tab ("Links - 30 Oct -…") and one other, "›› 2"; at 500, all four; 600 unchanged, as the notes aren't narrow. The pictures don't draw glass or the sidebar button. **Split:** pictures at 1000, 1200 and 1500 points, sidebar hidden, with the first 700-point threshold: at 1000 and 1200 (500- and 600-point sides) both sides' tabs start where the buttons were; at 1500 (750-point sides) the buttons' room is back. **Not yet:** the glass by eye, the sidebar's slide and the buttons' fade (the screen was asleep, so nothing animated to measure), dragging tabs with some hidden, dragging the split's divider across 520 points.
+
+**Seen:** a title cut just after a separator shows it ("Links -…"); cutting back to the last word would read better, here and on the flat header.
 
 ## Open questions
 
