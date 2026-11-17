@@ -1021,10 +1021,16 @@ struct ClickArea: NSViewRepresentable {
             }
             guard inside != isInside else { return }
             isInside = inside
+            WindowMoveGuard.pointer(isOver: inside, self)
             DispatchQueue.main.async { [weak self] in
                 guard let self, isInside == inside else { return }
                 onHover(inside)
             }
+        }
+
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            WindowMoveGuard.leaving(self)
+            super.viewWillMove(toWindow: newWindow)
         }
 
         override func updateTrackingAreas() {
@@ -1087,9 +1093,20 @@ struct MenuArea: NSViewRepresentable {
 
     final class MenuView: NSView {
         var makeMenu: () -> NSMenu = { NSMenu() }
+        private let moveGuard = WindowMoveGuard.Tracker()
 
         override var mouseDownCanMoveWindow: Bool { false }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            moveGuard.track(self)
+        }
+
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            WindowMoveGuard.leaving(self)
+            super.viewWillMove(toWindow: newWindow)
+        }
 
         private func show() {
             makeMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: -4), in: self)
@@ -1204,10 +1221,21 @@ private struct GlassPullDown: NSViewRepresentable {
 
     final class Button: NSPopUpButton {
         var makeMenu: () -> NSMenu = { NSMenu() }
+        private let moveGuard = WindowMoveGuard.Tracker()
 
         // In the title bar's area the window would take the click and move itself.
         override var mouseDownCanMoveWindow: Bool { false }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            moveGuard.track(self)
+        }
+
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            WindowMoveGuard.leaving(self)
+            super.viewWillMove(toWindow: newWindow)
+        }
 
         /// A pull-down shows its first item as the button and leaves it out of the menu: an
         /// empty one goes there (the face is drawn beneath), and the real items after it.
@@ -1334,6 +1362,7 @@ private struct TabMouseArea: NSViewRepresentable {
             }
             guard always || inside != isInside else { return }
             isInside = inside
+            WindowMoveGuard.pointer(isOver: inside, self)
             // Not in the middle of SwiftUI laying out the row, which this can be called from.
             DispatchQueue.main.async { [weak self] in
                 guard let self, isInside == inside else { return }
@@ -1346,6 +1375,11 @@ private struct TabMouseArea: NSViewRepresentable {
             trackingAreas.forEach(removeTrackingArea)
             addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
             syncHover()
+        }
+
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            WindowMoveGuard.leaving(self)
+            super.viewWillMove(toWindow: newWindow)
         }
 
         override func viewDidMoveToWindow() {
@@ -1623,10 +1657,8 @@ final class BlockMenuItem: NSMenuItem {
 /// Empty space in a top bar that moves the window when dragged and zooms it when
 /// double-clicked, as a title bar does.
 ///
-/// The note window isn't movable by its title bar (see `SidebarSplitController`): the tabs are
-/// in that strip, and macOS decides a press there moves the window as the button goes down,
-/// before the tab sees it, so dragging a tab dragged the window. So this lets the window move
-/// just for its own drag.
+/// The window may be unmovable for a moment, while the pointer is over a tab or a button (see
+/// `WindowMoveGuard`), so this lets it move for its own drag whatever.
 struct WindowDragArea: NSViewRepresentable {
     func makeNSView(context: Context) -> DragView { DragView() }
     func updateNSView(_ view: DragView, context: Context) {}
@@ -1644,6 +1676,63 @@ struct WindowDragArea: NSViewRepresentable {
                 window.performDrag(with: event)
                 window.isMovable = wasMovable
             }
+        }
+    }
+}
+
+/// Keeps a press on Point's own controls in the title bar's strip (a tab, a bar button) the
+/// control's. macOS decides a press there moves the window as the button goes down, before
+/// the view sees it, and doesn't ask the views (`mouseDownCanMoveWindow`), so dragging a tab
+/// dragged the window. So while the pointer is over one, its window is unmovable; everywhere
+/// else it moves as any window does: by its bars, from Window › Move & Resize and the green
+/// button, and to the screen's edges to tile, which an unmovable window can't.
+@MainActor
+enum WindowMoveGuard {
+    /// The controls the pointer is over.
+    private static let over = NSHashTable<NSView>.weakObjects()
+
+    /// The pointer came over `view`, or left it.
+    static func pointer(isOver inside: Bool, _ view: NSView) {
+        guard inside != over.contains(view) else { return }
+        if inside { over.add(view) } else { over.remove(view) }
+        update(view.window)
+    }
+
+    /// `view` is leaving its window (a tab closed under the pointer, say): it no longer holds
+    /// the window still. Called while it still has its window.
+    static func leaving(_ view: NSView) {
+        guard over.contains(view) else { return }
+        over.remove(view)
+        update(view.window)
+    }
+
+    private static func update(_ window: NSWindow?) {
+        guard let window else { return }
+        let movable = !over.allObjects.contains { $0.window === window }
+        if window.isMovable != movable { window.isMovable = movable }
+    }
+
+    /// For a control that doesn't follow the pointer itself: its own tracking area, apart from
+    /// any the control has (which it may remove).
+    @MainActor
+    final class Tracker: NSObject {
+        private weak var view: NSView?
+        private var area: NSTrackingArea?
+
+        func track(_ view: NSView) {
+            self.view = view
+            if let area { view.removeTrackingArea(area) }
+            let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+            view.addTrackingArea(area)
+            self.area = area
+        }
+
+        @objc func mouseEntered(with event: NSEvent) {
+            if let view { WindowMoveGuard.pointer(isOver: true, view) }
+        }
+
+        @objc func mouseExited(with event: NSEvent) {
+            if let view { WindowMoveGuard.pointer(isOver: false, view) }
         }
     }
 }
