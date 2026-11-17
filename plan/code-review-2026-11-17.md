@@ -80,11 +80,18 @@ The weak points are at the edges:
 
    The comment on `PaneTabs` (`TopBars.swift:458-460`) still says the scroll view was the cause of the window moving. It wasn't: the window decides at mouse-down, in the window server. Correct the comment, and see the next item.
 
+   **Checked, 17 November** (real pointer, in a renamed copy of the app):
+   - **Dragging from the bar:** the strip by the traffic lights, the empty bar on either side of a split, the thin strip above a tab and the bar's lower edge all moved the window. The 2-point gaps between tabs belong to the tabs: a press there takes a tab.
+   - **Tiling:** Window › Move & Resize was greyed out. An unmovable window can't be tiled from the menu, the green button or (presumably) a drag to the screen's edge. TextEdit tiled from the same menu.
+   - **Fixed:** the window is now movable except while the pointer is over one of Point's own controls in that strip (`WindowMoveGuard`: tabs, bar buttons, menu buttons). Move & Resize › Left then tiled it.
+   - **Tab drags with the fix:** a tab dragged onto the other side's page moved there, twice, and the window stayed put (the trace has the window at the same place at the start and end of each drag). A press on a bar's ⋯ button didn't move the window either. The empty bar, beside the last tab, still dragged the window, out of its tiled half.
+  - **Still to check by hand:** tiling by dragging to a screen edge (synthetic drags can't move even TextEdit's window); Stage Manager.
+
 ### Low
 
 8. **The tab row's own scrolling can now go back to a scroll view.**
    - **Where:** the custom row (`TopBars.swift:447-604`): an offset `HStack`, a scroll-wheel monitor and `TabRowScroll`.
-   - **The problem:** it was built to get away from `ScrollView`, on the belief that the scroll view was what let the window take tab drags. With the window unmovable (item 7), that reason has gone.
+   - **The problem:** it was built to get away from `ScrollView`, on the belief that the scroll view was what let the window take tab drags. With the window unmovable while the pointer is over a tab (item 7), that reason has gone.
      - The custom row has no elastic edges and no scroll bar, and VoiceOver doesn't see it as scrolling.
      - Its sign was wrong once already. With a monitor per row and a scroll vector worked out by hand, it's easy to get wrong again.
    - **Fix:** try `ScrollView(.horizontal)` with `ScrollViewReader` again, now that the window holds still. Keep the custom row only if a scroll view brings back a problem.
