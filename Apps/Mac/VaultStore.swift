@@ -732,21 +732,33 @@ final class VaultStore: ObservableObject {
     /// root). Open notes save first and keep showing, under their new paths. Links by name,
     /// as Obsidian makes them, keep working; links written as paths aren't rewritten.
     func moveFolder(_ path: String, into parent: String) {
-        guard let root, !path.isEmpty, FolderTree.parent(of: path) != parent else { return }
+        guard let root, !path.isEmpty, FolderTree.parent(of: path) != parent,
+              folders.contains(path), parent.isEmpty || folders.contains(parent) else { return }
+        let source = root.appendingPathComponent(path)
+        let destination = parent.isEmpty ? root : root.appendingPathComponent(parent)
+        guard Self.isInside(source, root, allowingRoot: false), Self.isInside(destination, root, allowingRoot: true) else { return }
         let prefix = path + "/"
         let moving = notes.filter { $0.id.hasPrefix(prefix) }
         guard saveBeforeMoving(moving, "moved") else { return }
         do {
-            let url = try NoteFiles.moveFolder(root.appendingPathComponent(path),
-                                               into: parent.isEmpty ? root : root.appendingPathComponent(parent))
+            let url = try NoteFiles.moveFolder(source, into: destination)
             moving.forEach { EditorSession.release($0.url) }
             let newPath = parent.isEmpty ? url.lastPathComponent : parent + "/" + url.lastPathComponent
             for note in moving {
                 let newID = newPath + "/" + note.id.dropFirst(prefix.count)
                 replace(note, with: newID, url: root.appendingPathComponent(newID))
+    /// Whether `url`, its links followed, is inside `root` (or is `root`, if allowed).
+    static func isInside(_ url: URL, _ root: URL, allowingRoot: Bool) -> Bool {
+        let path = url.standardizedFileURL.resolvingSymlinksInPath().path
+        let rootPath = root.standardizedFileURL.resolvingSymlinksInPath().path
+        return path.hasPrefix(rootPath + "/") || (allowingRoot && path == rootPath)
+    }
+
             }
             // Pins to the folder, or to folders inside it, follow it.
             let moved = pins.map { pin -> SidebarPlace in
+    /// Only folders the vault has, both resolving to places inside it: a path dropped from
+    /// elsewhere (`../..`, or a link out of the vault) moves nothing.
                 guard case .folder(let pinned) = pin, pinned == path || pinned.hasPrefix(prefix) else { return pin }
                 return .folder(newPath + pinned.dropFirst(path.count))
             }
