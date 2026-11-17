@@ -700,7 +700,9 @@ struct SidebarTable: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int,
                        proposedDropOperation operation: NSTableView.DropOperation) -> NSDragOperation {
-            guard operation == .on, rows.indices.contains(row) else { return [] }
+            // Only rows dragged within Point: text dragged in from another app isn't a note or
+            // folder to move, even if it reads like one.
+            guard operation == .on, rows.indices.contains(row), info.draggingSource != nil else { return [] }
             switch rows[row] {
             case .place(.folder, _), .place(.allNotes, _): return .move
             // The heading over the folders: the top level.
@@ -711,7 +713,7 @@ struct SidebarTable: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo, row: Int,
                        dropOperation: NSTableView.DropOperation) -> Bool {
-            guard let dragged = info.draggingPasteboard.string(forType: .string) else { return false }
+            guard info.draggingSource != nil, let dragged = info.draggingPasteboard.string(forType: .string) else { return false }
             switch rows[row] {
             case .place(.folder(let path), _): model.drop(dragged, onFolder: path)
             case .place(.allNotes, _), .header(.folders): model.drop(dragged, onFolder: "")
