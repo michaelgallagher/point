@@ -345,6 +345,10 @@ final class SidebarSplitController: NSSplitViewController {
         toolbar.allowsUserCustomization = false
         window.toolbar = toolbar
         window.toolbarStyle = .unifiedCompact
+        // The tabs are in the title bar's strip, and a press there would move the window
+        // before a tab could take the drag. The bars' empty space moves it instead
+        // (`WindowDragArea`).
+        window.isMovable = false
         placeSidebarButton()
         // Placed again whenever the window buttons move (as the toolbar makes the title bar
         // taller, which can come after this), and as the window resizes or comes to the front:

@@ -417,22 +417,30 @@ struct PaneTabs: View {
     /// How far in from an end the tabs fade, where the row's scrolled past them.
     static let fadeWidth: CGFloat = 24
 
-    /// How far the row's scrolled along.
-    @State private var scrolled: CGFloat = 0
-    @State private var scroller = TabScroller()
+    /// How far the row's scrolled along, and moving it.
+    @StateObject private var scroll = TabRowScroll()
 
     /// Scrolls the current tab into view, clear of the fades: the least distance that does,
     /// and not at all if it's already clear.
     private func reveal(_ span: ClosedRange<CGFloat>?, animated: Bool) {
         guard let span else { return }
-        scroller.reveal(span.lowerBound - Self.fadeWidth, span.upperBound + Self.fadeWidth, animated: animated)
+        scroll.reveal(span.lowerBound - Self.fadeWidth, span.upperBound + Self.fadeWidth, animated: animated)
+    }
+
+    /// Where each tab starts along the row.
+    private static func starts(_ layout: TabLayout) -> [CGFloat] {
+        var x = inset
+        return layout.widths.map { width in
+            defer { x += width + spacing }
+            return x
+        }
     }
 
     /// Where the current tab sits along the row.
     private func currentSpan(_ layout: TabLayout) -> ClosedRange<CGFloat>? {
         let index = min(max(pane.current, 0), layout.widths.count - 1)
         guard index >= 0 else { return nil }
-        let start = Self.inset + layout.widths[..<index].reduce(0, +) + Self.spacing * CGFloat(index)
+        let start = Self.starts(layout)[index]
         return start...(start + layout.widths[index])
     }
 
@@ -441,33 +449,43 @@ struct PaneTabs: View {
             let titles = pane.tabs.map { model.note($0.noteID)?.title ?? model.store.image($0.noteID)?.name ?? "New tab" }
             let layout = TabLayout(titles: titles)
             let shown = min(layout.rowWidth, geometry.size.width)
+            let _ = scroll.measure(shown: shown, rowWidth: layout.rowWidth)
+            let offset = min(max(scroll.offset, 0), max(layout.rowWidth - shown, 0))
+            let starts = Self.starts(layout)
             // Fades only at an end with tabs scrolled out of sight beyond it.
-            let fadesLeading = scrolled > 0.5
-            let fadesTrailing = scrolled + shown < layout.rowWidth - 0.5
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: Self.spacing) {
-                    ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
-                        PaneTab(
-                            id: tab.id,
-                            title: layout.labels[index],
-                            help: tab.noteID ?? "",
-                            isCurrent: index == pane.current,
-                            isActiveSide: paneIndex == model.activePane,
-                            showsLine: index + 1 < pane.tabs.count && index != pane.current && index + 1 != pane.current,
-                            width: layout.widths[index],
-                            select: { model.selectTab(index, inPane: paneIndex) },
-                            close: { model.closeTab(index, inPane: paneIndex) },
-                            menu: { TabMenu.menu(for: index, tab: tab, inPane: paneIndex, model: model) }
-                        )
-                        .modifier(TabDropTarget(paneIndex: paneIndex, index: index))
-                        .id(tab.id)
-                    }
+            let fadesLeading = offset > 0.5
+            let fadesTrailing = offset + shown < layout.rowWidth - 0.5
+            // Not a scroll view: inside one, macOS didn't see that the tabs aren't the window's
+            // to move, and dragging a tab moved the window. The row slides by its offset, and
+            // the trackpad or wheel scrolls it (see `ScrollWheelArea`).
+            HStack(spacing: Self.spacing) {
+                ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
+                    // The part of the tab in sight, in its own points: only that takes clicks
+                    // and drops (the rest is under the bar's buttons, or past its end).
+                    let shownPart = (offset - starts[index])...(offset + shown - starts[index])
+                    PaneTab(
+                        id: tab.id,
+                        title: layout.labels[index],
+                        help: tab.noteID ?? "",
+                        isCurrent: index == pane.current,
+                        isActiveSide: paneIndex == model.activePane,
+                        showsLine: index + 1 < pane.tabs.count && index != pane.current && index + 1 != pane.current,
+                        width: layout.widths[index],
+                        shownPart: shownPart,
+                        select: { model.selectTab(index, inPane: paneIndex) },
+                        close: { model.closeTab(index, inPane: paneIndex) },
+                        menu: { TabMenu.menu(for: index, tab: tab, inPane: paneIndex, model: model) }
+                    )
+                    .modifier(TabDropTarget(paneIndex: paneIndex, index: index, shownPart: shownPart))
+                    .id(tab.id)
                 }
-                .padding(Self.inset)
-                .animation(.easeInOut(duration: 0.2), value: pane.current)
-                .background(ScrollOffsetReader(scroller: scroller) { scrolled = $0 })
             }
-            .scrollDisabled(layout.rowWidth <= geometry.size.width)
+            .padding(Self.inset)
+            .fixedSize(horizontal: true, vertical: false)
+            .animation(.easeInOut(duration: 0.2), value: pane.current)
+            .offset(x: -offset)
+            .frame(width: shown, alignment: .leading)
+            .clipped()
             .mask {
                 HStack(spacing: 0) {
                     LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
@@ -477,8 +495,13 @@ struct PaneTabs: View {
                         .frame(width: fadesTrailing ? Self.fadeWidth : 0)
                 }
             }
-            // Only as wide as the tabs, so the bar's empty space still moves the window.
-            .frame(width: min(layout.rowWidth, geometry.size.width), alignment: .leading)
+            // The trackpad and wheel, over the row (only as wide as the tabs, so the bar's
+            // empty space still moves the window).
+            .background(ScrollWheelArea { delta in
+                guard layout.rowWidth > shown else { return false }
+                scroll.scroll(by: delta)
+                return true
+            })
             // The current tab always in view.
             // The tab's place is passed in as the value that changed: values the closure reads
             // from the view are the ones from before the change, which revealed the tab chosen
@@ -491,88 +514,91 @@ struct PaneTabs: View {
     }
 }
 
-/// Reports how far the scroll view it's in is scrolled along, as it scrolls: for the tab row's
-/// fades. (SwiftUI's own geometry didn't follow the scrolling here.)
-private struct ScrollOffsetReader: NSViewRepresentable {
-    let scroller: TabScroller
-    let changed: (CGFloat) -> Void
+/// How far a side's tab row is scrolled along, and moving it: by the trackpad or wheel, or to
+/// show the current tab.
+@MainActor
+final class TabRowScroll: ObservableObject {
+    @Published private(set) var offset: CGFloat = 0
+    /// The row's size as last laid out.
+    private var shown: CGFloat = 0
+    private var rowWidth: CGFloat = 0
+    /// Bumped by each reveal, so only the latest, if it has to wait, goes ahead.
+    private var request = 0
 
-    func makeNSView(context: Context) -> ReaderView { ReaderView() }
+    private var maxOffset: CGFloat { max(rowWidth - shown, 0) }
 
-    func updateNSView(_ view: ReaderView, context: Context) {
-        view.changed = changed
-        scroller.view = view
+    /// Notes the row's size as it's laid out (not something the view draws from).
+    func measure(shown: CGFloat, rowWidth: CGFloat) {
+        self.shown = shown
+        self.rowWidth = rowWidth
     }
 
-    final class ReaderView: NSView {
-        var changed: (CGFloat) -> Void = { _ in }
+    func scroll(by delta: CGFloat) {
+        request += 1 // A reveal waiting on the mouse gives way.
+        let target = min(max(offset + delta, 0), maxOffset)
+        if target != offset { offset = target }
+    }
 
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    /// Shows `start` to `end` (in the row's own points), moving the least it can, within the
+    /// row's ends. While the mouse button is down it waits: the row moving under a click on a
+    /// half-hidden tab made it jump, or start dragging the tab.
+    func reveal(_ start: CGFloat, _ end: CGFloat, animated: Bool) {
+        request += 1
+        attempt(start, end, animated: animated, request: request)
+    }
 
-        // Observed by selector, which the notification centre lets go of with the view.
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: nil)
-            guard window != nil, let clip = enclosingScrollView?.contentView else { return }
-            clip.postsBoundsChangedNotifications = true
-            NotificationCenter.default.addObserver(self, selector: #selector(scrolled), name: NSView.boundsDidChangeNotification, object: clip)
-            DispatchQueue.main.async { self.scrolled() }
+    private func attempt(_ start: CGFloat, _ end: CGFloat, animated: Bool, request: Int) {
+        guard request == self.request else { return }
+        guard NSEvent.pressedMouseButtons == 0 else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                self?.attempt(start, end, animated: animated, request: request)
+            }
+            return
         }
-
-        @objc private func scrolled() {
-            guard let clip = enclosingScrollView?.contentView else { return }
-            changed(clip.bounds.origin.x)
+        let now = min(offset, maxOffset)
+        var target = now
+        if start < now { target = start } else if end > now + shown { target = end - shown }
+        target = min(max(target, 0), maxOffset)
+        guard abs(target - offset) > 0.5 else { return }
+        if animated {
+            withAnimation(.easeInOut(duration: 0.2)) { offset = target }
+        } else {
+            offset = target
         }
     }
 }
 
-/// Moves a side's tab row to show a stretch of it, by its scroll view.
-@MainActor
-final class TabScroller {
-    fileprivate weak var view: NSView?
+/// Takes the trackpad's and wheel's scrolling over it, sideways or up and down, for a row that
+/// scrolls sideways, when `scrolled` says it was used. Takes no clicks.
+private struct ScrollWheelArea: NSViewRepresentable {
+    /// By how much (positive towards the row's end); false if it can't scroll.
+    let scrolled: (CGFloat) -> Bool
 
-    /// Bumped by each request, so only the latest, if it has to wait, goes ahead.
-    private var request = 0
+    func makeNSView(context: Context) -> WheelView { WheelView() }
+    func updateNSView(_ view: WheelView, context: Context) { view.scrolled = scrolled }
 
-    /// Shows `start` to `end` (in the row's own points), moving the least it can, within the
-    /// row's ends, by the row's size as it is when it moves. While the mouse button is down
-    /// it waits: the row moving under a click on a half-hidden tab made it jump, or start
-    /// dragging the tab. It waits too, a little, for the row to be in its window.
-    func reveal(_ start: CGFloat, _ end: CGFloat, animated: Bool) {
-        request += 1
-        attempt(start, end, animated: animated, request: request, tries: 20)
-    }
+    final class WheelView: NSView {
+        var scrolled: (CGFloat) -> Bool = { _ in false }
+        private var monitor: Any?
 
-    private func attempt(_ start: CGFloat, _ end: CGFloat, animated: Bool, request: Int, tries: Int) {
-        guard request == self.request else { return }
-        let scrollView = view?.enclosingScrollView
-        guard NSEvent.pressedMouseButtons == 0, let scrollView, let document = scrollView.documentView else {
-            guard tries > 0 else { return }
-            // Only waiting for the window counts against the tries.
-            let left = scrollView == nil ? tries - 1 : tries
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                self?.attempt(start, end, animated: animated, request: request, tries: left)
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            guard window != nil else { return }
+            // Watched for, as the tabs over it take the events.
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                guard let self, let window, event.window === window,
+                      bounds.contains(convert(event.locationInWindow, from: nil)) else { return event }
+                let x = event.scrollingDeltaX, y = event.scrollingDeltaY
+                // Swiping right, or the wheel up, goes back towards the row's start.
+                var delta = -(abs(x) >= abs(y) ? x : y)
+                if !event.hasPreciseScrollingDeltas { delta *= 10 }
+                return scrolled(delta) ? nil : event
             }
-            return
         }
-        let clip = scrollView.contentView
-        let shown = clip.bounds.width
-        let now = clip.bounds.origin.x
-        var target = now
-        if start < now { target = start } else if end > now + shown { target = end - shown }
-        target = min(max(target, 0), max(document.frame.width - shown, 0))
-        guard abs(target - now) > 0.5 else { return }
-        let origin = NSPoint(x: target, y: clip.bounds.origin.y)
-        if animated {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.2
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                clip.animator().setBoundsOrigin(origin)
-            }
-        } else {
-            clip.setBoundsOrigin(origin)
-        }
-        scrollView.reflectScrolledClipView(clip)
     }
 }
 
@@ -690,6 +716,8 @@ private struct PaneTab: View {
     /// Whether to draw the line after this tab: between two tabs neither of which is current.
     let showsLine: Bool
     let width: CGFloat
+    /// The part of it in sight, in its own points.
+    let shownPart: ClosedRange<CGFloat>
     let select: () -> Void
     let close: () -> Void
     let menu: () -> NSMenu
@@ -746,7 +774,7 @@ private struct PaneTab: View {
             // Clicks, drags, hover and the menu are handled in AppKit: the tabs sit where a
             // title bar would, and there the window takes any drag not claimed first.
             .background(TabMouseArea(id: id, title: title, select: select, close: close, closeEdge: .leading,
-                                     closeWidth: Self.closeWidth, selectsOnPress: true,
+                                     closeWidth: Self.closeWidth, selectsOnPress: true, shownPart: shownPart,
                                      menu: menu, isHovering: $isHovering))
             .help(help)
             .accessibilityElement(children: .combine)
@@ -761,6 +789,8 @@ private struct TabDropTarget: ViewModifier {
     @EnvironmentObject private var model: VaultModel
     let paneIndex: Int
     let index: Int
+    /// The part of the tab in sight, in its own points.
+    let shownPart: ClosedRange<CGFloat>
     @State private var edge: HorizontalEdge?
 
     func body(content: Content) -> some View {
@@ -773,7 +803,7 @@ private struct TabDropTarget: ViewModifier {
                         .offset(x: edge == .leading ? -2 : 2)
                 }
             }
-            .background(TabDropArea { id, point, size in
+            .background(TabDropArea(shownPart: shownPart) { id, point, size in
                 edge = id.flatMap { model.location(ofTab: $0) } == nil ? nil : (point.x < size.width / 2 ? .leading : .trailing)
                 return edge != nil
             } drop: { id, point, size in
@@ -939,8 +969,10 @@ struct BarIcon: View {
     var body: some View {
         BarIconFace(symbol: symbol, enabled: enabled, isHovering: isHovering, weight: weight, width: width, fontSize: fontSize)
             .allowsHitTesting(false) // The click area below takes the clicks.
-            .background(ClickArea(enabled: enabled, help: help, action: action))
-            .onHover { isHovering = $0 }
+            // Hover from the click area, which checks where the pointer really is: SwiftUI's
+            // own missed the pointer leaving as the button moved away from it (the sidebar
+            // button, as the sidebar slides), and left it shaded.
+            .background(ClickArea(enabled: enabled, help: help, action: action, onHover: { isHovering = $0 }))
             .accessibilityElement()
             .accessibilityLabel(label)
             .accessibilityAddTraits(.isButton)
@@ -954,6 +986,8 @@ struct ClickArea: NSViewRepresentable {
     var enabled = true
     var help: String?
     let action: () -> Void
+    /// Whether the pointer is over it.
+    var onHover: (Bool) -> Void = { _ in }
 
     func makeNSView(context: Context) -> ClickView { ClickView() }
 
@@ -961,15 +995,65 @@ struct ClickArea: NSViewRepresentable {
         view.isEnabled = enabled
         view.action = action
         view.toolTip = help
+        view.onHover = onHover
     }
 
     final class ClickView: NSView {
         var isEnabled = true
         var action: () -> Void = {}
+        var onHover: (Bool) -> Void = { _ in }
         private var isPressed = false
+        /// Whether the pointer is over it, as last told.
+        private var isInside = false
 
         override var mouseDownCanMoveWindow: Bool { false }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        /// Looks where the pointer is, rather than trusting entered and exited alone, which
+        /// miss a button moving out from under a still pointer.
+        func syncHover(leaving: Bool = false) {
+            var inside = false
+            if !leaving, let window, window.isVisible, !isHiddenOrHasHiddenAncestor {
+                let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+                inside = bounds.contains(point) && visibleRect.contains(point)
+            }
+            guard inside != isInside else { return }
+            isInside = inside
+            DispatchQueue.main.async { [weak self] in
+                guard let self, isInside == inside else { return }
+                onHover(inside)
+            }
+        }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            trackingAreas.forEach(removeTrackingArea)
+            addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
+            syncHover()
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            NotificationCenter.default.removeObserver(self)
+            if let window {
+                // The window moving or resizing under a still pointer (the sidebar sliding).
+                for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification, NSWindow.didResignKeyNotification] {
+                    NotificationCenter.default.addObserver(self, selector: #selector(windowChanged), name: name, object: window)
+                }
+            }
+            syncHover()
+        }
+
+        @objc private func windowChanged() { syncHover() }
+
+        override func setFrameOrigin(_ newOrigin: NSPoint) {
+            super.setFrameOrigin(newOrigin)
+            syncHover()
+        }
+
+        override func mouseEntered(with event: NSEvent) { syncHover() }
+        override func mouseMoved(with event: NSEvent) { syncHover() }
+        override func mouseExited(with event: NSEvent) { syncHover(leaving: true) }
 
         override func mouseDown(with event: NSEvent) { isPressed = isEnabled }
 
@@ -978,6 +1062,11 @@ struct ClickArea: NSViewRepresentable {
             // Only if the pointer is still over it, as with any button.
             guard isPressed, bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
             action()
+            // What the click did may move the button, or what's around it, away from the
+            // pointer, without a word: look again once things have settled.
+            for delay in [0.05, 0.3, 0.6] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.syncHover() }
+            }
         }
     }
 }
@@ -1171,6 +1260,9 @@ private struct TabMouseArea: NSViewRepresentable {
     /// Selects as the mouse goes down, as a tab does, rather than as it comes up, as a menu
     /// row does (so a row can be dragged without going to its tab).
     var selectsOnPress = false
+    /// The part of it in sight, across, in its own points, if not all of it: only that takes
+    /// clicks and shows hover.
+    var shownPart: ClosedRange<CGFloat>? = nil
     let menu: () -> NSMenu
     var draggedOut: () -> Void = {}
     @Binding var isHovering: Bool
@@ -1185,6 +1277,7 @@ private struct TabMouseArea: NSViewRepresentable {
         view.closeEdge = closeEdge
         view.closeWidth = closeWidth
         view.selectsOnPress = selectsOnPress
+        view.shownPart = shownPart
         view.makeMenu = menu
         view.draggedOut = draggedOut
         view.onHover = { isHovering = $0 }
@@ -1198,6 +1291,9 @@ private struct TabMouseArea: NSViewRepresentable {
         var closeEdge = HorizontalEdge.trailing
         var closeWidth: CGFloat = 0
         var selectsOnPress = false
+        var shownPart: ClosedRange<CGFloat>? {
+            didSet { if shownPart != oldValue { syncHover() } }
+        }
         var makeMenu: () -> NSMenu = { NSMenu() }
         var draggedOut: () -> Void = {}
         var onHover: (Bool) -> Void = { _ in }
@@ -1205,6 +1301,14 @@ private struct TabMouseArea: NSViewRepresentable {
 
         override var mouseDownCanMoveWindow: Bool { false }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        /// Whether a point (in its own points) is on the part in sight.
+        private func isShown(_ point: NSPoint) -> Bool { shownPart?.contains(point.x) ?? true }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard let superview, isShown(convert(point, from: superview)) else { return nil }
+            return super.hitTest(point)
+        }
 
         private func isOverClose(_ point: NSPoint) -> Bool {
             closeEdge == .leading ? point.x < closeWidth : point.x > bounds.maxX - closeWidth
@@ -1224,7 +1328,7 @@ private struct TabMouseArea: NSViewRepresentable {
                 // Its bounds as well as what's visible: in a scrolling list, the visible rect
                 // can come back as the whole list's.
                 let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
-                inside = bounds.contains(point) && visibleRect.contains(point)
+                inside = bounds.contains(point) && isShown(point)
             }
             guard always || inside != isInside else { return }
             isInside = inside
@@ -1271,13 +1375,15 @@ private struct TabMouseArea: NSViewRepresentable {
             let point = event.locationInWindow
             guard hypot(point.x - start.x, point.y - start.y) > 4 else { return }
             mouseDownAt = nil
-            Trace.mark("tab drag began: \(title)")
+            Trace.mark("tab drag began: \(title), window at \(window.map { NSStringFromPoint($0.frame.origin) } ?? "none")")
             let item = NSPasteboardItem()
             item.setString(tabID.uuidString, forType: TabDrag.pasteboardType)
             let dragging = NSDraggingItem(pasteboardWriter: item)
             dragging.setDraggingFrame(bounds, contents: snapshot())
             let session = beginDraggingSession(with: [dragging], event: event, source: self)
-            session.animatesToStartingPositionsOnCancelOrFail = true
+            // Dropped where nothing takes it, it just goes: the drop is found here, not by
+            // AppKit, which counts every drop as having missed.
+            session.animatesToStartingPositionsOnCancelOrFail = false
         }
 
         override func mouseUp(with event: NSEvent) {
@@ -1294,11 +1400,29 @@ private struct TabMouseArea: NSViewRepresentable {
             context == .withinApplication ? .move : []
         }
 
+        /// The drop area the tab is over.
+        private weak var dragArea: TabDropArea.DropView?
+
+        func draggingSession(_ session: NSDraggingSession, movedTo screenPoint: NSPoint) {
+            guard let tabID else { return }
+            let area = TabDropArea.DropView.area(at: screenPoint)
+            if area !== dragArea {
+                dragArea?.dragLeft()
+                dragArea = area
+            }
+            area?.dragMoved(tabID, to: screenPoint)
+        }
+
         func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+            dragArea?.dragLeft()
+            dragArea = nil
+            let area = TabDropArea.DropView.area(at: screenPoint)
+            let taken = tabID.flatMap { id in area?.dropped(id, at: screenPoint) } ?? false
+            Trace.mark("tab drag ended: \(taken ? "dropped" : "not dropped"), window at \(window.map { NSStringFromPoint($0.frame.origin) } ?? "none")")
             // After the drop has rearranged the rows.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { NotificationCenter.default.post(name: Self.dragEnded, object: nil) }
-            // Taken somewhere outside the list (the page, the other side's bar): close it.
-            if operation != [], let window, !window.frame.contains(screenPoint) { draggedOut() }
+            // Taken in another window: close it here.
+            if taken, let window, area?.window !== window { draggedOut() }
         }
 
         /// The tab as drawn, to drag.
@@ -1327,9 +1451,13 @@ enum TabDrag {
 }
 
 /// Somewhere a dragged tab can be dropped. In AppKit, because SwiftUI's drop targets never
-/// see a drag started in AppKit (as tabs' are). Put it behind the content: it takes no
-/// clicks, and a drag finds it through the views in front.
+/// see a drag started in AppKit (as tabs' are). Put it behind the content: it takes no clicks.
+/// The dragged tab finds it itself, as the smallest area under the pointer (a tab before the
+/// bar it's in, the bar before the page beneath): AppKit's own search for where a drag is
+/// over missed areas inside the tabs' scrolling row, and the page under the note.
 struct TabDropArea: NSViewRepresentable {
+    /// The part of it in sight, across, in its own points, if not all of it.
+    var shownPart: ClosedRange<CGFloat>? = nil
     /// As a tab moves over the area: whether it would be taken, given the tab, where it is
     /// (from the area's top left) and the area's size. The tab is nil when the drag leaves.
     let hover: @MainActor (VaultModel.NoteTab.ID?, CGPoint, CGSize) -> Bool
@@ -1340,50 +1468,69 @@ struct TabDropArea: NSViewRepresentable {
     func updateNSView(_ view: DropView, context: Context) {
         view.hover = hover
         view.drop = drop
+        view.shownPart = shownPart
     }
 
     final class DropView: NSView {
         var hover: @MainActor (VaultModel.NoteTab.ID?, CGPoint, CGSize) -> Bool = { _, _, _ in false }
         var drop: @MainActor (VaultModel.NoteTab.ID, CGPoint, CGSize) -> Bool = { _, _, _ in false }
+        var shownPart: ClosedRange<CGFloat>?
 
-        override init(frame: NSRect) {
-            super.init(frame: frame)
-            registerForDraggedTypes([TabDrag.pasteboardType])
-        }
-
-        @available(*, unavailable)
-        required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+        /// Every area in a window.
+        private static let all = NSHashTable<DropView>.weakObjects()
 
         override var isFlipped: Bool { true }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-        private func location(_ info: NSDraggingInfo) -> CGPoint { convert(info.draggingLocation, from: nil) }
-
-        private func operation(_ info: NSDraggingInfo) -> NSDragOperation {
-            guard let id = TabDrag.tab(on: info.draggingPasteboard) else { return [] }
-            return hover(id, location(info), bounds.size) ? .move : []
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window != nil { Self.all.add(self) } else { Self.all.remove(self) }
         }
 
-        override func draggingEntered(_ info: NSDraggingInfo) -> NSDragOperation {
-            let operation = operation(info)
-            Trace.mark("tab drag entered a drop area: \(operation == .move ? "taken" : "refused")")
-            return operation
+        /// The part of it showing, in its window: not a tab scrolled out of sight. From its
+        /// bounds, not `visibleRect`, which for a view SwiftUI hosts can be far larger than
+        /// the view (the whole row, or the whole window), so every area seemed to be under
+        /// the pointer, and the first answered.
+        private var shownRect: NSRect {
+            var rect = bounds
+            if let part = shownPart {
+                let minX = max(rect.minX, part.lowerBound), maxX = min(rect.maxX, part.upperBound)
+                rect = maxX > minX ? NSRect(x: minX, y: rect.minY, width: maxX - minX, height: rect.height) : .zero
+            }
+            return convert(rect, to: nil)
         }
 
-        override func draggingUpdated(_ info: NSDraggingInfo) -> NSDragOperation { operation(info) }
+        /// The area under a point on the screen, in the window in front there.
+        static func area(at screenPoint: NSPoint) -> DropView? {
+            // The app's own windows, front to back (not the window the drag's image is in).
+            guard let front = NSApp.orderedWindows.first(where: { $0.isVisible && $0.frame.contains(screenPoint) }) else { return nil }
+            return all.allObjects
+                .filter { area in
+                    guard let window = area.window, window === front, !area.isHiddenOrHasHiddenAncestor else { return false }
+                    let point = window.convertPoint(fromScreen: screenPoint)
+                    let rect = area.shownRect
+                    return !rect.isEmpty && rect.contains(point)
+                }
+                .min { $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height }
+        }
 
-        override func draggingExited(_ info: NSDraggingInfo?) { _ = hover(nil, .zero, bounds.size) }
+        private func location(_ screenPoint: NSPoint) -> CGPoint {
+            guard let window else { return .zero }
+            return convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+        }
 
-        override func performDragOperation(_ info: NSDraggingInfo) -> Bool {
-            guard let id = TabDrag.tab(on: info.draggingPasteboard) else { return false }
-            let point = location(info)
-            _ = hover(nil, .zero, bounds.size)
-            let taken = drop(id, point, bounds.size)
-            Trace.mark("tab dropped: \(taken ? "taken" : "refused")")
+        func dragMoved(_ id: VaultModel.NoteTab.ID, to screenPoint: NSPoint) {
+            _ = hover(id, location(screenPoint), bounds.size)
+        }
+
+        func dragLeft() { _ = hover(nil, .zero, bounds.size) }
+
+        func dropped(_ id: VaultModel.NoteTab.ID, at screenPoint: NSPoint) -> Bool {
+            dragLeft()
+            let taken = drop(id, location(screenPoint), bounds.size)
+            Trace.mark("tab dropped: \(taken ? "taken" : "refused") on \(NSStringFromRect(shownRect)) at \(NSStringFromPoint(location(screenPoint)))")
             return taken
         }
-
-        override func draggingEnded(_ info: NSDraggingInfo) { _ = hover(nil, .zero, bounds.size) }
     }
 }
 
@@ -1458,6 +1605,11 @@ final class BlockMenuItem: NSMenuItem {
 
 /// Empty space in a top bar that moves the window when dragged and zooms it when
 /// double-clicked, as a title bar does.
+///
+/// The note window isn't movable by its title bar (see `SidebarSplitController`): the tabs are
+/// in that strip, and macOS decides a press there moves the window as the button goes down,
+/// before the tab sees it, so dragging a tab dragged the window. So this lets the window move
+/// just for its own drag.
 struct WindowDragArea: NSViewRepresentable {
     func makeNSView(context: Context) -> DragView { DragView() }
     func updateNSView(_ view: DragView, context: Context) {}
@@ -1466,10 +1618,14 @@ struct WindowDragArea: NSViewRepresentable {
         override var mouseDownCanMoveWindow: Bool { true }
 
         override func mouseDown(with event: NSEvent) {
+            guard let window else { return }
             if event.clickCount == 2 {
-                window?.performZoom(nil)
+                window.performZoom(nil)
             } else {
-                window?.performDrag(with: event)
+                let wasMovable = window.isMovable
+                window.isMovable = true
+                window.performDrag(with: event)
+                window.isMovable = wasMovable
             }
         }
     }
