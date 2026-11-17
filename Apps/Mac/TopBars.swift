@@ -455,9 +455,11 @@ struct PaneTabs: View {
             // Fades only at an end with tabs scrolled out of sight beyond it.
             let fadesLeading = offset > 0.5
             let fadesTrailing = offset + shown < layout.rowWidth - 0.5
-            // Not a scroll view: inside one, macOS didn't see that the tabs aren't the window's
-            // to move, and dragging a tab moved the window. The row slides by its offset, and
-            // the trackpad or wheel scrolls it (see `ScrollWheelArea`).
+            // The row slides by its offset, and the trackpad or wheel scrolls it (see
+            // `ScrollWheelArea`). It was made this way, not as a scroll view, believing the scroll
+            // view let a dragged tab move the window. It didn't: the window server decides at
+            // mouse-down, and the window is now unmovable but for `WindowDragArea`. A scroll
+            // view may do here again (the 17 November review, item 8).
             HStack(spacing: Self.spacing) {
                 ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
                     // The part of the tab in sight, in its own points: only that takes clicks
@@ -1416,7 +1418,10 @@ private struct TabMouseArea: NSViewRepresentable {
         func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
             dragArea?.dragLeft()
             dragArea = nil
-            let area = TabDropArea.DropView.area(at: screenPoint)
+            // Given up with Escape: nothing moves. AppKit can't say so itself, as no view takes
+            // the drop the AppKit way, so every drag ends as if it missed.
+            let cancelled = NSApp.currentEvent.map { $0.type == .keyDown && $0.keyCode == 53 } ?? false
+            let area = cancelled ? nil : TabDropArea.DropView.area(at: screenPoint)
             let taken = tabID.flatMap { id in area?.dropped(id, at: screenPoint) } ?? false
             Trace.mark("tab drag ended: \(taken ? "dropped" : "not dropped"), window at \(window.map { NSStringFromPoint($0.frame.origin) } ?? "none")")
             // After the drop has rearranged the rows.
@@ -1458,10 +1463,19 @@ enum TabDrag {
 struct TabDropArea: NSViewRepresentable {
     /// The part of it in sight, across, in its own points, if not all of it.
     var shownPart: ClosedRange<CGFloat>? = nil
+    /// Behind something laid over the page in the same window (the palette, the related
+    /// notes panel): a tab let go over it goes nowhere, not to the page beneath, which is
+    /// otherwise still an area under the pointer.
+    var blocks = false
     /// As a tab moves over the area: whether it would be taken, given the tab, where it is
     /// (from the area's top left) and the area's size. The tab is nil when the drag leaves.
     let hover: @MainActor (VaultModel.NoteTab.ID?, CGPoint, CGSize) -> Bool
     let drop: @MainActor (VaultModel.NoteTab.ID, CGPoint, CGSize) -> Bool
+
+    /// An area that takes no tab, and keeps any beneath it from taking one.
+    static var blocking: TabDropArea {
+        TabDropArea(blocks: true, hover: { _, _, _ in false }, drop: { _, _, _ in false })
+    }
 
     func makeNSView(context: Context) -> DropView { DropView() }
 
@@ -1469,12 +1483,14 @@ struct TabDropArea: NSViewRepresentable {
         view.hover = hover
         view.drop = drop
         view.shownPart = shownPart
+        view.blocks = blocks
     }
 
     final class DropView: NSView {
         var hover: @MainActor (VaultModel.NoteTab.ID?, CGPoint, CGSize) -> Bool = { _, _, _ in false }
         var drop: @MainActor (VaultModel.NoteTab.ID, CGPoint, CGSize) -> Bool = { _, _, _ in false }
         var shownPart: ClosedRange<CGFloat>?
+        var blocks = false
 
         /// Every area in a window.
         private static let all = NSHashTable<DropView>.weakObjects()
@@ -1500,18 +1516,19 @@ struct TabDropArea: NSViewRepresentable {
             return convert(rect, to: nil)
         }
 
-        /// The area under a point on the screen, in the window in front there.
+        /// The area under a point on the screen, in the window in front there; none if
+        /// something laid over the page is there.
         static func area(at screenPoint: NSPoint) -> DropView? {
             // The app's own windows, front to back (not the window the drag's image is in).
             guard let front = NSApp.orderedWindows.first(where: { $0.isVisible && $0.frame.contains(screenPoint) }) else { return nil }
-            return all.allObjects
-                .filter { area in
-                    guard let window = area.window, window === front, !area.isHiddenOrHasHiddenAncestor else { return false }
-                    let point = window.convertPoint(fromScreen: screenPoint)
-                    let rect = area.shownRect
-                    return !rect.isEmpty && rect.contains(point)
-                }
-                .min { $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height }
+            let under = all.allObjects.filter { area in
+                guard let window = area.window, window === front, !area.isHiddenOrHasHiddenAncestor else { return false }
+                let point = window.convertPoint(fromScreen: screenPoint)
+                let rect = area.shownRect
+                return !rect.isEmpty && rect.contains(point)
+            }
+            guard !under.contains(where: \.blocks) else { return nil }
+            return under.min { $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height }
         }
 
         private func location(_ screenPoint: NSPoint) -> CGPoint {

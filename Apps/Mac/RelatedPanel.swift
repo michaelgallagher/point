@@ -539,6 +539,8 @@ struct RelatedSlideUp: View {
     }
 
     /// Out of the way for a note with nothing related (it has no readout to close it with);
+                        // A tab let go over the panel goes nowhere, not to the note beneath.
+                        .background { if isUp { TabDropArea.blocking } }
     /// back for the next one that has.
     private var wantsOpen: Bool { model.isLinksPanelOpen(paneID) && !isEmpty }
 

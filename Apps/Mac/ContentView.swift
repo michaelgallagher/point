@@ -161,6 +161,8 @@ struct ContentView: View {
                     Color.black.opacity(0.08)
                         .ignoresSafeArea()
                         .onTapGesture { model.isPaletteShown = false }
+                        // A tab let go over the palette goes nowhere.
+                        .background(TabDropArea.blocking)
                     // Over the side a note will open into, when the window's split; inside
                     // the window however narrow that side is.
                     GeometryReader { geometry in
