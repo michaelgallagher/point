@@ -724,7 +724,6 @@ enum TabLabels {
 }
 
 private struct PaneTab: View {
-    @Environment(\.colorScheme) private var colorScheme
     let id: VaultModel.NoteTab.ID
     let title: String
     let help: String
@@ -743,15 +742,15 @@ private struct PaneTab: View {
     static let cornerRadius: CGFloat = PaneTabs.cornerRadius - PaneTabs.inset
     static let fontSize: CGFloat = 13
     /// The close button's room, before the title.
-    static let closeWidth: CGFloat = 22
-    /// After the title: just enough that it doesn't touch the tab's edge.
-    static let trailingPadding: CGFloat = 10
+    static let closeWidth: CGFloat = 20
+    /// After the title: as much as the close button's room before it, so a title is centred
+    /// whether the button shows or not, and doesn't move when it does.
+    static let trailingPadding: CGFloat = closeWidth
 
-    /// The current tab: white (in dark mode, a little lighter than the bar), with a hairline
-    /// edge and a faint shadow to lift it off the white page. Fainter on the side of a split
-    /// not being worked on.
+    /// The current tab: flat, a light grey on the bar. Fainter on the side of a split not
+    /// being worked on.
     private var selectedColor: Color {
-        colorScheme == .dark ? .white.opacity(isActiveSide ? 0.14 : 0.08) : .white
+        Color.primary.opacity(isActiveSide ? 0.07 : 0.04)
     }
 
     var body: some View {
@@ -780,19 +779,10 @@ private struct PaneTab: View {
                 }
             }
             .background {
-                // No rail: the current tab raised on the bar, in Liquid Glass where there is
-                // any, otherwise white.
-                if isCurrent, #available(macOS 26, *) {
-                    Color.clear
-                        .glassEffect(isActiveSide ? .regular.interactive() : .regular, in: RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
-                } else if isCurrent {
+                // No rail: the current tab a flat grey on the bar.
+                if isCurrent {
                     RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
                         .fill(selectedColor)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
-                                .strokeBorder(Color.primary.opacity(isActiveSide ? 0.12 : 0.08), lineWidth: 0.5)
-                        }
-                        .shadow(color: .black.opacity(isActiveSide ? 0.08 : 0.04), radius: 1.5, y: 0.5)
                 }
             }
             .allowsHitTesting(false) // Clicks go to the tab's mouse area, below.
