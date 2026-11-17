@@ -11,6 +11,22 @@ struct VaultImagesTests {
         return url
     }
 
+    @Test func embedsResolveOnlyInsideTheVault() throws {
+        let dir = try folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let root = dir.appendingPathComponent("Vault")
+        let outside = dir.appendingPathComponent("Outside")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Notes"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try Data().write(to: root.appendingPathComponent("Notes/in.png"))
+        try Data().write(to: outside.appendingPathComponent("away.png"))
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("Link"), withDestinationURL: outside)
+        #expect(VaultImages.resolve("in.png", from: "Notes/Plan.md", images: [:], root: root) != nil)
+        #expect(VaultImages.resolve("../Outside/away.png", from: "Plan.md", images: [:], root: root) == nil)
+        #expect(VaultImages.resolve("../../Outside/away.png", from: "Notes/Plan.md", images: [:], root: root) == nil)
+        #expect(VaultImages.resolve("Link/away.png", from: "Plan.md", images: [:], root: root) == nil)
+    }
+
     @Test func imagesAreKnownByExtension() {
         #expect(VaultImages.isImage("a.PNG"))
         #expect(VaultImages.isImage("photo.heic"))
