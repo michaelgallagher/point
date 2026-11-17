@@ -57,6 +57,7 @@ Mike travels soon with the laptop and the iPhone, and wants to use Point on both
 - [Tables: where things stand](plan/tables-status-2026-11-03.md) (3 November): why tables became a grid view over hidden Markdown, how it works, the rough edges fixed, and the limits left.
 - [Live vault safety](plan/live-vault-safety.md) (26–27 October): testing, then fixing, what Point writes to a real vault; the results, and the trial still to come.
 - [M4, the iPhone app](plan/m4-iphone.md) (27 October): what it's for, two screens and a button, what it leaves out, how it's built, and the steps.
+- [Code review](plan/code-review-2026-11-17.md) (17 November): `main` and `header-one-row`, looking most closely at the custom interface pieces and data security: `point://clip` from anywhere, sidebar drops, tab drag edge cases, and what's kept and logged.
 - [Code review](plan/app-review-2026-10-27.md) (27 October): an external review of note safety, stability and performance; what's fixed, and what's still open.
 - [App review](plan/app-review-2026-10-25.md) (25 October): the review's findings by severity, and the fixes since, including the close flash.
 - [The 25 October batch](plan/batch-2026-10-25.md): the links panel, templates, the properties view, palette defaults, tags and the home button, sorting in two columns, splits that slide, and the small fixes after.
