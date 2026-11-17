@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "ClipKit",
-    platforms: [.macOS(.v13), .iOS(.v26)],
+    platforms: [.macOS(.v26), .iOS(.v26)],
     products: [
         .library(name: "ClipKit", targets: ["ClipKit"]),
     ],
