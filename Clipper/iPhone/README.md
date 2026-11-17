@@ -18,7 +18,7 @@ In the Shortcuts app, tap **+** for a new shortcut, name it **Clip to Point**, a
 
 In Safari (or any app that shares links), tap **Share**, then **Clip to Point**. Point opens, says "Clipping “…”…", then opens the new note. The first time, iOS asks whether the Shortcut may open Point: allow it.
 
-A page clipped before opens its note again. Point fetches the page without Safari's sign-ins, so a page behind a login or paywall may give a note with only its link.
+A page clipped before opens its note again. Point fetches the page without Safari's sign-ins, so a page behind a login or paywall may give a note with only its link. Any page or app can open a `point://clip` link, so Point takes only the address from it, never a title or text sent along with it, and doesn't fetch pages on the local network.
 
 ## Without the Shortcut
 

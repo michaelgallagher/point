@@ -9,10 +9,12 @@ public final class ClipExtractor: NSObject, WKNavigationDelegate {
     public enum ClipError: LocalizedError {
         case notAPage
         case unreadable
+        case notPublic
         public var errorDescription: String? {
             switch self {
             case .notAPage: "That address isn’t a web page Point can read."
             case .unreadable: "Point couldn’t read the page."
+            case .notPublic: "Point doesn’t fetch pages on this device or its local network."
             }
         }
     }
@@ -40,14 +42,16 @@ public final class ClipExtractor: NSObject, WKNavigationDelegate {
         return clip
     }
 
-    /// The page's HTML, and where it ended up after any redirects.
+    /// The page's HTML, and where it ended up after any redirects. Only a page out on the
+    /// internet, and only redirected to another (see `ClipAddress`).
     public static func fetch(_ url: URL) async throws -> (html: String, url: URL) {
+        guard await ClipAddress.resolvesPublicly(url) else { throw ClipError.notPublic }
         var request = URLRequest(url: url, timeoutInterval: 20)
         // As Safari asks, so sites send the page they'd show a person.
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request, delegate: PublicRedirectsOnly())
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw ClipError.unreadable }
         if let type = http.mimeType, !type.contains("html") { throw ClipError.notAPage }
         let encoding = http.textEncodingName.map { CFStringConvertEncodingToNSStringEncoding(CFStringConvertIANACharSetNameToEncoding($0 as CFString)) }

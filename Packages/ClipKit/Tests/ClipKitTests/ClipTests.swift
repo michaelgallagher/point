@@ -99,6 +99,43 @@ struct ClipTests {
         #expect(garbled.html == nil)
     }
 
+    @Test func carriesTheClippersKey() throws {
+        let request = ClipRequest(url: URL(string: "https://example.com/a")!, title: "A", selection: "Quote", html: "<p>Hi</p>", key: "abc123")
+        let read = try #require(ClipRequest(request.address))
+        #expect(read == request)
+        #expect(read.key == "abc123")
+        // Without the key, only the address is to be trusted.
+        #expect(read.addressOnly == ClipRequest(url: URL(string: "https://example.com/a")!))
+    }
+
+    @Test func refusesAPageThatUnpacksTooBig() throws {
+        // 64 MB of one letter packs to about 64 KB: far past the most a page may unpack to.
+        let huge = Data(repeating: UInt8(ascii: "a"), count: 64 * 1024 * 1024)
+        let packed = try #require(try? (huge as NSData).compressed(using: .zlib) as Data)
+        #expect(packed.count < 200_000)
+        let base64 = packed.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        #expect(ClipRequest.unpack(base64) == nil)
+        // One within the limit still unpacks.
+        let page = String(repeating: "<p>Walk</p>", count: 100_000)
+        #expect(ClipRequest.unpack(try #require(ClipRequest.pack(page))) == page)
+        // Nor is a packed page past the most the extension sends looked at.
+        #expect(ClipRequest.unpack(String(repeating: "A", count: ClipRequest.largestPacked + 4)) == nil)
+    }
+
+    @Test func fetchesOnlyPagesOnTheInternet() {
+        let ok = ["https://example.com/a", "http://news.example.co.uk/x", "https://93.184.216.34/", "https://[2606:2800:220:1:248:1893:25c8:1946]/"]
+        for address in ok { #expect(ClipAddress.isPublic(URL(string: address)!), "\(address)") }
+        let refused = [
+            "http://localhost:8080/", "http://LOCALHOST./", "http://printer.local/", "http://router/", "http://nas.home.arpa/",
+            "http://127.0.0.1/", "http://127.1/", "http://2130706433/", "http://0x7f.0.0.1/", "http://0/",
+            "http://10.0.0.1/", "http://172.16.5.4/", "http://192.168.1.1/admin", "http://169.254.169.254/latest/meta-data/",
+            "http://100.64.0.1/", "http://[::1]/", "http://[fe80::1]/", "http://[fd00::1]/", "http://[::ffff:192.168.1.1]/",
+            "file:///etc/hosts", "ftp://example.com/",
+        ]
+        for address in refused { #expect(!ClipAddress.isPublic(URL(string: address)!), "\(address)") }
+    }
+
     @MainActor @Test func leavesOutWhatsAroundANewspaperArticle() async throws {
         let paragraph = { (n: Int) in "Walk \(n): the city is a place of wrenching history and astonishing beauty, best seen at night, when the tour buses have gone and the streets are quiet again. " }
         let figure = { (n: Int) in

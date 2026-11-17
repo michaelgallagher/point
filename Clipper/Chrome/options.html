@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Clip to Point</title>
+  <style>
+    body { font: 13px -apple-system, system-ui, sans-serif; margin: 16px; min-width: 360px; }
+    label { display: block; margin-bottom: 6px; }
+    input { font: 13px ui-monospace, Menlo, monospace; width: 100%; box-sizing: border-box; padding: 4px 6px; }
+    p { color: #666; margin: 8px 0 0; }
+    #saved { color: #2a7d2a; }
+  </style>
+</head>
+<body>
+  <label for="key">Clipper key</label>
+  <input id="key" type="text" spellcheck="false" autocomplete="off" placeholder="From Point › Settings › Notes">
+  <p>Shows Point a clip is from this clipper. Without it, Point asks before each clip, and reads the page itself. <span id="saved"></span></p>
+  <script src="options.js"></script>
+</body>
+</html>

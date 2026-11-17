@@ -1,3 +1,4 @@
+import Compression
 import Foundation
 import VaultKit
 
@@ -196,7 +197,10 @@ public struct Clip: Equatable, Sendable {
 }
 
 /// A request to clip, as the browser extension and share sheet send it:
-/// `point://clip?url=…&title=…&selection=…&page=…`.
+/// `point://clip?url=…&title=…&selection=…&page=…&key=…`.
+///
+/// Any page or app can open such an address, so only the address is to be trusted, unless the
+/// request carries the clipper's key (see `addressOnly`).
 public struct ClipRequest: Equatable, Sendable {
     public var url: URL
     public var title: String?
@@ -205,13 +209,22 @@ public struct ClipRequest: Equatable, Sendable {
     /// The page's HTML as the browser showed it, if sent: what's there when signed in, so
     /// it's read instead of fetching the page (which Point does without the browser's sign-ins).
     public var html: String?
+    /// The key the browser extension was given, to show the request is its own (see
+    /// `ClipperKey`), if sent.
+    public var key: String?
 
-    public init(url: URL, title: String? = nil, selection: String? = nil, html: String? = nil) {
+    public init(url: URL, title: String? = nil, selection: String? = nil, html: String? = nil, key: String? = nil) {
         self.url = url
         self.title = title
         self.selection = selection
         self.html = html
+        self.key = key
     }
+
+    /// The request reduced to the page's address, for one that may not be from the clipper:
+    /// its own title, selection and page could say anything, and the page could claim to be
+    /// from a site it isn't. Point reads the page from its address instead.
+    public var addressOnly: ClipRequest { ClipRequest(url: url) }
 
     /// The request a `point://clip` address makes, if it is one, for a web page.
     public init?(_ address: URL) {
@@ -221,7 +234,8 @@ public struct ClipRequest: Equatable, Sendable {
             items.first { $0.name == name }?.value.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         }
         guard let page = value("url").flatMap(URL.init(string:)), ["http", "https"].contains(page.scheme?.lowercased() ?? "") else { return nil }
-        self.init(url: page, title: value("title"), selection: value("selection"), html: value("page").flatMap(Self.unpack))
+        self.init(url: page, title: value("title"), selection: value("selection"), html: value("page").flatMap(Self.unpack),
+                  key: value("key"))
     }
 
     /// The `point://clip` address for this request.
@@ -231,7 +245,8 @@ public struct ClipRequest: Equatable, Sendable {
         parts.host = "clip"
         parts.queryItems = [URLQueryItem(name: "url", value: url.absoluteString)]
             + [title.map { URLQueryItem(name: "title", value: $0) }, selection.map { URLQueryItem(name: "selection", value: $0) },
-               html.flatMap(Self.pack).map { URLQueryItem(name: "page", value: $0) }].compactMap { $0 }
+               html.flatMap(Self.pack).map { URLQueryItem(name: "page", value: $0) },
+               key.map { URLQueryItem(name: "key", value: $0) }].compactMap { $0 }
         return parts.url!
     }
 
@@ -242,14 +257,43 @@ public struct ClipRequest: Equatable, Sendable {
             .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
     }
 
-    /// The page from what the extension sent, or nil if it isn't one.
+    /// The most a sent page may be, packed: the extension sends nothing over 1.5 MB.
+    static let largestPacked = 2_000_000
+    /// The most a sent page may be, unpacked. Deflate can shrink text a thousandfold, so a
+    /// small address could otherwise unpack to gigabytes and take all the memory there is.
+    static let largestPage = 16 * 1024 * 1024
+
+    /// The page from what the extension sent, or nil if it isn't one, or is too big.
     static func unpack(_ packed: String) -> String? {
+        guard packed.utf8.count <= largestPacked else { return nil }
         var base64 = packed.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         base64 += String(repeating: "=", count: (4 - base64.count % 4) % 4)
-        guard let data = Data(base64Encoded: base64),
-              let html = try? (data as NSData).decompressed(using: .zlib) else { return nil }
-        let text = String(decoding: html as Data, as: UTF8.self)
+        guard let data = Data(base64Encoded: base64), let html = inflate(data, largest: largestPage) else { return nil }
+        let text = String(decoding: html, as: UTF8.self)
         return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+    }
+
+    /// Raw deflate unpacked, a piece at a time, stopping (nil) once it's more than `largest`.
+    static func inflate(_ data: Data, largest: Int) -> Data? {
+        var output = Data()
+        do {
+            let filter = try OutputFilter(.decompress, using: .zlib) { piece in
+                guard let piece else { return }
+                guard output.count + piece.count <= largest else { throw CocoaError(.fileReadTooLarge) }
+                output.append(piece)
+            }
+            let step = 64 * 1024
+            var start = data.startIndex
+            while start < data.endIndex {
+                let end = min(start + step, data.endIndex)
+                try filter.write(data[start..<end])
+                start = end
+            }
+            try filter.finalize()
+        } catch {
+            return nil
+        }
+        return output
     }
 }
 
