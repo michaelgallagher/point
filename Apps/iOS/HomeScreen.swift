@@ -587,16 +587,21 @@ private struct KindNotes: View {
         let notes = store.notes.filter { found.contains($0.id) && !(filters && store.isRead($0)) }.sorted(by: store.sort)
         List {
             if isClips {
+                // In a header, not a row: a row is at least 44 points tall, and a shorter one's
+                // rounded corners cut off the switch's ends.
                 Section {
+                } header: {
                     Picker("Show", selection: $unreadOnly) {
                         Text("All").tag(false)
                         Text("Unread").tag(true)
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
-                    .listRowBackground(Color.clear)
+                    .textCase(nil)
                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                 }
+                // Close to the notes it filters: a section's usual gap left it far above them.
+                .listSectionSpacing(4)
                 if ids != nil, notes.isEmpty {
                     ContentUnavailableView(filters ? "Nothing unread" : "No notes", systemImage: filters ? "checkmark.circle" : "doc.text")
                         .listRowBackground(Color.clear)
@@ -776,14 +781,14 @@ func symbol(_ name: String, or older: String) -> String {
     UIImage(systemName: name) == nil ? older : name
 }
 
-/// What a page's bottom bar has besides search: in a note, finding in it; on a list, the
-/// blue New note.
+/// What a page's bottom bar has besides search: in a note, finding in it; on a list, New note.
 enum PageTool {
     case none
-    /// A note: finding in it, and, while reading, `notes` (your notes), sharing the menu's glass.
-    case find(() -> Void, notes: (() -> Void)? = nil)
-    /// New note, the bar's one blue button, at its right. `more`, if given, is what a long
-    /// press offers (new notes of each kind).
+    /// A note: finding in it, and, while reading, `notes` (your notes), sharing the menu's glass;
+    /// `new`, New note, at the right, apart from the menu, which is about this note.
+    case find(() -> Void, notes: (() -> Void)? = nil, new: (() -> Void)? = nil)
+    /// New note, at the bar's right, in the same place and glass as a note's. `more`, if
+    /// given, is what a long press offers (new notes of each kind).
     case add(() -> Void, more: AnyView? = nil)
 }
 
@@ -800,7 +805,7 @@ private struct PageBar<Actions: View>: ViewModifier {
 
     func body(content: Content) -> some View {
         switch tool {
-        case .find(let find, let notes):
+        case .find(let find, let notes, let new):
             // A note: finding in it, and, with the map, Search, as on the lists.
             content
                 .toolbar {
@@ -819,6 +824,13 @@ private struct PageBar<Actions: View>: ViewModifier {
                         }
                     }
                     ToolbarItem(placement: .bottomBar) { menu(symbol: symbol("text.menu", or: "line.3.horizontal")) }
+                    // New note, in the menu's glass, after it: one button in two parts. At the
+                    // right, where a list has it, so it stays put going from one to the other.
+                    if let new {
+                        ToolbarItem(placement: .bottomBar) {
+                            Button("New note", systemImage: "plus", action: new)
+                        }
+                    }
                 }
         case .none, .add:
             content
@@ -836,27 +848,20 @@ private struct PageBar<Actions: View>: ViewModifier {
                     ToolbarItem(placement: .bottomBar) {
                         SearchCapsule(besides: { if case .add = tool { 1 } else { 0 } }())
                     }
+                    // New note: a plain button in the bar's glass, as a note's is, so going from
+                    // a list to a note it stays as it is (a blue one turned into the note's).
                     if case .add(let add, let more) = tool {
+                        // In a glass of its own, not the search field's.
+                        ToolbarSpacer(.fixed, placement: .bottomBar)
                         if let more {
-                            // A tap makes a note; a long press offers the kinds. The bar draws
-                            // a menu plain whatever its style, so this one draws its own blue.
+                            // A tap makes a note; a long press offers the kinds.
                             ToolbarItem(placement: .bottomBar) {
-                                Menu { more } label: {
-                                    Image(systemName: "plus")
-                                        .font(.title3.weight(.semibold))
-                                        .foregroundStyle(.white)
-                                        .frame(width: 48, height: 48)
-                                        .glassEffect(.regular.tint(.blue).interactive(), in: .circle)
-                                } primaryAction: { add() }
+                                Menu("New note", systemImage: "plus") { more } primaryAction: { add() }
                                     .menuOrder(.fixed)
-                                    .accessibilityLabel("New note")
                             }
-                            .sharedBackgroundVisibility(.hidden)
                         } else {
                             ToolbarItem(placement: .bottomBar) {
                                 Button("New note", systemImage: "plus", action: add)
-                                    .buttonStyle(.glassProminent)
-                                    .tint(.blue)
                             }
                         }
                     }
@@ -1271,7 +1276,8 @@ struct NoteRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
+            // "List" level with the middle of the row, as the read mark is.
+            HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                     if let detail, !detail.isEmpty {

@@ -82,14 +82,13 @@ struct NoteScreen: View {
                     }
                 }
             }
-            .pageBar(.find({ session.find("") }, notes: session.isReading ? { session.openNotes() } : nil)) {
+            .pageBar(.find({ session.find("") }, notes: session.isReading ? { session.openNotes() } : nil,
+                           new: { newNote(FolderTree.folder(of: session.note.id)) })) {
                 // Reading, the bars keep to the reading: editing is first here, by itself.
                 if session.isReading {
                     Button("Edit", systemImage: "pencil") { session.edit() }
                     Divider()
                 }
-                Button("New note", systemImage: "square.and.pencil") { newNote(FolderTree.folder(of: session.note.id)) }
-                Divider()
                 // For every note; with the Markdown showing, the properties are its text.
                 Button("Properties", systemImage: "list.bullet.rectangle") { session.showsProperties = true }
                     .disabled(store.showsMarkdown)
@@ -1624,7 +1623,8 @@ final class NoteHeader: UIView {
         addSubview(byline)
         properties.addAction(UIAction { [weak self] _ in self?.onProperties?() }, for: .touchUpInside)
         related.addAction(UIAction { [weak self] _ in self?.onRelated?() }, for: .touchUpInside)
-        bookmark.configuration?.image = UIImage(systemName: "bookmark.fill", withConfiguration: UIImage.SymbolConfiguration(textStyle: .footnote))
+        // Small, as the capsules' text is: at the text's own size, a symbol fills the capsule.
+        bookmark.configuration?.image = UIImage(systemName: "bookmark.fill", withConfiguration: UIImage.SymbolConfiguration(textStyle: .caption2, scale: .small))
         bookmark.configuration?.contentInsets = NSDirectionalEdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10)
         bookmark.accessibilityLabel = "Bookmarked"
         bookmark.menu = UIMenu(children: [UIAction(title: "Remove bookmark", image: UIImage(systemName: "bookmark.slash")) { [weak self] _ in
@@ -1745,18 +1745,19 @@ final class NoteHeader: UIView {
     /// each no wider than the header.
     private func buttonFrames(width: CGFloat, top: CGFloat) -> [CGRect] {
         var frames: [CGRect] = []
-        var x: CGFloat = 0, y = top, lineHeight: CGFloat = 0
-        for button in buttons {
-            let size = button.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
-            let fitted = min(size.width, width)
+        var x: CGFloat = 0, y = top
+        let sizes = buttons.map { $0.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)) }
+        // All as tall as the tallest: the bookmark's small symbol makes a shorter capsule.
+        let height = sizes.map(\.height).max() ?? 0
+        for size in sizes {
+            // At least as wide as tall: the bookmark alone is a circle, not an upright oval.
+            let fitted = min(max(size.width, height), width)
             if x > 0, x + fitted > width {
                 x = 0
-                y += lineHeight + Self.between
-                lineHeight = 0
+                y += height + Self.between
             }
-            frames.append(CGRect(x: x, y: y, width: fitted, height: size.height))
+            frames.append(CGRect(x: x, y: y, width: fitted, height: height))
             x += fitted + Self.between
-            lineHeight = max(lineHeight, size.height)
         }
         return frames
     }
