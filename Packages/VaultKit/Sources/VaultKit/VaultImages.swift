@@ -209,9 +209,12 @@ public enum VaultImages {
         let name = (decoded as NSString).lastPathComponent
         guard let image = images[name.lowercased()] else {
             // A path to an image not found by name (a duplicate name deeper in the vault, say).
+            // Only one inside the vault: `../` or a link mustn't reach files outside it.
             let folder = (noteID as NSString).deletingLastPathComponent
+            let rootPath = root.standardizedFileURL.resolvingSymlinksInPath().path + "/"
             for base in [root, folder.isEmpty ? root : root.appendingPathComponent(folder)] {
                 let url = base.appendingPathComponent(decoded)
+                guard url.standardizedFileURL.resolvingSymlinksInPath().path.hasPrefix(rootPath) else { continue }
                 if FileManager.default.fileExists(atPath: url.path) {
                     return VaultImage(path: decoded, url: url)
                 }
