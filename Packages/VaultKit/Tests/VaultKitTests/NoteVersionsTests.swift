@@ -20,6 +20,21 @@ struct NoteVersionsTests {
         #expect(versions.versions(for: "Post.md").isEmpty) // Another note with the same name.
     }
 
+    @Test func notesDeletedForGoodTakeTheirVersions() throws {
+        let (versions, storage) = makeVersions()
+        defer { try? FileManager.default.removeItem(at: storage) }
+        try versions.keep("Kept", for: "Blog/Post.md")
+        try versions.keep("Private", for: "Secret.md")
+        versions.keepOnly(["Blog/Post.md"])
+        #expect(versions.versions(for: "Blog/Post.md").map(\.text) == ["Kept"])
+        #expect(versions.versions(for: "Secret.md").isEmpty)
+        versions.removeAll()
+        #expect(versions.versions(for: "Blog/Post.md").isEmpty)
+        // Still keeps more afterwards.
+        try versions.keep("Again", for: "Blog/Post.md")
+        #expect(versions.versions(for: "Blog/Post.md").map(\.text) == ["Again"])
+    }
+
     @Test func theSameTextTwiceIsKeptOnce() throws {
         let (versions, storage) = makeVersions()
         defer { try? FileManager.default.removeItem(at: storage) }

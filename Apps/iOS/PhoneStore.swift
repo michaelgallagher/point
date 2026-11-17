@@ -107,6 +107,7 @@ final class PhoneStore: ObservableObject {
     /// the other version is in a conflict copy beside each.
     @Published var conflictNotice: String?
     private var hasLookedForConflicts = false
+    private var hasPrunedVersions = false
 
     /// Writes out iCloud's hidden conflict versions of these notes as conflict copies beside
     /// them (off the main thread), says so, and reads the vault again to show them.
@@ -338,6 +339,12 @@ final class PhoneStore: ObservableObject {
             history.keepOnly(scannedIDs.union(moves.vanishedBefore.map(\.id)))
             if history != known { historyFile.save(history) }
             places.keepOnly(scannedIDs.union(moves.vanishedBefore.map(\.id)))
+            // Once a launch: earlier versions of notes deleted for good (here, on the Mac, or
+            // by the trash running out) go too.
+            if !hasPrunedVersions {
+                hasPrunedVersions = true
+                pruneVersions(keeping: scannedIDs.union(moves.vanishedBefore.map(\.id)))
+            }
         }
         if let images = result?.images, images != embeds.images { embeds.images = images }
         if let result { folders = result.folders.sorted { $0.localizedStandardCompare($1) == .orderedAscending } }
@@ -1033,6 +1040,24 @@ final class PhoneStore: ObservableObject {
             deletedNotesProblem = "“\(item.title)” couldn’t be deleted (\(error.localizedDescription))."
         }
         refreshTrash()
+        pruneVersions(keeping: Set(notes.map(\.id)))
+    }
+
+    /// Keeps earlier versions only of these notes and those in Deleted Notes (which can be put
+    /// back, versions and all), read afresh: the list may not be loaded yet. Off the main thread.
+    private func pruneVersions(keeping noteIDs: Set<Note.ID>) {
+        let trashed = VaultTrash.items(in: root, records: trashRecords, now: Date()).map { item in
+            guard let folder = item.folder, !folder.isEmpty else { return item.name }
+            return folder + "/" + item.name
+        }
+        let keep = noteIDs.union(trashed), versions = self.versions
+        Task.detached(priority: .utility) { versions.keepOnly(keep) }
+    }
+
+    /// Settings › Clear earlier versions.
+    func clearVersions() {
+        let versions = self.versions
+        Task.detached(priority: .utility) { versions.removeAll() }
     }
 
     func deleteAllForever() {
@@ -1041,6 +1066,7 @@ final class PhoneStore: ObservableObject {
             do { try VaultTrash.delete(item) } catch { failed.append(item.title) }
         }
         refreshTrash()
+        pruneVersions(keeping: Set(notes.map(\.id)))
         if !failed.isEmpty {
             deletedNotesProblem = failed.count == 1 ? "“\(failed[0])” couldn’t be deleted." : "\(failed.count) notes couldn’t be deleted."
         }
