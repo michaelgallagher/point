@@ -88,8 +88,8 @@ struct NoteEditor: View {
 }
 
 /// Above the text, scrolling with it: the note's title (its file name: most notes don't
-/// start with a heading), its properties, and for a new note, templates. (The folders it's in,
-/// and its bookmark, are in its side's bar.) A hairline always separates it from the text.
+/// start with a heading), above it the folders it's in, then its properties, and for a new
+/// note, templates. A hairline always separates it from the text.
 private struct NoteHeader: View {
     @ObservedObject var session: EditorSession
     @ObservedObject var model: VaultModel
@@ -98,11 +98,18 @@ private struct NoteHeader: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 9) {
+            VStack(alignment: .leading, spacing: 2) {
+                // Where it is, above it: the folders, each a button (the first's text in line
+                // with the title's, its hover shading reaching out to the left).
+                if session.note.id.contains("/") {
+                    PanePath(model: model, note: session.note)
+                        .frame(height: 22)
+                        .padding(.leading, -PanePath.padding)
+                }
                 // Its file name, which can be edited here to rename the note.
                 TitleField(note: session.note, model: model, toText: { session.focusText() })
             }
-            .padding(.top, 16)
+            .padding(.top, session.note.id.contains("/") ? 10 : 16)
             .padding(.bottom, shownFrontmatter == nil || model.showsMarkdown(inPane: paneID) ? 12 : 2)
             .padding(.leading, 5) // Lines up with the text, which is inset a little.
             .frame(maxWidth: model.store.textColumnWidth, alignment: .leading)
