@@ -23,6 +23,7 @@ enum DebugSnapshots {
         cycleSidebarIfAsked(for: model)
         closeSplitIfAsked(for: model)
         openSplitIfAsked(for: model)
+        sidebarKeysIfAsked(for: model)
         probeCursorIfAsked(for: model)
         conflictIfAsked(for: model)
         movedElsewhereIfAsked(for: model)
@@ -937,6 +938,47 @@ enum DebugSnapshots {
 
     /// `-PointOpenSplit empty|note`: unsplits the window if it's split, then opens a split,
     /// empty (⇧⌘S) or with another note on the new side (⌥⌘-click), to watch it slide in.
+    /// `-PointSidebarKeys "down,right,scroll:400,left"`: from 3 seconds in, presses keys in the
+    /// one-column sidebar's list (down, up, left, right, return), sent through the window as
+    /// typed keys are, or scrolls it to a height, a second apart, tracing after each where the
+    /// list is, what's picked and how far it's scrolled.
+    private static func sidebarKeysIfAsked(for model: VaultModel) {
+        guard let spec = UserDefaults.standard.string(forKey: "PointSidebarKeys") else { return }
+        let codes: [String: (UInt16, Int)] = ["return": (36, 13), "left": (123, NSLeftArrowFunctionKey), "right": (124, NSRightArrowFunctionKey),
+                                              "down": (125, NSDownArrowFunctionKey), "up": (126, NSUpArrowFunctionKey)]
+        func table() -> SidebarTableView? { views(of: SidebarTableView.self, in: model.window?.contentView).first }
+        func report(_ step: String) {
+            guard let table = table(), let clip = table.enclosingScrollView?.contentView else { return }
+            let row = table.selectedRow
+            let shown = SidebarTable(model: model)
+            let rows = model.sidebarRows(collapsed: shown.collapsed, expanded: shown.expanded, content: .everything)
+            let name = row >= 0 && rows.indices.contains(row) ? "\(rows[row])" : "-"
+            Trace.mark("sidebar keys \(step): place \(model.place.key), picked row \(row) \(name), first responder is list \(model.window?.firstResponder === table), scrolled \(clip.bounds.origin.y)")
+        }
+        let steps = spec.split(separator: ",").map(String.init)
+        for (index, step) in steps.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3 + Double(index) * 1.5) {
+                guard let table = table(), let window = model.window else { return }
+                if window.firstResponder !== table { window.makeFirstResponder(table) }
+                if step.hasPrefix("scroll:"), let y = Double(step.dropFirst(7)), let scrollView = table.enclosingScrollView {
+                    scrollView.contentView.setBoundsOrigin(NSPoint(x: 0, y: y))
+                    scrollView.reflectScrolledClipView(scrollView.contentView)
+                } else if let (code, scalar) = codes[step] {
+                    let text = String(Character(UnicodeScalar(scalar)!))
+                    for type in [NSEvent.EventType.keyDown, .keyUp] {
+                        if let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: scalar > 255 ? [.numericPad, .function] : [],
+                                                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                        context: nil, characters: text, charactersIgnoringModifiers: text, isARepeat: false, keyCode: code) {
+                            window.sendEvent(event)
+                        }
+                    }
+                }
+                Trace.mark("sidebar keys sent \(step)")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { report(step) }
+            }
+        }
+    }
+
     private static func openSplitIfAsked(for model: VaultModel) {
         guard let kind = UserDefaults.standard.string(forKey: "PointOpenSplit") else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
