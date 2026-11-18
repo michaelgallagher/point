@@ -49,11 +49,11 @@ struct ContentView: View {
             } else {
                 // On the page's colour throughout, the top level's places too (one colour as you
                 // go in and out), with a line between it and the note, which shares it, as the
-                // two-column notes have. A place's name and the way back up are in the top bar.
-                VStack(spacing: 0) {
-                    SidebarTopBar()
-                    NoteList()
-                }
+                // two-column notes have. A place's name and the way back up are in the top bar,
+                // which the list scrolls up beneath, blurred, with a line once it's under (as
+                // a note's bar, see `BarEdgeScrollView`).
+                NoteList()
+                    .overlay(alignment: .top) { SidebarTopBar() }
                 .background(Color(nsColor: .textBackgroundColor))
                 .overlay(alignment: .trailing) { HStack(spacing: 0) { Divider() } }
             }

@@ -299,8 +299,9 @@ struct SidebarTable: NSViewRepresentable {
         menu.delegate = context.coordinator
         table.menu = menu
 
-        // The two-column note list scrolls up beneath its see-through top bar, as a note does,
-        // and the lists with a filter field down beneath that, softly blurred.
+        // The note lists (one column's, and two columns') scroll up beneath their see-through
+        // top bars, as a note does, and the lists with a filter field down beneath that, softly
+        // blurred.
         let scrollView = BarEdgeScrollView()
         scrollView.footWash = footWash
         scrollView.automaticallyAdjustsContentInsets = false
@@ -333,7 +334,9 @@ struct SidebarTable: NSViewRepresentable {
     }
 
     private var insets: NSEdgeInsets {
-        NSEdgeInsets(top: content == .notes ? model.topBarHeight : 0, left: 0, bottom: bottomInset, right: 0)
+        // The lists that run up under a see-through top bar (the two-column tree has room
+        // made for its bar instead).
+        NSEdgeInsets(top: content == .places ? 0 : model.topBarHeight, left: 0, bottom: bottomInset, right: 0)
     }
 
     @MainActor
@@ -428,6 +431,22 @@ struct SidebarTable: NSViewRepresentable {
             if placeChanged, parent.content == .everything, let old = shownPlace, let clip = table.enclosingScrollView?.contentView {
                 scrollOffsets[old] = clip.bounds.origin.y
             }
+            // In one column, the list slides: in from the right going deeper, from the left
+            // going back up, and fades between places at the same depth (following a note to
+            // a folder beside the one shown). Not in two columns, picking from a tree.
+            if animated, placeChanged, parent.content == .everything, let old = shownPlace, let layer = table.enclosingScrollView?.layer {
+                let transition = CATransition()
+                let (from, to) = (Self.depth(of: old), Self.depth(of: place))
+                if from == to {
+                    transition.type = .fade
+                } else {
+                    transition.type = .push
+                    transition.subtype = to > from ? .fromRight : .fromLeft
+                }
+                transition.duration = 0.22
+                transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                layer.add(transition, forKey: "slide")
+            }
             rows = newRows
             table.reloadData()
             shownHeights = rows.indices.map { tableView(table, heightOfRow: $0) }
@@ -446,6 +465,20 @@ struct SidebarTable: NSViewRepresentable {
             }
             shownPlace = place
             syncSelection()
+        }
+
+        /// How deep a place is, for which way the list slides: the top level, then the places
+        /// on it, then what's in them.
+        static func depth(of place: SidebarPlace) -> Int {
+            switch place {
+            case .allNotes: 0
+            case .everything, .bookmarks, .trash, .properties, .types, .tags, .lists: 1
+            case .property, .kind: 2
+            case .propertyValue: 3
+            // The vault's row is on the top level, as its folders are; tags are inside Tags.
+            case .folder(let path): max(path.split(separator: "/").count, 1)
+            case .tag(let path): path.split(separator: "/").count + 1
+            }
         }
 
         /// Where each place was scrolled to when last left, in this window.
