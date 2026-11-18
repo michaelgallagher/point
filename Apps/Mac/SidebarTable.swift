@@ -434,7 +434,9 @@ struct SidebarTable: NSViewRepresentable {
             if placeChanged {
                 // In one column, back up to a place that lists the one just left: that one is
                 // picked, so you can see where you were and go on from it with the keyboard.
-                if parent.content == .everything, let old = shownPlace, rows.contains(where: { $0.place == old }) {
+                // Unless the open note is listed there too: that's highlighted instead.
+                let listsOpenNote = model.selection.map { rows.contains(.note($0)) || rows.contains(.image($0)) } ?? false
+                if parent.content == .everything, !listsOpenNote, let old = shownPlace, rows.contains(where: { $0.place == old }) {
                     pick(old)
                 } else {
                     pickedPlace = nil
@@ -542,7 +544,12 @@ struct SidebarTable: NSViewRepresentable {
             // A picked place, until another note opens; else the open note.
             if pickedPlace != nil, pickedWithNote != model.selection { pickedPlace = nil }
             if let row = pickedPlaceRow ?? model.selection.flatMap({ rows.firstIndex(of: .note($0)) }) {
-                if table.selectedRow != row { table.selectRowIndexes([row], byExtendingSelection: false) }
+                if table.selectedRow != row {
+                    table.selectRowIndexes([row], byExtendingSelection: false)
+                    // Opened from elsewhere (a link, a tab, the palette): in sight in the list.
+                    // (Picked in the list, it's selected there already.)
+                    if parent.content == .everything { table.scrollRowToVisible(row) }
+                }
             } else if table.selectedRow >= 0 {
                 table.deselectAll(nil)
             }
