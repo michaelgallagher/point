@@ -399,7 +399,8 @@ private struct PathButton: View {
 /// A side's tabs: plain titles, the current one on a soft grey fill. Each tab is as wide as
 /// its title, up to `TabLayout.widest`; tabs never shrink to fit. When they don't all fit,
 /// the row scrolls sideways, keeping the current tab in view, and fades at an end with tabs
-/// scrolled out of sight beyond it. Right-click a tab for its menu;
+/// scrolled out of sight beyond it. Each tab's close button is after its title. Right-click a
+/// tab for its menu;
 /// drag it along the row, to the other side's row or page, or to one half of the page to
 /// split the window.
 struct PaneTabs: View {
@@ -643,7 +644,7 @@ struct TabLayout {
     }
 
     init(titles: [String]) {
-        let padding = PaneTab.closeWidth + PaneTab.trailingPadding
+        let padding = PaneTab.leadingPadding + PaneTab.closeWidth
         widths = titles.map { min(Self.textWidth($0) + padding, Self.widest) }
         labels = TabLabels.fit(titles, rooms: widths.map { $0 - padding })
         rowWidth = widths.reduce(0, +) + PaneTabs.spacing * CGFloat(max(titles.count - 1, 0)) + PaneTabs.inset * 2
@@ -748,16 +749,18 @@ private struct PaneTab: View {
     static let height: CGFloat = PaneTabs.height - PaneTabs.inset * 2
     static let cornerRadius: CGFloat = PaneTabs.cornerRadius - PaneTabs.inset
     static let fontSize: CGFloat = 13
-    /// The close button's room, before the title.
+    /// Before the title.
+    static let leadingPadding: CGFloat = 10
+    /// The close button's room, after the title. It always shows, so nothing moves on hover.
     static let closeWidth: CGFloat = 20
-    /// After the title: as much as the close button's room before it, so a title is centred
-    /// whether the button shows or not, and doesn't move when it does.
-    static let trailingPadding: CGFloat = closeWidth
+    /// The title, raised from the middle: centred by its line height, which counts room for
+    /// descenders, it looked low.
+    static let titleRaise: CGFloat = 1
 
-    /// The current tab: flat, a light grey on the bar. Fainter on the side of a split not
-    /// being worked on.
+    /// The current tab: flat, a grey on the bar. Fainter on the side of a split not being
+    /// worked on.
     private var selectedColor: Color {
-        Color.primary.opacity(isActiveSide ? 0.07 : 0.04)
+        Color.primary.opacity(isActiveSide ? 0.1 : 0.05)
     }
 
     var body: some View {
@@ -765,17 +768,17 @@ private struct PaneTab: View {
             .font(.system(size: Self.fontSize))
             .foregroundStyle((isCurrent && isActiveSide) || isHovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
             .lineLimit(1)
-            .padding(.leading, Self.closeWidth)
-            .padding(.trailing, Self.trailingPadding)
+            .offset(y: -Self.titleRaise)
+            .padding(.leading, Self.leadingPadding)
+            .padding(.trailing, Self.closeWidth)
             .frame(width: width, height: Self.height, alignment: .leading)
-            .overlay(alignment: .leading) {
-                // On the current tab, and any tab hovered; its room is kept either way, so the
-                // title doesn't move. Clicked through the tab's mouse area, which knows where it is.
+            .overlay(alignment: .trailing) {
+                // On every tab, darker on hover. Clicked through the tab's mouse area, which
+                // knows where it is.
                 Image(systemName: "xmark")
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(isHovering ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
                     .frame(width: Self.closeWidth, height: Self.height)
-                    .opacity(isCurrent || isHovering ? 1 : 0)
             }
             .overlay(alignment: .trailing) {
                 if showsLine {
@@ -795,7 +798,7 @@ private struct PaneTab: View {
             .allowsHitTesting(false) // Clicks go to the tab's mouse area, below.
             // Clicks, drags, hover and the menu are handled in AppKit: the tabs sit where a
             // title bar would, and there the window takes any drag not claimed first.
-            .background(TabMouseArea(id: id, title: title, select: select, close: close, closeEdge: .leading,
+            .background(TabMouseArea(id: id, title: title, select: select, close: close, closeEdge: .trailing,
                                      closeWidth: Self.closeWidth, selectsOnPress: true, shownPart: shownPart,
                                      menu: menu, isHovering: $isHovering))
             .help(help)
