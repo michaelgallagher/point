@@ -217,16 +217,23 @@ private struct TopBarBackground: View {
 // MARK: The tabs
 
 /// A side's tabs, as in Safari, Finder and Xcode: a grey capsule holding the tabs, the current
-/// one a raised capsule of glass inside it. Unlike theirs, it's as tall as the bar's buttons and as wide as
-/// its titles, leaving the rest of the bar empty; when that's more than there's room for, the
-/// longest titles are cut first. Hover for a tab's close button, at its leading edge;
-/// right-click for its menu. Drag a tab along the row, to the other side's row or page, or to
-/// one half of the page to split the window. When the tabs don't all fit at their narrowest,
-/// the row scrolls.
+/// one a raised capsule of glass inside it, as tall as the bar's buttons. The tabs are all one
+/// width, as wide as the longest title needs (up to `SlidingTabLayout.widest`), leaving the rest
+/// of the bar empty; with less room, they share it. When they'd be narrower than
+/// `SlidingTabLayout.narrowest`, the row slides, as Ghostty's (AppKit's) tabs do: the tabs past
+/// each end fold into a stack of slivers there, the current tab is always whole, and choosing a
+/// tab slides the row just far enough to show it. Scrolling over the row slides it too. In the
+/// very narrowest bars, the staged layout and its "›› N" menu take over (see `TabLayout`).
+/// Hover for a tab's close button, at its leading edge; right-click for its menu. Drag a tab
+/// along the row, to the other side's row or page, or to one half of the page to split the
+/// window.
 struct PaneTabs: View {
     @EnvironmentObject private var model: VaultModel
     let pane: VaultModel.NotePane
     let paneIndex: Int
+    /// How far the row has slid, from its start. Kept as set, and clamped when used, so a
+    /// window narrowed and widened again comes back to the same place.
+    @State private var offset: CGFloat = 0
 
     static let height: CGFloat = 36
     /// Between a tab and the capsule around it.
@@ -236,40 +243,218 @@ struct PaneTabs: View {
     var body: some View {
         GeometryReader { geometry in
             let titles = pane.tabs.map { model.note($0.noteID)?.title ?? model.store.image($0.noteID)?.name ?? "New tab" }
-            let layout = TabLayout(titles: titles, current: pane.current, available: geometry.size.width)
-            HStack(spacing: Self.spacing) {
-                ForEach(Array(layout.visible.enumerated()), id: \.element) { position, index in
-                    let tab = pane.tabs[index]
-                    let next = position + 1 < layout.visible.count ? layout.visible[position + 1] : nil
-                    PaneTab(
-                        id: tab.id,
-                        title: layout.labels[index],
-                        help: tab.noteID ?? "",
-                        isCurrent: index == pane.current,
-                        isActiveSide: paneIndex == model.activePane,
-                        showsLine: next != nil && index != pane.current && next != pane.current,
-                        width: layout.widths[index] ?? 0,
-                        select: { model.selectTab(index, inPane: paneIndex) },
-                        close: { model.closeTab(index, inPane: paneIndex) },
-                        menu: { TabMenu.menu(for: index, tab: tab, inPane: paneIndex, model: model) }
-                    )
-                    .modifier(TabDropTarget(paneIndex: paneIndex, index: index))
-                }
-                if !layout.hidden.isEmpty {
-                    TabOverflowButton(titles: layout.hidden.map { titles[$0] }) { picked in
-                        model.selectTab(layout.hidden[picked], inPane: paneIndex)
-                    }
+            Group {
+                if let slide = SlidingTabLayout(titles: titles, available: geometry.size.width) {
+                    slidingRow(slide)
+                        .onAppear { offset = slide.reveal(pane.current, from: offset) }
+                        .onChange(of: pane.current) { current in
+                            withAnimation(.easeInOut(duration: 0.2)) { offset = slide.reveal(current, from: offset) }
+                        }
+                        .onChange(of: pane.tabs.count) { _ in
+                            withAnimation(.easeInOut(duration: 0.2)) { offset = slide.reveal(pane.current, from: offset) }
+                        }
+                        .onChange(of: geometry.size.width) { _ in offset = slide.reveal(pane.current, from: offset) }
+                } else {
+                    stagedRow(TabLayout(titles: titles, current: pane.current, available: geometry.size.width), titles: titles)
                 }
             }
-            .padding(Self.inset)
             .animation(.easeInOut(duration: 0.2), value: pane.current)
-            // Solid, so text scrolling under the bars doesn't show through.
-            .background(TopBar.barColor.overlay(Color.primary.opacity(0.09)))
-            .clipShape(Capsule())
             // Only as wide as the tabs, so the bar's empty space still moves the window.
-            .frame(width: min(layout.rowWidth, geometry.size.width), alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(height: Self.height)
+    }
+
+    /// The grey capsule around the tabs. Solid, so text scrolling under the bars doesn't show
+    /// through.
+    private func inCapsule(_ row: some View) -> some View {
+        row
+            .padding(Self.inset)
+            .background(TopBar.barColor.overlay(Color.primary.opacity(0.09)))
+            .clipShape(Capsule())
+    }
+
+    /// The tabs at one width, sliding when they don't fit.
+    private func slidingRow(_ slide: SlidingTabLayout) -> some View {
+        let placed = slide.placed(current: pane.current, offset: offset)
+        return inCapsule(ZStack(alignment: .leading) {
+            ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
+                let place = placed[index]
+                PaneTab(
+                    id: tab.id,
+                    title: slide.labels[index],
+                    help: tab.noteID ?? "",
+                    isCurrent: index == pane.current,
+                    isActiveSide: paneIndex == model.activePane,
+                    showsLine: false,
+                    width: slide.width,
+                    select: { model.selectTab(index, inPane: paneIndex) },
+                    close: { model.closeTab(index, inPane: paneIndex) },
+                    menu: { TabMenu.menu(for: index, tab: tab, inPane: paneIndex, model: model) },
+                    visibleStart: place.visibleStart,
+                    visibleWidth: place.visibleWidth,
+                    line: place.line
+                )
+                .modifier(TabDropTarget(paneIndex: paneIndex, index: index,
+                                        spanStart: place.visibleStart, spanWidth: place.visibleWidth))
+                .padding(.leading, place.x)
+            }
+        }
+        .frame(width: slide.rowWidth - Self.inset * 2, height: PaneTab.height, alignment: .leading)
+        .background(RowScrollArea(slides: slide.slides) { delta in
+            offset = slide.clamped(slide.clamped(offset) - delta)
+        }))
+    }
+
+    /// In the narrowest bars: the staged layout, with a menu for the tabs that don't fit.
+    private func stagedRow(_ layout: TabLayout, titles: [String]) -> some View {
+        inCapsule(HStack(spacing: Self.spacing) {
+            ForEach(Array(layout.visible.enumerated()), id: \.element) { position, index in
+                let tab = pane.tabs[index]
+                let next = position + 1 < layout.visible.count ? layout.visible[position + 1] : nil
+                let width = layout.widths[index] ?? 0
+                PaneTab(
+                    id: tab.id,
+                    title: layout.labels[index],
+                    help: tab.noteID ?? "",
+                    isCurrent: index == pane.current,
+                    isActiveSide: paneIndex == model.activePane,
+                    showsLine: next != nil && index != pane.current && next != pane.current,
+                    width: width,
+                    select: { model.selectTab(index, inPane: paneIndex) },
+                    close: { model.closeTab(index, inPane: paneIndex) },
+                    menu: { TabMenu.menu(for: index, tab: tab, inPane: paneIndex, model: model) }
+                )
+                .modifier(TabDropTarget(paneIndex: paneIndex, index: index, spanStart: 0, spanWidth: width))
+            }
+            if !layout.hidden.isEmpty {
+                TabOverflowButton(titles: layout.hidden.map { titles[$0] }) { picked in
+                    model.selectTab(layout.hidden[picked], inPane: paneIndex)
+                }
+            }
+        }
+        .frame(width: layout.rowWidth - Self.inset * 2, alignment: .leading))
+    }
+}
+
+/// A side's tabs, all one width, and where each goes as the row slides. Each tab has its place
+/// along a strip as long as all of them; the row shows `room` of it, from `offset`. A tab that
+/// would go past the row's start stops at its place in the stack there, `sliver` points after
+/// the one before it (only the `slivers` nearest show; the rest lie under them), and likewise
+/// at the end. Tabs nearer the middle of the strip lie on top, so each stacked tab shows only a
+/// sliver, and the one nearest the middle shows as much as the tab next to it leaves.
+@MainActor
+struct SlidingTabLayout {
+    struct Place {
+        /// From the row's start.
+        var x: CGFloat
+        /// The part of the tab that shows, from its own start.
+        var visibleStart: CGFloat
+        var visibleWidth: CGFloat
+        /// The line drawn at one end of what shows: between flat tabs, and between slivers.
+        var line: HorizontalEdge?
+    }
+
+    let count: Int
+    let width: CGFloat
+    let slides: Bool
+    /// The tabs' room, inside the capsule's inset.
+    let room: CGFloat
+    let rowWidth: CGFloat
+    let labels: [String]
+
+    /// The narrowest a tab gets before the row slides: its padding and about ten letters.
+    static let narrowest: CGFloat = 120
+    /// The widest a tab gets, however long its title.
+    static let widest: CGFloat = 240
+    /// How far apart the slivers in a stack are, and how many show.
+    static let sliver: CGFloat = 6
+    static let slivers = 3
+    /// Less room than this for the tabs, and the staged layout, with its menu, takes over.
+    static let leastRoom: CGFloat = narrowest + 80
+
+    private var stride: CGFloat { width + PaneTabs.spacing }
+    private var maxOffset: CGFloat { slides ? max(CGFloat(count) * stride - PaneTabs.spacing - room, 0) : 0 }
+
+    /// Nil when there's too little room to slide (see `leastRoom`).
+    init?(titles: [String], available: CGFloat) {
+        count = titles.count
+        room = available - PaneTabs.inset * 2
+        guard count > 0 else { return nil }
+        let natural = titles.map { TabLayout.textWidth($0) + PaneTab.padding * 2 }.max() ?? 0
+        let wanted = min(natural, Self.widest)
+        let shared = ((room - PaneTabs.spacing * CGFloat(count - 1)) / CGFloat(count)).rounded(.down)
+        if wanted <= shared {
+            width = wanted
+            slides = false
+        } else if shared >= Self.narrowest {
+            width = shared
+            slides = false
+        } else {
+            guard room >= Self.leastRoom else { return nil }
+            width = Self.narrowest
+            slides = true
+        }
+        rowWidth = slides ? available
+            : CGFloat(count) * width + PaneTabs.spacing * CGFloat(count - 1) + PaneTabs.inset * 2
+        let textRoom = width - PaneTab.padding * 2
+        labels = TabLabels.fit(titles, rooms: titles.map { _ in textRoom })
+    }
+
+    func clamped(_ offset: CGFloat) -> CGFloat { min(max(offset, 0), maxOffset) }
+
+    /// Where a tab stops at the row's start, and at its end.
+    private func stops(_ index: Int) -> (start: CGFloat, end: CGFloat) {
+        (Self.sliver * CGFloat(min(index, Self.slivers)),
+         room - width - Self.sliver * CGFloat(min(count - 1 - index, Self.slivers)))
+    }
+
+    /// The offset nearest `offset` that shows tab `index` whole, clear of both stacks.
+    func reveal(_ index: Int, from offset: CGFloat) -> CGFloat {
+        guard slides, (0..<count).contains(index) else { return 0 }
+        let at = CGFloat(index) * stride
+        let (start, end) = stops(index)
+        return clamped(min(max(clamped(offset), at - end), at - start))
+    }
+
+    func placed(current: Int, offset: CGFloat) -> [Place] {
+        let offset = clamped(offset)
+        // Where each goes, and which way it's stacked, if it is.
+        let spots: [(x: CGFloat, stack: HorizontalEdge?)] = (0..<count).map { i in
+            let x = CGFloat(i) * stride - offset
+            guard slides else { return (x, nil) }
+            let (start, end) = stops(i)
+            if x < start { return (start, .leading) }
+            if x > end { return (end, .trailing) }
+            return (x, nil)
+        }
+        // Higher lies on top: unstacked tabs, then each stack's tabs from the middle out.
+        func height(_ i: Int) -> Int {
+            switch spots[i].stack {
+            case nil: 2 * count
+            case .leading: i
+            case .trailing: count - i
+            }
+        }
+        return (0..<count).map { i in
+            var low = spots[i].x, high = spots[i].x + width
+            for j in 0..<count where j != i && height(j) > height(i) {
+                let other = spots[j].x
+                guard other < high, other + width > low else { continue }
+                // Tabs are one width, so another one covers this one's start or its end.
+                if other <= low { low = max(low, other + width) } else { high = min(high, other) }
+            }
+            let visible = max(high - low, 0)
+            let line: HorizontalEdge? = switch spots[i].stack {
+            // Not against the current tab, whose capsule is edge enough.
+            case .leading: visible > 0 && i + 1 != current ? .trailing : nil
+            case .trailing: visible > 0 && i - 1 != current ? .leading : nil
+            case nil:
+                // Between two flat tabs, as in the staged row.
+                i + 1 < count && spots[i + 1].stack == nil && i != current && i + 1 != current ? .trailing : nil
+            }
+            return Place(x: spots[i].x, visibleStart: low - spots[i].x, visibleWidth: visible, line: line)
+        }
     }
 }
 
@@ -529,7 +714,18 @@ private struct PaneTab: View {
     let select: () -> Void
     let close: () -> Void
     let menu: () -> NSMenu
+    /// In a sliding row, the part of the tab that shows (from its start), the rest lying under
+    /// other tabs; nil for all of it.
+    var visibleStart: CGFloat = 0
+    var visibleWidth: CGFloat?
+    /// In a sliding row, the line at one end of what shows, in place of `showsLine`.
+    var line: HorizontalEdge?
     @State private var isHovering = false
+
+    /// Whether all of the tab shows. Only then can it close: a sliver's leading edge isn't where
+    /// its close button is drawn.
+    private var isWhole: Bool { visibleWidth.map { $0 >= width } ?? true }
+    private var shownWidth: CGFloat { visibleWidth ?? width }
 
     static let height: CGFloat = 32
     static let fontSize: CGFloat = 13
@@ -554,14 +750,16 @@ private struct PaneTab: View {
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(.secondary)
                     .frame(width: Self.padding, height: Self.height)
-                    .opacity(isHovering ? 1 : 0)
+                    .opacity(isHovering && isWhole ? 1 : 0)
             }
-            .overlay(alignment: .trailing) {
-                if showsLine {
+            .overlay(alignment: .leading) {
+                // After a whole tab, in the gap; at a sliver's end, inside what shows.
+                if showsLine || line != nil {
                     Rectangle()
                         .fill(Color(nsColor: .separatorColor))
                         .frame(width: 1, height: 14)
-                        .offset(x: 1.5)
+                        .offset(x: line == .leading ? visibleStart
+                                : isWhole ? width + 0.5 : visibleStart + shownWidth - 1)
                 }
             }
             .background {
@@ -572,12 +770,24 @@ private struct PaneTab: View {
                 }
                 // Hovering shows only the close button and darker text: no shape behind.
             }
+            // Only what shows, as the rest lies under other tabs; a whole tab's shadow and its
+            // line in the gap after it, too.
+            .mask(alignment: .leading) {
+                Rectangle()
+                    .frame(width: max(shownWidth + (isWhole ? 8 : 0), 0), height: Self.height + 8)
+                    .offset(x: visibleStart - (isWhole ? 4 : 0))
+            }
             .allowsHitTesting(false) // Clicks go to the tab's mouse area, below.
             // Clicks, drags, hover and the menu are handled in AppKit: the tabs sit where a
-            // title bar would, and there the window takes any drag not claimed first.
-            .background(TabMouseArea(id: id, title: title, select: select, close: close, closeEdge: .leading,
-                                     closeWidth: Self.padding, selectsOnPress: true,
-                                     menu: menu, isHovering: $isHovering))
+            // title bar would, and there the window takes any drag not claimed first. Over
+            // only what shows, so a sliver takes clicks for its own tab.
+            .background(alignment: .leading) {
+                TabMouseArea(id: id, title: title, select: select, close: close, closeEdge: .leading,
+                             closeWidth: isWhole ? Self.padding : 0, selectsOnPress: true,
+                             menu: menu, isHovering: $isHovering)
+                    .frame(width: max(shownWidth, 0))
+                    .padding(.leading, visibleStart)
+            }
             .help(help)
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
@@ -591,19 +801,23 @@ private struct TabDropTarget: ViewModifier {
     @EnvironmentObject private var model: VaultModel
     let paneIndex: Int
     let index: Int
+    /// The part of the tab that shows, from its start: in a sliding row, the rest lies under
+    /// other tabs.
+    let spanStart: CGFloat
+    let spanWidth: CGFloat
     @State private var edge: HorizontalEdge?
 
     func body(content: Content) -> some View {
         content
-            .overlay(alignment: edge == .leading ? .leading : .trailing) {
-                if edge != nil {
+            .overlay(alignment: .leading) {
+                if let edge {
                     Capsule()
                         .fill(Color.accentColor)
                         .frame(width: 2, height: 20)
-                        .offset(x: edge == .leading ? -2 : 2)
+                        .offset(x: edge == .leading ? spanStart - 2 : spanStart + spanWidth)
                 }
             }
-            .background(TabDropArea { id, point, size in
+            .background(alignment: .leading) { TabDropArea { id, point, size in
                 edge = id.flatMap { model.location(ofTab: $0) } == nil ? nil : (point.x < size.width / 2 ? .leading : .trailing)
                 return edge != nil
             } drop: { id, point, size in
@@ -611,7 +825,10 @@ private struct TabDropTarget: ViewModifier {
                 guard model.location(ofTab: id) != nil else { return false }
                 model.moveTab(id, toPane: paneIndex, at: point.x < size.width / 2 ? index : index + 1)
                 return true
-            })
+            }
+            .frame(width: max(spanWidth, 0))
+            .padding(.leading, spanStart)
+            }
     }
 }
 
@@ -1172,6 +1389,44 @@ private struct TabMouseArea: NSViewRepresentable {
             let image = NSImage(size: bounds.size)
             image.addRepresentation(rep)
             return image
+        }
+    }
+}
+
+/// Behind a sliding tab row: scrolling over the row, with two fingers or a wheel, slides it.
+/// From a local monitor, as the tabs' own mouse areas would otherwise take the scroll first.
+/// Takes no clicks.
+private struct RowScrollArea: NSViewRepresentable {
+    let slides: Bool
+    let scrolled: (CGFloat) -> Void
+
+    func makeNSView(context: Context) -> ScrollView { ScrollView() }
+
+    func updateNSView(_ view: ScrollView, context: Context) {
+        view.slides = slides
+        view.scrolled = scrolled
+    }
+
+    final class ScrollView: NSView {
+        var slides = false
+        var scrolled: (CGFloat) -> Void = { _ in }
+        private var monitor: Any?
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                guard let self, slides, let window, event.window === window, !isHiddenOrHasHiddenAncestor,
+                      bounds.contains(convert(event.locationInWindow, from: nil)) else { return event }
+                // Sideways, or a wheel's up and down as sideways.
+                let delta = abs(event.scrollingDeltaX) >= abs(event.scrollingDeltaY) ? event.scrollingDeltaX : event.scrollingDeltaY
+                scrolled(delta * (event.hasPreciseScrollingDeltas ? 1 : 10))
+                return nil
+            }
         }
     }
 }
