@@ -291,8 +291,7 @@ struct SidebarTable: NSViewRepresentable {
         // The two-column note list scrolls up beneath its see-through top bar, as a note does,
         // and the lists with a filter field down beneath that, softly blurred.
         let scrollView = BarEdgeScrollView()
-        // On the sidebar's material, the blur alone; on the page's colour, washed with it.
-        scrollView.footWash = content == .notes ? .textBackgroundColor : nil
+        scrollView.footWash = footWash
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentInsets = insets
         scrollView.documentView = table
@@ -308,8 +307,15 @@ struct SidebarTable: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         if !NSEdgeInsetsEqual(scrollView.contentInsets, insets) { scrollView.contentInsets = insets }
+        if let scrollView = scrollView as? BarEdgeScrollView, scrollView.footWash != footWash { scrollView.footWash = footWash }
         context.coordinator.parent = self
         context.coordinator.update(animated: true)
+    }
+
+    /// On the sidebar's material, the blur alone; on the page's colour (the two-column notes,
+    /// and a place's list in one column), washed with it.
+    private var footWash: NSColor? {
+        content == .notes || (content == .everything && model.place != .allNotes) ? .textBackgroundColor : nil
     }
 
     private var insets: NSEdgeInsets {

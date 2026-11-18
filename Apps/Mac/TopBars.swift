@@ -72,10 +72,10 @@ enum TopBar {
 }
 
 /// The sidebar's top bar: room for the window buttons and the sidebar button, which sits at
-/// its trailing edge. Its empty space drags the window. In one column, a home button just
-/// left of the sidebar button goes back to the top level (it hides with the sidebar, which
-/// holds it, and is dimmed at the top level). In two columns, it's over the tree alone: the
-/// note list has its own (see `NoteListTopBar`).
+/// its trailing edge. Its empty space drags the window. In one column, inside a place, it also
+/// holds the way back up and the place's name (right-click the name for the folders it's in,
+/// and to pin it), so the list below starts at the same height everywhere. In two columns,
+/// it's over the tree alone: the note list has its own (see `NoteListTopBar`).
 struct SidebarTopBar: View {
     @EnvironmentObject private var model: VaultModel
 
@@ -84,14 +84,57 @@ struct SidebarTopBar: View {
             .frame(height: model.topBarHeight)
             .frame(maxWidth: .infinity)
             .background(WindowDragArea())
-            .overlay(alignment: .trailing) {
-                if model.browsingStyle == .singleColumn {
-                    BarButton("Home", systemImage: "house", help: "All notes") { model.browse(.allNotes) }
-                        .disabled(model.place == .allNotes)
-                        // Just left of the sidebar button (see `TopBar.sidebarButtonInset`).
+            .overlay(alignment: .leading) {
+                if model.browsingStyle == .singleColumn, model.place != .allNotes {
+                    placeBar
+                        .padding(.leading, model.windowButtonsInset)
+                        // Clear of the sidebar button (see `TopBar.sidebarButtonInset`).
                         .padding(.trailing, TopBar.sidebarButtonInset + TopBar.sidebarButtonWidth)
                 }
             }
+    }
+
+    /// Back up, the place's name, and what only some places have: a new list, emptying the
+    /// trash.
+    private var placeBar: some View {
+        HStack(spacing: TopBar.buttonSpacing) {
+            BarButton("Enclosing folder", systemImage: "chevron.left",
+                      help: "Enclosing folder (\(ShortcutStore.shared.label(for: .enclosingFolder)))") { model.goUp() }
+            Text(model.title(for: model.place))
+                .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .help(model.title(for: model.place))
+                .contextMenu { placeMenu }
+            Spacer(minLength: 0)
+            if model.place == .lists {
+                BarButton("New list", systemImage: "plus", help: "New list") { model.createList() }
+            }
+            if model.place == .trash { EmptyTrashButton() }
+        }
+    }
+
+    /// The places this one is in, nearest first, as Finder's title shows them; then pinning.
+    @ViewBuilder private var placeMenu: some View {
+        ForEach(ancestors, id: \.key) { place in
+            Button(place == .allNotes ? (model.root?.lastPathComponent ?? "All notes") : model.title(for: place)) {
+                model.browse(place)
+            }
+        }
+        if model.place != .trash, model.place != .everything, model.place != .bookmarks {
+            Divider()
+            Button(model.isPinned(model.place) ? "Unpin" : "Pin to the top of the sidebar") { model.togglePin(model.place) }
+        }
+    }
+
+    private var ancestors: [SidebarPlace] {
+        var places: [SidebarPlace] = []
+        var place = model.place
+        while place != .allNotes {
+            place = place.parent
+            places.append(place)
+        }
+        return places
     }
 }
 

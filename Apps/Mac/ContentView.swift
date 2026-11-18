@@ -45,9 +45,16 @@ struct ContentView: View {
                         .overlay(alignment: .trailing) { HStack(spacing: 0) { Divider() } }
                 }
             } else {
+                // The top level, a list of places, on the sidebar's grey; a place's notes on the
+                // page's colour, with a line between them and the note (which share it), as in
+                // two columns. Its name and the way back up are in the top bar's row.
                 VStack(spacing: 0) {
                     SidebarTopBar()
                     NoteList()
+                }
+                .background(model.place == .allNotes ? Color.clear : Color(nsColor: .textBackgroundColor))
+                .overlay(alignment: .trailing) {
+                    if model.place != .allNotes { HStack(spacing: 0) { Divider() } }
                 }
             }
         }
@@ -259,9 +266,8 @@ private struct NoteList: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // In two columns, the name and sort are in the column's top bar (see
+            // The place's name is in the top bar, in either layout (see `SidebarTopBar` and
             // `NoteListTopBar`).
-            if includesPlaces, model.place != .allNotes { PlaceHeader() }
             // At the foot, floating over the list's end, which scrolls on beneath it, softly
             // blurred (drawn by the list's scroll view).
             browser
@@ -351,46 +357,6 @@ extension NoteList {
             return "No notes have this value."
         default: return "This folder has no notes."
         }
-    }
-}
-
-/// The folder or tag being browsed, with a way back up.
-private struct PlaceHeader: View {
-    @EnvironmentObject private var model: VaultModel
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Button { model.goUp() } label: {
-                Image(systemName: "chevron.left")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 22, height: 22)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Back (⌘↑)")
-            Text(model.title(for: model.place))
-                .font(.headline)
-                .lineLimit(1)
-            Spacer()
-            if model.place == .lists {
-                Button { model.createList() } label: { Image(systemName: "plus") }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .help("New list")
-            }
-            if model.place == .trash {
-                EmptyTrashButton()
-            } else if model.place != .everything && model.place != .bookmarks {
-                Button { model.togglePin(model.place) } label: {
-                    Image(systemName: model.isPinned(model.place) ? "pin.fill" : "pin")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help(model.isPinned(model.place) ? "Unpin" : "Pin to the top of the sidebar")
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.top, 4)
     }
 }
 
