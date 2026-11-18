@@ -15,7 +15,9 @@ struct ContentView: View {
             sidebar: AnyView(sidebar.environmentObject(model).environmentObject(store)),
             detail: AnyView(detail.environmentObject(model).environmentObject(store)),
             // Two columns start at half as wide again as one column, split 40/60 (see `sidebar`).
-            widths: twoColumns ? (300, 360, 760) : (180, 240, 400),
+            // One column no narrower than 220, so a place's name has room in the top bar,
+            // between the window buttons and back arrow and the sidebar button.
+            widths: twoColumns ? (300, 360, 760) : (220, 240, 400),
             widthKey: twoColumns ? "sidebarWidth.twoColumns" : "sidebarWidth.singleColumn",
             showsSidebar: model.showsNoteList && !model.isFocused
         )
