@@ -196,7 +196,7 @@ final class VaultModel: ObservableObject {
             if oldValue.count == 2, panes.count == 1 { noteSplitClosed(from: oldValue) }
             if oldValue.count == 1, panes.count == 2 { noteSplitOpened(from: oldValue) }
             if oldValue.count != panes.count { firstSideResized(firstSideWidth) } // Its threshold changed.
-            followOpenNote()
+            scheduleFollow()
         }
     }
 
@@ -229,14 +229,25 @@ final class VaultModel: ObservableObject {
             tracePanes()
             saveWindowState()
             noteRecentTab()
-            followOpenNote()
+            scheduleFollow()
         }
     }
 
     /// The open note the one-column list last saw, so it follows only a change.
     private var followedNote: Note.ID?
-    /// Set while a note is opened from the list itself, which needn't follow it.
-    private var openingFromList = false
+    private var isFollowScheduled = false
+
+    /// Follows the open note once the change in hand is done: tabs and sides change in more
+    /// than one step (closing a tab sets the tabs, then which is current), and the open note
+    /// read between them can be past the end of the tabs.
+    private func scheduleFollow() {
+        guard !isFollowScheduled else { return }
+        isFollowScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            self?.isFollowScheduled = false
+            self?.followOpenNote()
+        }
+    }
 
     /// In one column, the list follows the note being worked on to its folder, wherever it
     /// was opened from (a link, the palette, back or forward, another tab or side), unless the
@@ -246,7 +257,7 @@ final class VaultModel: ObservableObject {
         let id = selection
         guard id != followedNote else { return }
         followedNote = id
-        guard let id, !openingFromList, id != freshNoteID, noteFilter.isEmpty,
+        guard let id, id != freshNoteID, noteFilter.isEmpty,
               browsingStyle == .singleColumn, showsNoteList, !isFocused,
               store.notesByID[id] != nil || store.image(id) != nil else { return }
         guard !notes(in: place).contains(where: { $0.id == id }), !store.images(in: place).contains(where: { $0.path == id }) else { return }
@@ -877,9 +888,9 @@ final class VaultModel: ObservableObject {
     func selectFromList(_ id: Note.ID) {
         guard selection != id else { return }
         keepsListFocus = true
-        openingFromList = true
-        defer { openingFromList = false }
         selection = id
+        // Seen already, so the list doesn't follow it: it's there.
+        followedNote = selection
     }
 
     /// A new note without a title, whose title takes the keyboard as it opens, rather than
