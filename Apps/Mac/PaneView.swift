@@ -27,7 +27,7 @@ struct PaneView: View {
                 // note is laid out at its width from the start, even moving from note to note.
                 HStack(spacing: 0) {
                     if #available(macOS 26, *) {
-                        page(pane, index: index, underBar: model.topBarHeight)
+                        page(pane, index: index, underBar: TopBar.cover(for: pane, in: model))
                             .overlay(alignment: .top) { PaneTabBar(pane: pane, paneIndex: index) }
                     } else {
                         VStack(spacing: 0) {
@@ -66,8 +66,8 @@ struct PaneView: View {
     /// below it.
     private func page(_ pane: VaultModel.NotePane, index: Int, underBar: CGFloat) -> some View {
                 // A stack, not a Group: a Group's modifiers go to each of its children, so the
-                // top bar laid over the page went with the note, and was made afresh (its tabs
-                // and all) every time the note changed.
+                // top bar laid over the page went with the note, and was made afresh (its tabs'
+                // scrolling and all) every time the note changed.
                 ZStack {
                     if let note = model.note(pane.tab.noteID) {
                         NoteEditor(note: note, model: model, paneID: paneID, tabID: pane.tab.id, offersTemplates: note.id == model.freshNoteID)

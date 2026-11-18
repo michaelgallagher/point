@@ -3,7 +3,7 @@ name: Point
 options:
   bundleIdPrefix: org.mikegallagher
   deploymentTarget:
-    macOS: "13.0"
+    macOS: "26.0"
   createIntermediateGroups: true
 settings:
   base:

@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "IndexKit",
-    platforms: [.macOS(.v13), .iOS(.v26)],
+    platforms: [.macOS(.v26), .iOS(.v26)],
     products: [
         .library(name: "IndexKit", targets: ["IndexKit"]),
     ],

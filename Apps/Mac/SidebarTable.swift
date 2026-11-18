@@ -19,6 +19,8 @@ enum SidebarRow: Hashable {
     /// A heading over notes by date ("Today", "October", "2025"), with the first note under it
     /// (so two headings with the same name, in an odd order, are still two rows).
     case dateGroup(String, first: Note.ID)
+    /// How much is here ("12 notes"), first in the two-column note list.
+    case count(String)
 
     /// What a row opens in a tab, if it's a note's row (its ID) or an image's (its path).
     var noteID: Note.ID? {
@@ -33,7 +35,7 @@ enum SidebarRow: Hashable {
     var isItem: Bool {
         switch self {
         case .place, .note, .image, .trashed: true
-        case .header, .divider, .treeSwitch, .dateGroup: false
+        case .header, .divider, .treeSwitch, .dateGroup, .count: false
         }
     }
 }
@@ -324,6 +326,9 @@ struct SidebarTable: NSViewRepresentable {
         /// Row heights as last laid out, to spot rows whose height changed.
         private var shownHeights: [CGFloat] = []
 
+        /// The count's row: a line of small type, a little room above it and below.
+        static let countHeight: CGFloat = 26
+
         static func noteHeight(hasTags: Bool, density: VaultModel.SidebarDensity) -> CGFloat {
             hasTags ? density.twoLineHeight : density.rowHeight
         }
@@ -363,7 +368,9 @@ struct SidebarTable: NSViewRepresentable {
             guard let table else { return }
             watchFocus(in: table.window)
             today = Calendar.current.startOfDay(for: Date())
-            let newRows = model.sidebarRows(collapsed: parent.collapsed, expanded: parent.expanded, content: parent.content)
+            var newRows = model.sidebarRows(collapsed: parent.collapsed, expanded: parent.expanded, content: parent.content)
+            // In two columns, the count leads the notes (the bar above has only the name).
+            if parent.content == .notes { newRows.insert(.count(model.listCountLabel), at: 0) }
             // The tree doesn't move with the place it shows.
             let place = parent.content == .places ? SidebarPlace.allNotes : model.place
             let placeChanged = shownPlace != nil && shownPlace != place
@@ -484,6 +491,7 @@ struct SidebarTable: NSViewRepresentable {
             case .divider: return model.sidebarDensity.dividerHeight
             case .place, .trashed, .image: return model.sidebarDensity.rowHeight
             case .treeSwitch: return model.sidebarDensity.rowHeight + 18
+            case .count: return Self.countHeight
             case .note(let id):
                 // Two lines only for a note that has tags to show.
                 let hasTags = model.showsTagsInList && !model.listTags(for: id).isEmpty
@@ -1081,6 +1089,14 @@ struct SidebarRowView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                 .padding(.horizontal, 8)
                 .padding(.bottom, 5)
+        case .count(let label):
+            Text(label)
+                .lineLimit(1)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .padding(.horizontal, 8)
         case .divider:
             // Low in its row: the room above ends the section before it, which otherwise
             // looks cramped (most of all a collapsed section, its heading right on the line).

@@ -373,10 +373,9 @@ final class VaultModel: ObservableObject {
         !showsNoteList && !isFocused && isNarrow(sideWidth: width)
     }
 
-    /// Narrower than `TopBar.sidebarButtonHidingWidth`, or in a split, than
-    /// `TopBar.splitSidebarButtonHidingWidth`.
-    private func isNarrow(sideWidth width: CGFloat) -> Bool {
-        width > 0 && width < (isSplit ? TopBar.splitSidebarButtonHidingWidth : TopBar.sidebarButtonHidingWidth)
+    /// Narrower than `TopBar.sidebarButtonHidingWidth`, a side of a split by its own width.
+    func isNarrow(sideWidth width: CGFloat) -> Bool {
+        width > 0 && width < TopBar.sidebarButtonHidingWidth
     }
 
     private var firstSideWidth: CGFloat = 0

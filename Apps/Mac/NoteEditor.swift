@@ -88,8 +88,8 @@ struct NoteEditor: View {
 }
 
 /// Above the text, scrolling with it: the note's title (its file name: most notes don't
-/// start with a heading), the folders it's in above it, its properties, and for a new note,
-/// templates. A hairline always separates it from the text.
+/// start with a heading), above it the folders it's in, then its properties, and for a new
+/// note, templates. A hairline always separates it from the text.
 private struct NoteHeader: View {
     @ObservedObject var session: EditorSession
     @ObservedObject var model: VaultModel
@@ -98,12 +98,18 @@ private struct NoteHeader: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 9) {
-                NotePath(note: session.note, model: model)
+            VStack(alignment: .leading, spacing: 2) {
+                // Where it is, above it: the folders, each a button (the first's text in line
+                // with the title's, its hover shading reaching out to the left).
+                if session.note.id.contains("/") {
+                    PanePath(model: model, note: session.note)
+                        .frame(height: 22)
+                        .padding(.leading, -PanePath.padding)
+                }
                 // Its file name, which can be edited here to rename the note.
                 TitleField(note: session.note, model: model, toText: { session.focusText() })
             }
-            .padding(.top, 16)
+            .padding(.top, session.note.id.contains("/") ? 10 : 16)
             .padding(.bottom, shownFrontmatter == nil || model.showsMarkdown(inPane: paneID) ? 12 : 2)
             .padding(.leading, 5) // Lines up with the text, which is inset a little.
             .frame(maxWidth: model.store.textColumnWidth, alignment: .leading)
@@ -143,34 +149,6 @@ extension NoteHeader {
                 || (isList && ListDefinition.isListKey(property.key))
         }
         return shown.properties.isEmpty ? nil : shown
-    }
-}
-
-/// The folders a note is in, above its title: "Projects / Point". Clicking one shows it in
-/// the sidebar. Nothing for a note at the vault's top level.
-private struct NotePath: View {
-    let note: Note
-    @ObservedObject var model: VaultModel
-
-    var body: some View {
-        let names = note.id.split(separator: "/").dropLast().map(String.init)
-        if !names.isEmpty {
-            HStack(spacing: 4) {
-                ForEach(names.indices, id: \.self) { index in
-                    if index > 0 {
-                        Text("/").foregroundStyle(.tertiary)
-                    }
-                    Button(names[index]) { model.reveal(folder: names[...index].joined(separator: "/")) }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                        .help("Show “\(names[index])”")
-                }
-            }
-            // The same size as the properties below, and the menus and date pickers in them,
-            // which AppKit draws at 13pt whatever the text size.
-            .font(.body)
-            .lineLimit(1)
-        }
     }
 }
 

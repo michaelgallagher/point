@@ -219,8 +219,8 @@ final class SidebarSplitController: NSSplitViewController {
         guard let window = view.window, let frameView = window.contentView?.superview,
               let zoom = window.standardWindowButton(.zoomButton),
               let close = window.standardWindowButton(.closeButton) else { return }
-        let size = NSSize(width: 36, height: 36)
-        let fixedX = (zoom.convert(zoom.bounds, to: nil).maxX + 16).rounded()
+        let size = NSSize(width: TopBar.iconSize, height: TopBar.iconSize)
+        let fixedX = (zoom.convert(zoom.bounds, to: nil).maxX + 10).rounded()
         let middle = close.convert(close.bounds, to: nil).midY
         let pane = sidebarContainer.view
         // The sidebar's edge as drawn now, also while it's sliding: its right edge, or where the
@@ -230,7 +230,7 @@ final class SidebarSplitController: NSSplitViewController {
         // at, and as it began to open the button showed for a moment at that far edge.)
         let notes = splitView.arrangedSubviews.last.map { $0.convert($0.bounds, to: nil).minX } ?? 0
         let edge = sidebarItem.isCollapsed && !isResizing ? 0 : min(pane.convert(pane.bounds, to: nil).maxX, notes)
-        let againstEdge = (edge - 8 - size.width).rounded()
+        let againstEdge = (edge - TopBar.sidebarButtonInset - size.width).rounded()
         if againstEdge > fixedX {
             if sidebarButton.superview !== pane || pane.subviews.last !== sidebarButton {
                 pane.addSubview(sidebarButton, positioned: .above, relativeTo: nil)
@@ -344,7 +344,10 @@ final class SidebarSplitController: NSSplitViewController {
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = false
         window.toolbar = toolbar
-        window.toolbarStyle = .unified
+        window.toolbarStyle = .unifiedCompact
+        // The tabs are in the title bar's strip, and a press there would move the window
+        // before a tab could take the drag: the window holds still only while the pointer is
+        // over them (`WindowMoveGuard`).
         placeSidebarButton()
         // Placed again whenever the window buttons move (as the toolbar makes the title bar
         // taller, which can come after this), and as the window resizes or comes to the front:
@@ -862,7 +865,7 @@ struct SidebarButton: View {
     let action: () -> Void
 
     var body: some View {
-        BarButton("Sidebar", systemImage: "sidebar.left", help: "Show or hide the sidebar (⌘S)", action: action)
+        BarButton("Sidebar", systemImage: "sidebar.left", help: "Show or hide the sidebar (⌘S)", fontSize: TopBar.sidebarIconFontSize, action: action)
             .ignoresSafeArea() // Placed exactly, in the title bar.
     }
 }

@@ -24,10 +24,9 @@ Part of [the plan](../PLAN.md).
 | Machine | OS | Role |
 |---|---|---|
 | M3 MacBook Pro | macOS 26 | Primary. Full experience. |
-| 2017 Intel MacBook Pro | macOS 13.7.8 | Occasional use. Simpler experience is fine: no semantic search, no AI features, no Liquid Glass. |
 | iPhone 13 | iOS 26 | Full experience except generated AI text: the iPhone 13 can't run Apple Intelligence. iPad is not in scope. |
 
-- **Builds:** made on the M3. Xcode 26 doesn't run on macOS 13, so builds are copied to the old Mac to test. The first launch there needs right-click and Open.
+- **Minimum systems (17 November 2026):** macOS 26 and iOS 26. The 2017 Intel MacBook Pro (macOS 13.7.8, the last it can run) is no longer supported: holding the Mac app to macOS 13 kept it off the newer SwiftUI scrolling and observation APIs, and every Liquid Glass piece needed a second, older version.
 - **Audience:** just Mike for now.
 - **Developer account:** none yet. Start Mac-first, and buy the paid account when the iPhone milestone begins. Free-account iPhone builds expire after 7 days and can't use extensions.
 - **Involvement:** Mike reviews at milestone boundaries.

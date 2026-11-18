@@ -18,6 +18,11 @@ On `main`, which has everything so far.
 
 **Still open:** full screen on the Mac ([Investigations](plan/investigations.md), set aside for now); performance (13–15 of the review, measured only if something feels slow).
 
+**To do, from the code review's items 7 and 8 (17 November, on `header-one-row`):**
+- Check by hand on the Mac: tiling the window by dragging it to a screen edge, Stage Manager, a real trackpad's sideways swipe on a tab row (and its elastic ends), VoiceOver on the tab row, and a long row of tabs on the real vault. Synthetic pointer events can't do these.
+- Run the package tests (`swift test` in each of `Packages/*`): not run since the Mac's minimum went to macOS 26.
+- Remove the code kept for systems before macOS 26: about 28 `#available` checks and the fallbacks they guard (see [Architecture](plan/architecture.md)).
+
 **Not merged into `main`:** design experiments `animating-the-cursor`, `simple-but-bigger`, `tighter-and-lighter`, `capsules` and `skinny-bar`.
 
 ## Next: a week on Point alone, Mac and iPhone (from 10 November 2026)
@@ -63,6 +68,7 @@ Mike travels soon with the laptop and the iPhone, and wants to use Point on both
 - [The 25 October batch](plan/batch-2026-10-25.md): the links panel, templates, the properties view, palette defaults, tags and the home button, sorting in two columns, splits that slide, and the small fixes after.
 - [The sidebar widens the window](plan/sidebar-widens-window.md) (25 October): the design, the attempts, and the bugs fixed.
 - [Properties, redesigned](plan/properties.md) (25 October).
+- [Exploration: a flatter header](plan/exploration-flat-header.md) (13 November): no glass, row-shaped tabs above a path bar, the compact title bar.
 - [Narrow-window tabs, for the glass header](plan/narrow-tabs-for-glass.md) (15 November): the narrow-tab strategies from the flat header (branch `header-narrow-tabs`), tried on the glass header (branch `glass-narrow-tabs`).
 - [Exploration: no visible tabs](plan/exploration-no-visible-tabs.md) (25 October): tabs without a tab bar.
 - [Exploration: radically minimal](plan/exploration-minimal.md) (19 October).

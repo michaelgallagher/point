@@ -199,10 +199,6 @@ enum LinksPlacement: String, CaseIterable, Identifiable {
 
 // MARK: The readout
 
-/// Under a note's properties (or its title, without any), what's related to it: "4 earlier
-/// meetings · last on 21 October", "23 notes on Org design", or with nothing shared, "12 links
-/// (articles by this person, mentions, and meetings with this person)". Clicking it opens the
-/// panel, or closes it. Nothing while there's nothing, or while the index is being asked.
 /// A bookmarked note says so, as a line like the properties' and the links': a filled bookmark
 /// in the icon column, then "Bookmarked". Its menu removes the bookmark.
 struct BookmarkReadout: View {
@@ -231,6 +227,10 @@ struct BookmarkReadout: View {
     }
 }
 
+/// Under a note's properties (or its title, without any), what's related to it: "4 earlier
+/// meetings · last on 21 October", "23 notes on Org design", or with nothing shared, "12 links
+/// (articles by this person, mentions, and meetings with this person)". Clicking it opens the
+/// panel, or closes it. Nothing while there's nothing, or while the index is being asked.
 struct RelatedReadout: View {
     @ObservedObject var connections: Connections
     @ObservedObject var model: VaultModel
@@ -539,6 +539,8 @@ struct RelatedSlideUp: View {
             ZStack(alignment: .bottom) {
                 if isPresent {
                     panel(height: height, room: room)
+                        // A tab let go over the panel goes nowhere, not to the note beneath.
+                        .background { if isUp { TabDropArea.blocking } }
                         .offset(y: isUp ? 0 : height + 2)
                         .allowsHitTesting(isUp)
                 }
@@ -601,7 +603,7 @@ struct RelatedSlideUp: View {
                     model.setLinksPanelOpen(false, for: paneID)
                 }
                 .modifier(EscapeCloses(isOn: isUp))
-                .padding(.trailing, TopBar.buttonSpacing)
+                .padding(.trailing, TopBar.edgeInset)
             }
             .padding(.top, 10)
             // As wide as the list, a hairline as the bars' is.
@@ -733,7 +735,7 @@ struct LinksSidePanel: View {
                 }
             }
             .padding(.leading, 16)
-            .padding(.trailing, TopBar.buttonSpacing)
+            .padding(.trailing, TopBar.edgeInset)
             .frame(height: model.topBarHeight)
             .background(WindowDragArea())
             // See-through, as the other bars are: once the list scrolls under it, it blurs

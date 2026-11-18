@@ -161,6 +161,8 @@ struct ContentView: View {
                     Color.black.opacity(0.08)
                         .ignoresSafeArea()
                         .onTapGesture { model.isPaletteShown = false }
+                        // A tab let go over the palette goes nowhere.
+                        .background(TabDropArea.blocking)
                     // Over the side a note will open into, when the window's split; inside
                     // the window however narrow that side is.
                     GeometryReader { geometry in
@@ -260,10 +262,11 @@ private struct NoteList: View {
             // In two columns, the name and sort are in the column's top bar (see
             // `NoteListTopBar`).
             if includesPlaces, model.place != .allNotes { PlaceHeader() }
+            // At the foot, floating over the list's end, which scrolls on beneath it, softly
+            // blurred (drawn by the list's scroll view).
             browser
+                .overlay(alignment: .bottom) { filterField }
         }
-        // Floating at the foot, in glass, with the list going on beneath it.
-        .overlay(alignment: .bottom) { filterField }
         .onChange(of: model.searchFocusRequest) { _ in searchFocused = true }
         .overlay {
             if let message = model.errorMessage {
@@ -275,30 +278,40 @@ private struct NoteList: View {
         }
     }
 
-    /// The filter field's height and the space around it.
-    private static let fieldHeight = VaultModel.SidebarDensity.comfortable.rowHeight
+    /// The filter field's height, its corners and the space around it: shaped like the tabs'
+    /// rail and a selected sidebar row (see `PaneTabs`).
+    private static let fieldHeight = PaneTabs.height
     private static let fieldPadding: CGFloat = 10
+    /// How far the sort arrows sit inside their square (measured): taken off the room on
+    /// each side of it, so the arrows are as far from the field and the column's edge as the
+    /// field is from the other edge.
+    private static let sortInset: CGFloat = 6
+    /// The bar at the foot: the field, and as much room above it as below.
+    private static let footHeight = fieldHeight + fieldPadding * 2
 
     /// Narrows the list to what's named with what's typed: in one column, the folders, tags
     /// and notes showing; in two, the notes, with how they're sorted on its right (in one
     /// column, that's in the Notes section's label). Searching the whole vault is the explorer's.
     private var filterField: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Self.fieldPadding - Self.sortInset) {
             SearchField(text: $model.noteFilter, prompt: "Filter", isFocused: $searchFocused, height: Self.fieldHeight) {
                 // Return opens the top note.
                 if let first = model.sidebarRows(collapsed: [], content: content).lazy.compactMap(\.noteID).first { model.selection = first }
             }
-            if !includesPlaces, model.place != .trash {
-                // In glass too, a circle as tall as the field.
+            if showsSort {
+                // A plain icon, as in the top bars.
                 SortButton(opensUpward: true)
-                    .frame(width: Self.fieldHeight, height: Self.fieldHeight)
-                    .modifier(NoticeBackground())
             }
         }
-        .padding(Self.fieldPadding)
+        .padding(.leading, Self.fieldPadding)
+        .padding(.trailing, showsSort ? Self.fieldPadding - Self.sortInset : Self.fieldPadding)
+        .frame(height: Self.footHeight)
     }
 
     private var content: SidebarTable.Content { includesPlaces ? .everything : .notes }
+
+    /// How the notes are sorted, beside the field: in two columns, but not in the trash.
+    private var showsSort: Bool { !includesPlaces && model.place != .trash }
 
     /// Whether the list shows places as well as notes: always in one column, and in two for the
     /// lists of tags and types, which are places.
@@ -306,7 +319,7 @@ private struct NoteList: View {
 
     /// Pins, folders (or nested tags), tags and notes for the current place.
     private var browser: some View {
-        SidebarTable(model: model, content: content, bottomInset: Self.fieldHeight + Self.fieldPadding * 2)
+        SidebarTable(model: model, content: content, bottomInset: Self.footHeight)
             .overlay {
                 if model.place == .trash ? model.store.trashedNotes.isEmpty : model.notes(in: model.place).isEmpty, model.store.images(in: model.place).isEmpty, !listsPlaces || model.subplaces(of: model.place).isEmpty, model.place != .allNotes {
                     if let message = emptyMessage {
@@ -462,7 +475,7 @@ private struct SearchField: View {
         }
         .padding(.horizontal, 10)
         .frame(height: height)
-        .modifier(NoticeBackground())
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: PaneTabs.cornerRadius, style: .continuous))
     }
 }
 
