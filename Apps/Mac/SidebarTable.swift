@@ -121,7 +121,8 @@ extension VaultModel {
         // Folders, each followed by its subfolders if it's unfolded.
         func folderRows(_ places: [SidebarPlace], depth: Int) -> [SidebarRow] {
             places.flatMap { place -> [SidebarRow] in
-                guard case .folder = place, expanded.contains(Self.expansionKey(place)) else { return [.place(place, depth: depth)] }
+                // One column opens folders rather than unfolding them.
+                guard content != .everything, case .folder = place, expanded.contains(Self.expansionKey(place)) else { return [.place(place, depth: depth)] }
                 return [.place(place, depth: depth)] + folderRows(self.subplaces(of: place), depth: depth + 1)
             }
         }
@@ -168,17 +169,20 @@ extension VaultModel {
             }
             if !oneAtATime || treeKind == .folders {
                 // The tree starts with the vault itself, for the notes at its top level.
-                let top: [SidebarRow] = content == .places ? [.place(.allNotes, depth: 0)] : []
+                // In one column, a row of its own for those notes, opening them as a folder;
+                // the top level lists places alone.
+                let top: [SidebarRow] = content == .places ? [.place(.allNotes, depth: 0)] : [.place(.folder(""), depth: 0)]
                 if !subplaces.isEmpty || !top.isEmpty { addTree(.folders, places(top + folderRows(subplaces, depth: 0))) }
             }
             if twoColumns, showsTags, !oneAtATime || treeKind == .tags {
                 addTree(.tags, places(tagRows()))
             }
         } else if place == .tags {
-            sections.append(section(.tags, places(tagRows())))
+            // In one column, the top-level tags, each opening its own nested ones.
+            sections.append(section(.tags, places(content == .everything ? subplaces.map { .place($0, depth: 0) } : tagRows())))
         } else if !subplaces.isEmpty {
             // Inside a folder (or tag) with folders (or tags) in it: labelled, as at the top.
-            let rows = place.unfolds && !place.isTag ? folderRows(subplaces, depth: 0) : subplaces.map { SidebarRow.place($0, depth: 0) }
+            let rows = place.unfolds && !place.isTag && content != .everything ? folderRows(subplaces, depth: 0) : subplaces.map { SidebarRow.place($0, depth: 0) }
             let label: SidebarSection = switch place {
             case .tag: .tags
             case .properties: .properties
@@ -194,7 +198,8 @@ extension VaultModel {
             sections.append(section(.linkedNote, [.note(linked.id)]))
         }
         // The notes, always under their label, which holds the sort menu.
-        let notes = content == .places ? [] : notes(in: place).filter { shows($0.title) }
+        let placesOnly = content == .places || (content == .everything && place == .allNotes)
+        let notes = placesOnly ? [] : notes(in: place).filter { shows($0.title) }
         if !notes.isEmpty {
             sections.append(section(.notes, noteRows(notes)))
         }
@@ -670,7 +675,8 @@ struct SidebarTable: NSViewRepresentable {
             let cell = tableView.makeView(withIdentifier: identifier, owner: nil) as? HostingCell ?? HostingCell()
             cell.identifier = identifier
             cell.show(SidebarRowView(row: rows[row], model: model, collapsed: parent.collapsed, expanded: parent.expanded,
-                                     wrapsTitles: wrapsTitles, rowWidth: tableView.bounds.width - SidebarTableView.rowInset * 2))
+                                     wrapsTitles: wrapsTitles, rowWidth: tableView.bounds.width - SidebarTableView.rowInset * 2,
+                                     showsArrows: parent.content != .everything))
             return cell
         }
 
@@ -694,7 +700,7 @@ struct SidebarTable: NSViewRepresentable {
         /// Whether a folder or tag unfolds from an arrow after its name (the vault itself, at
         /// the top of the tree, doesn't: its folders are the tree).
         private func hasArrow(_ place: SidebarPlace) -> Bool {
-            place != .allNotes && !model.subplaces(of: place).isEmpty
+            parent.content != .everything && place != .allNotes && !model.subplaces(of: place).isEmpty
         }
 
         @objc func clicked(_ sender: NSTableView) {
@@ -837,7 +843,7 @@ struct SidebarTable: NSViewRepresentable {
                 // Folders or tags one at a time have no label: their switch has the sort instead.
                 addTreeSortItems(to: menu)
             case .place(let place, _):
-                if place != .allNotes {
+                if place != .allNotes, place != .folder("") {
                     menu.addItem(item(model.isPinned(place) ? "Unpin" : "Pin to Sidebar") { $0.togglePin(place) })
                 }
                 // Renamed in every note that has it.
@@ -1107,6 +1113,9 @@ struct SidebarRowView: View {
     var rowWidth: CGFloat?
     /// Selected, on the blue highlight: text and icons go white.
     var isEmphasized = false
+    /// Whether folders and tags with others inside unfold from an arrow (not in one column,
+    /// which opens them instead).
+    var showsArrows = true
     /// Where a folder's or tag's row starts (its icon), indented by depth.
     static func placeStart(depth: Int) -> CGFloat { 8 + CGFloat(depth) * 14 }
     static let iconWidth: CGFloat = 16
@@ -1212,7 +1221,7 @@ struct SidebarRowView: View {
                     .lineLimit(1)
                 // A folder with folders in it, or a tag with tags under it, unfolds from the
                 // arrow after its name, as a section does from the arrow after its label.
-                if place != .allNotes, place.unfolds, !model.subplaces(of: place).isEmpty {
+                if showsArrows, place != .allNotes, place.unfolds, !model.subplaces(of: place).isEmpty {
                     Image(systemName: "chevron.right")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
@@ -1441,6 +1450,8 @@ extension VaultModel {
     /// A place's name as shown: the templates and attachments folders by their job, whatever
     /// the folders are called.
     func title(for place: SidebarPlace) -> String {
+        // The vault's root, as the one-column sidebar's row for the notes at its top level.
+        if place == .folder("") { return root?.lastPathComponent ?? "Vault" }
         if case .folder(let path) = place, let special = store.specialFolder(at: path) { return special.title }
         return place.title
     }

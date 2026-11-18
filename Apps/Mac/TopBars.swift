@@ -121,7 +121,7 @@ struct SidebarTopBar: View {
                 model.browse(place)
             }
         }
-        if model.place != .trash, model.place != .everything, model.place != .bookmarks {
+        if model.place != .trash, model.place != .everything, model.place != .bookmarks, model.place != .folder("") {
             Divider()
             Button(model.isPinned(model.place) ? "Unpin" : "Pin to the top of the sidebar") { model.togglePin(model.place) }
         }

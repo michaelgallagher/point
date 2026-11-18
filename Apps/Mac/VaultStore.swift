@@ -1727,6 +1727,9 @@ final class VaultStore: ObservableObject {
         case .everything, .bookmarks, .trash, .propertyValue, .kind, .lists: []
         case .types: kinds.kinds.map { .kind(kinds.property, $0.name) }
         case .tags: sortedTags(tagTree.entries.filter { $0.depth == 0 }).map { .tag($0.tag) }
+        // The vault's root as a folder (the one-column sidebar's row for its notes): its notes
+        // alone, its folders being the top level's.
+        case .folder(let path) where path.isEmpty: []
         case .folder(let path): sortedFolders(folderTree.subfolders(of: path)).map(SidebarPlace.folder)
         case .tag(let tag): sortedTags(tagTree.children(of: tag)).map { .tag($0.tag) }
         case .properties: propertySummaries.map { .property($0.name) }
@@ -1789,6 +1792,7 @@ final class VaultStore: ObservableObject {
         case .trash: trashedNotes.count
         case .bookmarks: bookmarkedNotes.count
         case .lists: listNoteIDs.count
+        case .folder(let path) where path.isEmpty: notes(in: place).count // The root's own.
         case .folder(let path): folderTree.noteCounts[path] ?? 0
         case .tag(let tag): tagTree.entries.first { $0.id == tag.lowercased() }?.count ?? 0
         case .properties: propertySummaries.count
