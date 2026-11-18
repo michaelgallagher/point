@@ -326,10 +326,10 @@ struct SidebarTable: NSViewRepresentable {
         context.coordinator.update(animated: true)
     }
 
-    /// On the sidebar's material, the blur alone; on the page's colour (the two-column notes,
-    /// and a place's list in one column), washed with it.
+    /// On the sidebar's material (the two-column tree), the blur alone; on the page's colour
+    /// (the two-column notes, and the one-column list), washed with it.
     private var footWash: NSColor? {
-        content == .notes || (content == .everything && model.place != .allNotes) ? .textBackgroundColor : nil
+        content == .places ? nil : .textBackgroundColor
     }
 
     private var insets: NSEdgeInsets {

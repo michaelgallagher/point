@@ -47,17 +47,15 @@ struct ContentView: View {
                         .overlay(alignment: .trailing) { HStack(spacing: 0) { Divider() } }
                 }
             } else {
-                // The top level, a list of places, on the sidebar's grey; a place's notes on the
-                // page's colour, with a line between them and the note (which share it), as in
-                // two columns. Its name and the way back up are in the top bar's row.
+                // On the page's colour throughout, the top level's places too (one colour as you
+                // go in and out), with a line between it and the note, which shares it, as the
+                // two-column notes have. A place's name and the way back up are in the top bar.
                 VStack(spacing: 0) {
                     SidebarTopBar()
                     NoteList()
                 }
-                .background(model.place == .allNotes ? Color.clear : Color(nsColor: .textBackgroundColor))
-                .overlay(alignment: .trailing) {
-                    if model.place != .allNotes { HStack(spacing: 0) { Divider() } }
-                }
+                .background(Color(nsColor: .textBackgroundColor))
+                .overlay(alignment: .trailing) { HStack(spacing: 0) { Divider() } }
             }
         }
         .ignoresSafeArea(.container, edges: .top)
