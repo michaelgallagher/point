@@ -31,6 +31,12 @@ enum SidebarRow: Hashable {
         }
     }
 
+    /// The folder or tag a row shows, if it's a place's row.
+    var place: SidebarPlace? {
+        if case .place(let place, _) = self { return place }
+        return nil
+    }
+
     /// A folder, tag or note (in the trash too), rather than a label, divider or switch.
     var isItem: Bool {
         switch self {
@@ -301,6 +307,9 @@ struct SidebarTable: NSViewRepresentable {
         scrollView.wantsLayer = true
         context.coordinator.table = table
         table.onWidthChange = { [weak coordinator = context.coordinator] in coordinator?.widthChanged() }
+        table.openPlace = { [weak coordinator = context.coordinator] row in coordinator?.openPlace(atRow: row) ?? false }
+        table.goUp = { [weak coordinator = context.coordinator] in coordinator?.goUp() ?? false }
+        table.isPlaceRow = { [weak coordinator = context.coordinator] row in coordinator?.isPlaceRow(row) ?? false }
         context.coordinator.update(animated: false)
         return scrollView
     }
@@ -410,36 +419,81 @@ struct SidebarTable: NSViewRepresentable {
                 syncSelection()
                 return
             }
-            do {
-                // Slide only when moving in or out of a level, not when picking from a tree.
-                if animated, placeChanged, parent.content == .everything, let layer = table.enclosingScrollView?.layer {
-                    let transition = CATransition()
-                    transition.type = .push
-                    transition.subtype = Self.isDeeper(place, than: shownPlace!) ? .fromRight : .fromLeft
-                    transition.duration = 0.22
-                    transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                    layer.add(transition, forKey: "slide")
+            // Leaving a place, where it was scrolled to, to come back to.
+            if placeChanged, parent.content == .everything, let old = shownPlace, let clip = table.enclosingScrollView?.contentView {
+                scrollOffsets[old] = clip.bounds.origin.y
+            }
+            rows = newRows
+            table.reloadData()
+            shownHeights = rows.indices.map { tableView(table, heightOfRow: $0) }
+            if placeChanged {
+                // In one column, back up to a place that lists the one just left: that one is
+                // picked, so you can see where you were and go on from it with the keyboard.
+                if parent.content == .everything, let old = shownPlace, rows.contains(where: { $0.place == old }) {
+                    pick(old)
+                } else {
+                    pickedPlace = nil
                 }
-                rows = newRows
-                table.reloadData()
-                shownHeights = rows.indices.map { tableView(table, heightOfRow: $0) }
-                if placeChanged { table.scrollRowToVisible(0) }
+                // In two columns, the notes start at the top of each place, as before.
+                if parent.content == .everything { restoreScroll(for: place) } else { table.scrollRowToVisible(0) }
             }
             shownPlace = place
             syncSelection()
         }
 
-        static func isDeeper(_ place: SidebarPlace, than old: SidebarPlace) -> Bool {
-            func depth(_ place: SidebarPlace) -> Int {
-                switch place {
-                case .allNotes: 0
-                case .everything, .bookmarks, .trash, .properties, .types, .tags, .lists: 1
-                case .property, .kind: 2
-                case .propertyValue: 3
-                case .folder(let path), .tag(let path): path.split(separator: "/").count
-                }
+        /// Where each place was scrolled to when last left, in this window.
+        private var scrollOffsets: [SidebarPlace: CGFloat] = [:]
+
+        /// Back where a place was scrolled to when last left (its top the first time), then the
+        /// picked place, if any, in sight.
+        private func restoreScroll(for place: SidebarPlace) {
+            guard let table, let scrollView = table.enclosingScrollView else { return }
+            let clip = scrollView.contentView
+            if let offset = scrollOffsets[place] {
+                table.layoutSubtreeIfNeeded()
+                let bounds = clip.constrainBoundsRect(NSRect(origin: NSPoint(x: 0, y: offset), size: clip.bounds.size))
+                clip.setBoundsOrigin(bounds.origin)
+                scrollView.reflectScrolledClipView(clip)
+            } else {
+                table.scrollRowToVisible(0)
             }
-            return depth(place) > depth(old)
+            if let row = pickedPlaceRow { table.scrollRowToVisible(row) }
+        }
+
+        /// In one column, a folder or tag picked in the list (the one just left, on going back
+        /// up, or one moved to with the arrow keys), for Return or → to open. Picked with the
+        /// note then open: opening another note anywhere drops it.
+        private var pickedPlace: SidebarPlace?
+        private var pickedWithNote: Note.ID?
+
+        private func pick(_ place: SidebarPlace) {
+            pickedPlace = place
+            pickedWithNote = model.selection
+        }
+
+        private var pickedPlaceRow: Int? {
+            guard let pickedPlace else { return nil }
+            return rows.firstIndex { $0.place == pickedPlace }
+        }
+
+        /// Opens the folder or tag on a row, from the keyboard (Return or →).
+        func openPlace(atRow row: Int) -> Bool {
+            guard parent.content == .everything, rows.indices.contains(row), let place = rows[row].place else { return false }
+            model.browse(place)
+            return true
+        }
+
+        /// Back up a level, from the keyboard (←).
+        func goUp() -> Bool {
+            guard parent.content == .everything, model.place != .allNotes else { return false }
+            model.goUp()
+            return true
+        }
+
+        /// Whether a row is a folder or tag that can be picked (blue only while the list has the
+        /// keyboard, as the two-column tree's: the open note is the thing picked otherwise).
+        func isPlaceRow(_ row: Int) -> Bool {
+            parent.content == .everything && rows.indices.contains(row) && rows[row].place != nil
         }
 
         /// Whether the place shown was picked from Pinned rather than the tree below. A pinned
@@ -480,7 +534,9 @@ struct SidebarTable: NSViewRepresentable {
                 }
                 return
             }
-            if let id = model.selection, let row = rows.firstIndex(of: .note(id)) {
+            // A picked place, until another note opens; else the open note.
+            if pickedPlace != nil, pickedWithNote != model.selection { pickedPlace = nil }
+            if let row = pickedPlaceRow ?? model.selection.flatMap({ rows.firstIndex(of: .note($0)) }) {
                 if table.selectedRow != row { table.selectRowIndexes([row], byExtendingSelection: false) }
             } else if table.selectedRow >= 0 {
                 table.deselectAll(nil)
@@ -567,6 +623,7 @@ struct SidebarTable: NSViewRepresentable {
                 guard case .place(let place, let depth) = rows[row] else { return false }
                 return !(hasArrow(place) && NSApp.currentEvent?.type == .leftMouseDown && clickedArrow(row: row, place: place, depth: depth, in: tableView))
             }
+            if isPlaceRow(row) { return true }
             guard let id = rows[row].noteID else { return false }
             // ⌥⌘-click opens the note beside this one; ⌘-click opens it in a new tab.
             let modifiers = NSApp.currentEvent?.modifierFlags.intersection([.command, .option, .shift, .control]) ?? []
@@ -624,7 +681,13 @@ struct SidebarTable: NSViewRepresentable {
                 model.browse(place)
                 return
             }
+            if isPlaceRow(table.selectedRow), let place = rows[table.selectedRow].place {
+                // Opened by a click (see `clicked`), or Return or → from the keyboard.
+                pick(place)
+                return
+            }
             guard let id = rows[table.selectedRow].noteID else { return }
+            pickedPlace = nil
             model.selectFromList(id)
         }
 
@@ -870,8 +933,33 @@ final class SidebarTableView: NSTableView {
         onWidthChange?()
     }
 
+    /// In one column: opens the folder or tag on a row (Return or →), and goes back up (←).
+    /// Each says whether it did.
+    var openPlace: ((Int) -> Bool)?
+    var goUp: (() -> Bool)?
+    /// Whether a row is a folder or tag, picked but not open: blue only while the list has
+    /// the keyboard.
+    var isPlaceRow: ((Int) -> Bool)?
+
     override func keyDown(with event: NSEvent) {
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        if modifiers.isEmpty {
+            switch event.keyCode {
+            case 36, 76, 124: // Return, Enter, →: into the folder or tag picked
+                if selectedRow >= 0, openPlace?(selectedRow) == true { return }
+            case 123: // ←: back up
+                if goUp?() == true { return }
+            case 125, 126: // ↓, ↑ with nothing picked: the first or last row that can be
+                guard selectedRow < 0 else { break }
+                let rows = event.keyCode == 125 ? Array(0..<numberOfRows) : Array((0..<numberOfRows).reversed())
+                if let row = rows.first(where: { delegate?.tableView?(self, shouldSelectRow: $0) ?? false }) {
+                    selectRowIndexes([row], byExtendingSelection: false)
+                    scrollRowToVisible(row)
+                }
+                return
+            default: break
+            }
+        }
         if modifiers.isEmpty, event.keyCode == 36 || event.keyCode == 48 || event.keyCode == 76, // Return, Tab, Enter
            let editor = window.flatMap({ Self.firstTextView(in: $0.contentView) }) {
             window?.makeFirstResponder(editor)
@@ -899,7 +987,10 @@ final class SidebarTableRowView: NSTableRowView {
     override var isEmphasized: Bool {
         get {
             guard let window, window.isKeyWindow else { return false }
-            if (superview as? SidebarTableView)?.emphasizesOnlyWithKeyboard == true { return window.firstResponder === superview }
+            if let table = superview as? SidebarTableView,
+               table.emphasizesOnlyWithKeyboard || table.isPlaceRow?(table.row(for: self)) == true {
+                return window.firstResponder === superview
+            }
             if let list = window.firstResponder as? NSTableView, list !== superview { return false }
             return true
         }
