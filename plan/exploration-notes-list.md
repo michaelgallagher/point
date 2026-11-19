@@ -164,3 +164,11 @@ A list **defined inside** another note, as a block in its body rather than a not
   - the same rows in embedded lists and folder pages;
   - grouping per place, such as Media by read and unread;
   - perhaps a way to set `detail` and `read` in Settings rather than by hand.
+
+## Built: marking read and unread (19 November 2026, branch `improving-lists`)
+
+- **Mark as Read / Mark as Unread** for a note whose kind has a `read` property: in the notes list's context menu, the File menu and the command palette, with ⇧⌘U as in Mail (changeable in Settings). One note at a time, as the list selects one.
+- **What it writes:** marking read sets the property to today (`read: 2026-11-19`), filling in an empty `read:` where a template left one, or adding it at the end of the properties; a note that says it's read already is left alone. Marking unread empties it (`read:`), so the note looks as its template made it. The rest of the file is untouched (`NoteKinds.markingRead` and `markingUnread`; the clipper's own mark-read now uses the same code).
+- **The note keeps its date edited,** so marking a note read doesn't move it to the top of a list in that order. An editor with the note open saves first, then takes the change at once. The row changes straight away, before the index catches up.
+- **Tried:** unit tests for both edits; in the debug build, ⇧⌘U on an unread book wrote the date and cleared the dot, and again emptied `read:` and brought the dot back, white on the blue selection. The iPhone app builds.
+- **Not done:** several notes at once (the list selects one); moving a read clipping into another folder, as the iPhone does.
