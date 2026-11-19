@@ -227,6 +227,12 @@ struct AppCommands: Commands {
             }
             .shortcut(.saveWebImages, in: shortcuts)
             .disabled(!webImages.canSave(model?.selectedNote?.id))
+            // For a note whose kind says when it was read (Media, say): as Mail does.
+            Button(model.flatMap { m in m.selection.map(m.isUnread) } == false ? "Mark as Unread" : "Mark as Read") {
+                if let model, let id = model.selection { model.toggleRead(id) }
+            }
+            .shortcut(.toggleRead, in: shortcuts)
+            .disabled(model.flatMap { m in m.selection.map(m.canMarkRead) } != true)
             Button(model.flatMap { m in m.selection.map(m.isBookmarked) } == true ? "Remove Bookmark" : "Add Bookmark") {
                 if let model, let id = model.selection { model.toggleBookmark(id) }
             }

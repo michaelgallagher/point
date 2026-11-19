@@ -2008,6 +2008,40 @@ final class VaultStore: ObservableObject {
         Trace.mark("list looks ready: \(looks.count) notes")
     }
 
+    /// Whether a note can be marked read or unread: its kind has a `read` property.
+    func canMarkRead(_ id: Note.ID) -> Bool { listLooks[id]?.readProperty != nil }
+
+    func isUnread(_ id: Note.ID) -> Bool { listLooks[id]?.isUnread == true }
+
+    /// Marks a note read (its kind's `read` property set to today) or unread (emptied). Any
+    /// editor of it saves first, and takes the change at once; the note keeps its date edited,
+    /// so a list in that order doesn't move. Its row shows it before the index catches up.
+    func setRead(_ id: Note.ID, _ read: Bool) {
+        guard let note = notesByID[id], var look = listLooks[id], let property = look.readProperty else { return }
+        let verb = read ? "read" : "unread"
+        guard EditorSession.save(note.url) else {
+            return Self.showProblem("Couldn’t mark “\(note.title)” \(verb)", detail: "Point couldn’t save the note first.")
+        }
+        do {
+            let text = try NoteReader.read(contentsOf: note.url)
+            let marked = read ? NoteKinds.markingRead(text, property: property, on: NoteKinds.day())
+                              : NoteKinds.markingUnread(text, property: property)
+            if marked != text {
+                switch try NoteWriter.write(marked, to: note.url, expecting: text, ifChanged: .report, keepingDate: true) {
+                case .saved: break
+                default:
+                    return Self.showProblem("Couldn’t mark “\(note.title)” \(verb)",
+                                            detail: "The note changed while Point was marking it. Try again.")
+                }
+            }
+        } catch {
+            return Self.showProblem("Couldn’t mark “\(note.title)” \(verb)", error)
+        }
+        look.isUnread = !read
+        listLooks[id] = look
+        filesChanged([note.url])
+    }
+
     /// A kind's templates in the templates folder, each with a short label.
     func templates(of kind: NoteKinds.Kind) -> [(label: String, url: URL)] {
         NoteKinds.templates(of: kind, among: templates)

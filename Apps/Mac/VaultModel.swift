@@ -104,6 +104,10 @@ final class VaultModel: ObservableObject {
     var bookmarkedNotes: [Note] { store.bookmarkedNotes }
     func isBookmarked(_ id: Note.ID) -> Bool { store.isBookmarked(id) }
     func toggleBookmark(_ id: Note.ID) { store.toggleBookmark(id) }
+    func canMarkRead(_ id: Note.ID) -> Bool { store.canMarkRead(id) }
+    func isUnread(_ id: Note.ID) -> Bool { store.isUnread(id) }
+    /// Marks a note read if it's unread, and unread if it's read.
+    func toggleRead(_ id: Note.ID) { store.setRead(id, store.isUnread(id)) }
     func titleSuggestions(for partial: String) -> [String] { store.titleSuggestions(for: partial) }
     func makeTextBigger() { store.makeTextBigger() }
     func makeTextSmaller() { store.makeTextSmaller() }

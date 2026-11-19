@@ -680,6 +680,10 @@ struct PaletteCommand {
                 PaletteCommand(name: model.isBookmarked(note.id) ? "Remove Bookmark" : "Add Bookmark", shortcut: nil) { model.toggleBookmark(note.id) },
                 PaletteCommand(name: "Show in Finder", shortcut: ShortcutStore.shared.label(for: .showInFinder)) { model.showInFinder(note) },
             ]
+            if model.canMarkRead(note.id) {
+                commands.append(PaletteCommand(name: model.isUnread(note.id) ? "Mark as Read" : "Mark as Unread",
+                                               shortcut: ShortcutStore.shared.label(for: .toggleRead)) { model.toggleRead(note.id) })
+            }
             if WebImageNotes.shared.canSave(note.id) {
                 commands.append(PaletteCommand(name: "Save Web Images to Vault", shortcut: nil) { model.store.saveWebImages(in: note) })
             }

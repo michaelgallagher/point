@@ -755,6 +755,9 @@ struct SidebarTable: NSViewRepresentable {
                 menu.addItem(item("Open in New Tab") { $0.newTab(noteID: note.id) })
                 menu.addItem(item("Open to the Side") { $0.openToTheSide(note.id) })
                 menu.addItem(.separator())
+                if model.canMarkRead(id) {
+                    menu.addItem(item(model.isUnread(id) ? "Mark as Read" : "Mark as Unread") { $0.toggleRead(id) })
+                }
                 menu.addItem(item(model.isBookmarked(id) ? "Remove Bookmark" : "Add Bookmark") { $0.toggleBookmark(id) })
                 menu.addItem(item("Rename…") { $0.renaming = note })
                 menu.addItem(item("Move to Folder…") { $0.moving = note })
