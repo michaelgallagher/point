@@ -182,3 +182,13 @@ A list **defined inside** another note, as a block in its body rather than a not
 - **Tried:** the test vault (on, off, kept after relaunch) and the big vault (1,999 unread of 4,000).
 - **Not tried:** one column, where it doesn't apply (there's nowhere to turn it off).
 
+## Built: the same on the iPhone (19 November 2026, branch `improving-lists`)
+
+The phone already had reading for clips alone: a check at the right of a read clip and an empty circle on one not yet read, a Read swipe (filing in Sources from the clippings folder), and All / Unread on the clip kind's list. That's kept, the phone's own way, and now follows the kinds file:
+- **The read mark** shows on any note whose kind has `read` (and on clips, as before).
+- **The line under the title** starts with the kind's `detail` when it has one ("Systems thinking, Service design · List looks"), then the folder, as before. Kinds without `detail` show what they did.
+- **Marking:** a swipe gives Read, or Unread on a note that's read; a long press has Mark as read or Mark as unread, above Bookmark. Both write the kind's property as the Mac does, keeping the note's date edited, so the list doesn't reorder. "Read, to Sources" stays for clips waiting in the clippings folder.
+- **All / Unread** is on every kind's list that tracks reading, remembered for each kind (the clip kind keeps the setting it had).
+- **Tried** in the Simulator with the kinds keys added to its vault: detail lines, marks, Unread by swipe and Read by swipe (each written to the file, the list keeping its order), and the Unread switch.
+- **Not done:** folders and tags on the phone have no Unread switch (only a kind's list has one); the reader's own Mark read, at the end of a clip, is still for clips only.
+
