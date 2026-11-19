@@ -461,6 +461,21 @@ public actor SearchIndex {
         return result
     }
 
+    /// Some properties' values for every note that gives any: by note, then by property name
+    /// in lowercase. For how notes look in note lists.
+    public func propertyValues(named names: [String]) throws -> [Note.ID: [String: [String]]] {
+        let names = Array(Set(names.map { $0.lowercased() }))
+        guard !names.isEmpty else { return [:] }
+        var result: [Note.ID: [String: [String]]] = [:]
+        let sql = "SELECT n.id, v.name, v.value FROM property_values v JOIN notes n ON n.row = v.note "
+            + "WHERE v.name IN (\(names.map { _ in "?" }.joined(separator: ","))) ORDER BY v.rowid"
+        for row in try db.query(sql, names) {
+            guard let id = row[0] as? String, let name = row[1] as? String, let value = row[2] as? String else { continue }
+            result[id, default: [:]][name, default: []].append(value)
+        }
+        return result
+    }
+
     /// How many notes a query finds.
     public func count(matching query: NoteQuery, now: Date = Date()) throws -> Int {
         var counting = query

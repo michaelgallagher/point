@@ -7,7 +7,8 @@ import Foundation
 /// {
 ///   "kinds": [
 ///     {"name": "Meeting", "symbol": "person.2", "templates": ["Meeting template", "1-1 template"]},
-///     {"name": "Media", "symbol": "books.vertical", "folder": "Clippings", "templates": ["Media template", "Book template"]}
+///     {"name": "Media", "symbol": "books.vertical", "folder": "Clippings", "templates": ["Media template", "Book template"],
+///      "detail": ["topics"], "read": "read"}
 ///   ]
 /// }
 /// ```
@@ -16,6 +17,9 @@ import Foundation
 /// kind start from its first template, or another of its templates, and go in its folder (the
 /// vault root, if none). Several kinds can share a template. A kind with no templates isn't
 /// offered for new notes, but is still known: `type` offers it, and its symbol shows.
+/// A kind can also say how its notes look in note lists: `detail`, the properties whose
+/// values show under the title (the first that has any), and `read`, the property whose
+/// absence marks a note unread.
 /// Nothing here is written into notes beyond `type` itself, so other apps read them as before.
 public struct NoteKinds: Sendable, Equatable {
     public struct Kind: Codable, Sendable, Equatable, Identifiable {
@@ -27,14 +31,24 @@ public struct NoteKinds: Sendable, Equatable {
         /// The templates new notes start from, by name in the templates folder; the first is
         /// the usual one.
         public var templates: [String]?
+        /// What a note list shows under the titles of notes of this kind: the first of these
+        /// properties that has a value (`["people", "topics"]`: the people, or the topics when
+        /// nobody's named).
+        public var detail: [String]?
+        /// The property that says a note of this kind has been read (`read`): while it isn't
+        /// set, note lists mark the note unread.
+        public var read: String?
 
         public var id: String { name }
 
-        public init(name: String, symbol: String? = nil, folder: String? = nil, templates: [String]? = nil) {
+        public init(name: String, symbol: String? = nil, folder: String? = nil, templates: [String]? = nil,
+                    detail: [String]? = nil, read: String? = nil) {
             self.name = name
             self.symbol = symbol
             self.folder = folder
             self.templates = templates
+            self.detail = detail
+            self.read = read
         }
 
         /// Its symbol, or a plain page.
@@ -84,6 +98,74 @@ public struct NoteKinds: Sendable, Equatable {
         guard !kinds.isEmpty, let frontmatter = Frontmatter.parse(text),
               let value = frontmatter.properties.first(where: { $0.key.caseInsensitiveCompare(property) == .orderedSame })?.values.first else { return nil }
         return kind(named: value)
+    }
+
+    // MARK: In note lists
+
+    /// How a note shows in a note list, by its kind: whether it's unread, and the values under
+    /// its title.
+    public struct ListLook: Sendable, Equatable {
+        public var isUnread: Bool
+        public var detail: [String]
+
+        public init(isUnread: Bool = false, detail: [String] = []) {
+            self.isUnread = isUnread
+            self.detail = detail
+        }
+
+        public var isPlain: Bool { !isUnread && detail.isEmpty }
+    }
+
+    /// Whether any kind changes how its notes look in note lists.
+    public var changesListLook: Bool {
+        kinds.contains { !($0.detail ?? []).isEmpty || !($0.read ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
+    }
+
+    /// The properties to know about each note, in lowercase, to work out its look: what it is,
+    /// and each kind's detail and read properties.
+    public var listLookProperties: [String] {
+        guard changesListLook else { return [] }
+        var names = [property.lowercased()]
+        for kind in kinds {
+            for name in (kind.detail ?? []) + [kind.read].compactMap({ $0 }) {
+                let name = name.trimmingCharacters(in: .whitespaces).lowercased()
+                if !name.isEmpty, !names.contains(name) { names.append(name) }
+            }
+        }
+        return names
+    }
+
+    /// A note's look in note lists, from its properties' values (by name in lowercase, as the
+    /// index gives them). Nil when its kind changes nothing, or it has none.
+    public func listLook(values: [String: [String]]) -> ListLook? {
+        func given(_ name: String) -> [String] {
+            (values[name.trimmingCharacters(in: .whitespaces).lowercased()] ?? [])
+                .map(Self.shownValue).filter { !$0.isEmpty }
+        }
+        guard let name = given(property).first, let kind = kind(named: name) else { return nil }
+        var look = ListLook()
+        if let read = kind.read, !read.trimmingCharacters(in: .whitespaces).isEmpty {
+            look.isUnread = given(read).isEmpty
+        }
+        for name in kind.detail ?? [] {
+            let shown = given(name)
+            if !shown.isEmpty { look.detail = shown; break }
+        }
+        return look.isPlain ? nil : look
+    }
+
+    /// A value as a list shows it: a link by its name (or the text it's shown as), not its
+    /// brackets; `false` and `no` as nothing, so `read: false` is unread.
+    static func shownValue(_ value: String) -> String {
+        var value = value.trimmingCharacters(in: .whitespaces)
+        if ["false", "no"].contains(value.lowercased()) { return "" }
+        if value.hasPrefix("[["), value.hasSuffix("]]"), value.count > 4 {
+            let inside = String(value.dropFirst(2).dropLast(2))
+            value = inside.split(separator: "|", maxSplits: 1).last.map(String.init) ?? inside
+            if let hash = value.firstIndex(of: "#"), hash != value.startIndex { value = String(value[..<hash]) }
+            value = value.split(separator: "/").last.map(String.init) ?? value
+        }
+        return value.trimmingCharacters(in: .whitespaces)
     }
 
     /// The kinds that new notes can be made as: those with a template.

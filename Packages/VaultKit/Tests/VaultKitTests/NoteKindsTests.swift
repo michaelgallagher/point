@@ -105,4 +105,52 @@ struct KindPluralTests {
         #expect(NoteKinds.plural("Notes") == "Notes")
         #expect(NoteKinds.plural("1-1") == "1-1")
     }
+
+}
+
+struct KindListLookTests {
+
+    private var lookKinds: NoteKinds {
+        NoteKinds(kinds: [NoteKinds.Kind(name: "Meeting", detail: ["people", "Topics"]),
+                          NoteKinds.Kind(name: "Media", detail: ["topics"], read: "read"),
+                          NoteKinds.Kind(name: "Topic")])
+    }
+
+    @Test func loadsDetailAndRead() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("NoteKinds-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(".point"), withIntermediateDirectories: true)
+        try Data("""
+        {"kinds": [{"name": "Media", "detail": ["topics"], "read": "read"}, {"name": "Topic"}]}
+        """.utf8).write(to: NoteKinds.file(in: root))
+        let loaded = NoteKinds.load(vault: root)
+        #expect(loaded.kinds[0].detail == ["topics"])
+        #expect(loaded.kinds[0].read == "read")
+        #expect(loaded.kinds[1].detail == nil)
+    }
+
+    @Test func asksOnlyForThePropertiesALookNeeds() {
+        #expect(lookKinds.listLookProperties == ["type", "people", "topics", "read"])
+        #expect(NoteKinds(kinds: [NoteKinds.Kind(name: "Topic")]).listLookProperties.isEmpty)
+        #expect(!NoteKinds(kinds: [NoteKinds.Kind(name: "Topic")]).changesListLook)
+    }
+
+    @Test func showsTheFirstDetailPropertyThatHasAValue() {
+        let withPeople = lookKinds.listLook(values: ["type": ["Meeting"], "people": ["[[Ana Ruiz]]", "[[People/Ben|Ben O.]]"], "topics": ["[[Design]]"]])
+        #expect(withPeople == NoteKinds.ListLook(detail: ["Ana Ruiz", "Ben O."]))
+        let topicsOnly = lookKinds.listLook(values: ["type": ["meeting"], "people": [""], "topics": ["[[Topics/Service design#Notes]]"]])
+        #expect(topicsOnly == NoteKinds.ListLook(detail: ["Service design"]))
+        #expect(lookKinds.listLook(values: ["type": ["Meeting"]]) == nil)
+        #expect(lookKinds.listLook(values: ["type": ["Topic"], "topics": ["[[Design]]"]]) == nil)
+        #expect(lookKinds.listLook(values: ["topics": ["[[Design]]"]]) == nil)
+        #expect(lookKinds.listLook(values: ["type": ["Recipe"], "topics": ["[[Design]]"]]) == nil)
+    }
+
+    @Test func marksUnreadWhileReadIsntSet() {
+        #expect(lookKinds.listLook(values: ["type": ["Media"]]) == NoteKinds.ListLook(isUnread: true))
+        #expect(lookKinds.listLook(values: ["type": ["Media"], "read": ["false"]])?.isUnread == true)
+        #expect(lookKinds.listLook(values: ["type": ["Media"], "read": ["2026-11-02"], "topics": ["[[Design]]"]])
+                == NoteKinds.ListLook(detail: ["Design"]))
+        #expect(lookKinds.listLook(values: ["type": ["Media"], "read": ["true"]]) == nil)
+    }
 }
