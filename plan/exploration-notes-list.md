@@ -192,3 +192,36 @@ The phone already had reading for clips alone: a check at the right of a read cl
 - **Tried** in the Simulator with the kinds keys added to its vault: detail lines, marks, Unread by swipe and Read by swipe (each written to the file, the list keeping its order), and the Unread switch.
 - **Not done:** folders and tags on the phone have no Unread switch (only a kind's list has one); the reader's own Mark read, at the end of a clip, is still for clips only.
 
+
+## Built: terms in the filter field (19 November 2026, branch `improving-lists`)
+
+The filter field at the foot of the notes list still matches titles with plain words. It now also takes short terms, mixed freely with words, all of which a note must meet:
+- `#tag` (with tags nested under it); `property:value`, a property containing the value (`topics:design`, `people:ana`, `topics:"service design"`); `property>value` and `property<value` for numbers and dates (`published>2020`);
+- `has:property` (given a value), `in:folder`, `title:`, `folder:`, `tag:`;
+- `is:unread` and `is:read`, by each kind's `read` property, as the dots show it (typed, it wins over the unread button);
+- `@today`, `@yesterday`, `@thisweek`, `@thismonth`, `@thisyear`, `@7d`: edited then;
+- `-` before any of them leaves those out (`-#draft`, `-has:read`, `-in:Archive`).
+
+**What stays text:** `name:value` is a term only when the vault has a property by that name, so `Re: plans` or `10:30` still match titles. A half-typed term (`#`, `topics:`, `is:un`) is left out, so the list doesn't empty while it's typed. With any term, only notes show (not folders, tags or images, which have no properties). Hovering over the field lists the terms.
+
+**How:** `FilterText` (IndexKit) reads the field into words and `NoteQuery` filters, using the conditions lists already have (`ListCondition`). The terms are asked of the index in the background, as list notes are; while a new answer is on its way the last one stands. `is:unread` uses the rows' looks, as the dots do.
+
+**Tried:**
+- Unit tests for reading terms, text that stays text, half-typed terms, and the terms against an index.
+- The debug build on the test vault, a dozen terms traced (`-PointFilters`), each finding what it should.
+- The 10,000-note vault's Media folder (4,000 notes): rows with a term take 13 to 16 ms to build, against 15.5 to 17.5 ms with plain words; the first after each change takes a little longer, building the set of matches.
+
+**Not done:**
+- The count above the list still counts the place's notes, not what the filter leaves (as with plain words before).
+- No suggestions while typing a term (property names, values); terms aren't on the iPhone.
+- Saving a filter as a list note, or pinning it: the next step, and these terms are what it would save.
+
+## Built: tokens, suggestions and a filter menu (19 November 2026, branch `improving-lists`)
+
+Typing terms was error-prone and hidden, so the field now builds them for you, as Mail's search does. The terms above are still what's underneath; the field and button stay where they were for now (they may move later).
+- **Suggestions as you type.** Above the field, a short list of what the word could mean among the notes here: values (`Topics: Service design`, with how many notes have it), tags, `Unread`, `Has topics`, and times (`Edited this week`). Down and up arrows move through them, Return or a click picks one, Escape hides them (and, with none showing, clears the field). Nothing is chosen until you press an arrow, so Return still opens the top note. A lone `#` lists the tags here, `@` the times. The list is in Liquid Glass, as menus are, and sits in the field's own stack, growing up over the notes: glass in an overlay reaching outside its view wasn't drawn at all.
+- **Tokens.** A picked suggestion becomes a token in the field, before the typed words. A term typed in full (`#work`, `has:read`) becomes one at a space or Return. A click on a token offers Leave Out (or Include) and Remove; Backspace in an empty field takes the last one away. Tokens keep their whole names while they fit and shorten, widest first, when they don't.
+- **The filter menu** (the button beside the field, now in every list in two columns, not only those that track reading): Only Unread (kept for the place, as before), Edited ▸, Tags ▸, and each property here ▸ its values (most used first, with counts), Has Any Value and Has No Value. A choice adds a token, ticked in the menu while it's there; choosing it again removes it. Clear Filter at the foot. The button fills and colours while anything filters.
+- **Only what's here:** suggestions and the menu come from the notes in the place, so neither offers what would leave nothing. They're counted by the index in the background (`SearchIndex.facets(of:)`): 4,000 notes in about 70 ms, again when the index or the place's notes change.
+- **Tried:** unit tests for tokens (typed terms becoming tokens, labels, turning round) and facets; in the debug build on the test vault, typing, arrows, Return, a typed term, Backspace and Escape, each checked in a screenshot; the menu traced on the 10,000-note vault (`-PointFilterMenu`). Suggestions take 0.1 to 0.2 ms to work out there.
+- **Not done:** the menu itself hasn't been opened by a click in testing (only traced), nor a token's menu; values given by every note here (Media's `type: Media`) are still offered; one column has the field's tokens and suggestions but no button; the iPhone has none of this.
