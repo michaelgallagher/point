@@ -280,6 +280,8 @@ final class VaultStore: ObservableObject {
         pointTypes = PointTypes.load(vault: url)
         loadKinds()
         indexedTags = [:]
+        listLooks = [:]
+        listLooksLoaded = false
         propertyValues = [:]
         propertySummaries = []
         queryResults = [:]
@@ -1685,6 +1687,7 @@ final class VaultStore: ObservableObject {
             if changed > 0 || propertySummaries.isEmpty, let summaries = try? await index.propertySummaries(), generation == vaultGeneration {
                 propertySummaries = summaries
             }
+            if changed > 0 || !listLooksLoaded { await refreshListLooks() }
             if changed > 0 || tagTree.entries.isEmpty {
                 guard let tags = try? await index.tagsByNote(), generation == vaultGeneration else { return }
                 indexedTags = tags
@@ -1972,11 +1975,37 @@ final class VaultStore: ObservableObject {
         let loaded = NoteKinds.load(vault: root)
         if loaded != kinds {
             let personKindChanged = loaded.personKind != kinds.personKind
+            let looksChanged = loaded.listLookProperties != kinds.listLookProperties || loaded.kinds != kinds.kinds
             kinds = loaded
             if personKindChanged { Task { await loadPersonNotes() } }
+            if looksChanged { Task { await refreshListLooks() } }
         }
         let implied = kinds.choice.map { [kinds.property: $0] } ?? [:]
         if pointTypes.implied != implied { pointTypes.implied = implied }
+    }
+
+    /// How notes look in note lists, by their kinds (`detail` and `read` in the kinds file):
+    /// only notes that look different are here. From the index, after each change to it.
+    @Published private(set) var listLooks: [Note.ID: NoteKinds.ListLook] = [:] { didSet { listVersion += 1 } }
+    private var listLooksLoaded = false
+
+    func refreshListLooks() async {
+        let kinds = kinds, generation = vaultGeneration
+        let names = kinds.listLookProperties
+        guard let index else { return }
+        guard !names.isEmpty else {
+            if !listLooks.isEmpty { listLooks = [:] }
+            listLooksLoaded = true
+            return
+        }
+        guard let values = try? await index.propertyValues(named: names), generation == vaultGeneration, kinds == self.kinds else { return }
+        let looks = await Task.detached(priority: .utility) {
+            values.compactMapValues { kinds.listLook(values: $0) }
+        }.value
+        guard generation == vaultGeneration, kinds == self.kinds else { return }
+        listLooksLoaded = true
+        if looks != listLooks { listLooks = looks }
+        Trace.mark("list looks ready: \(looks.count) notes")
     }
 
     /// A kind's templates in the templates folder, each with a short label.

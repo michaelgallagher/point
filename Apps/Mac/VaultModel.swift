@@ -86,6 +86,16 @@ final class VaultModel: ObservableObject {
     func reload() async { await store.reload() }
     func refreshTags() { store.refreshTags() }
     func listTags(for id: Note.ID) -> [String] { store.listTags(for: id) }
+    /// How a note's kind has it look in note lists: unread, or with values under its name.
+    func listLook(for id: Note.ID) -> NoteKinds.ListLook? { store.listLooks[id] }
+    /// What a note list shows under a note's name: its kind's detail, then its tags (when
+    /// they're shown). Nil for a one-line row.
+    func listSecondLine(for id: Note.ID) -> String? {
+        let detail = listLook(for: id)?.detail.joined(separator: ", ") ?? ""
+        let tags = showsTagsInList ? listTags(for: id).map { "#\($0)" }.joined(separator: " ") : ""
+        let line = [detail, tags].filter { !$0.isEmpty }.joined(separator: "  ")
+        return line.isEmpty ? nil : line
+    }
     func notes(in place: SidebarPlace) -> [Note] { store.notes(in: place) }
     func subplaces(of place: SidebarPlace) -> [SidebarPlace] { store.subplaces(of: place) }
     func noteCount(of place: SidebarPlace) -> Int { store.noteCount(of: place) }

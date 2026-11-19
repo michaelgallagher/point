@@ -493,8 +493,9 @@ struct SidebarTable: NSViewRepresentable {
             case .treeSwitch: return model.sidebarDensity.rowHeight + 18
             case .count: return Self.countHeight
             case .note(let id):
-                // Two lines only for a note that has tags to show.
-                let hasTags = model.showsTagsInList && !model.listTags(for: id).isEmpty
+                // Two lines only for a note that has something under its title: its kind's
+                // detail, or tags.
+                let hasTags = model.listSecondLine(for: id) != nil
                 guard let note = model.note(id) else { return Self.noteHeight(hasTags: hasTags, density: model.sidebarDensity) }
                 let key = RowHeight(note: note, hasTags: hasTags, width: tableView.bounds.width, wraps: wrapsTitles,
                                     density: model.sidebarDensity, dateStyle: model.listDateStyle, sort: model.sort,
@@ -1137,7 +1138,7 @@ struct SidebarRowView: View {
             .frame(maxHeight: .infinity)
         case .note(let id):
             if let note = model.notes.first(where: { $0.id == id }) {
-                SidebarNoteRow(note: note, model: model, wrapsTitle: wrapsTitles, rowWidth: rowWidth)
+                SidebarNoteRow(note: note, model: model, wrapsTitle: wrapsTitles, rowWidth: rowWidth, isEmphasized: isEmphasized)
             }
         case .treeSwitch:
             CapsuleToggle(selection: .constant(model.treeKind))
@@ -1165,7 +1166,8 @@ struct SidebarRowView: View {
     }
 }
 
-/// A note in the sidebar: its name, and optionally its date and tags.
+/// A note in the sidebar: its name, and optionally its date and tags. Its kind can mark it
+/// unread (a dot before it) and put some of its properties under its name.
 struct SidebarNoteRow: View {
     let note: Note
     @ObservedObject var model: VaultModel
@@ -1173,12 +1175,20 @@ struct SidebarNoteRow: View {
     var wrapsTitle = false
     /// The row's width, which a wrapped title's lines are broken to fit.
     var rowWidth: CGFloat?
+    /// Selected, on the blue highlight: the unread dot goes white.
+    var isEmphasized = false
 
     /// Between a wrapped title's lines: the system's own spacing was too tight to read.
     static let wrappedLineSpacing: CGFloat = 3
     private static let padding: CGFloat = 8
     private static let spacing: CGFloat = 6
     private static let iCloudWidth: CGFloat = 16
+    private static let unreadDot: CGFloat = 6
+    /// Down to the middle of the title's first line.
+    private static var unreadDotTop: CGFloat {
+        let font = NSFont.preferredFont(forTextStyle: .body)
+        return ((font.ascender - font.descender + font.leading) - unreadDot) / 2
+    }
 
     private var showsDate: Bool {
         // In groups, the heading over it gives the date (unless sorted by title).
@@ -1269,11 +1279,22 @@ struct SidebarNoteRow: View {
                         .monospacedDigit()
                 }
             }
-            if model.showsTagsInList, case let tags = model.listTags(for: note.id), !tags.isEmpty {
-                Text(tags.map { "#\($0)" }.joined(separator: " "))
+            if let line = model.listSecondLine(for: note.id) {
+                Text(line)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+            }
+        }
+        // Unread, as Mail marks it: a dot in the margin, so titles stay lined up.
+        .overlay(alignment: .topLeading) {
+            if model.listLook(for: note.id)?.isUnread == true {
+                Circle()
+                    .fill(isEmphasized ? AnyShapeStyle(Color.white) : AnyShapeStyle(Color.accentColor))
+                    .frame(width: Self.unreadDot, height: Self.unreadDot)
+                    // In the middle of the margin before the title.
+                    .offset(x: -(Self.padding + indent + Self.unreadDot) / 2, y: Self.unreadDotTop)
+                    .accessibilityLabel("Unread")
             }
         }
         .padding(.horizontal, Self.padding)
