@@ -73,6 +73,11 @@ struct PaneView: View {
                         NoteEditor(note: note, model: model, paneID: paneID, tabID: pane.tab.id, offersTemplates: note.id == model.freshNoteID)
                             .environment(\.topBarCover, underBar)
                             .id(paneID.uuidString + note.id)
+                    } else if let place = SidebarPlace(pageID: pane.tab.noteID) {
+                        // A folder's or tag's page (with folder pages).
+                        FolderPage(place: place, model: model, store: model.store, paneID: paneID)
+                            .padding(.top, underBar)
+                            .id(paneID.uuidString + place.pageID)
                     } else if let image = model.store.image(pane.tab.noteID) {
                         ImageViewer(image: image)
                             .padding(.top, underBar)

@@ -660,7 +660,7 @@ struct PaletteCommand {
         commands.append(model.sidebarDensity == .compact
             ? PaletteCommand(name: "Use Comfortable Sidebar", shortcut: nil) { model.sidebarDensity = .comfortable }
             : PaletteCommand(name: "Use Compact Sidebar", shortcut: nil) { model.sidebarDensity = .compact })
-        for (style, name) in [(VaultModel.BrowsingStyle.singleColumn, "Use One Column Sidebar"), (.twoColumns, "Use Two Column Sidebar")]
+        for (style, name) in [(VaultModel.BrowsingStyle.singleColumn, "Use One Column Sidebar"), (.twoColumns, "Use Two Column Sidebar"), (.folderPages, "Use Tree and Folder Pages")]
             where model.browsingStyle != style {
             commands.append(PaletteCommand(name: name, shortcut: nil) { model.browsingStyle = style })
         }

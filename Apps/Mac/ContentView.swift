@@ -10,6 +10,11 @@ struct ContentView: View {
     /// The sidebar and the notes, in the window's own split view (see `SidebarSplitController`).
     private var splitView: some View {
         let twoColumns = model.browsingStyle == .twoColumns
+        let widthKey = switch model.browsingStyle {
+        case .singleColumn: "sidebarWidth.singleColumn"
+        case .twoColumns: "sidebarWidth.twoColumns"
+        case .folderPages: "sidebarWidth.folderPages"
+        }
         return SidebarSplitView(
             controller: model.sidebarSplit,
             sidebar: AnyView(sidebar.environmentObject(model).environmentObject(store)),
@@ -17,8 +22,9 @@ struct ContentView: View {
             // Two columns start at half as wide again as one column, split 40/60 (see `sidebar`).
             // One column no narrower than 220, so a place's name has room in the top bar,
             // between the window buttons and back arrow and the sidebar button.
-            widths: twoColumns ? (300, 360, 760) : (220, 240, 400),
-            widthKey: twoColumns ? "sidebarWidth.twoColumns" : "sidebarWidth.singleColumn",
+            // A tree alone (with folder pages) as narrow as two columns' tree can be.
+            widths: twoColumns ? (300, 360, 760) : model.browsingStyle == .folderPages ? (160, 240, 400) : (220, 240, 400),
+            widthKey: widthKey,
             showsSidebar: model.showsNoteList && !model.isFocused
         )
         .ignoresSafeArea(.container, edges: .top)
@@ -27,7 +33,13 @@ struct ContentView: View {
     /// One column (folders, tags and notes together) or two (folders and tags beside notes).
     @ViewBuilder private var sidebar: some View {
         Group {
-            if model.browsingStyle == .twoColumns {
+            if model.browsingStyle == .folderPages {
+                // A tree alone, as two columns' left column: its folders and tags open their
+                // pages where notes open (see `FolderPage`).
+                PlaceTreeColumn()
+                    .padding(.top, model.topBarHeight)
+                    .overlay(alignment: .top) { SidebarTopBar() }
+            } else if model.browsingStyle == .twoColumns {
                 // Tree and notes side by side inside one sidebar, so hiding, swiping and
                 // resizing work exactly as in the single column.
                 // 40/60, the notes wider, kept as the sidebar widens or narrows. (HSplitView
@@ -89,7 +101,7 @@ struct ContentView: View {
 
     /// The note being worked on (in the active pane), else the vault's name.
     private var windowTitle: String {
-        model.selectedNote?.title ?? model.root?.lastPathComponent ?? "Point"
+        model.selectedNote?.title ?? SidebarPlace(pageID: model.selection).map { model.pageTitle($0) } ?? model.root?.lastPathComponent ?? "Point"
     }
 
     var body: some View {
@@ -379,6 +391,16 @@ struct EmptyTrashButton: View {
 }
 
 extension SidebarPlace {
+    /// What a tab holds for the place's page (with folder pages), where it holds a note's ID
+    /// otherwise; can't be a note's, which ends in ".md".
+    var pageID: String { Self.pagePrefix + key }
+    private static let pagePrefix = "point-page:"
+
+    init?(pageID: String?) {
+        guard let pageID, pageID.hasPrefix(Self.pagePrefix), let place = SidebarPlace(key: String(pageID.dropFirst(Self.pagePrefix.count))) else { return nil }
+        self = place
+    }
+
     var isTag: Bool {
         if case .tag = self { return true }
         return false

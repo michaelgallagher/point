@@ -305,6 +305,10 @@ enum DebugSnapshots {
                 model.open(id, revealing: (text as NSString).range(of: target))
             }
         }
+        if let key = UserDefaults.standard.string(forKey: "PointOpenPage"), let place = SidebarPlace(key: key) {
+            // `-PointOpenPage <place key>`: opens that place's page (with folder pages).
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { model.browse(place); model.openPage(place) }
+        }
         if let key = UserDefaults.standard.string(forKey: "PointBrowse"), let place = SidebarPlace(key: key) {
             // `-PointBrowse <place key>`: shows that place in the sidebar.
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { model.browse(place) }

@@ -160,6 +160,7 @@ struct SettingsView: View {
                 Picker("Layout", selection: $store.browsingStyle) {
                     Text("One column").tag(VaultModel.BrowsingStyle.singleColumn)
                     Text("Two columns").tag(VaultModel.BrowsingStyle.twoColumns)
+                    Text("Tree and folder pages").tag(VaultModel.BrowsingStyle.folderPages)
                 }
                 Picker("Density", selection: $store.sidebarDensity) {
                     Text("Comfortable").tag(VaultModel.SidebarDensity.comfortable)
@@ -169,7 +170,7 @@ struct SettingsView: View {
                     Text("Folders above tags").tag(VaultModel.TreeLayout.stacked)
                     Text("One at a time").tag(VaultModel.TreeLayout.toggle)
                 }
-                .disabled(store.browsingStyle != .twoColumns)
+                .disabled(store.browsingStyle == .singleColumn)
             }
 
             // In the order they're in the sidebar: Bookmarks, the types chosen, Lists, Tags.

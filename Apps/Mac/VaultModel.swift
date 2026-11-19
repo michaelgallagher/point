@@ -196,7 +196,7 @@ final class VaultModel: ObservableObject {
             if oldValue.count == 2, panes.count == 1 { noteSplitClosed(from: oldValue) }
             if oldValue.count == 1, panes.count == 2 { noteSplitOpened(from: oldValue) }
             if oldValue.count != panes.count { firstSideResized(firstSideWidth) } // Its threshold changed.
-            followOpenNote()
+            scheduleFollow()
         }
     }
 
@@ -229,14 +229,25 @@ final class VaultModel: ObservableObject {
             tracePanes()
             saveWindowState()
             noteRecentTab()
-            followOpenNote()
+            scheduleFollow()
         }
     }
 
     /// The open note the one-column list last saw, so it follows only a change.
     private var followedNote: Note.ID?
-    /// Set while a note is opened from the list itself, which needn't follow it.
-    private var openingFromList = false
+    private var isFollowScheduled = false
+
+    /// Follows the open note once the change in hand is done: tabs and sides change in more
+    /// than one step (closing a tab sets the tabs, then which is current), and the open note
+    /// read between them can be past the end of the tabs.
+    private func scheduleFollow() {
+        guard !isFollowScheduled else { return }
+        isFollowScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            self?.isFollowScheduled = false
+            self?.followOpenNote()
+        }
+    }
 
     /// In one column, the list follows the note being worked on to its folder, wherever it
     /// was opened from (a link, the palette, back or forward, another tab or side), unless the
@@ -246,8 +257,13 @@ final class VaultModel: ObservableObject {
         let id = selection
         guard id != followedNote else { return }
         followedNote = id
-        guard let id, !openingFromList, id != freshNoteID, noteFilter.isEmpty,
-              browsingStyle == .singleColumn, showsNoteList, !isFocused,
+        // A place's page: the tree shows where it is.
+        if let id, let page = SidebarPlace(pageID: id) {
+            if browsingStyle == .folderPages, page != place { browse(page) }
+            return
+        }
+        guard let id, id != freshNoteID, noteFilter.isEmpty,
+              browsingStyle != .twoColumns, showsNoteList, !isFocused,
               store.notesByID[id] != nil || store.image(id) != nil else { return }
         guard !notes(in: place).contains(where: { $0.id == id }), !store.images(in: place).contains(where: { $0.path == id }) else { return }
         Trace.mark("following \(id)")
@@ -527,7 +543,7 @@ final class VaultModel: ObservableObject {
     private func show(_ id: Note.ID?) {
         let old = selection
         guard id != old else { return }
-        if let id { store.noteOpened(id) }
+        if let id, SidebarPlace(pageID: id) == nil { store.noteOpened(id) } // A place's page isn't a note opened.
         if let id, let (p, t) = location(of: id) {
             if p == activePane || panes[p].current == t {
                 activePane = p
@@ -877,9 +893,9 @@ final class VaultModel: ObservableObject {
     func selectFromList(_ id: Note.ID) {
         guard selection != id else { return }
         keepsListFocus = true
-        openingFromList = true
-        defer { openingFromList = false }
         selection = id
+        // Seen already, so the list doesn't follow it: it's there.
+        followedNote = selection
     }
 
     /// A new note without a title, whose title takes the keyboard as it opens, rather than
@@ -1352,6 +1368,11 @@ final class VaultModel: ObservableObject {
     /// Shows a folder (clicked in a side's path): in the sidebar if it's showing, otherwise in
     /// the explorer, with the note open there highlighted.
     func reveal(folder path: String) {
+        // With folder pages, the folder's page, sidebar or not.
+        if browsingStyle == .folderPages {
+            openPage(.folder(path))
+            return
+        }
         if showsNoteList && !isFocused {
             browse(.folder(path))
             return
@@ -1396,6 +1417,13 @@ final class VaultModel: ObservableObject {
     /// whole vault is the explorer's (⌘E).
     @Published var noteFilter = ""
 
+    /// Opens a folder's or tag's page (with folder pages): its notes, where notes open, in the
+    /// current tab, as a link does, so back and forward go through pages too.
+    func openPage(_ place: SidebarPlace) {
+        Trace.mark("page \(place.key)")
+        selection = place.pageID
+    }
+
     func browse(_ place: SidebarPlace) {
         Trace.mark("browse \(place.key)")
         if place.isTag { lastTagPlace = place } else { lastFolderPlace = place }
@@ -1414,12 +1442,15 @@ final class VaultModel: ObservableObject {
         case .tags, .types, .property, .properties: true
         default: false
         }
-        browse(browsingStyle == .twoColumns && isSection ? .allNotes : up)
+        let target = browsingStyle != .singleColumn && isSection ? SidebarPlace.allNotes : up
+        browse(target)
+        if browsingStyle == .folderPages { openPage(target) }
     }
 
     /// Opens the previous (-1) or next (+1) note in the list showing (⌥⌘↑ / ⌥⌘↓).
     func selectAdjacentNote(_ offset: Int) {
-        let content: SidebarTable.Content = browsingStyle == .twoColumns ? .notes : .everything
+        // In two columns, the notes listed; with folder pages, the place's notes.
+        let content: SidebarTable.Content = browsingStyle == .singleColumn ? .everything : .notes
         let ids = sidebarRows(collapsed: [], content: content).compactMap(\.noteID)
         guard !ids.isEmpty else { return NSSound.beep() }
         guard let current = selection, let index = ids.firstIndex(of: current) else {
@@ -1439,8 +1470,10 @@ final class VaultModel: ObservableObject {
     enum ListDateStyle: String, CaseIterable { case beside, groups, off }
 
     /// One list you move through, or folders and tags beside a list of notes.
+    /// Or (a trial) a tree of folders and tags, each opening a page of its notes where
+    /// notes open.
     enum BrowsingStyle: String, CaseIterable, Identifiable {
-        case singleColumn, twoColumns
+        case singleColumn, twoColumns, folderPages
         var id: String { rawValue }
     }
 
@@ -1477,7 +1510,7 @@ final class VaultModel: ObservableObject {
     /// With one tree showing at a time, shows what was last chosen in that tree, so the
     /// highlight and the notes match. (Stacked, both trees show, so anything goes.)
     func matchPlaceToTree() {
-        guard browsingStyle == .twoColumns, treeLayout == .toggle else { return }
+        guard browsingStyle != .singleColumn, treeLayout == .toggle else { return }
         switch treeKind {
         case .folders:
             if place.isTag { browse(lastFolderPlace) }

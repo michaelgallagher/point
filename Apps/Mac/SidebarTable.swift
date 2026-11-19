@@ -725,6 +725,7 @@ struct SidebarTable: NSViewRepresentable {
             if case .place(let place, _) = rows[table.selectedRow], parent.content == .places {
                 pickedFromPins = section(ofRow: table.selectedRow) == .pinned
                 model.browse(place)
+                if model.browsingStyle == .folderPages { model.openPage(place) }
                 return
             }
             if isPlaceRow(table.selectedRow), let place = rows[table.selectedRow].place {
@@ -751,8 +752,11 @@ struct SidebarTable: NSViewRepresentable {
                 && clickedArrow(row: row, place: place, depth: depth, in: sender):
                 parent.toggleExpanded(VaultModel.expansionKey(place))
             case .place(let place, _):
-                // The tree browses as its selection changes (by click or arrow key).
+                // The tree browses as its selection changes (by click or arrow key). With folder
+                // pages, a click on the place already picked opens its page again (the tab
+                // may have moved on to a note).
                 if parent.content != .places { model.browse(place) }
+                else if model.browsingStyle == .folderPages { model.openPage(place) }
             case .treeSwitch:
                 // Its left half is Folders, its right half Tags.
                 guard let event = NSApp.currentEvent, let cell = sender.view(atColumn: 0, row: row, makeIfNecessary: false) else { return }
@@ -1489,6 +1493,11 @@ extension SidebarPlace {
 extension VaultModel {
     /// A place's name as shown: the templates and attachments folders by their job, whatever
     /// the folders are called.
+    /// A place's page's name: the vault's own for its top level.
+    func pageTitle(_ place: SidebarPlace) -> String {
+        place == .allNotes ? (root?.lastPathComponent ?? "Vault") : title(for: place)
+    }
+
     func title(for place: SidebarPlace) -> String {
         // The vault's root, as the one-column sidebar's row for the notes at its top level.
         if place == .folder("") { return root?.lastPathComponent ?? "Vault" }

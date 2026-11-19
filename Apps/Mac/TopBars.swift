@@ -486,7 +486,8 @@ struct PaneTabs: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let titles = pane.tabs.map { model.note($0.noteID)?.title ?? model.store.image($0.noteID)?.name ?? "New tab" }
+            let titles = pane.tabs.map { model.note($0.noteID)?.title ?? model.store.image($0.noteID)?.name
+                ?? SidebarPlace(pageID: $0.noteID).map { model.pageTitle($0) } ?? "New tab" }
             let layout = TabLayout(titles: titles)
             let shown = min(layout.rowWidth, geometry.size.width)
             let _ = scroll.measure(shown: shown, rowWidth: layout.rowWidth)
