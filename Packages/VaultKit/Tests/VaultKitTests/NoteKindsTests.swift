@@ -147,10 +147,32 @@ struct KindListLookTests {
     }
 
     @Test func marksUnreadWhileReadIsntSet() {
-        #expect(lookKinds.listLook(values: ["type": ["Media"]]) == NoteKinds.ListLook(isUnread: true))
+        #expect(lookKinds.listLook(values: ["type": ["Media"]]) == NoteKinds.ListLook(isUnread: true, readProperty: "read"))
         #expect(lookKinds.listLook(values: ["type": ["Media"], "read": ["false"]])?.isUnread == true)
         #expect(lookKinds.listLook(values: ["type": ["Media"], "read": ["2026-11-02"], "topics": ["[[Design]]"]])
-                == NoteKinds.ListLook(detail: ["Design"]))
-        #expect(lookKinds.listLook(values: ["type": ["Media"], "read": ["true"]]) == nil)
+                == NoteKinds.ListLook(detail: ["Design"], readProperty: "read"))
+        // Read, with nothing else to show: still kept, so it can be marked unread.
+        #expect(lookKinds.listLook(values: ["type": ["Media"], "read": ["true"]]) == NoteKinds.ListLook(readProperty: "read"))
+    }
+
+    @Test func marksReadByFillingInTheProperty() {
+        #expect(NoteKinds.markingRead("---\ntype: Media\nread:\nsaved: 2026-11-01\n---\nText\n", property: "read", on: "2026-11-19")
+                == "---\ntype: Media\nread: 2026-11-19\nsaved: 2026-11-01\n---\nText\n")
+        #expect(NoteKinds.markingRead("---\ntype: Media\nread: false\n---\nText\n", property: "read", on: "2026-11-19")
+                == "---\ntype: Media\nread: 2026-11-19\n---\nText\n")
+        #expect(NoteKinds.markingRead("---\ntype: Media\n---\nText\n", property: "finished", on: "2026-11-19")
+                == "---\ntype: Media\nfinished: 2026-11-19\n---\nText\n")
+        let read = "---\ntype: Media\nRead: 2026-10-01\n---\nText\n"
+        #expect(NoteKinds.markingRead(read, property: "read", on: "2026-11-19") == read)
+    }
+
+    @Test func marksUnreadByEmptyingTheProperty() {
+        #expect(NoteKinds.markingUnread("---\ntype: Media\nread: 2026-11-02\nsaved: 2026-11-01\n---\nText\n", property: "read")
+                == "---\ntype: Media\nread:\nsaved: 2026-11-01\n---\nText\n")
+        #expect(NoteKinds.markingUnread("---\ntype: Media\nRead: true\n---\nText\n", property: "read")
+                == "---\ntype: Media\nRead:\n---\nText\n")
+        let unread = "---\ntype: Media\nread:\n---\nText\n"
+        #expect(NoteKinds.markingUnread(unread, property: "read") == unread)
+        #expect(NoteKinds.markingUnread("Text\n", property: "read") == "Text\n")
     }
 }

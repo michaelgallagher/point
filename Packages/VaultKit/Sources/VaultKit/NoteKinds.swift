@@ -107,13 +107,18 @@ public struct NoteKinds: Sendable, Equatable {
     public struct ListLook: Sendable, Equatable {
         public var isUnread: Bool
         public var detail: [String]
+        /// The property that says the note's been read, if its kind has one: what marking it
+        /// read or unread changes.
+        public var readProperty: String?
 
-        public init(isUnread: Bool = false, detail: [String] = []) {
+        public init(isUnread: Bool = false, detail: [String] = [], readProperty: String? = nil) {
             self.isUnread = isUnread
             self.detail = detail
+            self.readProperty = readProperty
         }
 
-        public var isPlain: Bool { !isUnread && detail.isEmpty }
+        /// Shown, and acted on, as any other note.
+        public var isPlain: Bool { !isUnread && detail.isEmpty && readProperty == nil }
     }
 
     /// Whether any kind changes how its notes look in note lists.
@@ -144,7 +149,8 @@ public struct NoteKinds: Sendable, Equatable {
         }
         guard let name = given(property).first, let kind = kind(named: name) else { return nil }
         var look = ListLook()
-        if let read = kind.read, !read.trimmingCharacters(in: .whitespaces).isEmpty {
+        if let read = kind.read?.trimmingCharacters(in: .whitespaces), !read.isEmpty {
+            look.readProperty = read
             look.isUnread = given(read).isEmpty
         }
         for name in kind.detail ?? [] {
@@ -152,6 +158,40 @@ public struct NoteKinds: Sendable, Equatable {
             if !shown.isEmpty { look.detail = shown; break }
         }
         return look.isPlain ? nil : look
+    }
+
+    /// A day as a note's properties have it: `2026-11-19`.
+    public static func day(_ date: Date = Date()) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
+    /// The note with `property` set to `date` (`2026-11-19`), as read that day, unless it says
+    /// it's read already: filled in where it's empty or `false` (as a template leaves it), or
+    /// added at the end of the properties. The rest of the file stays exactly as it was.
+    public static func markingRead(_ text: String, property: String, on date: String) -> String {
+        let edit: (NSRange, String)
+        if let frontmatter = Frontmatter.parse(text) {
+            let existing = frontmatter.properties.first { $0.key.caseInsensitiveCompare(property) == .orderedSame }
+            if let existing, existing.values.contains(where: { !shownValue($0).isEmpty }) { return text }
+            edit = frontmatter.edit(setting: existing?.key ?? property, to: [date], isList: false)
+        } else {
+            edit = Frontmatter.edit(adding: property, values: [date], isList: false)
+        }
+        return (text as NSString).replacingCharacters(in: edit.0, with: edit.1)
+    }
+
+    /// The note with `property` emptied, so it's unread again: `read:` kept, with nothing after
+    /// it, where a template puts it. A note that doesn't say it's read stays as it is.
+    public static func markingUnread(_ text: String, property: String) -> String {
+        guard let frontmatter = Frontmatter.parse(text),
+              let existing = frontmatter.properties.first(where: { $0.key.caseInsensitiveCompare(property) == .orderedSame }),
+              existing.values.contains(where: { !shownValue($0).isEmpty }) else { return text }
+        let edit = frontmatter.edit(setting: existing.key, to: [], isList: false)
+        return (text as NSString).replacingCharacters(in: edit.0, with: edit.1)
     }
 
     /// A value as a list shows it: a link by its name (or the text it's shown as), not its
