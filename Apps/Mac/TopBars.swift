@@ -125,6 +125,7 @@ extension VaultModel {
     /// How much is here, as the sidebar counts it: notes, or for the lists of tags and types,
     /// how many there are.
     var listCountLabel: String {
+        if showsOnlyUnread { return "\(unreadCount(in: place).formatted()) unread" }
         let count = noteCount(of: place)
         let noun = switch place {
         case .trash: count == 1 ? "item" : "items"
@@ -955,6 +956,21 @@ struct SortButton: View {
     }
 }
 
+/// Shows only the unread notes here, or all of them again: at the foot of a list whose notes
+/// say when they were read (Media, say), as Mail's filter does. On, it's filled and coloured.
+struct UnreadFilterButton: View {
+    @EnvironmentObject private var model: VaultModel
+
+    var body: some View {
+        let isOn = model.showsOnlyUnread
+        BarIcon(symbol: isOn ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle",
+                label: isOn ? "Show all notes" : "Show only unread notes",
+                help: isOn ? "Showing only unread notes. Click to show all." : "Show only unread notes",
+                tint: isOn ? .accentColor : nil) { model.toggleOnlyUnread() }
+            .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+}
+
 /// A bar's icon as drawn: just the symbol, no glass or bezel, on a rounded square shaded on
 /// hover (as Safari's and Finder's toolbar icons are without Liquid Glass).
 struct BarIconFace: View {
@@ -964,11 +980,13 @@ struct BarIconFace: View {
     var weight: Font.Weight = .regular
     var width = TopBar.iconSize
     var fontSize = TopBar.iconFontSize
+    /// A colour for an icon that's on (a filter in use), in place of the usual grey.
+    var tint: Color?
 
     var body: some View {
         Image(systemName: symbol)
             .font(.system(size: fontSize, weight: weight))
-            .foregroundStyle(enabled ? AnyShapeStyle(.secondary) : AnyShapeStyle(.quaternary))
+            .foregroundStyle(!enabled ? AnyShapeStyle(.quaternary) : tint.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.secondary))
             .brightness(isHovering && enabled ? -0.15 : 0)
             .frame(width: width, height: TopBar.iconSize)
             .background {
@@ -988,11 +1006,12 @@ struct BarIcon: View {
     var weight: Font.Weight = .regular
     var width = TopBar.iconSize
     var fontSize = TopBar.iconFontSize
+    var tint: Color?
     let action: () -> Void
     @State private var isHovering = false
 
     var body: some View {
-        BarIconFace(symbol: symbol, enabled: enabled, isHovering: isHovering, weight: weight, width: width, fontSize: fontSize)
+        BarIconFace(symbol: symbol, enabled: enabled, isHovering: isHovering, weight: weight, width: width, fontSize: fontSize, tint: tint)
             .allowsHitTesting(false) // The click area below takes the clicks.
             // Hover from the click area, which checks where the pointer really is: SwiftUI's
             // own missed the pointer leaving as the button moved away from it (the sidebar

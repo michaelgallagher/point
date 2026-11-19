@@ -298,6 +298,9 @@ private struct NoteList: View {
                 // Return opens the top note.
                 if let first = model.sidebarRows(collapsed: [], content: content).lazy.compactMap(\.noteID).first { model.selection = first }
             }
+            if showsSort, model.tracksReading(model.place) {
+                UnreadFilterButton()
+            }
             if showsSort {
                 // A plain icon, as in the top bars.
                 SortButton(opensUpward: true)
@@ -326,8 +329,9 @@ private struct NoteList: View {
                         Text(message)
                             .foregroundStyle(.secondary)
                     }
-                } else if !model.noteFilter.isEmpty, !model.sidebarRows(collapsed: [], content: content).contains(where: \.isItem) {
-                    Text("No matches")
+                } else if !model.noteFilter.isEmpty || content == .notes && model.showsOnlyUnread,
+                          !model.sidebarRows(collapsed: [], content: content).contains(where: \.isItem) {
+                    Text(model.noteFilter.isEmpty ? "No unread notes" : "No matches")
                         .foregroundStyle(.secondary)
                 }
             }

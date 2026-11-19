@@ -92,12 +92,19 @@ extension VaultModel {
         let place = content == .places ? SidebarPlace.allNotes : place
         let filter = content == .places ? "" : noteFilter.trimmingCharacters(in: .whitespaces)
         func shows(_ name: String) -> Bool { filter.isEmpty || name.localizedStandardContains(filter) }
+        // Only the unread, if asked here, and the note open from the list while it's open:
+        // marking it read doesn't whisk it away.
+        // (Two columns only: one has nowhere to turn it off.)
+        let onlyUnread = content == .notes && showsOnlyUnread
+        func shows(_ note: Note) -> Bool {
+            shows(note.title) && (!onlyUnread || store.isUnread(note.id) || note.id == selection)
+        }
         if content != .places, place == .trash { return trashedNotes.filter { shows($0.title) }.map { .trashed($0) } }
         let images = content == .places ? [] : store.images(in: place).filter { shows($0.name) }
         // In two columns, the notes column has only notes, except under Types and Properties:
         // the left column has no kinds, properties or values to show, so they're listed here,
         // above the notes.
-        guard content != .notes || place.isProperty || place == .types else { return noteRows(notes(in: place).filter { shows($0.title) }) + images.map { .image($0.path) } }
+        guard content != .notes || place.isProperty || place == .types else { return noteRows(notes(in: place).filter { shows($0) }) + images.map { .image($0.path) } }
         // Filtering, folded sections open, so what matches in them shows.
         let collapsed = filter.isEmpty ? collapsed : []
         var sections: [[SidebarRow]] = []
@@ -188,7 +195,7 @@ extension VaultModel {
             sections.append(section(.linkedNote, [.note(linked.id)]))
         }
         // The notes, always under their label, which holds the sort menu.
-        let notes = content == .places ? [] : notes(in: place).filter { shows($0.title) }
+        let notes = content == .places ? [] : notes(in: place).filter { shows($0) }
         if !notes.isEmpty {
             sections.append(section(.notes, noteRows(notes)))
         }

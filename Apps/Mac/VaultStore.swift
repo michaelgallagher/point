@@ -1986,7 +1986,12 @@ final class VaultStore: ObservableObject {
 
     /// How notes look in note lists, by their kinds (`detail` and `read` in the kinds file):
     /// only notes that look different are here. From the index, after each change to it.
-    @Published private(set) var listLooks: [Note.ID: NoteKinds.ListLook] = [:] { didSet { listVersion += 1 } }
+    @Published private(set) var listLooks: [Note.ID: NoteKinds.ListLook] = [:] {
+        didSet {
+            tracksReading = listLooks.values.contains { $0.readProperty != nil }
+            listVersion += 1
+        }
+    }
     private var listLooksLoaded = false
 
     func refreshListLooks() async {
@@ -2007,6 +2012,9 @@ final class VaultStore: ObservableObject {
         if looks != listLooks { listLooks = looks }
         Trace.mark("list looks ready: \(looks.count) notes")
     }
+
+    /// Whether any note says when it was read: if none does, no list offers only the unread.
+    private(set) var tracksReading = false
 
     /// Whether a note can be marked read or unread: its kind has a `read` property.
     func canMarkRead(_ id: Note.ID) -> Bool { listLooks[id]?.readProperty != nil }

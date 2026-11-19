@@ -1383,6 +1383,46 @@ final class VaultModel: ObservableObject {
     /// whole vault is the explorer's (⌘E).
     @Published var noteFilter = ""
 
+    // MARK: Only unread
+
+    /// Whether a place has notes that say when they were read (their kind has `read`): it
+    /// can show only the unread ones.
+    func tracksReading(_ place: SidebarPlace) -> Bool {
+        guard store.tracksReading else { return false }
+        // Asked on every redraw: worked out once until the list changes.
+        if readingCache.version != store.listVersion { readingCache = (store.listVersion, [:]) }
+        if let known = readingCache.places[place.key] { return known }
+        let tracks = notes(in: place).contains { store.canMarkRead($0.id) }
+        readingCache.places[place.key] = tracks
+        return tracks
+    }
+
+    private var readingCache: (version: Int, places: [String: Bool]) = (-1, [:])
+
+    /// Whether this place shows only its unread notes: turned on for it, and kept for it in
+    /// this vault, until turned off.
+    var showsOnlyUnread: Bool { onlyUnreadPlaces.contains(place.key) && tracksReading(place) }
+
+    func toggleOnlyUnread() {
+        var places = onlyUnreadPlaces
+        if places.contains(place.key) { places.remove(place.key) } else { places.insert(place.key) }
+        objectWillChange.send()
+        onlyUnreadCache = (root, places)
+        if let key = onlyUnreadKey { UserDefaults.standard.set(places.sorted(), forKey: key) }
+    }
+
+    func unreadCount(in place: SidebarPlace) -> Int { notes(in: place).count { store.isUnread($0.id) } }
+
+    private var onlyUnreadKey: String? { root.map { "onlyUnread." + VaultStore.vaultKey($0) } }
+    private var onlyUnreadPlaces: Set<String> {
+        if let cached = onlyUnreadCache, cached.root == root { return cached.places }
+        let places = Set(onlyUnreadKey.flatMap { UserDefaults.standard.stringArray(forKey: $0) } ?? [])
+        onlyUnreadCache = (root, places)
+        return places
+    }
+
+    private var onlyUnreadCache: (root: URL?, places: Set<String>)?
+
     func browse(_ place: SidebarPlace) {
         Trace.mark("browse \(place.key)")
         if place.isTag { lastTagPlace = place } else { lastFolderPlace = place }
