@@ -172,3 +172,13 @@ A list **defined inside** another note, as a block in its body rather than a not
 - **The note keeps its date edited,** so marking a note read doesn't move it to the top of a list in that order. An editor with the note open saves first, then takes the change at once. The row changes straight away, before the index catches up.
 - **Tried:** unit tests for both edits; in the debug build, ⇧⌘U on an unread book wrote the date and cleared the dot, and again emptied `read:` and brought the dot back, white on the blue selection. The iPhone app builds.
 - **Not done:** several notes at once (the list selects one); moving a read clipping into another folder, as the iPhone does.
+
+## Built: only unread (19 November 2026, branch `improving-lists`)
+
+- **A filter button at the foot of the notes list,** between the filter field and the sort button, as Mail has. It shows only where some notes say when they were read (their kind has `read`), in two columns. On, it's filled and coloured, the list keeps only unread notes, and the count above says "N unread". An empty result says "No unread notes".
+- **Kept per place, per vault:** turned on for Media, it stays on there, across launches, and nowhere else (`onlyUnread.<vault>` in the app's settings, by place).
+- **The note open from the list stays** while it's selected, so marking it read doesn't whisk it away; it goes when you move on.
+- **Speed:** on the 10,000-note vault, building the Media list's 4,000 rows takes about 15.5 ms without the filter (as before) and 18 ms with it. Whether a place tracks reading is worked out once until the list changes.
+- **Tried:** the test vault (on, off, kept after relaunch) and the big vault (1,999 unread of 4,000).
+- **Not tried:** one column, where it doesn't apply (there's nowhere to turn it off).
+
