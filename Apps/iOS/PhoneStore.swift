@@ -376,6 +376,14 @@ final class PhoneStore: ObservableObject {
             noteDetails = values.mapValues { NoteDetail(values: $0, typeProperty: kinds.property.lowercased()) }
             hasNoteDetails = true
         }
+        // How notes look by their kind: again after a change, or when the kinds file has.
+        if changed > 0 || listLooksKinds != kinds {
+            let kinds = kinds, names = kinds.listLookProperties
+            let values = names.isEmpty ? [:] : ((try? await index.propertyValues(named: names)) ?? [:])
+            let looks = await Task.detached(priority: .utility) { values.compactMapValues { kinds.listLook(values: $0) } }.value
+            listLooksKinds = kinds
+            if looks != listLooks { listLooks = looks }
+        }
         if changed > 0 {
             indexUpdates += 1
             PhoneVault.log("indexed \(changed) notes in \(Int((CACurrentMediaTime() - indexStart) * 1000)) ms")
@@ -630,10 +638,15 @@ final class PhoneStore: ObservableObject {
     /// What a list shows under a note's title: its format and where it is for a clip ("Article
     /// · Sources"), its type for another typed note ("Meeting"), else its folder. `inFolder`:
     /// the list is a folder's, so the folder isn't said again.
+    /// A kind with `detail` in the kinds file says instead what goes first ("Design, Writing ·
+    /// Sources").
     func detail(of note: Note, inFolder: Bool = false) -> String? {
         let detail = noteDetails[note.id]
         let folder = FolderTree.folder(of: note.id)
         let folderName = folder.isEmpty || inFolder ? nil : (folder as NSString).lastPathComponent
+        if let shown = listLooks[note.id]?.detail, !shown.isEmpty {
+            return [shown.joined(separator: ", "), folderName].compactMap { $0 }.joined(separator: " · ")
+        }
         if isClip(note) {
             return [detail?.format ?? detail?.type, folderName].compactMap { $0 }.joined(separator: " · ")
         }
@@ -646,23 +659,56 @@ final class PhoneStore: ObservableObject {
         return type.caseInsensitiveCompare(kind.name) == .orderedSame
     }
 
-    /// A clip with `read` set.
-    func isRead(_ note: Note) -> Bool { noteDetails[note.id]?.read != nil }
+    /// How notes look in lists by their kind (`detail` and `read` in the kinds file), as on
+    /// the Mac: only notes that look different are here.
+    @Published private(set) var listLooks: [Note.ID: NoteKinds.ListLook] = [:]
+    private var listLooksKinds: NoteKinds?
+
+    /// The property that says a note's been read: its kind's `read`, or for a clip, `read`.
+    func readProperty(of note: Note) -> String? {
+        listLooks[note.id]?.readProperty ?? (isClip(note) ? Clipping.readProperty : nil)
+    }
+
+    /// Whether a note can be marked read or unread.
+    func canMarkRead(_ note: Note) -> Bool { readProperty(of: note) != nil }
+
+    /// A note that says it's been read.
+    func isRead(_ note: Note) -> Bool {
+        if let look = listLooks[note.id], look.readProperty != nil { return !look.isUnread }
+        return noteDetails[note.id]?.read != nil
+    }
+
+    /// Whether a kind's notes say when they were read: it has `read`, or it's the clip kind.
+    func tracksReading(kind name: String) -> Bool {
+        if let read = kinds.kind(named: name)?.read, !read.trimmingCharacters(in: .whitespaces).isEmpty { return true }
+        return Clipping.kind(in: kinds)?.name.caseInsensitiveCompare(name) == .orderedSame
+    }
+
+    /// Shows a note as read or not at once, before the index catches up.
+    private func showRead(_ id: Note.ID, _ read: Bool) {
+        noteDetails[id, default: NoteDetail()].read = read ? Clipping.today() : nil
+        if var look = listLooks[id] {
+            look.isUnread = !read
+            listLooks[id] = look
+        }
+    }
 
     /// Where clips wait to be read: the clip kind's folder.
     var clippingsFolder: String { Clipping.kind(in: kinds)?.folder ?? Clipping.defaultFolder }
 
     /// Whether a clip is waiting in the clippings folder, to be filed once read.
-    func isWaiting(_ note: Note) -> Bool { FolderTree.folder(of: note.id) == clippingsFolder }
+    func isWaiting(_ note: Note) -> Bool { isClip(note) && FolderTree.folder(of: note.id) == clippingsFolder }
 
-    /// Mark read (`read:` today) and, from the clippings folder, file in Sources: from a list.
+    /// Mark read (its kind's `read` set to today) and, for a clip in the clippings folder, file
+    /// in Sources: from a list.
     func markReadAndFile(_ id: Note.ID) {
-        guard let note = note(id) else { return }
+        guard let note = note(id), let property = readProperty(of: note) else { return }
         do {
             let disk = try NoteReader.read(note)
-            let marked = Clipping.markingRead(disk)
-            if marked != disk { _ = try NoteWriter.write(marked, to: note.url, expecting: disk, ifChanged: .saveCopy) }
-            noteDetails[id, default: NoteDetail()].read = Clipping.today()
+            let marked = NoteKinds.markingRead(disk, property: property, on: Clipping.today())
+            // Keeping its date edited, so a list in that order doesn't move.
+            if marked != disk { _ = try NoteWriter.write(marked, to: note.url, expecting: disk, ifChanged: .saveCopy, keepingDate: true) }
+            showRead(id, true)
             // Read: next time, it opens at the top.
             places.forget(id)
             let filed = isWaiting(note)
@@ -674,14 +720,30 @@ final class PhoneStore: ObservableObject {
         }
     }
 
+    /// Mark unread: its kind's `read` emptied. From a list.
+    func markUnread(_ id: Note.ID) {
+        guard let note = note(id), let property = readProperty(of: note) else { return }
+        do {
+            let disk = try NoteReader.read(note)
+            let marked = NoteKinds.markingUnread(disk, property: property)
+            if marked != disk { _ = try NoteWriter.write(marked, to: note.url, expecting: disk, ifChanged: .saveCopy, keepingDate: true) }
+            showRead(id, false)
+            show(ClipStatus(text: "Marked unread", symbol: "circle"))
+            refresh()
+        } catch {
+            listProblem = "Point couldn’t mark “\(note.title)” unread (\(error.localizedDescription))."
+        }
+    }
+
     /// A note just marked read where it's open, so lists show it before the index catches up.
-    func noteMarkedRead(_ id: Note.ID) { noteDetails[id, default: NoteDetail()].read = Clipping.today() }
+    func noteMarkedRead(_ id: Note.ID) { showRead(id, true) }
 
     /// Moves a clip into Sources, making the folder if the vault hasn't one.
     func fileInSources(_ id: Note.ID) throws -> (note: Note, links: Task<Void, Never>) {
         try FileManager.default.createDirectory(at: root.appendingPathComponent(Clipping.readFolder), withIntermediateDirectories: true)
         let moved = try move(id, toFolder: Clipping.readFolder)
         if let detail = noteDetails.removeValue(forKey: id) { noteDetails[moved.note.id] = detail }
+        if let look = listLooks.removeValue(forKey: id) { listLooks[moved.note.id] = look }
         return moved
     }
 

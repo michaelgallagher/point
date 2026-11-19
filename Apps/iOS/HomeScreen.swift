@@ -570,19 +570,28 @@ struct KindScreen: View {
     }
 }
 
-/// Watches the query, which runs in the background, and lists what it finds. The clip kind's
-/// list can show only what's not yet read, chosen under its title.
+/// Watches the query, which runs in the background, and lists what it finds. A kind whose
+/// notes say when they were read (the clip kind, or one with `read`) can show only what's not
+/// yet read, chosen under its title.
 private struct KindNotes: View {
     @EnvironmentObject private var store: PhoneStore
     let name: String
     @ObservedObject var embeds: PhoneEmbeds
-    /// Kept on the phone.
-    @AppStorage("mediaUnreadOnly") private var unreadOnly = false
+    /// Kept on the phone, for each kind.
+    @AppStorage private var unreadOnly: Bool
+
+    init(name: String, embeds: PhoneEmbeds) {
+        self.name = name
+        self.embeds = embeds
+        // The clip kind's under the name it had when only clips could be read.
+        let key = ["media", "clipping", "clippings", "clip"].contains(name.lowercased()) ? "mediaUnreadOnly" : "unreadOnly." + name.lowercased()
+        _unreadOnly = AppStorage(wrappedValue: false, key)
+    }
 
     var body: some View {
         let ids = embeds.noteIDs(matching: NoteQuery([.property(store.kinds.property, .equals(name))]))
         let found = Set(ids ?? [])
-        let isClips = Clipping.kind(in: store.kinds)?.name == name
+        let isClips = store.tracksReading(kind: name)
         let filters = unreadOnly && isClips
         let notes = store.notes.filter { found.contains($0.id) && !(filters && store.isRead($0)) }.sorted(by: store.sort)
         List {
@@ -1066,8 +1075,9 @@ private struct SortOrders: View {
 }
 
 /// A note in a list: under its title, what it is or where (`PhoneStore.detail(of:)`), and the
-/// date if given; a clip has a check at its left once read. A bookmark on long-press, and a
-/// clip not yet read or filed can be marked read (and filed in Sources) with a swipe.
+/// date if given. A note that says when it was read (a clip, or a kind with `read`) has a
+/// check at its right once read, and is marked read (a clip, filed in Sources too) or unread
+/// with a swipe or on long-press, with a bookmark.
 private struct NoteLink: View {
     @EnvironmentObject private var store: PhoneStore
     let note: Note
@@ -1076,25 +1086,35 @@ private struct NoteLink: View {
     var inFolder = false
 
     var body: some View {
-        let isClip = store.isClip(note)
-        let isRead = isClip && store.isRead(note)
+        let canRead = store.canMarkRead(note)
+        let isRead = canRead && store.isRead(note)
         NavigationLink(value: Route.note(note.id)) {
             NoteRow(title: title ?? note.title,
                     detail: [store.detail(of: note, inFolder: inFolder), date].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
-                    isList: store.listNoteIDs.contains(note.id), read: isClip ? isRead : nil)
+                    isList: store.listNoteIDs.contains(note.id), read: canRead ? isRead : nil)
         }
         .contextMenu {
+            if canRead {
+                if isRead {
+                    Button("Mark as unread", systemImage: "circle") { store.markUnread(note.id) }
+                } else {
+                    Button("Mark as read", systemImage: "checkmark.circle") { store.markReadAndFile(note.id) }
+                }
+            }
             let bookmarked = store.isBookmarked(note.id)
             Button(bookmarked ? "Remove bookmark" : "Bookmark", systemImage: bookmarked ? "bookmark.slash" : "bookmark") {
                 store.toggleBookmark(note.id)
             }
         }
         .swipeActions(edge: .leading) {
-            if isClip, !isRead || store.isWaiting(note) {
+            if canRead, !isRead || store.isWaiting(note) {
                 Button(store.isWaiting(note) ? "Read, to Sources" : "Read", systemImage: "checkmark") {
                     store.markReadAndFile(note.id)
                 }
                 .tint(.green)
+            } else if canRead {
+                Button("Unread", systemImage: "circle") { store.markUnread(note.id) }
+                    .tint(.blue)
             }
         }
     }
