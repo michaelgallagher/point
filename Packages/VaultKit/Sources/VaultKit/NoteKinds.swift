@@ -196,7 +196,7 @@ public struct NoteKinds: Sendable, Equatable {
 
     /// A value as a list shows it: a link by its name (or the text it's shown as), not its
     /// brackets; `false` and `no` as nothing, so `read: false` is unread.
-    static func shownValue(_ value: String) -> String {
+    public static func shownValue(_ value: String) -> String {
         var value = value.trimmingCharacters(in: .whitespaces)
         if ["false", "no"].contains(value.lowercased()) { return "" }
         if value.hasPrefix("[["), value.hasSuffix("]]"), value.count > 4 {

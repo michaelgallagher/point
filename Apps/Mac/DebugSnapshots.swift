@@ -322,6 +322,45 @@ enum DebugSnapshots {
                 }
             }
         }
+        // `-PointFilters "#work|status:draft|is:unread"`: types each in the filter field in turn,
+        // a second apart (so the index answers), and traces the notes left and how long the
+        // rows took; the last stays typed.
+        if let spec = UserDefaults.standard.string(forKey: "PointFilters") {
+            for (step, text) in spec.split(separator: "|").map(String.init).enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4 + Double(step) * 1.2) { model.noteFilter = text }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4.8 + Double(step) * 1.2) {
+                    var took = Double.infinity
+                    var rows: [SidebarRow] = []
+                    for _ in 0..<3 {
+                        let start = Date()
+                        rows = model.sidebarRows(collapsed: [], content: .notes)
+                        took = min(took, Date().timeIntervalSince(start) * 1000)
+                    }
+                    let titles = rows.compactMap { row -> String? in
+                        if case .note(let id) = row { return model.note(id)?.title }
+                        return nil
+                    }
+                    let suggestStart = Date()
+                    let suggested = model.filterSuggestions()
+                    Trace.mark("suggest \"\(text)\" in \(String(format: "%.1f", Date().timeIntervalSince(suggestStart) * 1000)) ms: \(suggested.map(\.label).joined(separator: ", "))")
+                    Trace.mark("filter \"\(text)\": words \"\(model.filterText.words)\" terms \(model.filterText.filters.count) unread \(String(describing: model.filterText.unread)) index \(model.filterMatches.map { String($0.count) } ?? "-"); \(titles.count) notes in \(String(format: "%.1f", took)) ms: \(titles.prefix(12).joined(separator: ", "))")
+                }
+            }
+        }
+        // `-PointFilterMenu YES`: traces the filter button's menu, once the notes are in.
+        if UserDefaults.standard.bool(forKey: "PointFilterMenu") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { _ = model.filterFacets }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                func trace(_ menu: NSMenu, depth: Int) {
+                    for item in menu.items.prefix(8) {
+                        let mark = item.state == .on ? "✓ " : item.state == .mixed ? "– " : ""
+                        Trace.mark("menu: " + String(repeating: "  ", count: depth) + (item.isSeparatorItem ? "---" : mark + item.title))
+                        if let sub = item.submenu { trace(sub, depth: depth + 1) }
+                    }
+                }
+                trace(FilterMenuButton.menu(for: model), depth: 0)
+            }
+        }
         // `-PointRenameTest "tag:work|job"` (or `property:name|new`, `value:name|value|new`): renames
         // across the vault, traces each note's text, undoes, and traces them again.
         if let spec = UserDefaults.standard.string(forKey: "PointRenameTest") {

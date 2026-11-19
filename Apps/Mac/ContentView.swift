@@ -293,22 +293,26 @@ private struct NoteList: View {
     /// and notes showing; in two, the notes, with how they're sorted on its right (in one
     /// column, that's in the Notes section's label). Searching the whole vault is the explorer's.
     private var filterField: some View {
-        HStack(spacing: Self.fieldPadding - Self.sortInset) {
-            SearchField(text: $model.noteFilter, prompt: "Filter", isFocused: $searchFocused, height: Self.fieldHeight) {
+        HStack(alignment: .bottom, spacing: Self.fieldPadding - Self.sortInset) {
+            FilterField(isFocused: $searchFocused, height: Self.fieldHeight) {
                 // Return opens the top note.
                 if let first = model.sidebarRows(collapsed: [], content: content).lazy.compactMap(\.noteID).first { model.selection = first }
             }
-            if showsSort, model.tracksReading(model.place) {
-                UnreadFilterButton()
+            if showsSort {
+                FilterMenuButton()
+                    .frame(height: Self.fieldHeight)
             }
             if showsSort {
                 // A plain icon, as in the top bars.
                 SortButton(opensUpward: true)
+                    .frame(height: Self.fieldHeight)
             }
         }
         .padding(.leading, Self.fieldPadding)
         .padding(.trailing, showsSort ? Self.fieldPadding - Self.sortInset : Self.fieldPadding)
-        .frame(height: Self.footHeight)
+        // The field's row is the foot's height; suggestions above it make the stack taller,
+        // over the list.
+        .padding(.vertical, Self.fieldPadding)
     }
 
     private var content: SidebarTable.Content { includesPlaces ? .everything : .notes }
@@ -329,9 +333,9 @@ private struct NoteList: View {
                         Text(message)
                             .foregroundStyle(.secondary)
                     }
-                } else if !model.noteFilter.isEmpty || content == .notes && model.showsOnlyUnread,
+                } else if model.isFiltering || content == .notes && model.showsOnlyUnread,
                           !model.sidebarRows(collapsed: [], content: content).contains(where: \.isItem) {
-                    Text(model.noteFilter.isEmpty ? "No unread notes" : "No matches")
+                    Text(model.isFiltering ? "No matches" : "No unread notes")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -450,36 +454,237 @@ extension SidebarPlace {
     }
 }
 
-/// The filter field at the foot of the sidebar's list.
-private struct SearchField: View {
-    @Binding var text: String
-    var prompt = "Search"
+/// The filter field at the foot of the sidebar's list: tokens for what notes must be
+/// (`Topics: design`, `#work`, `Unread`), then what's typed, matched with titles. While a word
+/// is typed, what it could mean among the notes here is suggested above the field; picking
+/// one (with the arrow keys and Return, or a click) makes it a token. Terms typed in full
+/// (`#work`, `has:read`) become tokens at a space.
+private struct FilterField: View {
+    @EnvironmentObject private var model: VaultModel
     var isFocused: FocusState<Bool>.Binding
     /// The sidebar's row height, so the field is as tall as a selected row.
     let height: CGFloat
     let onSubmit: () -> Void
+    /// The suggestion chosen with the arrow keys, if any.
+    @State private var highlighted: Int?
+    /// Escape hides the suggestions until the text changes.
+    @State private var dismissed = false
+
+    private var suggestions: [VaultModel.FilterSuggestion] {
+        isFocused.wrappedValue && !dismissed ? model.filterSuggestions() : []
+    }
 
     var body: some View {
-        HStack(spacing: 6) {
+        let suggestions = suggestions
+        // The suggestions above the field, in the same stack (not an overlay reaching out of
+        // it, where glass isn't drawn).
+        VStack(spacing: 6) {
+            if !suggestions.isEmpty {
+                FilterSuggestionList(suggestions: suggestions, highlighted: $highlighted, pick: pick)
+            }
+            field
+        }
+        .help("Filter by title, or pick a tag, a property's value or a time as you type")
+        // Backspace in an empty field takes the last token away. (The text field takes the
+        // key before `onKeyPress` would see it.)
+        .onAppear {
+            deleteMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [model] event in
+                guard event.keyCode == 51, isFocused.wrappedValue, model.noteFilter.isEmpty, !model.filterTokens.isEmpty,
+                      event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty else { return event }
+                model.filterTokens.removeLast()
+                return nil
+            }
+        }
+        .onDisappear {
+            if let deleteMonitor { NSEvent.removeMonitor(deleteMonitor) }
+            deleteMonitor = nil
+        }
+    }
+
+    private var field: some View {
+        let suggestions = suggestions
+        return HStack(spacing: 4) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField(prompt, text: $text)
-                .textFieldStyle(.plain)
-                .focused(isFocused)
-                .onSubmit(onSubmit)
-                .onExitCommand { text = "" }
-            if !text.isEmpty {
-                Button { text = "" } label: {
+                .padding(.trailing, 2)
+            // Tokens first, as wide as their names while there's room, then the text.
+            TokenLine {
+                ForEach(model.filterTokens, id: \.self) { term in
+                    FilterTokenView(term: term)
+                }
+                TextField(model.filterTokens.isEmpty ? "Filter" : "", text: $model.noteFilter)
+                    .textFieldStyle(.plain)
+                    .focused(isFocused)
+                    .frame(minWidth: 40)
+                    .onSubmit {
+                        model.takeTypedTerms(finished: true)
+                        onSubmit()
+                    }
+                    .onKeyPress(.downArrow) {
+                        guard !suggestions.isEmpty else { return .ignored }
+                        highlighted = min((highlighted ?? -1) + 1, suggestions.count - 1)
+                        return .handled
+                    }
+                    .onKeyPress(.upArrow) {
+                        guard let current = highlighted else { return .ignored }
+                        highlighted = current == 0 ? nil : current - 1
+                        return .handled
+                    }
+                    .onKeyPress(.return) {
+                        guard let index = highlighted, index < suggestions.count else { return .ignored }
+                        pick(suggestions[index])
+                        return .handled
+                    }
+                    .onKeyPress(.escape) {
+                        if !suggestions.isEmpty {
+                            dismissed = true
+                            highlighted = nil
+                        } else {
+                            model.clearFilter()
+                        }
+                        return .handled
+                    }
+                    .onChange(of: model.noteFilter) {
+                        highlighted = nil
+                        dismissed = false
+                        model.takeTypedTerms()
+                    }
+            }
+            if model.isFiltering {
+                Button { model.clearFilter() } label: {
                     Image(systemName: "xmark.circle.fill")
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.tertiary)
-                .help("Clear search")
+                .help("Clear filter")
             }
         }
-        .padding(.horizontal, 10)
+        .padding(.leading, 10)
+        .padding(.trailing, 8)
         .frame(height: height)
         .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: PaneTabs.cornerRadius, style: .continuous))
+    }
+
+    @State private var deleteMonitor: Any?
+
+    private func pick(_ suggestion: VaultModel.FilterSuggestion) {
+        model.pickFilterSuggestion(suggestion)
+        highlighted = nil
+    }
+}
+
+/// The filter field's tokens and its text, in a row: the tokens as wide as they'd like while
+/// they fit with room for the text (`textWidth`); beyond that, the widest shortened first.
+private struct TokenLine: Layout {
+    var spacing: CGFloat = 4
+    var textWidth: CGFloat = 40
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let height = subviews.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
+        let ideal = subviews.dropLast().reduce(0) { $0 + $1.sizeThatFits(.unspecified).width + spacing } + textWidth
+        return CGSize(width: proposal.width ?? ideal, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let text = subviews.last else { return }
+        let tokens = Array(subviews.dropLast())
+        let ideals = tokens.map { $0.sizeThatFits(.unspecified).width }
+        let room = max(0, bounds.width - textWidth - spacing * CGFloat(tokens.count))
+        // The largest width every token can have so they all fit: the narrow keep theirs.
+        var cap = ideals.max() ?? 0
+        if ideals.reduce(0, +) > room {
+            var left = room, count = CGFloat(ideals.count)
+            for width in ideals.sorted() {
+                if width * count <= left { left -= width; count -= 1 } else { break }
+            }
+            cap = count > 0 ? left / count : 0
+        }
+        var x = bounds.minX
+        for (token, ideal) in zip(tokens, ideals) {
+            let offered = ProposedViewSize(width: min(ideal, cap), height: bounds.height)
+            token.place(at: CGPoint(x: x, y: bounds.midY), anchor: .leading, proposal: offered)
+            // As wide as it took: shortened text may be narrower than offered.
+            x += min(token.sizeThatFits(offered).width, ideal) + spacing
+        }
+        text.place(at: CGPoint(x: x, y: bounds.midY), anchor: .leading, proposal: ProposedViewSize(width: max(textWidth, bounds.maxX - x), height: bounds.height))
+    }
+}
+
+/// A term in the filter field, as a token: a click offers to turn it round or remove it.
+private struct FilterTokenView: View {
+    @EnvironmentObject private var model: VaultModel
+    let term: String
+    @State private var anchor = MenuAnchor.Holder()
+
+    var body: some View {
+        let negated = term.hasPrefix("-")
+        let label = FilterText.label(of: term)
+        // Its whole name, unless that's long: the field is narrow.
+        Text(label.count > 22 ? label.prefix(21) + "…" : label)
+            .font(.callout)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .foregroundStyle(negated ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.accentColor))
+            .background(Color.accentColor.opacity(negated ? 0.08 : 0.15), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .background(MenuAnchor(holder: anchor))
+            .contentShape(Rectangle())
+            .onTapGesture { showMenu() }
+            .help(negated ? "Notes without this. Click to include it or remove it." : "Click to leave these out, or remove it")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { showMenu() }
+    }
+
+    private func showMenu() {
+        guard let view = anchor.view else { return }
+        let menu = NSMenu()
+        menu.addItem(BlockMenuItem(term.hasPrefix("-") ? "Include" : "Leave Out") {
+            if let index = model.filterTokens.firstIndex(of: term) { model.filterTokens[index] = FilterText.toggled(term) }
+        })
+        menu.addItem(BlockMenuItem("Remove") { model.filterTokens.removeAll { $0 == term } })
+        // Opening above the token, as the field's other menus do.
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: view.bounds.height + 4 + menu.size.height), in: view)
+    }
+}
+
+/// What the word being typed could mean, above the field: values, tags, properties, times.
+private struct FilterSuggestionList: View {
+    let suggestions: [VaultModel.FilterSuggestion]
+    @Binding var highlighted: Int?
+    let pick: (VaultModel.FilterSuggestion) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, suggestion in
+                let isOn = highlighted == index
+                HStack(spacing: 8) {
+                    Image(systemName: suggestion.symbol)
+                        .frame(width: 16)
+                        .foregroundStyle(isOn ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
+                    Text(suggestion.label)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 8)
+                    if let count = suggestion.count {
+                        Text(count.formatted())
+                            .monospacedDigit()
+                            .foregroundStyle(isOn ? AnyShapeStyle(.white.opacity(0.8)) : AnyShapeStyle(.tertiary))
+                    }
+                }
+                .foregroundStyle(isOn ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                .padding(.horizontal, 8)
+                .frame(height: 24)
+                .background(isOn ? Color.accentColor : .clear, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .contentShape(Rectangle())
+                .onHover { if $0 { highlighted = index } }
+                .onTapGesture { pick(suggestion) }
+            }
+        }
+        .padding(5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // Floating over the list as a menu does, so in glass as menus are.
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 

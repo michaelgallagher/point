@@ -919,6 +919,7 @@ final class VaultModel: ObservableObject {
         panes = [NotePane()]
         activePane = 0
         noteFilter = ""
+        filterTokens = []
         place = .allNotes
     }
 
@@ -1383,6 +1384,197 @@ final class VaultModel: ObservableObject {
     /// whole vault is the explorer's (⌘E).
     @Published var noteFilter = ""
 
+    // MARK: Filter terms
+
+    /// The terms in the filter field shown as tokens, each as written (`#work`,
+    /// `topics:"service design"`, `-in:Archive`), before what's typed (`noteFilter`).
+    /// Cleared, as the text is, on going to another place.
+    @Published var filterTokens: [String] = []
+
+    /// Whether the vault has a property by this name (any case).
+    func isProperty(_ name: String) -> Bool {
+        if propertyNamesCache?.version != store.listVersion {
+            propertyNamesCache = (store.listVersion, Set(store.propertySummaries.map(\.id)))
+        }
+        return propertyNamesCache?.names.contains(name.lowercased()) ?? false
+    }
+
+    private var propertyNamesCache: (version: Int, names: Set<String>)?
+
+    /// The filter field, tokens and typed text, read: plain words for titles, and terms for
+    /// what else notes must be. Read once until it, or the vault's properties, change.
+    var filterText: FilterText {
+        let text = (filterTokens + [noteFilter]).joined(separator: " ")
+        let version = store.listVersion
+        if let cached = filterTextCache, cached.text == text, cached.version == version { return cached.filter }
+        let filter = FilterText(text) { self.isProperty($0) }
+        filterTextCache = (text, version, filter)
+        return filter
+    }
+
+    private var filterTextCache: (text: String, version: Int, filter: FilterText)?
+
+    /// Whether anything filters the list: tokens or text.
+    var isFiltering: Bool { !filterTokens.isEmpty || !noteFilter.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    /// Adds a term as a token, unless it's there already; its opposite (`#work` for `-#work`)
+    /// gives way to it.
+    func addFilterToken(_ term: String) {
+        filterTokens.removeAll { $0.lowercased() == FilterText.toggled(term).lowercased() }
+        if !hasFilterToken(term) { filterTokens.append(term) }
+    }
+
+    /// Whether this term is a token already, whatever its case (`topics:design` is `topics:Design`).
+    func hasFilterToken(_ term: String) -> Bool {
+        filterTokens.contains { $0.lowercased() == term.lowercased() }
+    }
+
+    /// Adds a term, or takes it away if it's there: for the filter menu.
+    func toggleFilterToken(_ term: String) {
+        if hasFilterToken(term) { filterTokens.removeAll { $0.lowercased() == term.lowercased() } } else { addFilterToken(term) }
+    }
+
+    /// Takes the terms typed so far out of the text, as tokens: each once it's finished (a
+    /// space after it, or Return when `finished`).
+    func takeTypedTerms(finished: Bool = false) {
+        let split = FilterText.splitting(noteFilter, finished: finished) { self.isProperty($0) }
+        guard !split.terms.isEmpty else { return }
+        split.terms.forEach(addFilterToken)
+        noteFilter = split.rest
+    }
+
+    /// Clears the field: tokens and text.
+    func clearFilter() {
+        filterTokens = []
+        noteFilter = ""
+    }
+
+    /// The tags and values the notes here have, to suggest and offer: from the index, in
+    /// the background, worked out again when the index or the place changes. Nil until the
+    /// first answer.
+    var filterFacets: FilterFacets? {
+        // Asked again when the notes here change in number, as when they first load, as well
+        // as when the index does.
+        let key = place.key + "|" + String(noteCount(of: place)), generation = store.indexGeneration
+        let asking = key + "|" + String(generation)
+        if facetsCache?.key != key || facetsCache?.generation != generation, let index = store.index, runningFacets != asking {
+            runningFacets = asking
+            let ids = notes(in: place).map(\.id)
+            Task {
+                let started = Date()
+                let facets = try? await index.facets(of: ids)
+                Trace.mark("facets \(key): \(ids.count) notes in \(Int(Date().timeIntervalSince(started) * 1000)) ms")
+                guard let facets, runningFacets == asking else { return }
+                runningFacets = nil
+                // The last answer stands for another place until its own comes.
+                facetsCache = (key, generation, facets)
+                objectWillChange.send()
+            }
+        }
+        return facetsCache?.facets
+    }
+
+    private var facetsCache: (key: String, generation: Int, facets: FilterFacets)?
+    private var runningFacets: String?
+
+    /// What the filter field offers for the word being typed: values, tags, properties and
+    /// times that match it, among the notes here. Picking one turns the word into its token.
+    struct FilterSuggestion: Identifiable, Equatable {
+        var term: String
+        var label: String
+        var symbol: String
+        var count: Int?
+        var id: String { term }
+    }
+
+    func filterSuggestions(limit: Int = 8) -> [FilterSuggestion] {
+        let text = noteFilter
+        guard let last = text.last, !last.isWhitespace else { return [] }
+        let word = FilterText.tokens(text).last ?? ""
+        let negated = word.hasPrefix("-") && word.count > 1
+        let body = negated ? String(word.dropFirst()) : word
+        // A lone `#` or `@` lists the tags or the times.
+        guard !body.isEmpty else { return [] }
+        let facets = filterFacets ?? FilterFacets()
+        var found: [FilterSuggestion] = []
+        func add(_ term: String, _ symbol: String, _ count: Int? = nil) {
+            let term = negated ? "-" + term : term
+            guard !found.contains(where: { $0.term.lowercased() == term.lowercased() }), !hasFilterToken(term) else { return }
+            found.append(FilterSuggestion(term: term, label: FilterText.label(of: term), symbol: symbol, count: count))
+        }
+        func matches(_ text: String, _ part: String) -> Int? {
+            guard !part.isEmpty else { return 1 }
+            let lowered = text.lowercased(), part = part.lowercased()
+            if lowered.hasPrefix(part) { return 0 }
+            if lowered.contains(" " + part) || lowered.contains("/" + part) { return 1 }
+            return lowered.contains(part) ? 2 : nil
+        }
+        func tags(_ part: String, limit: Int) {
+            facets.tags.compactMap { tag in matches(tag.value, part).map { ($0, tag) } }
+                .sorted { $0.0 != $1.0 ? $0.0 < $1.0 : $0.1.count > $1.1.count }
+                .prefix(limit).forEach { add(FilterText.term(tag: $0.1.value), "number", $0.1.count) }
+        }
+        func values(of properties: [FilterFacets.Property], _ part: String, limit: Int) {
+            var all: [(rank: Int, property: String, value: FilterFacets.Value)] = []
+            for property in properties where FilterText.canWrite(property: property.name) {
+                for value in property.values {
+                    if let rank = matches(value.value, part) { all.append((rank, property.name, value)) }
+                }
+            }
+            all.sorted { $0.rank != $1.rank ? $0.rank < $1.rank : $0.value.count > $1.value.count }
+                .prefix(limit).forEach { add(FilterText.term(property: $0.property, value: $0.value.value), "list.bullet", $0.value.count) }
+        }
+        if body.hasPrefix("#") {
+            tags(String(body.dropFirst()), limit: limit)
+        } else if let colon = body.firstIndex(of: ":"), let property = facets.property(String(body[..<colon])) {
+            // `topics:ser`: that property's values.
+            values(of: [property], String(body[body.index(after: colon)...]).replacingOccurrences(of: "\"", with: ""), limit: limit)
+        } else if !body.contains(":") {
+            let part = body.hasPrefix("@") ? String(body.dropFirst()) : body
+            if !body.hasPrefix("@") {
+                values(of: facets.properties, part, limit: 5)
+                tags(part, limit: 3)
+                if tracksReading(place) {
+                    if "unread".hasPrefix(part.lowercased()) { add("is:unread", "circle.fill") }
+                    if "read".hasPrefix(part.lowercased()) { add("is:read", "circle") }
+                }
+                for property in facets.properties where FilterText.canWrite(property: property.name) && property.name.lowercased().hasPrefix(part.lowercased()) {
+                    add("has:" + property.name.lowercased(), "list.bullet.rectangle", property.noteCount)
+                }
+            }
+            for (term, label) in FilterText.editedTerms {
+                let words = ["edited"] + label.lowercased().split(separator: " ").map(String.init) + [String(term.dropFirst())]
+                if words.contains(where: { $0.hasPrefix(part.lowercased()) }) { add(term, "clock") }
+            }
+        }
+        return Array(found.prefix(limit))
+    }
+
+    /// Picks a suggestion: the word being typed becomes its token.
+    func pickFilterSuggestion(_ suggestion: FilterSuggestion) {
+        var words = FilterText.tokens(noteFilter)
+        if !words.isEmpty { words.removeLast() }
+        addFilterToken(suggestion.term)
+        noteFilter = words.isEmpty ? "" : words.joined(separator: " ") + " "
+    }
+
+    /// The notes the filter's terms find, from the index (nil when it has no terms asked of
+    /// the index). While a new answer is on its way, the last one stands, so the list doesn't
+    /// flash empty as a term is typed.
+    var filterMatches: Set<Note.ID>? {
+        let filters = filterText.filters
+        guard !filters.isEmpty else { return nil }
+        let query = NoteQuery(filters, sort: [])
+        if let ids = store.noteIDs(matching: query) {
+            if filterMatchesCache?.query != query || filterMatchesCache?.count != ids.count || filterMatchesCache?.version != store.listVersion {
+                filterMatchesCache = (query, store.listVersion, ids.count, Set(ids))
+            }
+        }
+        return filterMatchesCache?.ids ?? []
+    }
+
+    private var filterMatchesCache: (query: NoteQuery, version: Int, count: Int, ids: Set<Note.ID>)?
+
     // MARK: Only unread
 
     /// Whether a place has notes that say when they were read (their kind has `read`): it
@@ -1427,6 +1619,7 @@ final class VaultModel: ObservableObject {
         Trace.mark("browse \(place.key)")
         if place.isTag { lastTagPlace = place } else { lastFolderPlace = place }
         noteFilter = ""
+        filterTokens = []
         if place == .trash { store.refreshTrash() } // Obsidian may have added to it.
         self.place = place
     }

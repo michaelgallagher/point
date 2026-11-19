@@ -173,3 +173,115 @@ struct NoteQueryTests {
         #expect(try JSONDecoder().decode(NoteQuery.self, from: data) == query)
     }
 }
+
+/// The filter field's words and terms (`FilterText`), read and then asked of an index.
+struct FilterTextTests {
+    let properties: Set<String> = ["status", "rating", "published", "people", "topics"]
+    func read(_ text: String, now: Date = Date()) -> FilterText {
+        FilterText(text, now: now) { properties.contains($0.lowercased()) }
+    }
+
+    @Test func plainWordsStayATitleMatch() {
+        let filter = read("  service   design ")
+        #expect(filter.words == "service design")
+        #expect(!filter.hasTerms)
+        #expect(filter.matchesTitle("Service Design notes"))
+        #expect(!filter.matchesTitle("Design of services"))
+        // A colon after a word that isn't a property is just text.
+        #expect(read("Re: plans").words == "Re: plans")
+        #expect(read("10:30 standup").words == "10:30 standup")
+        #expect(read("\"org design\"").words == "org design")
+    }
+
+    @Test func readsTerms() {
+        #expect(read("#writing").filters == [.tag("writing")])
+        #expect(read("-#draft").filters == [.not(.tag("draft"))])
+        #expect(read("status:draft").filters == [.property("status", .contains("draft"))])
+        #expect(read("topics:\"service design\" fonts").filters == [.property("topics", .contains("service design"))])
+        #expect(read("topics:\"service design\" fonts").words == "fonts")
+        #expect(read("rating>3").filters == [.property("rating", .greater("3"))])
+        #expect(read("published<2026-11-01").filters == [.property("published", .less("2026-11-01"))])
+        #expect(read("in:Posts").filters == [.folder("Posts")])
+        #expect(read("title:fonts").filters == [.field(.title, .contains("fonts"))])
+        #expect(read("has:status").filters == [.all([.property("status", .exists), .not(.property("status", .empty))])])
+        #expect(read("is:unread").unread == true)
+        #expect(read("is:read").unread == false)
+        #expect(read("-is:unread").unread == false)
+        #expect(read("@7d").filters == [.field(.modified, .withinLastDays(7))])
+        #expect(read("@nonsense").words == "@nonsense")
+    }
+
+    @Test func halfTypedTermsAreLeftOut() {
+        for text in ["#", "status:", "has:", "is:", "is:un", "@", "-"] {
+            let filter = read(text)
+            #expect(filter.filters.isEmpty, "\(text)")
+            #expect(filter.unread == nil, "\(text)")
+            #expect(text == "-" ? filter.words == "-" : filter.words.isEmpty, "\(text)")
+        }
+    }
+
+    @Test func termsFindNotesInTheIndex() async throws {
+        let vault = try await QueryVault(NoteQueryTests().files, modified: ["Inbox.md": "2026-11-18", "Posts/Fonts.md": "2026-11-10"])
+        defer { vault.cleanUp() }
+        let now = PropertyDate.parse("2026-11-19T12:00")!.date
+        func titles(_ text: String) async throws -> [String] { try await vault.titles(read(text, now: now).filters, now: now) }
+        #expect(try await titles("#writing") == ["Fonts", "Search"])
+        #expect(try await titles("status:draft") == ["Fonts", "Tables"])
+        #expect(try await titles("status:draft -in:Posts/Drafts") == ["Fonts"])
+        #expect(try await titles("people:sam") == ["Fonts", "Standup"])
+        #expect(try await titles("rating>3") == ["Fonts", "Search"])
+        #expect(try await titles("has:status") == ["Fonts", "Search", "Tables"])
+        #expect(try await titles("-has:status") == ["Inbox", "Standup"])
+        #expect(try await titles("@yesterday") == ["Inbox"])
+        #expect(try await titles("@thismonth -in:Posts/Drafts -in:Posts/Search").contains("Fonts"))
+    }
+}
+
+struct FilterTokenTests {
+    let isProperty: (String) -> Bool = { ["topics", "status"].contains($0.lowercased()) }
+
+    @Test func typedTermsBecomeTokensOnceFinished() {
+        var split = FilterText.splitting("#work design topics:ser", finished: false, isProperty: isProperty)
+        #expect(split.terms == ["#work"])
+        #expect(split.rest == "design topics:ser")
+        split = FilterText.splitting("#work design topics:service ", finished: false, isProperty: isProperty)
+        #expect(split.terms == ["#work", "topics:service"])
+        #expect(split.rest == "design ")
+        split = FilterText.splitting("topics:\"service design\"", finished: true, isProperty: isProperty)
+        #expect(split.terms == ["topics:\"service design\""])
+        #expect(split.rest == "")
+        // Half typed, and a colon in a title, stay text.
+        #expect(FilterText.splitting("topics: Re:plans ", finished: true, isProperty: isProperty).terms.isEmpty)
+    }
+
+    @Test func termsAreWrittenAndLabelled() {
+        #expect(FilterText.term(property: "Topics", value: "Service design") == "topics:\"Service design\"")
+        #expect(FilterText.term(tag: "#work") == "#work")
+        #expect(FilterText.toggled("#work") == "-#work")
+        #expect(FilterText.toggled("-#work") == "#work")
+        #expect(FilterText.label(of: "topics:\"Service design\"") == "Topics: Service design")
+        #expect(FilterText.label(of: "-status:draft") == "Status: not draft")
+        #expect(FilterText.label(of: "-#draft") == "Not #draft")
+        #expect(FilterText.label(of: "has:read") == "Has read")
+        #expect(FilterText.label(of: "-has:read") == "Without read")
+        #expect(FilterText.label(of: "is:unread") == "Unread")
+        #expect(FilterText.label(of: "-is:unread") == "Read")
+        #expect(FilterText.label(of: "@thisweek") == "Edited this week")
+        #expect(FilterText.label(of: "@7d") == "Edited in the last 7 days")
+        #expect(FilterText.label(of: "published>2020") == "Published after 2020")
+        #expect(FilterText.label(of: "-in:Archive") == "Not in Archive")
+    }
+
+    @Test func facetsCountTheGivenNotes() async throws {
+        let vault = try await QueryVault(NoteQueryTests().files)
+        defer { vault.cleanUp() }
+        let all = try await vault.index.facets(of: nil)
+        #expect(all.property("people")?.values.first == FilterFacets.Value(value: "Sam Lee", count: 2))
+        #expect(all.property("status")?.noteCount == 4)
+        #expect(all.property("status")?.values.map(\.value) == ["draft", "Published"])
+        #expect(all.tags.map(\.value).contains("writing"))
+        let posts = try await vault.index.facets(of: ["Posts/Search.md", "Posts/Drafts/Tables.md"])
+        #expect(posts.property("people") == nil)
+        #expect(posts.property("status")?.values == [FilterFacets.Value(value: "draft", count: 1), FilterFacets.Value(value: "Published", count: 1)])
+    }
+}

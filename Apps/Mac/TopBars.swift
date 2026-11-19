@@ -1,4 +1,5 @@
 import AppKit
+import IndexKit
 import SwiftUI
 import VaultKit
 
@@ -956,17 +957,82 @@ struct SortButton: View {
     }
 }
 
-/// Shows only the unread notes here, or all of them again: at the foot of a list whose notes
-/// say when they were read (Media, say), as Mail's filter does. On, it's filled and coloured.
-struct UnreadFilterButton: View {
+/// Filters the list from a menu, at its foot: only the unread (kept for the place, where its
+/// notes say when they were read, as Mail's filter does), when edited, and the tags and
+/// properties' values the notes here have. Each choice is a token in the field, ticked here
+/// while it's there; choosing it again takes it away. Filled and coloured while anything
+/// filters the list.
+struct FilterMenuButton: View {
     @EnvironmentObject private var model: VaultModel
 
+    /// How many tags and values a submenu lists, most used first.
+    private static let listed = 25
+
+    private func menu() -> NSMenu { Self.menu(for: model) }
+
+    static func menu(for model: VaultModel) -> NSMenu {
+        let menu = NSMenu()
+        func item(_ title: String, term: String, count: Int? = nil) -> NSMenuItem {
+            let item = BlockMenuItem(title) { model.toggleFilterToken(term) }
+            item.state = model.hasFilterToken(term) ? .on : model.hasFilterToken(FilterText.toggled(term)) ? .mixed : .off
+            if let count {
+                let text = NSMutableAttributedString(string: title + "  ")
+                text.append(NSAttributedString(string: count.formatted(), attributes: [.foregroundColor: NSColor.secondaryLabelColor]))
+                item.attributedTitle = text
+            }
+            return item
+        }
+        func submenu(_ title: String, _ items: [NSMenuItem]) -> NSMenuItem {
+            let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            let sub = NSMenu()
+            items.forEach(sub.addItem)
+            parent.submenu = sub
+            if items.contains(where: { $0.state != .off }) { parent.state = .on }
+            return parent
+        }
+        if model.tracksReading(model.place) {
+            let unread = BlockMenuItem("Only Unread") { model.toggleOnlyUnread() }
+            unread.state = model.showsOnlyUnread ? .on : .off
+            menu.addItem(unread)
+            menu.addItem(.separator())
+        }
+        menu.addItem(submenu("Edited", FilterText.editedTerms.map { item($0.label.capitalized, term: $0.term) }))
+        let facets = model.filterFacets ?? FilterFacets()
+        if !facets.tags.isEmpty {
+            menu.addItem(submenu("Tags", facets.tags.prefix(Self.listed).map { item("#" + $0.value, term: FilterText.term(tag: $0.value), count: $0.count) }))
+        }
+        let properties = facets.properties.filter { FilterText.canWrite(property: $0.name) }
+        if !properties.isEmpty {
+            menu.addItem(.separator())
+            for property in properties.prefix(12) {
+                let name = property.name.lowercased()
+                var items: [NSMenuItem] = []
+                // Values worth picking: some given by more than one note. (Dates and prose
+                // differ note by note.)
+                if property.values.contains(where: { $0.count > 1 }) {
+                    items += property.values.prefix(Self.listed).map { item($0.value, term: FilterText.term(property: name, value: $0.value), count: $0.count) }
+                    items.append(.separator())
+                }
+                items.append(item("Has Any Value", term: "has:" + name))
+                items.append(item("Has No Value", term: "-has:" + name))
+                menu.addItem(submenu(property.name.prefix(1).uppercased() + property.name.dropFirst(), items))
+            }
+        }
+        if model.isFiltering || model.showsOnlyUnread {
+            menu.addItem(.separator())
+            menu.addItem(BlockMenuItem("Clear Filter") {
+                model.clearFilter()
+                if model.showsOnlyUnread { model.toggleOnlyUnread() }
+            })
+        }
+        return menu
+    }
+
     var body: some View {
-        let isOn = model.showsOnlyUnread
-        BarIcon(symbol: isOn ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle",
-                label: isOn ? "Show all notes" : "Show only unread notes",
-                help: isOn ? "Showing only unread notes. Click to show all." : "Show only unread notes",
-                tint: isOn ? .accentColor : nil) { model.toggleOnlyUnread() }
+        let isOn = model.showsOnlyUnread || !model.filterTokens.isEmpty
+        BarMenu("Filter", systemImage: isOn ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle",
+                help: "Filter these notes", opensUpward: true, tint: isOn ? .accentColor : nil, menu: menu)
+            .onAppear { _ = model.filterFacets }
             .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 }
@@ -1194,15 +1260,18 @@ struct BarMenu: View {
     let systemImage: String
     let help: String
     var opensUpward = false
+    /// A colour for an icon that's on (a filter in use).
+    var tint: Color?
     let menu: () -> NSMenu
     @State private var anchor = MenuAnchor.Holder()
     @State private var isHovering = false
 
-    init(_ title: String, systemImage: String, help: String, opensUpward: Bool = false, menu: @escaping () -> NSMenu) {
+    init(_ title: String, systemImage: String, help: String, opensUpward: Bool = false, tint: Color? = nil, menu: @escaping () -> NSMenu) {
         self.title = title
         self.systemImage = systemImage
         self.help = help
         self.opensUpward = opensUpward
+        self.tint = tint
         self.menu = menu
     }
 
@@ -1210,7 +1279,7 @@ struct BarMenu: View {
         if #available(macOS 26, *) {
             // Drawn as the other bar icons are; over it, an invisible system pull-down takes
             // the click, so macOS places the menu and opens it from the button.
-            BarIconFace(symbol: systemImage, isHovering: isHovering)
+            BarIconFace(symbol: systemImage, isHovering: isHovering, tint: tint)
                 .overlay {
                     GlassPullDown(title: title, systemImage: systemImage, help: help, opensUpward: opensUpward, menu: menu)
                 }

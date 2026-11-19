@@ -59,7 +59,7 @@ public struct Mention: Sendable, Identifiable, Equatable {
 public actor SearchIndex {
     static let schemaVersion = "8" // 8: typed property values, kinds of link, folders and dates, for queries.
 
-    private let db: Database
+    let db: Database
     /// Notes the last update couldn't read: kept as they were last indexed (or by title only,
     /// if new), and tried again by the next update.
     public private(set) var unreadableNotes: [Note.ID] = []

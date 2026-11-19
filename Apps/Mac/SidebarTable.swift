@@ -1,5 +1,6 @@
 import AppKit
 import EditorKit
+import IndexKit
 import SwiftUI
 import VaultKit
 
@@ -90,14 +91,21 @@ extension VaultModel {
     func sidebarRows(collapsed: Set<SidebarSection>, expanded: Set<String> = [], content: SidebarTable.Content = .everything) -> [SidebarRow] {
         // The two-column view's tree is always the top level, wherever its notes are.
         let place = content == .places ? SidebarPlace.allNotes : place
-        let filter = content == .places ? "" : noteFilter.trimmingCharacters(in: .whitespaces)
-        func shows(_ name: String) -> Bool { filter.isEmpty || name.localizedStandardContains(filter) }
-        // Only the unread, if asked here, and the note open from the list while it's open:
-        // marking it read doesn't whisk it away.
-        // (Two columns only: one has nowhere to turn it off.)
-        let onlyUnread = content == .notes && showsOnlyUnread
+        let filterText = content == .places ? FilterText("") { _ in false } : filterText
+        let filtering = !filterText.isEmpty
+        // Folders, tags and images by name, while the filter is plain words; terms are about
+        // notes, so with any, only notes show.
+        func shows(_ name: String) -> Bool { !filterText.hasTerms && filterText.matchesTitle(name) }
+        let matches = filterMatches
+        // Only the unread, if asked here or typed (`is:unread`), and the note open from the
+        // list while it's open: marking it read doesn't whisk it away. (The button is two
+        // columns only: one has nowhere to turn it off.)
+        let unread: Bool? = filterText.unread ?? (content == .notes && showsOnlyUnread ? true : nil)
         func shows(_ note: Note) -> Bool {
-            shows(note.title) && (!onlyUnread || store.isUnread(note.id) || note.id == selection)
+            guard filterText.matchesTitle(note.title) else { return false }
+            if let matches, !matches.contains(note.id) { return false }
+            guard let unread, note.id != selection else { return true }
+            return unread ? store.isUnread(note.id) : store.canMarkRead(note.id) && !store.isUnread(note.id)
         }
         if content != .places, place == .trash { return trashedNotes.filter { shows($0.title) }.map { .trashed($0) } }
         let images = content == .places ? [] : store.images(in: place).filter { shows($0.name) }
@@ -106,11 +114,11 @@ extension VaultModel {
         // above the notes.
         guard content != .notes || place.isProperty || place == .types else { return noteRows(notes(in: place).filter { shows($0) }) + images.map { .image($0.path) } }
         // Filtering, folded sections open, so what matches in them shows.
-        let collapsed = filter.isEmpty ? collapsed : []
+        let collapsed = filtering ? [] : collapsed
         var sections: [[SidebarRow]] = []
         func section(_ name: SidebarSection, _ rows: [SidebarRow]) -> [SidebarRow] {
             // A section with nothing left that matches goes, label and all.
-            if !filter.isEmpty, rows.isEmpty { return [] }
+            if filtering, rows.isEmpty { return [] }
             return [.header(name)] + (collapsed.contains(name) ? [] : rows)
         }
         func places(_ rows: [SidebarRow]) -> [SidebarRow] {
@@ -153,7 +161,7 @@ extension VaultModel {
             if !twoColumns, showsTags { special.append(.tags) }
             special.append(.trash)
             sections.append(places(special.map { .place($0, depth: 0) })
-                            + (oneAtATime && filter.isEmpty ? [.treeSwitch] : []))
+                            + (oneAtATime && !filtering ? [.treeSwitch] : []))
             if !pins.isEmpty { sections.append(section(.pinned, places(pins.map { .place($0, depth: 0) }))) }
             // Shown one at a time, folders or tags have no label of their own, and can't be
             // folded away: the switch names them, and folding the only one would leave nothing.
