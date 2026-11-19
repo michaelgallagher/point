@@ -502,7 +502,8 @@ struct SidebarTable: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             switch rows[row] {
-            case .header, .dateGroup: return model.sidebarDensity.headerHeight
+            case .dateGroup: return model.sidebarDensity.headerHeight + (dividesAbove(row) ? Self.groupLineRoom : 0)
+            case .header: return model.sidebarDensity.headerHeight
             case .divider: return model.sidebarDensity.dividerHeight
             case .place, .trashed, .image: return model.sidebarDensity.rowHeight
             case .treeSwitch: return model.sidebarDensity.rowHeight + 18
@@ -623,9 +624,20 @@ struct SidebarTable: NSViewRepresentable {
             let cell = tableView.makeView(withIdentifier: identifier, owner: nil) as? HostingCell ?? HostingCell()
             cell.identifier = identifier
             cell.show(SidebarRowView(row: rows[row], model: model, collapsed: parent.collapsed, expanded: parent.expanded,
-                                     wrapsTitles: wrapsTitles, rowWidth: tableView.bounds.width - SidebarTableView.rowInset * 2))
+                                     wrapsTitles: wrapsTitles, rowWidth: tableView.bounds.width - SidebarTableView.rowInset * 2,
+                                     dividesAbove: dividesAbove(row)))
             return cell
         }
+
+        /// Whether a date's label has a line above it, to part its notes from the group before:
+        /// only after another group's notes, not at the top of the list or under a label.
+        private func dividesAbove(_ row: Int) -> Bool {
+            guard case .dateGroup = rows[row], row > 0, case .note = rows[row - 1] else { return false }
+            return true
+        }
+
+        /// The room above a date's label taken by its line.
+        static let groupLineRoom: CGFloat = 8
 
         func tableViewSelectionDidChange(_ notification: Notification) {
             guard !isSyncingSelection, let table, table.selectedRow >= 0 else { return }
@@ -1029,6 +1041,8 @@ struct SidebarRowView: View {
     var rowWidth: CGFloat?
     /// Selected, on the blue highlight: text and icons go white.
     var isEmphasized = false
+    /// For a date's label after another group's notes: a line above it.
+    var dividesAbove = false
     /// Where a folder's or tag's row starts (its icon), indented by depth.
     static func placeStart(depth: Int) -> CGFloat { 8 + CGFloat(depth) * 14 }
     static let iconWidth: CGFloat = 16
@@ -1108,6 +1122,15 @@ struct SidebarRowView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                 .padding(.horizontal, 8)
                 .padding(.bottom, 5)
+                // A line at the top, parting this group from the one before, a little below
+                // the last note so it doesn't crowd it.
+                .overlay(alignment: .top) {
+                    if dividesAbove {
+                        Divider()
+                            .padding(.horizontal, 8)
+                            .padding(.top, SidebarTable.Coordinator.groupLineRoom - 1)
+                    }
+                }
         case .count(let label):
             Text(label)
                 .lineLimit(1)
