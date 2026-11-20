@@ -19,7 +19,7 @@ Typing `/` in a note opens a small menu at the cursor, of things to put in or do
 
 In this order, with nothing typed after the `/`:
 
-1. **List:** puts in an empty `list` block on its own lines (as Insert List does), and opens its filters on the Mac. On the iPhone, which can't edit a list yet, the list starts as every note, changed later on the Mac.
+1. **List:** puts in an empty `list` block on its own lines (as Insert List does), and opens its filters on the Mac. On the iPhone its filters open too, once [Editing lists on the iPhone](iphone-list-editing.md) is built.
 2. **Table, callout** (then its type: note, tip, warning…), **code block** (then its language, or none), **divider.**
 3. **Link to a note, embed a note** (the note chosen as `[[` chooses it), **image** (from Files or Photos on the iPhone, a file on the Mac).
 4. **Today's date, the time; today's note, tomorrow's note** (links to the daily notes).

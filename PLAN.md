@@ -48,6 +48,7 @@ Mike travels soon with the laptop and the iPhone, and wants to use Point on both
 - [Milestones](plan/milestones.md): M0 to M6.
 
 **Work, newest first**
+- [Editing lists on the iPhone](plan/iphone-list-editing.md) (20 November, planned, on `inline-lists`): a list note's or a `list` block's filters, sort and columns changed on the phone, in a sheet, written as one undoable edit.
 - [Slash commands](plan/slash-commands.md) (20 November, planned, after lists written in a note): typing `/` opens a menu at the cursor, on the Mac and the iPhone, of things to put in (a list, table, callout, date, link…); and fences close themselves on Return.
 - [Lists written in a note](plan/inline-lists.md) (20 November, planned, branch `inline-lists`): a ```` ```list ```` block partway through a note, holding a list's filters, shown as its table; the first 10 rows, then Show all unfolding in place.
 - [Branches: what's active](plan/branches-2026-11-16.md) (16 November, 07:43): the branches not merged into `main`, mostly the flat-header experiments, and what each is for.
