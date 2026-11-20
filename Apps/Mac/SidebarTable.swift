@@ -91,7 +91,7 @@ extension VaultModel {
         switch place {
         case .folder(let path): path
         case .tag(let tag): "#" + tag
-        case .allNotes, .everything, .bookmarks, .trash, .properties, .property, .propertyValue, .types, .kind, .tags, .lists: ""
+        case .allNotes, .everything, .bookmarks, .trash, .properties, .property, .propertyValue, .types, .kind, .tags, .lists, .recent: ""
         }
     }
 
@@ -164,12 +164,12 @@ extension VaultModel {
             // (in two, they're sections of the tree, under folders). Then the switch between
             // folders and tags, if they show one at a time: below these, which it doesn't change.
             let oneAtATime = twoColumns && treeLayout == .toggle
-            var special: [SidebarPlace] = [.everything] + (store.showsBookmarksInSidebar ? [.bookmarks] : [])
+            var special: [SidebarPlace] = [.everything] + (store.showsRecentInSidebar ? [.recent] : []) + (store.showsBookmarksInSidebar ? [.bookmarks] : [])
             // The types chosen in Settings, then every list, under Bookmarks.
             special += store.shownSidebarKinds.map { .kind(store.kinds.property, $0.name) }
             if store.showsListsInSidebar, !store.listNoteIDs.isEmpty { special.append(.lists) }
             // The templates and attachments folders, as places of their own (not in the tree).
-            special += store.specialFolders.map { .folder($0.path) }
+            special += store.shownSpecialFolders.map { .folder($0.path) }
             // Tags open their own list in one column (in two, they're under folders). Types
             // are only those chosen, above; properties are managed in Settings, not here.
             if !twoColumns, showsTags { special.append(.tags) }
@@ -232,7 +232,8 @@ extension VaultModel {
     /// Notes' rows: under headings by date, when the list shows dates that way and is sorted
     /// by a date.
     func noteRows(_ notes: [Note]) -> [SidebarRow] {
-        guard listDateStyle == .groups, sort != .title else { return notes.map { .note($0.id) } }
+        // Recent keeps the order they were opened in, newest first, without dates.
+        guard listDateStyle == .groups, sort != .title, place != .recent else { return notes.map { .note($0.id) } }
         return NoteDateGroup.grouped(notes, by: sort).flatMap { group in
             [SidebarRow.dateGroup(group.label, first: group.notes[0].id)] + group.notes.map { .note($0.id) }
         }
@@ -534,7 +535,7 @@ struct SidebarTable: NSViewRepresentable {
             func depth(_ place: SidebarPlace) -> Int {
                 switch place {
                 case .allNotes: 0
-                case .everything, .bookmarks, .trash, .properties, .types, .tags, .lists: 1
+                case .everything, .bookmarks, .trash, .properties, .types, .tags, .lists, .recent: 1
                 case .property, .kind: 2
                 case .propertyValue: 3
                 case .folder(let path), .tag(let path): path.split(separator: "/").count
@@ -1413,7 +1414,7 @@ struct SidebarRowView: View {
                 }
                 Spacer(minLength: 4)
                 if place != .allNotes {
-                    Text("\(model.noteCount(of: place))")
+                    Text("\(model.store.sidebarCount(of: place))")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                         .monospacedDigit()
@@ -1483,7 +1484,12 @@ struct SidebarNoteRow: View {
         model.listDateStyle == .beside || (model.listDateStyle == .groups && model.sort == .title)
     }
 
-    private var indent: CGFloat { model.listDateStyle == .groups && model.sort != .title ? 12 : 0 }
+    /// Notes stand in from their date headings; and wherever a note may be unread, so its dot
+    /// has room in the margin (in Recent, say, or sorted by title).
+    private var indent: CGFloat {
+        let grouped = model.listDateStyle == .groups && model.sort != .title && model.place != .recent
+        return grouped || model.store.tracksReading ? 12 : 0
+    }
 
     /// A list note is marked: with "List" at the row's right where that's free (under date
     /// headings, or with dates off), else with a symbol before its title.
@@ -1645,6 +1651,7 @@ extension SidebarPlace {
         case .tags: "number"
         case .kind: "doc.text"
         case .lists: "list.bullet.rectangle.portrait"
+        case .recent: "clock"
         }
     }
 }

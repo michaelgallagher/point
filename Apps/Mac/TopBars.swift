@@ -423,10 +423,10 @@ struct PaneTabs: View {
     let pane: VaultModel.NotePane
     let paneIndex: Int
 
-    /// As tall as a sidebar row's selection (a medium sidebar row), with its corners, as
-    /// measured from the window on macOS 26.
-    static let height: CGFloat = 32
-    static let cornerRadius: CGFloat = 8
+    /// The rail around the tabs: a tab inside it is as tall as a sidebar row's selection (a
+    /// medium sidebar row) and the filter field.
+    static let height: CGFloat = PaneTab.height + inset * 2
+    static let cornerRadius: CGFloat = 10
     /// Between a tab and the rail around it.
     static let inset: CGFloat = 2
     static let spacing: CGFloat = 2
@@ -761,7 +761,8 @@ private struct PaneTab: View {
     let menu: () -> NSMenu
     @State private var isHovering = false
 
-    static let height: CGFloat = PaneTabs.height - PaneTabs.inset * 2
+    /// As tall as a sidebar row's selection, as measured from the window on macOS 26.
+    static let height: CGFloat = 32
     static let cornerRadius: CGFloat = PaneTabs.cornerRadius - PaneTabs.inset
     static let fontSize: CGFloat = 13
     /// Before the title.

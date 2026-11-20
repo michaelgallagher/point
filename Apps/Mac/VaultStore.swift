@@ -42,6 +42,7 @@ final class VaultStore: ObservableObject {
     @Published private(set) var notes: [Note] = [] {
         didSet {
             listVersion += 1
+            recentCache = nil
             notesByID = Dictionary(notes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             folderTree = FolderTree(notes: notes, folders: folders)
             // Only when notes come, go or are renamed, not when one is saved.
@@ -1145,6 +1146,39 @@ final class VaultStore: ObservableObject {
     @Published var showsTagsInSidebar = UserDefaults.standard.object(forKey: "showsTagsInSidebar") == nil || UserDefaults.standard.bool(forKey: "showsTagsInSidebar") {
         didSet { UserDefaults.standard.set(showsTagsInSidebar, forKey: "showsTagsInSidebar") }
     }
+    /// Whether the sidebar lists Recent: the notes opened lately on this Mac, newest first.
+    @Published var showsRecentInSidebar = UserDefaults.standard.object(forKey: "showsRecentInSidebar") == nil || UserDefaults.standard.bool(forKey: "showsRecentInSidebar") {
+        didSet { UserDefaults.standard.set(showsRecentInSidebar, forKey: "showsRecentInSidebar"); listVersion += 1 }
+    }
+    /// Whether the sidebar lists the templates and attachments folders. (Templates are also
+    /// in Settings › Templates; either folder is still in the explorer.)
+    @Published var showsTemplatesInSidebar = UserDefaults.standard.object(forKey: "showsTemplatesInSidebar") == nil || UserDefaults.standard.bool(forKey: "showsTemplatesInSidebar") {
+        didSet { UserDefaults.standard.set(showsTemplatesInSidebar, forKey: "showsTemplatesInSidebar"); listVersion += 1 }
+    }
+    @Published var showsAttachmentsInSidebar = UserDefaults.standard.object(forKey: "showsAttachmentsInSidebar") == nil || UserDefaults.standard.bool(forKey: "showsAttachmentsInSidebar") {
+        didSet { UserDefaults.standard.set(showsAttachmentsInSidebar, forKey: "showsAttachmentsInSidebar"); listVersion += 1 }
+    }
+    /// The templates and attachments folders the sidebar shows, as chosen in Settings.
+    var shownSpecialFolders: [(kind: SpecialFolder, path: String)] {
+        specialFolders.filter { $0.kind == .templates ? showsTemplatesInSidebar : showsAttachmentsInSidebar }
+    }
+    /// Whether notes in lists show the line under the title their kind gives them (its
+    /// `detail` in the kinds file).
+    @Published var showsDetailInList = UserDefaults.standard.object(forKey: "showsDetailInList") == nil || UserDefaults.standard.bool(forKey: "showsDetailInList") {
+        didSet { UserDefaults.standard.set(showsDetailInList, forKey: "showsDetailInList"); listVersion += 1 }
+    }
+
+    /// How many notes Recent lists.
+    static let recentLimit = 30
+    /// The notes opened lately on this Mac, the newest first.
+    var recentNotes: [Note] {
+        if let recentCache { return recentCache }
+        let recent = Array(searchHistory.recentlyOpened.lazy.compactMap { self.notesByID[$0] }.prefix(Self.recentLimit))
+        recentCache = recent
+        return recent
+    }
+    /// Recent, worked out once until a note is opened or notes change.
+    private var recentCache: [Note]?
     /// Types, once the vault has kinds of note.
     @Published var showsTypesInSidebar = UserDefaults.standard.object(forKey: "showsTypesInSidebar") == nil || UserDefaults.standard.bool(forKey: "showsTypesInSidebar") {
         didSet { UserDefaults.standard.set(showsTypesInSidebar, forKey: "showsTypesInSidebar") }
@@ -1568,7 +1602,13 @@ final class VaultStore: ObservableObject {
 
     /// Which notes are opened, and which are picked for what's typed, on this Mac: search
     /// puts them first among results of similar quality (`SearchHistory.rank`).
-    private(set) var searchHistory = SearchHistory()
+    private(set) var searchHistory = SearchHistory() {
+        didSet {
+            recentCache = nil
+            // Recent changes with each note opened.
+            if showsRecentInSidebar { listVersion += 1; objectWillChange.send() }
+        }
+    }
     private var searchHistoryFile: SearchHistory.File?
     /// The note opened last, which counts once it has stayed open a moment: stepping through
     /// a list opens each note on the way, but chooses none of them.
@@ -1732,6 +1772,7 @@ final class VaultStore: ObservableObject {
         case .allNotes: return notes.filter { !$0.id.contains("/") }
         case .everything: return notes
         case .bookmarks: return bookmarkedNotes
+        case .recent: return recentNotes
         case .lists: return notes.filter { listNoteIDs.contains($0.id) }
         case .trash, .properties, .types, .tags: return []
         case .folder(let path): return notes.filter { FolderTree.folder(of: $0.id) == path }
@@ -1748,7 +1789,7 @@ final class VaultStore: ObservableObject {
     func subplaces(of place: SidebarPlace) -> [SidebarPlace] {
         switch place {
         case .allNotes: sortedFolders(folderTree.subfolders(of: "")).map(SidebarPlace.folder)
-        case .everything, .bookmarks, .trash, .propertyValue, .kind, .lists: []
+        case .everything, .bookmarks, .trash, .propertyValue, .kind, .lists, .recent: []
         case .types: kinds.kinds.map { .kind(kinds.property, $0.name) }
         case .tags: sortedTags(tagTree.entries.filter { $0.depth == 0 }).map { .tag($0.tag) }
         case .folder(let path): sortedFolders(folderTree.subfolders(of: path)).map(SidebarPlace.folder)
@@ -1812,6 +1853,7 @@ final class VaultStore: ObservableObject {
         case .allNotes, .everything: notes.count
         case .trash: trashedNotes.count
         case .bookmarks: bookmarkedNotes.count
+        case .recent: recentNotes.count
         case .lists: listNoteIDs.count
         case .folder(let path): folderTree.noteCounts[path] ?? 0
         case .tag(let tag): tagTree.entries.first { $0.id == tag.lowercased() }?.count ?? 0
@@ -2268,6 +2310,20 @@ final class VaultStore: ObservableObject {
     private(set) var hiddenFolders: Set<String> = []
 
     func specialFolder(at path: String) -> SpecialFolder? { specialFolders.first { $0.path == path }?.kind }
+
+    /// What the sidebar counts for a place: its notes, and for the attachments folder, which
+    /// holds images rather than notes, its images too (in folders inside it as well).
+    func sidebarCount(of place: SidebarPlace) -> Int {
+        guard case .folder(let path) = place, specialFolder(at: path) == .attachments else { return noteCount(of: place) }
+        if let cached = attachmentCount, cached.images == images.count, cached.path == path { return noteCount(of: place) + cached.count }
+        let prefix = path + "/"
+        let count = images.count { $0.path.hasPrefix(prefix) }
+        attachmentCount = (path, images.count, count)
+        return noteCount(of: place) + count
+    }
+
+    /// The attachments folder's images, counted once until images come or go.
+    private var attachmentCount: (path: String, images: Int, count: Int)?
 
     private func refreshSpecialFolders() {
         func cleaned(_ path: String) -> String { path.trimmingCharacters(in: CharacterSet(charactersIn: "/ ")) }

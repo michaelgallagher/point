@@ -92,7 +92,7 @@ final class VaultModel: ObservableObject {
     /// What a note list shows under a note's name: its kind's detail, then its tags (when
     /// they're shown). Nil for a one-line row.
     func listSecondLine(for id: Note.ID) -> String? {
-        let detail = listLook(for: id)?.detail.joined(separator: ", ") ?? ""
+        let detail = store.showsDetailInList ? listLook(for: id)?.detail.joined(separator: ", ") ?? "" : ""
         let tags = showsTagsInList ? listTags(for: id).map { "#\($0)" }.joined(separator: " ") : ""
         let line = [detail, tags].filter { !$0.isEmpty }.joined(separator: "  ")
         return line.isEmpty ? nil : line

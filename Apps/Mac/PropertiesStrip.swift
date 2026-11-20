@@ -212,6 +212,11 @@ struct PropertiesStrip: View {
                     Button("Edit Choices…") { editingChoices = property.key }
                 }
                 Divider()
+                // Empties it, keeping the property (`topics:`), as a template leaves it.
+                Button(property.isList && property.values.count > 1 ? "Clear Values" : "Clear Value") {
+                    session.setProperty(property.key, to: [], isList: property.isList)
+                }
+                .disabled(property.values.allSatisfy { $0.trimmingCharacters(in: .whitespaces).isEmpty })
                 Button("Delete", role: .destructive) { delete(property.key) }
             } label: {
                 Image(systemName: "ellipsis")

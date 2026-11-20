@@ -306,7 +306,8 @@ private struct NoteList: View {
 
     /// The filter field's height, its corners and the space around it: shaped like the tabs'
     /// rail and a selected sidebar row (see `PaneTabs`).
-    private static let fieldHeight = PaneTabs.height
+    /// As tall as a tab, and its corners: a selected row's.
+    private static let fieldHeight = PaneTabs.height - PaneTabs.inset * 2
     private static let fieldPadding: CGFloat = 10
     /// How far the sort arrows sit inside their square (measured): taken off the room on
     /// each side of it, so the arrows are as far from the field and the column's edge as the
@@ -399,7 +400,7 @@ private struct NoteList: View {
     private var content: SidebarTable.Content { includesPlaces ? .everything : .notes }
 
     /// How the notes are sorted, beside the field: in two columns, but not in the trash.
-    private var showsSort: Bool { !includesPlaces && model.place != .trash }
+    private var showsSort: Bool { !includesPlaces && model.place != .trash && model.place != .recent }
 
     /// Whether the list shows places as well as notes: always in one column, and in two for the
     /// lists of tags and types, which are places.
@@ -524,6 +525,7 @@ extension SidebarPlace {
         case .tags: "Tags"
         case .kind(_, let name): NoteKinds.plural(name)
         case .lists: "Lists"
+        case .recent: "Recent"
         }
     }
 
@@ -656,7 +658,7 @@ private struct FilterField: View {
         .padding(.leading, 10)
         .padding(.trailing, 8)
         .frame(height: height)
-        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: PaneTabs.cornerRadius, style: .continuous))
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: PaneTabs.cornerRadius - PaneTabs.inset, style: .continuous))
     }
 
     @State private var deleteMonitor: Any?

@@ -135,6 +135,8 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
     case kind(String, String)
     /// Every list note (with `list-from`, `list-tags` or `list-where`), wherever it is.
     case lists
+    /// The notes opened lately, the newest first.
+    case recent
 
     /// For storing pins: `folder:Work`, `tag:work/imprint`.
     public var key: String {
@@ -152,6 +154,7 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
         case .tags: "tags"
         case .kind(let property, let name): "kind:" + property + "\u{1F}" + name
         case .lists: "lists"
+        case .recent: "recent"
         }
     }
 
@@ -164,6 +167,7 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
         else if key == "types" { self = .types }
         else if key == "tags" { self = .tags }
         else if key == "lists" { self = .lists }
+        else if key == "recent" { self = .recent }
         else if key.hasPrefix("kind:"), let split = key.dropFirst(5).firstIndex(of: "\u{1F}") {
             self = .kind(String(key.dropFirst(5)[..<split]), String(key.dropFirst(5)[key.index(after: split)...]))
         }
@@ -180,7 +184,7 @@ public enum SidebarPlace: Hashable, Sendable, Codable {
     /// property, a property's list of properties, a kind's list of types, else All Notes.
     public var parent: SidebarPlace {
         switch self {
-        case .allNotes, .everything, .bookmarks, .trash, .properties, .types, .tags, .lists: .allNotes
+        case .allNotes, .everything, .bookmarks, .trash, .properties, .types, .tags, .lists, .recent: .allNotes
         case .kind: .allNotes
         case .property: .properties
         case .propertyValue(let name, _): .property(name)

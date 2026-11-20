@@ -174,6 +174,7 @@ struct SettingsView: View {
 
             // In the order they're in the sidebar: Bookmarks, the types chosen, Lists, Tags.
             Section("Shown in the sidebar") {
+                Toggle(isOn: $store.showsRecentInSidebar) { Label("Recent", systemImage: SidebarPlace.recent.symbol) }
                 Toggle(isOn: $store.showsBookmarksInSidebar) { Label("Bookmarks", systemImage: SidebarPlace.bookmarks.symbol) }
                 ForEach(store.kinds.kinds) { kind in
                     Toggle(isOn: Binding(get: { store.showsInSidebar(kind) }, set: { store.setShowsInSidebar(kind, $0) })) {
@@ -182,6 +183,8 @@ struct SettingsView: View {
                 }
                 Toggle(isOn: $store.showsListsInSidebar) { Label("Lists", systemImage: SidebarPlace.lists.symbol) }
                 Toggle(isOn: $store.showsTagsInSidebar) { Label("Tags", systemImage: SidebarPlace.tags.symbol) }
+                Toggle(isOn: $store.showsTemplatesInSidebar) { Label("Templates", systemImage: VaultStore.SpecialFolder.templates.symbol) }
+                Toggle(isOn: $store.showsAttachmentsInSidebar) { Label("Attachments", systemImage: VaultStore.SpecialFolder.attachments.symbol) }
             }
 
             Section("Showing and hiding") {
@@ -226,6 +229,8 @@ struct SettingsView: View {
                     Text("Date created").tag(VaultModel.ListDate.created)
                 }
                 .disabled(store.listDateStyle != .beside)
+                // The line under a title its kind gives it (in the kinds file).
+                Toggle("Show details under titles", isOn: $store.showsDetailInList)
                 Toggle("Show tags", isOn: $store.showsTagsInList)
             }
 

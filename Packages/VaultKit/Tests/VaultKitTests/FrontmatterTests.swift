@@ -17,6 +17,14 @@ struct FrontmatterTests {
     # Body
     """
 
+    @Test func clearingAValueKeepsTheProperty() throws {
+        let text = "---\ntopics:\n  - \"[[Design]]\"\n  - \"[[Research]]\"\nstatus: draft\n---\nBody\n"
+        let frontmatter = try #require(Frontmatter.parse(text))
+        func applying(_ edit: (NSRange, String)) -> String { (text as NSString).replacingCharacters(in: edit.0, with: edit.1) }
+        #expect(applying(frontmatter.edit(setting: "topics", to: [], isList: true)) == "---\ntopics:\nstatus: draft\n---\nBody\n")
+        #expect(applying(frontmatter.edit(setting: "status", to: [], isList: false)) == "---\ntopics:\n  - \"[[Design]]\"\n  - \"[[Research]]\"\nstatus:\n---\nBody\n")
+    }
+
     @Test func readsProperties() throws {
         let frontmatter = try #require(Frontmatter.parse(note))
         #expect(frontmatter.properties.map(\.key) == ["tags", "created", "aliases", "nested"])

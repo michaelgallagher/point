@@ -66,7 +66,7 @@ final class ExplorerState: ObservableObject {
         rows += store.specialFolders.map { special in
             let place = SidebarPlace.folder(special.path)
             return Place(id: "Folders:special:" + place.key, place: place, title: special.kind.title, depth: 0,
-                         count: model.noteCount(of: place), section: "Folders", icon: special.kind.symbol)
+                         count: store.sidebarCount(of: place), section: "Folders", icon: special.kind.symbol)
         }
         add(model.folderNodes, depth: 0, section: "Folders")
         if store.showsTagsInSidebar { add(model.tagNodes, depth: 0, section: "Tags") }

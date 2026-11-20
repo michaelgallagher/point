@@ -344,7 +344,8 @@ final class SidebarSplitController: NSSplitViewController {
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = false
         window.toolbar = toolbar
-        window.toolbarStyle = .unifiedCompact
+        // The standard (not compact) height: room for tabs as tall as a selected row.
+        window.toolbarStyle = .unified
         // The tabs are in the title bar's strip, and a press there would move the window
         // before a tab could take the drag: the window holds still only while the pointer is
         // over them (`WindowMoveGuard`).
