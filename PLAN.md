@@ -48,6 +48,7 @@ Mike travels soon with the laptop and the iPhone, and wants to use Point on both
 - [Milestones](plan/milestones.md): M0 to M6.
 
 **Work, newest first**
+- [Slash commands](plan/slash-commands.md) (20 November, planned, after lists written in a note): typing `/` opens a menu at the cursor, on the Mac and the iPhone, of things to put in (a list, table, callout, date, link…); and fences close themselves on Return.
 - [Lists written in a note](plan/inline-lists.md) (20 November, planned, branch `inline-lists`): a ```` ```list ```` block partway through a note, holding a list's filters, shown as its table; the first 10 rows, then Show all unfolding in place.
 - [Branches: what's active](plan/branches-2026-11-16.md) (16 November, 07:43): the branches not merged into `main`, mostly the flat-header experiments, and what each is for.
 - [The 13 November batch](plan/batch-2026-11-13.md): the iPhone after two days on the real vault: your notes in a box, mark read and file in Sources, near misses when clipping, what each note is in lists, recent notes in Search, property chips, and the reader's bars.
