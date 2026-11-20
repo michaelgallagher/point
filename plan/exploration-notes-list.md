@@ -225,3 +225,104 @@ Typing terms was error-prone and hidden, so the field now builds them for you, a
 - **Only what's here:** suggestions and the menu come from the notes in the place, so neither offers what would leave nothing. They're counted by the index in the background (`SearchIndex.facets(of:)`): 4,000 notes in about 70 ms, again when the index or the place's notes change.
 - **Tried:** unit tests for tokens (typed terms becoming tokens, labels, turning round) and facets; in the debug build on the test vault, typing, arrows, Return, a typed term, Backspace and Escape, each checked in a screenshot; the menu traced on the 10,000-note vault (`-PointFilterMenu`). Suggestions take 0.1 to 0.2 ms to work out there.
 - **Not done:** the menu itself hasn't been opened by a click in testing (only traced), nor a token's menu; values given by every note here (Media's `type: Media`) are still offered; one column has the field's tokens and suggestions but no button; the iPhone has none of this.
+
+## Exploring: the filter at the top, with chips (19 November 2026, uncommitted)
+
+**The question** (Mike): would the filter field, filter button and sort button work better at the top of the notes column, with what's filtering shown as chips you can remove, rather than tokens inside the field? At the foot, three tokens in a 340-point column were already "Form…", "Topic…", "With…".
+
+### Scroll with the list, or pin to the top?
+
+| | Pinned under the column's title (built) | Scrolls with the list |
+|---|---|---|
+| Always visible | Yes: the field, buttons and chips are always there | No: they go once you scroll, along with any sign the list is filtered |
+| ⇧⌘F | Unchanged: focus goes to the field, which is on screen | Would have to scroll to the top first, losing your place |
+| The field keeps focus as you type | Yes: it's a SwiftUI view over the list, as at the foot | At risk: it would be a row in the AppKit table, which rebuilds its rows on every keystroke |
+| Suggestions | Open downward in glass over the chips and list, in the same stack as the field (glass outside its view isn't drawn) | Also downward, but they'd scroll with the row, and would be cut off by the table's clipping |
+| Blur | None new: the list's scroll view already blurs whatever is under its top inset (`BarEdgeScrollView`). Making the inset the bar plus the controls gives one blurred surface with the hairline below the chips | None needed |
+| Room for notes | Fixed: 42 points for the field's row, plus 30 for each line of chips while filtering. The foot took 52, so with no filter the list has 10 points more | Gives everything back once scrolled |
+| Cost | Small: a top inset on `SidebarTable`, the controls moved, a chips row | Medium to large: a SwiftUI field inside a table row, with its focus and state kept across reloads |
+
+Two other options considered:
+- **Pinned, but folding away when idle:** only a magnifier in the title row until you filter, as Mail's toolbar search does. It saves 42 points but hides the filter, the opposite of the aim. It could come later, as a setting.
+- **Stay at the foot, with chips above the field:** this keeps the layout, but the chips would sit between the list and the field, with suggestions growing up over them. The column's name, the count and its filter would be at opposite ends.
+
+**Recommendation: pin it.** Scrolling with the list goes against what the move is for, which is seeing what filters the list. Pinning is also the cheaper option, because the blur already exists.
+
+### What pinning needed, and how the prototype does it
+
+- **Under the column's top bar:** the controls sit `model.topBarHeight` down, so a taller bar (being tried in another session) moves them with it. The list's top inset is the bar plus the controls and chips, as measured, not counting the suggestions. So suggestions float over the list without moving it, and adding a chip pushes the list down only while it's at the top.
+- **Chips** (`FilterChips`): one per term, with its whole name (`Format: Book`, `Topics: Planning`, `Without read`, `Format: not Podcast`, `Edited this month`). They wrap onto more lines rather than shortening. Only Unread shows as an "Unread" chip whose × turns it off, still kept per place. Clicking a chip's name offers Leave Out or Include, and Remove. Its × removes it. "Clear" follows when there are two or more.
+- **The field** holds only the typed text at the top. Its ⓧ clears the text; at the foot it still clears everything.
+- **Keys, unchanged:** arrows move through suggestions, Return picks one or turns a typed term into a chip and opens the top note, Backspace in an empty field removes the last chip, and Escape hides suggestions, then clears.
+- **Menus** (filter, sort, a chip's) open downward at the top.
+- **The count** ("4,000 notes") is still the list's first row, so it scrolls away, and it still counts the place, not what the filter leaves (as before). With chips at the top, "357 of 4,000" belongs in the chips row or beside the title. Not done.
+- **Date labels** don't stick (no floating group rows), so nothing clashes with the pinned bar. If they ever stick, they'd need to stick below the inset.
+- **One column** keeps the field at the foot; the top is for two columns only. `-filterAtTop NO` puts the two-column controls back at the foot, to compare.
+
+### Tried
+
+- The debug build on the 10,000-note vault's Media folder (4,000 notes). Pictures (before and after with three terms, suggestions open, scrolled with four chips) are in the side-session notes folder, `filter-at-top/`, outside the repo.
+- A new debug hook, `-PointFilterKeys "focus|text:topics:pla|down|return|backspace|escape|scroll|unread"`, steps through the field inside the app and traces the tokens, the text, the suggestions and how long each step held the main thread. The same steps, top and foot, give the same tokens and text after every step.
+- Not tried by hand: clicking a chip's name or its ×, the menus opened downward, the field's ⓧ, and dark mode.
+
+### Timings (10,000-note vault, Media's 4,000 notes)
+
+These were measured with `-PointFilterKeys`, from each change to the run loop coming round twice. That covers the change, SwiftUI's update and the table's reload. The build was optimized (`-O`, whole module) with the debug hooks in. Each figure is the median of three runs, in ms:
+
+| Step | Top | Foot |
+|---|---|---|
+| Typing `i`, `it`, `ite` (title words) | 97, 48, 47 | 96, 48, 46 |
+| `topics:pla` (suggestions show) | 37 | 42 |
+| ↓ (highlight a suggestion) | 9 | 14 |
+| Return (pick: a chip) | 88 | 102 |
+| `format:Book`, then Return (a typed term as a chip) | 73, 125 | 76, 116 |
+| `@thismonth ` (a chip at the space) | 126 | 131 |
+| Backspace (remove the last chip) | 72 to 89 | 83 to 95 |
+| Escape (clear) | 121 | 117 |
+
+**Moving the controls adds nothing measurable:** top and foot are within a few ms of each other at every step. The unoptimized debug build is about 1.6 times slower, and again the same for both.
+
+**But both are slow:** 40 to 130 ms for each change to the filter on 4,000 notes is perceptible. That was so before this change; earlier measurements (13 to 17 ms) timed building the rows alone, not the redraw. Worth its own look: what takes the time between the rows and the screen (SwiftUI's update of `NoteList`, the table's reload and row heights, the index's answer arriving as a second update).
+
+
+### Mike's answer, and what changed (19 November 2026)
+
+Pinned, but not always showing. A filter button (`line.3.horizontal.decrease`) beside the sidebar button opens the tools, sliding down, and closes them, sliding up. Closed, the filters stay, described by chips that scroll with the list.
+
+**Built:**
+- **The button** is in the column's top bar, just left of the sidebar button, in every place but the trash. It's shaded while the tools show, and blue while anything filters the list, so it shows even with the tools away and the summary scrolled off.
+- **The menu beside the field** now has its own symbol, `list.bullet.badge.ellipsis` (in two columns), as the funnel lines are the bar's.
+- **Opening** slides the field, menu and sort down from under the bar, clipped at its foot so they don't pass over the name. The field takes the keyboard. The list moves down with them on the same curve and time (0.25 s, ease in and out): its top inset is stepped each frame by a display link, as neither AppKit nor SwiftUI animates an inset.
+- **Closing** slides them back up. The filters stay. While anything filters, a row of chips sits under the count at the top of the list and scrolls with it (`SidebarRow.filters`): Unread, each term, and any words typed (in quotes). They're a description only. Clicking the row opens the tools, where chips have their ×.
+- **⇧⌘F** opens the tools, if they're away, and puts the cursor in the field. **Escape** hides the suggestions, then clears the filter, then, with nothing left to clear, closes the tools.
+- **Clear:** "Clear" has gone from the end of the chips, where it often took a line of its own. The field's ⓧ clears everything, Only Unread included, as the foot's did.
+- **Where it's kept:** the tools' state is its own small object (`VaultModel.filterTools`), watched by the notes column and its bar alone, so opening them doesn't redraw the rest of the window. They start closed in each window.
+
+**Making it quick.** The first version took 50 to 240 ms to open or close on the 10,000-note vault, with the slide stalling for up to 250 ms. A sample showed the time going on working out the list, not on the tools:
+- `VaultStore.notes(in:)` went through all 10,000 notes, about 15 ms, three times for each redraw of the column (the rows, the count, whether it's empty). It's now kept per place until the notes or their tags change (`listVersion`), for the top level, folders and tags.
+- In `sidebarRows` and `unreadCount`, `selection` and `listLooks` were read once per note. Each read of a published property costs, so they're now read once per call.
+- The "No matches" message built the rows again just to see if any were left; the table now says so when that changes (`onHasItems`).
+- Adding or removing the chips row reloaded all 4,000 rows; now it's that one row (`filtersRowChange`).
+
+**Timings after** (optimized build, Media's 4,000 notes, median of three runs, in ms):
+
+| Step | Before these fixes | After |
+|---|---|---|
+| Open or close the tools | 50 to 240 | 16 to 56 |
+| Longest gap between frames in a slide | up to 250 | 9 to 17 closing, 30 to 50 opening |
+| Typing `i`, then `it` | 96, 48 | 48, 27 |
+| A typed term becoming a chip (Return) | 116 | 84 |
+| Escape clearing | 117 | 79 |
+
+The fixes help everywhere, not just the tools. But 25 to 85 ms per change is still perceptible. What's left: the table reloading its visible rows on every update, SwiftUI redrawing the window whenever a published property of the model changes (the filter text is one), and the index's answer arriving as a second update. Opening still drops two or three frames as the field appears and takes focus.
+
+**Tried:** the debug-hook walk-through (`-PointFilterKeys` with `tools`, `focus`, keys, `scroll`, `unread`): open, chips, Backspace, close with the summary, scroll, reopen, ⇧⌘F, Escape twice, and "No matches" open and closed. Pictures are in `filter-at-top/` (5 to 9).
+
+**Not tried by hand:** clicking the bar button, the summary row and a chip's ×; the slide as seen (only frame times); dark mode; one column, which keeps its field at the foot and has no button.
+
+### Questions for Mike
+
+1. Should the tools stay open per window, or for each place, as Only Unread is kept?
+2. Should the chips in the scrolling summary each have their × too? That would need a click on a part of a table row, which takes some care.
+3. Where should the count go now: as "357 of 4,000" in the summary, beside the title, or stay as the first row? It still counts the place, not what's left.
+4. Should one column move to the top too, or keep its field at the foot?
