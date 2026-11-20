@@ -358,3 +358,16 @@ Typing and most steps now take a frame or so. Escape, the second chip and closin
 2. Should the chips in the scrolling summary each have their × too? That would need a click on a part of a table row, which takes some care.
 3. Where should the count go now: as "357 of 4,000" in the summary, beside the title, or stay as the first row? It still counts the place, not what's left.
 4. Should one column move to the top too, or keep its field at the foot?
+
+## Built: settings, Recent and a taller top bar (19 November 2026, branch `list-settings`)
+
+A handful of smaller things from one list of Mike's.
+- **Details under titles can be turned off.** Settings ▸ Note list ▸ Show details under titles (on by default). Off, a row keeps its title, date and tags but not the kind's detail line.
+- **Recent.** A sidebar place (clock symbol, after Everything) listing the last 30 notes opened, newest first, with no date groups or sort. It comes from the search history Point already keeps, so it costs nothing new to record. Settings ▸ Shown in the sidebar turns it off.
+- **Templates and Attachments can be hidden** from the sidebar, in the same Settings list (both shown by default). Templates are also reached from Settings.
+- **Attachments shows a count.** It counted only notes in the folder (so 0); it now counts notes and images there too.
+- **Clear Value** (Clear Values for a list with several) in a property's "…" menu, above Delete: the property stays, empty (`status:`, `topics:`), and the item is greyed when there's nothing to clear.
+- **A taller top bar.** The window's toolbar is now the standard height (`.unified`, 52 points; it was the compact 40), so tabs are 32 points: the same as the filter field and a selected row, measured in screenshots.
+- **The sidebar's translucency** was already the system's: the sidebar is an `NSSplitViewItem` sidebar with nothing drawn over it. Since macOS 26 that's Liquid Glass, which shows much less of the desktop through it than the old vibrancy did; System Settings ▸ Accessibility ▸ Display ▸ Reduce transparency makes it plain grey.
+- **Tried:** each in the debug build on the test vault, in screenshots (Recent, the Attachments count, hidden places, details off, the heights); a unit test for clearing a value; VaultKit and IndexKit tests; the iPhone app builds.
+- **Not done:** Clear Value hasn't been clicked in the app (only the unit test); Recent and the attachments count weren't timed on the 10,000-note vault; the iPhone has none of the new settings or Recent.
