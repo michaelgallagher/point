@@ -414,6 +414,9 @@ struct MarkdownStyler {
             }
             storage.addAttributes([.font: theme.mono, .paragraphStyle: style, .pointBlock: BlockDecoration.code,
                                    .pointLineHeight: CGFloat(1.15)], range: range)
+            // The fences are hidden once the block is closed. While it isn't (it's being
+            // written), its opening fence shows as typed, ```` ```list ```` say.
+            guard token.syntax.count == 2 else { return }
             for fence in token.syntax {
                 collapseLine(fence, storage: storage, text: text)
             }
