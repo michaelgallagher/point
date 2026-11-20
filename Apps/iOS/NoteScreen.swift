@@ -126,6 +126,12 @@ struct NoteScreen: View {
             .sheet(isPresented: $session.showsProperties, onDismiss: { session.save() }) {
                 PropertiesSheet(session: session).environmentObject(store)
             }
+            // The slash menu's Template: the vault's templates, to choose one.
+            .confirmationDialog("Apply template", isPresented: $session.choosesTemplate, titleVisibility: .visible) {
+                ForEach(store.templates, id: \.url) { template in
+                    Button(template.name) { session.applyTemplate(at: template.url) }
+                }
+            }
             .sheet(item: $session.editingList) { editing in
                 ListFiltersSheet(list: editing.list) { session.write($0, for: editing) }
                     .environmentObject(store)
@@ -266,6 +272,8 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     /// The note's frontmatter, as its text is now.
     @Published private(set) var frontmatter: Frontmatter?
     @Published var showsProperties = false
+    /// Choosing a template to apply, from the slash menu.
+    @Published var choosesTemplate = false
     /// The list whose filters are open: one written in the note, or the note's own.
     @Published var editingList: ListEditing?
     /// What's related to this note, as on the Mac (links and recall made one): the notes
@@ -432,6 +440,27 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     }
 
     /// Opens the filters of the note's `index`th `list` block, or (nil) of the note's own list.
+    /// The slash menu's commands that need the vault: a template, a property, a link to a
+    /// daily note. False for the rest, which the editor does.
+    func performSlash(_ command: SlashCommand) -> Bool {
+        switch command.id {
+        case .template:
+            guard !store.templates.isEmpty else { return true }
+            textView?.resignFirstResponder()
+            choosesTemplate = true
+        case .property:
+            textView?.resignFirstResponder()
+            showsProperties = true
+        case .todaysNote, .tomorrowsNote:
+            let day = command.id == .todaysNote ? Date() : Calendar.current.date(byAdding: .day, value: 1, to: Date())!
+            let title = Templates.dailyNoteURL(for: day, in: store.root, settings: store.settings).deletingPathExtension().lastPathComponent
+            textView?.format { $0.inserting("[[\(self.store.linkText(forTitle: title))]]") }
+        default:
+            return false
+        }
+        return true
+    }
+
     func editList(block index: Int?) {
         guard let textView else { return }
         let list: ListDefinition?
@@ -1992,6 +2021,14 @@ struct EditorView: UIViewRepresentable {
         textView.onCompletionChange = { [weak bar, weak session] completion in
             bar?.show(completion, choices: completion.flatMap { session?.choices(for: $0) } ?? [])
         }
+        // A list just made by typing opens its filters, as Insert List does on the Mac.
+        textView.onListBlockInserted = { [weak session] index in
+            DispatchQueue.main.async { session?.editList(block: index) }
+        }
+        // Typing `/` offers what can be put in there, in the bar; images aren't put in on the phone yet.
+        textView.slashCommands = SlashCommand.all.filter { $0.id != .image }
+        textView.onSlashMenuChange = { [weak bar] in bar?.showSlash($0) }
+        textView.performSlashCommand = { [weak session] in session?.performSlash($0) ?? false }
         textView.onTextChange = { [weak session] in session?.changed($0) }
         textView.onOpenLink = { [weak session] in session?.open($0) }
         textView.editMenuActions = { [weak session] in session?.readerMenu(for: $0) ?? [] }

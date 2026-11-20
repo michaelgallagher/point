@@ -155,6 +155,30 @@ final class FormatBar: UIView {
         }
     }
 
+    /// Offers the slash menu's commands, the first (which Return puts in) tinted, or goes back
+    /// to the tools if there are none.
+    func showSlash(_ commands: [SlashCommand]) {
+        choiceStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        choices.isHidden = commands.isEmpty
+        scroller.isHidden = !commands.isEmpty
+        choices.contentOffset = .zero
+        for (index, command) in commands.enumerated() {
+            var configuration = index == 0 ? UIButton.Configuration.tinted() : UIButton.Configuration.gray()
+            configuration.title = command.name
+            configuration.image = UIImage(systemName: command.symbol)
+            configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(scale: .small)
+            configuration.imagePadding = 6
+            configuration.cornerStyle = .capsule
+            if index > 0 { configuration.baseForegroundColor = .label }
+            let button = UIButton(configuration: configuration, primaryAction: UIAction { [weak self] _ in
+                self?.textView?.runSlashCommand(command)
+            })
+            button.setContentHuggingPriority(.required, for: .horizontal)
+            button.setContentCompressionResistancePriority(.required, for: .horizontal)
+            choiceStack.addArrangedSubview(button)
+        }
+    }
+
     private func button(_ name: String, symbol: String? = nil, title: String? = nil, action: @escaping (PhoneTextView) -> Void) -> UIButton {
         var configuration = UIButton.Configuration.plain()
         configuration.image = symbol.flatMap { UIImage(systemName: $0) }
