@@ -1917,7 +1917,7 @@ final class VaultStore: ObservableObject {
                 let changed = before != ids
                 queryResults[query] = (generation, ids)
                 // An embedded list needs more or less room.
-                if embeddedQueries.contains(query), before.map({ min($0.count, ListEmbed.rows + 1) }) != min(ids.count, ListEmbed.rows + 1) {
+                if let rows = embeddedQueries[query], before.map({ min($0.count, rows + 1) }) != min(ids.count, rows + 1) {
                     embedsChanged()
                 }
                 if changed {
@@ -1959,9 +1959,10 @@ final class VaultStore: ObservableObject {
     /// What each note read as a list is (nil: not one), as of its file's date.
     private var listsRead: [Note.ID: (modified: Date, list: ListDefinition?)] = [:]
     private var readingLists: Set<Note.ID> = []
-    /// The queries of lists embedded in notes: when what they find changes, notes restyle,
-    /// so the room made for them fits.
-    private var embeddedQueries: Set<NoteQuery> = []
+    /// The queries of lists embedded in notes, or written in them, with the most rows any of
+    /// them shows: when what they find changes that, notes restyle, so the room made for them
+    /// fits.
+    private var embeddedQueries: [NoteQuery: Int] = [:]
 
     /// The list a note is, if it is one: what was last read at once, and read again off the
     /// main thread if the note has changed since, notes restyling when that changes it.
@@ -1989,9 +1990,19 @@ final class VaultStore: ObservableObject {
     func listEmbedHeight(_ target: String, from sourceID: Note.ID) -> CGFloat? {
         guard let note = linkResolver.resolve(wikiTarget: target, from: sourceID), note.id != sourceID,
               let list = listDefinition(of: note.id) else { return nil }
-        embeddedQueries.insert(list.query)
+        embeddedQueries[list.query] = max(embeddedQueries[list.query] ?? 0, ListEmbed.rows)
         guard let ids = noteIDs(matching: list.query) else { return nil }
         return ListEmbed.height(count: ids.count, hasColumns: !list.columns.isEmpty)
+    }
+
+    /// How tall the block drawn for a `list` block in a note is, showing `rows` of what it
+    /// finds under its filters, `filters` tall: nil if the block doesn't read as a list, so it
+    /// shows as code. Until what it finds is known, the room for none, so its lines don't show
+    /// for a moment first.
+    func listBlockHeight(_ body: String, rows: Int, filters: CGFloat) -> CGFloat? {
+        guard let list = ListDefinition(block: body) else { return nil }
+        embeddedQueries[list.query] = max(embeddedQueries[list.query] ?? 0, rows)
+        return ListBlockEmbed.height(count: noteIDs(matching: list.query)?.count ?? 0, rows: rows, filters: filters)
     }
 
     /// The note an embed names, if it's a list.

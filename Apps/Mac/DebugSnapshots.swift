@@ -14,6 +14,8 @@ import VaultKit
 enum DebugSnapshots {
     static func runIfAsked(for model: VaultModel) {
         scrollNoteIfAsked(for: model)
+        unfoldListBlockIfAsked(for: model)
+        editListBlockIfAsked(for: model)
         scrollTestIfAsked(for: model)
         typeTestIfAsked(for: model)
         markerClickTestIfAsked(for: model)
@@ -533,6 +535,31 @@ enum DebugSnapshots {
                 }
                 Trace.mark("scrolled \(id) by \(amount)")
             }
+        }
+    }
+
+    /// `-PointUnfoldListBlock <rows>`, with `-PointScrollNote`: shows that many rows of the
+    /// note's first `list` block, as Show all and Show more do.
+    private static func unfoldListBlockIfAsked(for model: VaultModel) {
+        let rows = UserDefaults.standard.integer(forKey: "PointUnfoldListBlock")
+        guard rows > 0, let id = UserDefaults.standard.string(forKey: "PointScrollNote") else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            EditorSession.live.allObjects.first { $0.note.id == id }?.showRows(rows, ofListBlock: 0)
+            Trace.mark("unfolded the first list block of \(id) to \(rows) rows")
+        }
+    }
+
+    /// `-PointEditListBlock edit|undo|insert`, with `-PointScrollNote`: after 3 seconds, in
+    /// that note, changes its first `list` block as its filters and headings would (takes away
+    /// its first condition, sorts by title, swaps its first two columns); or does that and
+    /// undoes it; or puts a new list in at the note's end, which opens its filters.
+    private static func editListBlockIfAsked(for model: VaultModel) {
+        guard let step = UserDefaults.standard.string(forKey: "PointEditListBlock"),
+              let id = UserDefaults.standard.string(forKey: "PointScrollNote") else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            guard let session = EditorSession.live.allObjects.first(where: { $0.note.id == id }) else { return }
+            session.debugEditListBlock(step)
+            Trace.mark("list block \(step) in \(id)")
         }
     }
 

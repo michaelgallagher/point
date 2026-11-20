@@ -53,8 +53,10 @@ struct ListPanel: View {
 
 /// The list's choices as a line of buttons: "In Sources", "Tagged #reading", "format is
 /// Book", "Add filter", then its order and columns.
-private struct ListFilters: View {
+struct ListFilters: View {
     let list: ListDefinition
+    /// The list's note, or a `list` block's ID (see `ListBlockEmbed.listID`): which list a
+    /// list just made is.
     let listID: Note.ID
     @ObservedObject var model: VaultModel
     @ObservedObject var store: VaultStore
@@ -295,6 +297,80 @@ struct ListEmbed: View {
     }
 }
 
+/// A list written in a note, as a `list` block, drawn in place of its lines: its filters, as
+/// in a list note, then its first 10 notes, then Show all, which unfolds it in place (50 rows
+/// at a time, for a long list), and Show fewer, which folds it again. How far it's unfolded,
+/// and how tall its filters are, is kept by the note's session, while the note is open. Its
+/// changes are written into the block's lines.
+struct ListBlockEmbed: View {
+    let list: ListDefinition
+    /// Which `list` block of the note it is, from 0.
+    let index: Int
+    @ObservedObject var session: EditorSession
+    @ObservedObject var model: VaultModel
+    @ObservedObject var store: VaultStore
+    let paneID: VaultModel.NotePane.ID
+    static let folded = 10, step = 50
+
+    var body: some View {
+        let id = Self.listID(note: session.note.id, index: index)
+        VStack(alignment: .leading, spacing: Self.filtersGap) {
+            ListFilters(list: list, listID: id, model: model, store: store, write: write)
+                .background(GeometryReader { geometry in
+                    Color.clear.preference(key: FiltersHeight.self, value: geometry.size.height)
+                })
+            if let ids = store.noteIDs(matching: list.query) {
+                let rows = session.rows(ofListBlock: index)
+                ListResults(list: list, listID: id, ids: ids, limit: rows,
+                            moreLabel: rows == Self.folded ? "Show all \(ids.count)" : "Show more",
+                            more: { session.showRows(rows == Self.folded ? Self.step : rows + Self.step, ofListBlock: index) },
+                            model: model, store: store, paneID: paneID, write: write,
+                            less: Self.canFold(count: ids.count, rows: rows) ? ("Show fewer", { session.showRows(Self.folded, ofListBlock: index) }) : nil,
+                            wrapsRows: false)
+            }
+        }
+        .font(.callout)
+        // Set apart from the note's text, in an outline.
+        .padding(.horizontal, Self.inset)
+        .padding(.vertical, Self.insetY)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
+        // Its room is made for a line of filters at first; more lines, and the room grows.
+        .onPreferenceChange(FiltersHeight.self) { height in
+            session.setFiltersHeight(height, ofListBlock: index)
+        }
+    }
+
+    private func write(_ changed: ListDefinition) {
+        session.writeListBlock(changed, at: index)
+    }
+
+    private struct FiltersHeight: PreferenceKey {
+        static let defaultValue: CGFloat = 0
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+    }
+
+    /// What it's known by, on this Mac (its columns' widths, say), and as a list just made:
+    /// the note, and which block.
+    static func listID(note: Note.ID, index: Int) -> String { "\(note)#list-\(index)" }
+
+    /// The height of a line of filters, before they're drawn, and the room under them.
+    static let filtersLine: CGFloat = 22, filtersGap: CGFloat = 8
+    /// How far in from its outline it's drawn, at the sides, and at the top and bottom.
+    static let inset: CGFloat = 12, insetY: CGFloat = 10
+
+    private static func canFold(count: Int, rows: Int) -> Bool { rows > folded && count > folded }
+
+    /// How tall it is for a list finding `count` notes, showing up to `rows` of them, under
+    /// filters `filters` tall.
+    static func height(count: Int, rows: Int, filters: CGFloat) -> CGFloat {
+        let shown = min(count, rows)
+        let buttons = count > shown || canFold(count: count, rows: rows)
+        return filters + filtersGap + ListResults.countHeight + (shown > 0 ? ListResults.tableHeight(rows: shown) : 0)
+            + (buttons ? ListResults.moreHeight : 0) + 4 + insetY * 2
+    }
+}
+
 // MARK: What it finds
 
 /// The notes a list finds, as a table: the title, then a column for each property it shows.
@@ -314,6 +390,12 @@ struct ListResults: View {
     /// Changes the list (sorting by a column, moving one); nil where it's shown in another
     /// note, which shows it as it is, its rows one line each.
     let write: ((ListDefinition) -> Void)?
+    /// A second button beside `more`, to show fewer: a list written in a note, unfolded.
+    var less: (label: String, action: () -> Void)? = nil
+    /// Whether rows wrap to show all of a long value; by default, where it can be changed. A
+    /// list written in a note can be changed, but its rows are a line each, as its room is
+    /// made before it's drawn.
+    var wrapsRows: Bool? = nil
     /// The shown rows' property values, from the index, as of these rows and columns.
     @State private var values: [Note.ID: [String: [String]]] = [:]
     @State private var tableHeight: CGFloat = ListTable.headerHeight
@@ -328,7 +410,7 @@ struct ListResults: View {
                 ListTable(columns: list.columns,
                           rows: shown.map { note in ListTable.Row(id: note.id, title: note.title, cells: list.columns.map { value(of: $0, for: note) }) },
                           sort: list.sort.first ?? NoteQuery.Sort(.modified, descending: true),
-                          wraps: write != nil, listID: listID, height: $tableHeight,
+                          wraps: wrapsRows ?? (write != nil), listID: listID, height: $tableHeight,
                           open: { id, destination in model.open(id, inPane: paneID, as: destination) },
                           sortBy: write.map { write in { column, descending in
                               var changed = list
@@ -344,12 +426,15 @@ struct ListResults: View {
                           } })
                     // Set by what it finds; one line a row where it's embedded, whose room is
                     // made before it's laid out.
-                    .frame(height: write != nil ? tableHeight : Self.tableHeight(rows: shown.count))
+                    .frame(height: wrapsRows ?? (write != nil) ? tableHeight : Self.tableHeight(rows: shown.count))
             }
-            if ids.count > shown.count {
-                Button(moreLabel, action: more)
-                    .buttonStyle(.link)
-                    .frame(height: Self.moreHeight)
+            if ids.count > shown.count || less != nil {
+                HStack(spacing: 16) {
+                    if ids.count > shown.count { Button(moreLabel, action: more) }
+                    if let less { Button(less.label, action: less.action) }
+                }
+                .buttonStyle(.link)
+                .frame(height: Self.moreHeight)
             }
         }
         .task(id: ValuesKey(columns: list.columns, ids: Array(ids.prefix(limit)), generation: store.indexGeneration)) {

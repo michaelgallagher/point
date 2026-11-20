@@ -503,17 +503,35 @@ private struct EditorView: NSViewRepresentable {
             guard let model, let session else { return nil }
             return model.store.imageURL(for: target, from: session.note.id)
         }
-        // Lists embedded alone on a line show the notes they find, above the embed.
-        textView.blockEmbedHeight = { [weak model, weak session] target in
+        // Lists embedded alone on a line show the notes they find, above the embed; lists
+        // written in the note, as `list` blocks, in place of their lines.
+        textView.blockEmbedHeight = { [weak model, weak session] embed in
             guard let model, let session else { return nil }
-            return model.store.listEmbedHeight(target, from: session.note.id)
+            switch embed {
+            case .note(let target): return model.store.listEmbedHeight(target, from: session.note.id)
+            case .list(let body, let index): return model.store.listBlockHeight(body, rows: session.rows(ofListBlock: index), filters: session.filtersHeight(ofListBlock: index))
+            }
         }
-        textView.makeBlockEmbedView = { [weak model, weak session, paneID] target in
-            guard let model, let session, let id = model.store.embeddedListID(target, from: session.note.id) else { return NSView() }
-            let view = NSHostingView(rootView: ListEmbed(listID: id, model: model, store: model.store, paneID: paneID).environmentObject(model))
+        textView.makeBlockEmbedView = { [weak model, weak session, paneID] embed in
+            guard let model, let session else { return NSView() }
+            let root: AnyView
+            switch embed {
+            case .note(let target):
+                guard let id = model.store.embeddedListID(target, from: session.note.id) else { return NSView() }
+                root = AnyView(ListEmbed(listID: id, model: model, store: model.store, paneID: paneID))
+            case .list(let body, let index):
+                guard let list = ListDefinition(block: body) else { return NSView() }
+                root = AnyView(ListBlockEmbed(list: list, index: index, session: session, model: model, store: model.store, paneID: paneID))
+            }
+            let view = NSHostingView(rootView: root.environmentObject(model))
             // The room the text made for it, not the size SwiftUI would make it.
             view.sizingOptions = []
             return view
+        }
+        // A list put in with Insert List opens its filters, to say what it lists.
+        textView.onListBlockInserted = { [weak model, weak session] index in
+            guard let model, let session else { return }
+            model.listOpeningFilters = ListBlockEmbed.listID(note: session.note.id, index: index)
         }
         textView.saveImage = { [weak model, weak session] data, type in
             guard let model, let session else { return nil }

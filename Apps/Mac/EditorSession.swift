@@ -60,6 +60,62 @@ final class EditorSession: NSObject, ObservableObject {
     private var pendingCount: Task<Void, Never>?
     nonisolated(unsafe) private var selectionObserver: NSObjectProtocol?
 
+    // MARK: Lists written in the note
+
+    /// How many rows each `list` block shows, by which block of the note it is, if not the
+    /// first 10 (`ListBlockEmbed.folded`): unfolded, while the note is open. Not written in
+    /// the file.
+    @Published private(set) var listBlockRows: [Int: Int] = [:]
+
+    func rows(ofListBlock index: Int) -> Int { listBlockRows[index] ?? ListBlockEmbed.folded }
+
+    /// How tall each `list` block's filters are, as drawn: more than a line, when they wrap.
+    private var listBlockFilters: [Int: CGFloat] = [:]
+    func filtersHeight(ofListBlock index: Int) -> CGFloat { listBlockFilters[index] ?? ListBlockEmbed.filtersLine }
+
+    /// A `list` block's filters as drawn, its room in the text changing to fit if they've
+    /// wrapped onto more lines (or fewer).
+    func setFiltersHeight(_ height: CGFloat, ofListBlock index: Int) {
+        guard height > 0, abs(height - filtersHeight(ofListBlock: index)) > 0.5 else { return }
+        listBlockFilters[index] = height
+        // After this layout pass, not during it.
+        DispatchQueue.main.async { [weak self] in self?.textView?.restyleAll() }
+    }
+
+    /// Shows `rows` of a `list` block, its room in the text changing to fit.
+    func showRows(_ rows: Int, ofListBlock index: Int) {
+        listBlockRows[index] = rows == ListBlockEmbed.folded ? nil : rows
+        textView?.restyleAll()
+    }
+
+    /// Writes a changed list into the note's `index`th `list` block, as one undoable edit:
+    /// only the keys that changed, as the block spells them (see `ListDefinition.blockBody`).
+    func writeListBlock(_ changed: ListDefinition, at index: Int) {
+        guard !isReleased, let textView, let range = textView.listBlockBody(at: index) else { return }
+        let body = (textView.string as NSString).substring(with: range)
+        guard let current = ListDefinition(block: body), changed != current else { return }
+        textView.replaceListBlockBody(at: index, with: changed.blockBody(over: body), actionName: "Change List")
+    }
+
+    #if DEBUG
+    /// For `-PointEditListBlock` (see `DebugSnapshots`).
+    func debugEditListBlock(_ step: String) {
+        guard let textView else { return }
+        if step == "insert" {
+            textView.setSelectedRange(NSRange(location: (textView.string as NSString).length, length: 0))
+            textView.insertListBlock(nil)
+            return
+        }
+        guard let range = textView.listBlockBody(at: 0),
+              var list = ListDefinition(block: (textView.string as NSString).substring(with: range)) else { return }
+        if !list.conditions.isEmpty { list.conditions.removeFirst() }
+        list.sort = [NoteQuery.Sort(.field(.title))]
+        if list.columns.count > 1 { list.columns.swapAt(0, 1) }
+        writeListBlock(list, at: 0)
+        if step == "undo" { textView.undoManager?.undo() }
+    }
+    #endif
+
     deinit { selectionObserver.map(NotificationCenter.default.removeObserver) }
     /// The file's contents as last read or written, to tell our edits from other people's.
     private var onDisk: String?

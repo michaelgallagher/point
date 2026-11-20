@@ -62,6 +62,7 @@ struct ShortcutsSheet: View {
             (.commands([.highlightOrange, .highlightRed]), "Highlight a list item orange, red (the rest under Format › Highlight List Item)"),
             (.commands([.addLink]), "Add link"),
             (.commands([.insertTable]), "Insert table"),
+            (.commands([.insertList]), "Insert list"),
         ]),
         ("Editing", [
             (.commands([.indent, .outdent]), "Indent, outdent"),
