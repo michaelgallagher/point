@@ -1,6 +1,6 @@
 # Slash commands
 
-20 November 2026. Planned; to be built after steps 4 and 5 of [Lists written in a note](inline-lists.md), on a branch of its own.
+20 November 2026. Planned, then built on the `slash-commands` branch the same day: steps 1 to 5, tried on the Mac and in the iPhone Simulator, not yet on a phone. See [Built](#built) for how it came out.
 
 Typing `/` in a note opens a small menu at the cursor, of things to put in or do there, so markup that's awkward to type (a list, a table, a callout) never has to be typed. It came from lists written in a note: typing ```` ```list ```` by hand is fiddly, and on the iPhone the backtick is hard to reach. The Mac's Format menu and palette already do most of these; the menu brings them to where you're writing, and to the iPhone, which has no Format menu.
 
@@ -44,6 +44,27 @@ Return at the end of an opening fence (```` ``` ````, ```` ```swift ````, ```` `
 3. **The menu on the iPhone,** the same commands.
 4. **The rest:** dates, daily notes, embeds, images, templates, properties, tags.
 5. **Checked:** typing `/` where it mustn't open (words, links, code, properties, tables); undo after each command; the file after each (well-formed Markdown); typing in a long note, for lag.
+
+## Built
+
+20 November 2026, on `slash-commands`.
+
+- **Fences close themselves** (`MarkdownEditing.closingFence`, tested against both editors). A closed block with an empty line under its fence takes the cursor there instead, so Return after a code block's language, as the menu writes it, goes in without a second closing fence.
+- **The commands** are `SlashCommand.all`, in EditorKit, shared; the trigger and the narrowing are `SlashMenu.query` and `SlashMenu.matching`. What a command writes is `MarkdownEditing.slashEdit`, tested: a block on lines of its own, with a blank line from the text around it.
+- **The Mac:** the list under the `/` (above it, near the window's bottom), with icons and the shortcuts set for each. Return, Tab or a click puts one in; Escape leaves what was typed. Image asks for files; template opens Apply Template's list; property adds one in the properties; List opens its filters.
+- **The iPhone:** the commands as buttons in the bar above the keyboard, in place of the tools, the first tinted, which Return puts in. Template asks which in a dialog; property opens the properties; List, from the menu or a ```` ```list ```` fence and Return, opens its filters.
+- **Checked:** `/` doesn't open in words, links, web addresses, code, the properties or tables (tests); one Undo goes back to the `/` as typed, on both (a test on the Mac, by hand on the iPhone, where Undo selects what came back, as it does everywhere on iOS); the file after each command by hand; the trigger and narrowing take 0.04 ms a key in a 45 KB note.
+
+Simpler than planned:
+
+- **Choices are a second step:** choosing Callout or Code block writes `/callout ` or `/code block `, and the menu offers the types or languages; typing narrows them too (`/callout w`).
+- **Matching** is by the start of each word and by other names, written for the menu, not the palette's fuzzy matching, which is in IndexKit, which EditorKit doesn't use.
+- **Tag** writes `#`, and tag completion takes over; **date and time** are `2026-11-20` and `14:05`. `/today` offers Today's date before Today's note, in the menu's order.
+
+Not done:
+
+- **Image on the iPhone** (from Files or Photos): left out of its menu for now.
+- **Up and down on the iPhone,** with a hardware keyboard, to move through the menu; Return works.
 
 ## Not now
 
