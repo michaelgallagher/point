@@ -51,8 +51,8 @@ struct ListPanel: View {
 
 // MARK: What it takes in
 
-/// The list's choices as a line of buttons: "In Sources", "Tagged #reading", "format is
-/// Book", "Add filter", then its order and columns.
+/// The list's choices as a line of buttons, "In Sources", "Tagged #reading", "format is
+/// Book", "Add filter" (wrapping as they need), then its order and columns on a line under them.
 struct ListFilters: View {
     let list: ListDefinition
     /// The list's note, or a `list` block's ID (see `ListBlockEmbed.listID`): which list a
@@ -70,42 +70,46 @@ struct ListFilters: View {
     }
 
     var body: some View {
-        ListFlow(spacing: 6) {
-            ForEach(Array(list.folders.enumerated()), id: \.offset) { index, folder in
-                ChipLabel(text: "In \(folder.isEmpty ? "the vault" : folder)", systemImage: "folder", open: { sheet = .edit }) {
-                    var changed = list; changed.folders.remove(at: index); write(changed)
-                }
-            }
-            ForEach(Array(list.tags.enumerated()), id: \.offset) { index, tag in
-                ChipLabel(text: "Tagged #\(tag)", systemImage: "number", open: { sheet = .edit }) {
-                    var changed = list; changed.tags.remove(at: index); write(changed)
-                }
-            }
-            ForEach(Array(list.conditions.enumerated()), id: \.offset) { index, condition in
-                if index > 0 {
-                    // "and" or "or" between conditions: click to change which.
-                    Button(list.matchesAny ? "or" : "and") {
-                        var changed = list; changed.matchesAny.toggle(); write(changed)
+        VStack(alignment: .leading, spacing: Self.lineGap) {
+            ListFlow(spacing: 6) {
+                ForEach(Array(list.folders.enumerated()), id: \.offset) { index, folder in
+                    ChipLabel(text: "In \(folder.isEmpty ? "the vault" : folder)", systemImage: "folder", open: { sheet = .edit }) {
+                        var changed = list; changed.folders.remove(at: index); write(changed)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .pointingHand()
-                    .help(list.matchesAny ? "Notes meeting any of these: click for all" : "Notes meeting all of these: click for any")
                 }
-                ChipLabel(text: shown(condition), systemImage: store.listValueKind(of: subject(of: condition)).symbol,
-                          open: { sheet = .edit }) {
-                    var changed = list; changed.conditions.remove(at: index); write(changed)
+                ForEach(Array(list.tags.enumerated()), id: \.offset) { index, tag in
+                    ChipLabel(text: "Tagged #\(tag)", systemImage: "number", open: { sheet = .edit }) {
+                        var changed = list; changed.tags.remove(at: index); write(changed)
+                    }
                 }
+                ForEach(Array(list.conditions.enumerated()), id: \.offset) { index, condition in
+                    if index > 0 {
+                        // "and" or "or" between conditions: click to change which.
+                        Button(list.matchesAny ? "or" : "and") {
+                            var changed = list; changed.matchesAny.toggle(); write(changed)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .pointingHand()
+                        .help(list.matchesAny ? "Notes meeting any of these: click for all" : "Notes meeting all of these: click for any")
+                    }
+                    ChipLabel(text: shown(condition), systemImage: store.listValueKind(of: subject(of: condition)).symbol,
+                              open: { sheet = .edit }) {
+                        var changed = list; changed.conditions.remove(at: index); write(changed)
+                    }
+                }
+                Button { sheet = .add } label: {
+                    Label("Add filter", systemImage: "plus")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .pointingHand()
             }
-            Button { sheet = .add } label: {
-                Label("Add filter", systemImage: "plus")
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 14) {
+                sortMenu
+                columnsMenu
             }
-            .buttonStyle(.plain)
-            .pointingHand()
-            Rectangle().fill(Color(nsColor: .separatorColor)).frame(width: 1, height: 16)
-            sortMenu
-            columnsMenu
+            .frame(height: Self.menusHeight)
         }
         // A list just made opens its filters, to say what it lists.
         .onAppear {
@@ -125,6 +129,9 @@ struct ListFilters: View {
             }
         }
     }
+
+    /// The room between the filters and the line of menus under them, and that line's height.
+    static let lineGap: CGFloat = 6, menusHeight: CGFloat = 20
 
     private func subject(of condition: ListCondition) -> ListFilterSubject {
         ListFilterRow(condition: condition).subject
@@ -354,8 +361,9 @@ struct ListBlockEmbed: View {
     /// the note, and which block.
     static func listID(note: Note.ID, index: Int) -> String { "\(note)#list-\(index)" }
 
-    /// The height of a line of filters, before they're drawn, and the room under them.
-    static let filtersLine: CGFloat = 22, filtersGap: CGFloat = 8
+    /// The height of the filters before they're drawn (a line of them, and the menus under
+    /// them), and the room under them.
+    static let filtersLine: CGFloat = 24 + ListFilters.lineGap + ListFilters.menusHeight, filtersGap: CGFloat = 8
     /// How far in from its outline it's drawn, at the sides, and at the top and bottom.
     static let inset: CGFloat = 12, insetY: CGFloat = 10
 
