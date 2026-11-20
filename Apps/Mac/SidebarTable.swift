@@ -1015,13 +1015,7 @@ struct SidebarTable: NSViewRepresentable {
                     entry.state = model.sort == sort ? .on : .off
                     menu.addItem(entry)
                 }
-            case .folders, .tags:
-                for (title, order) in [("Name", VaultModel.TagOrder.name), ("Date Modified", .modified)] {
-                    let entry = item(title) { $0.tagOrder = order }
-                    entry.state = model.tagOrder == order ? .on : .off
-                    menu.addItem(entry)
-                }
-            case .pinned, .types, .properties, .values, .images, .linkedNote, .property:
+            case .folders, .tags, .pinned, .types, .properties, .values, .images, .linkedNote, .property:
                 return nil
             }
             return menu
@@ -1072,16 +1066,6 @@ struct SidebarTable: NSViewRepresentable {
 
         // MARK: Right-click menus
 
-        /// How folders and tags are sorted: by name or date modified.
-        private func addTreeSortItems(to menu: NSMenu) {
-            let byName = item("Sort Folders and Tags by Name") { $0.tagOrder = .name }
-            byName.state = model.tagOrder == .name ? .on : .off
-            let byDate = item("Sort Folders and Tags by Date Modified") { $0.tagOrder = .modified }
-            byDate.state = model.tagOrder == .modified ? .on : .off
-            menu.addItem(byName)
-            menu.addItem(byDate)
-        }
-
         func menuNeedsUpdate(_ menu: NSMenu) {
             menu.removeAllItems()
             guard let table, rows.indices.contains(table.clickedRow) else { return }
@@ -1104,12 +1088,6 @@ struct SidebarTable: NSViewRepresentable {
                 menu.addItem(item("Show in Finder") { $0.showInFinder(note) })
                 menu.addItem(.separator())
                 menu.addItem(item("Move to Trash") { $0.moveToTrash(note) })
-            case .header:
-                // Right-click a section label to choose how folders and tags are sorted.
-                addTreeSortItems(to: menu)
-            case .treeSwitch:
-                // Folders or tags one at a time have no label: their switch has the sort instead.
-                addTreeSortItems(to: menu)
             case .place(let place, _, _):
                 if place != .allNotes {
                     menu.addItem(item(model.isPinned(place) ? "Unpin" : "Pin to Sidebar") { $0.togglePin(place) })
@@ -1147,11 +1125,6 @@ struct SidebarTable: NSViewRepresentable {
                     menu.addItem(item("Show in Finder") { _ in
                         NSWorkspace.shared.activateFileViewerSelecting([path.isEmpty ? root : root.appendingPathComponent(path)])
                     })
-                }
-                // And on the folders and tags themselves, when they have no label.
-                if place.isTag || path?.isEmpty == false, section(ofRow: table.clickedRow) == nil {
-                    menu.addItem(.separator())
-                    addTreeSortItems(to: menu)
                 }
             default:
                 break
@@ -1391,7 +1364,7 @@ struct SidebarRowView: View {
 
     /// The width of a section's sort label and its arrows.
     static func sortLabelWidth(_ label: String) -> CGFloat {
-        let font = NSFont.systemFont(ofSize: NSFont.preferredFont(forTextStyle: .caption1).pointSize, weight: .semibold)
+        let font = NSFont.systemFont(ofSize: NSFont.preferredFont(forTextStyle: .subheadline).pointSize, weight: .semibold)
         return ceil((label as NSString).size(withAttributes: [.font: font]).width) + 2 + 8
     }
 
@@ -1427,7 +1400,8 @@ struct SidebarRowView: View {
                     .help("How \(section.title.lowercased()) are sorted")
                 }
             }
-            .font(.caption.weight(.semibold))
+            // Subheadline (11 points), as Finder's sidebar labels.
+            .font(.subheadline.weight(.semibold))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             .padding(.leading, 8)
@@ -1440,7 +1414,7 @@ struct SidebarRowView: View {
             // As a section's label, without its arrow: it doesn't fold.
             Text(label)
                 .lineLimit(1)
-                .font(.caption.weight(.semibold))
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                 .padding(.horizontal, 8)
@@ -1615,7 +1589,7 @@ struct SidebarNoteRow: View {
     private var dateLabel: String { Self.label(for: model.listDate == .edited ? note.modified : note.created) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
+        VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline, spacing: Self.spacing) {
                 if listMark == .symbol {
                     Image(systemName: "list.bullet")
@@ -1656,7 +1630,7 @@ struct SidebarNoteRow: View {
             }
             if let line = model.listSecondLine(for: note.id) {
                 Text(line)
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -1697,8 +1671,8 @@ extension Array {
 }
 
 extension VaultModel {
-    /// The name of how a section is sorted, shown at the right of its label (nothing for
-    /// sections that aren't sorted).
+    /// The name of how a section is sorted, shown at the right of its label: the notes only.
+    /// (Folders and tags are sorted from the View menu and Settings, not the sidebar.)
     func sortLabel(for section: SidebarSection) -> String? {
         switch section {
         case .notes:
@@ -1707,9 +1681,7 @@ extension VaultModel {
             case .created: "Date created"
             case .title: "Title"
             }
-        case .folders, .tags:
-            tagOrder == .name ? "Name" : "Date modified"
-        case .pinned, .types, .properties, .values, .images, .linkedNote, .property:
+        case .folders, .tags, .pinned, .types, .properties, .values, .images, .linkedNote, .property:
             nil
         }
     }
