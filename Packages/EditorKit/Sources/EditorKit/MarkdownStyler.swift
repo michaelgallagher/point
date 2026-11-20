@@ -26,7 +26,10 @@ struct MarkdownStyler {
     var imageURL: ((String) -> URL?)?
     /// How tall a block the app draws for an embed of a note (`![[Books to read]]`) alone on
     /// its line, if it draws one: nil for an embed shown as it's written.
-    var blockEmbedHeight: ((String) -> CGFloat?)?
+    /// How tall a block the app draws (`BlockEmbed`) is, if it draws one: an embed of a note
+    /// (`![[Books to read]]`) alone on its line, or a `list` block. Nil for one shown as it's
+    /// written.
+    var blockEmbedHeight: ((BlockEmbed) -> CGFloat?)?
     /// Characters that highlight a list item when they start it, with their colours.
     var listHighlights: [Character: PlatformColor] = [:]
 
@@ -101,7 +104,13 @@ struct MarkdownStyler {
             for (_, images) in lines { layOutImages(images.sorted { $0.range.location < $1.range.location }, storage: storage, text: text) }
         }
         if theme.rendersImages, blockEmbedHeight != nil {
-            for token in tokens where intersects(token.range, range) {
+            var listBlocks = 0
+            for token in tokens {
+                if case .codeBlock(let language) = token.kind, language == Self.listLanguage {
+                    if intersects(token.range, range) { layOutListBlock(token, index: listBlocks, storage: storage, text: text) }
+                    listBlocks += 1
+                }
+                guard intersects(token.range, range) else { continue }
                 if case .embed(let target) = token.kind, Self.imageEmbed(token, in: text) == nil {
                     layOutBlockEmbed(token, target: target, storage: storage, text: text)
                 }
@@ -319,7 +328,7 @@ struct MarkdownStyler {
             return
         }
         let name = target.split(separator: "|", maxSplits: 1).first.map { String($0).trimmingCharacters(in: .whitespaces) } ?? target
-        guard let height = blockEmbedHeight?(name), height > 0 else { return }
+        guard let height = blockEmbedHeight?(.note(name)), height > 0 else { return }
         let existing = storage.attribute(.paragraphStyle, at: start, effectiveRange: nil) as? NSParagraphStyle ?? baseParagraphStyle
         let style = existing.mutableCopy() as! NSMutableParagraphStyle
         let above = existing.paragraphSpacingBefore
@@ -327,7 +336,7 @@ struct MarkdownStyler {
         storage.addAttribute(.paragraphStyle, value: style, range: NSRange(location: start, length: end - start))
         let range = token.range
         storage.addAttributes([
-            .pointBlockEmbed: BlockEmbedDecoration(target: name, height: height, spaceAbove: above),
+            .pointBlockEmbed: BlockEmbedDecoration(target: .note(name), height: height, spaceAbove: above),
             .font: PlatformFont.systemFont(ofSize: (theme.bodySize * 0.75).rounded()),
             .foregroundColor: PlatformColor.secondaryLabelColor,
         ], range: range)
@@ -337,6 +346,42 @@ struct MarkdownStyler {
         let bar = (text.substring(with: inside) as NSString).range(of: "|")
         storage.addAttribute(.pointHidden, value: true, range: range)
         storage.removeAttribute(.pointHidden, range: NSRange(location: inside.location, length: bar.location == NSNotFound ? inside.length : bar.location))
+    }
+
+    /// The name of a fenced block that's a list: ```` ```list ````.
+    static let listLanguage = "list"
+
+    /// A `list` block the app draws (see `blockEmbedHeight`): its lines hidden and squeezed to
+    /// slivers of a point, and room made above them for the list. Left as code if it isn't
+    /// closed (it's being written) or the app doesn't draw it (it doesn't read as a list).
+    private func layOutListBlock(_ token: MarkdownToken, index: Int, storage: NSTextStorage, text: NSString) {
+        guard token.syntax.count == 2 else { return }
+        let opening = text.lineRange(for: token.syntax[0]), closing = text.lineRange(for: token.syntax[1])
+        let body = text.substring(with: NSRange(location: NSMaxRange(opening), length: closing.location - NSMaxRange(opening)))
+        let embed = BlockEmbed.list(body: body, index: index)
+        guard let height = blockEmbedHeight?(embed), height > 0 else { return }
+        let whole = NSRange(location: opening.location, length: NSMaxRange(closing) - opening.location)
+        storage.setAttributes(baseAttributes, range: whole)
+        var location = whole.location
+        while location < NSMaxRange(whole) {
+            var start = 0, end = 0, contentsEnd = 0
+            text.getLineStart(&start, end: &end, contentsEnd: &contentsEnd, for: NSRange(location: location, length: 0))
+            collapseLine(NSRange(location: start, length: contentsEnd - start), storage: storage, text: text, height: 1)
+            location = max(end, location + 1)
+        }
+        // The room is above the opening fence, and the usual space between paragraphs after
+        // the closing one.
+        let above = baseParagraphStyle.paragraphSpacingBefore
+        if let style = (storage.attribute(.paragraphStyle, at: opening.location, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle {
+            style.paragraphSpacingBefore = above + height + theme.imageGap
+            storage.addAttribute(.paragraphStyle, value: style, range: opening)
+        }
+        if let style = (storage.attribute(.paragraphStyle, at: closing.location, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle {
+            style.paragraphSpacing = theme.paragraphSpacing
+            storage.addAttribute(.paragraphStyle, value: style, range: closing)
+        }
+        let fence = NSRange(location: opening.location, length: max(1, (token.syntax[0]).length))
+        storage.addAttribute(.pointBlockEmbed, value: BlockEmbedDecoration(target: embed, height: height, spaceAbove: above), range: fence)
     }
 
     private func intersects(_ a: NSRange, _ b: NSRange) -> Bool {

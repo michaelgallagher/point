@@ -37,10 +37,22 @@ extension NSAttributedString.Key {
     static let pointBlockEmbed = NSAttributedString.Key("point.blockEmbed")
 }
 
-/// An embed (`![[Books to read]]`) alone on its line that the app draws as a block above it,
-/// its Markdown kept, small, as a caption.
+/// Something in a note the app draws as a block of its own, in room the text makes for it.
+public enum BlockEmbed: Hashable, Sendable {
+    /// An embed of a note (`![[Books to read]]`) alone on its line, by the name it gives:
+    /// drawn above the line, which stays, small, as a caption.
+    case note(String)
+    /// A fenced block named `list`, by its body (the lines between the fences, each with its
+    /// line break) and which `list` block of the note it is, from 0: drawn in place of its
+    /// lines, which are hidden.
+    case list(body: String, index: Int)
+}
+
+/// A block the app draws (a `BlockEmbed`), in the room made above the line with this
+/// attribute: for an embed, the embed itself, kept small as a caption; for a `list` block,
+/// its opening fence.
 struct BlockEmbedDecoration: Hashable {
-    let target: String
+    let target: BlockEmbed
     let height: CGFloat
     /// The room above the line that was there before the block's: the block is drawn below it.
     let spaceAbove: CGFloat
@@ -175,4 +187,19 @@ struct EditorTheme {
         default: .systemBlue
         }
     }
+}
+
+/// The view for the `index`th block drawn in a note, whose target is `target`, from the views
+/// drawn last time (in order): its own if it's there, with any before it no longer drawn
+/// taken away; else a new one, made and put in its place. A view is never reused for another
+/// target: a `list` block whose lines changed gets a new view, not the next block's.
+func blockEmbedView<View>(_ views: inout [(target: BlockEmbed, view: View)], at index: Int, for target: BlockEmbed,
+                          make: () -> View, remove: (View) -> Void) -> View {
+    if let found = views.indices.dropFirst(index).first(where: { views[$0].target == target }) {
+        for _ in index..<found { remove(views.remove(at: index).view) }
+        return views[index].view
+    }
+    let view = make()
+    views.insert((target, view), at: index)
+    return view
 }

@@ -59,12 +59,12 @@ public final class PhoneTextView: UITextView {
     private var layoutRun = 0
     /// The views drawing images and the app's blocks over the text (`PhoneTextView+Embeds`).
     var imageViews: [PhoneImageView] = []
-    var blockEmbedViews: [(target: String, view: UIView)] = []
+    var blockEmbedViews: [(target: BlockEmbed, view: UIView)] = []
     /// How tall the text was when they were last placed: as the rest of a note is laid out,
     /// lines move, and the views with them.
     var embedsSyncedHeight: CGFloat = 0
     /// Makes the view the app draws for a block embed (see `blockEmbedHeight`).
-    public var makeBlockEmbedView: ((String) -> UIView)?
+    public var makeBlockEmbedView: ((BlockEmbed) -> UIView)?
     /// Called when an image is tapped, with its file.
     public var onOpenImage: ((URL) -> Void)?
     /// Actions for the edit menu over a selection (reader mode's Highlight and Add to notes),

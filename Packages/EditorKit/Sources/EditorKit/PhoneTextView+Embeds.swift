@@ -60,9 +60,9 @@ extension PhoneTextView {
         }
     }
 
-    /// How tall a block the app draws for an embed of a note (`![[Books to read]]`) alone on
-    /// its line, if it draws one, and the view it draws (`makeBlockEmbedView`).
-    public var blockEmbedHeight: ((String) -> CGFloat?)? {
+    /// How tall a block the app draws (`BlockEmbed`: an embed of a note alone on its line, or
+    /// a `list` block) is, if it draws one, and the view it draws (`makeBlockEmbedView`).
+    public var blockEmbedHeight: ((BlockEmbed) -> CGFloat?)? {
         get { styler.blockEmbedHeight }
         set {
             styler.blockEmbedHeight = newValue
@@ -120,18 +120,11 @@ extension PhoneTextView {
                     let line = manager.lineFragmentRect(forGlyphAt: manager.glyphIndexForCharacter(at: range.location), effectiveRange: nil)
                     guard line.height > decoration.height else { return }
                     let indent = (textStorage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)?.firstLineHeadIndent ?? 0
-                    if blocks < blockEmbedViews.count, blockEmbedViews[blocks].target != decoration.target {
-                        blockEmbedViews[blocks].view.removeFromSuperview()
-                        blockEmbedViews.remove(at: blocks)
-                    }
-                    let view: UIView
-                    if blocks < blockEmbedViews.count {
-                        view = blockEmbedViews[blocks].view
-                    } else {
-                        view = make(decoration.target)
+                    let view = blockEmbedView(&blockEmbedViews, at: blocks, for: decoration.target, make: {
+                        let view = make(decoration.target)
                         addSubview(view)
-                        blockEmbedViews.insert((decoration.target, view), at: blocks)
-                    }
+                        return view
+                    }, remove: { $0.removeFromSuperview() })
                     blocks += 1
                     let frame = CGRect(x: origin.x + indent, y: origin.y + line.minY + decoration.spaceAbove,
                                        width: max(styler.theme.textWidth - indent, 100), height: decoration.height)
