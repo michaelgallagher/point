@@ -8,17 +8,7 @@ extension MarkdownTextView {
     /// The lines between the fences of the note's `index`th closed `list` block (from 0, as
     /// `BlockEmbed.list` counts them), each with its line break.
     public func listBlockBody(at index: Int) -> NSRange? {
-        let text = string as NSString
-        var count = 0
-        for token in tokens {
-            guard case .codeBlock(let language) = token.kind, language == MarkdownStyler.listLanguage else { continue }
-            defer { count += 1 }
-            guard count == index else { continue }
-            guard token.syntax.count == 2 else { return nil }
-            let opening = text.lineRange(for: token.syntax[0]), closing = text.lineRange(for: token.syntax[1])
-            return NSRange(location: NSMaxRange(opening), length: closing.location - NSMaxRange(opening))
-        }
-        return nil
+        ListBlocks.body(at: index, tokens: tokens, text: string as NSString)
     }
 
     /// Replaces the lines of the note's `index`th `list` block, as one undoable edit named
