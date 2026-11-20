@@ -52,18 +52,28 @@ public struct ListDefinition: Equatable, Sendable {
     /// The list a note's properties describe, if they describe one.
     public init?(frontmatter: Frontmatter?) {
         guard let frontmatter else { return nil }
-        func values(_ key: String) -> [String]? {
-            frontmatter.properties.first { $0.key.lowercased() == key }?.values
-                .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        }
-        let from = values(Key.from), tags = values(Key.tags), conditions = values(Key.conditions)
-        guard from != nil || tags != nil || conditions != nil else { return nil }
-        folders = (from ?? []).map(Self.folderName)
-        self.tags = (tags ?? []).map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "#")) }
-        self.conditions = (conditions ?? []).compactMap(ListCondition.init(parsing:))
+        let values = Self.values(of: frontmatter.properties) { $0 }
+        guard values(Key.from) != nil || values(Key.tags) != nil || values(Key.conditions) != nil else { return nil }
+        self.init(values: values)
+    }
+
+    /// A list from its properties' values, looked up by their keys in `Key`.
+    init(values: (String) -> [String]?) {
+        folders = (values(Key.from) ?? []).map(Self.folderName)
+        tags = (values(Key.tags) ?? []).map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "#")) }
+        conditions = (values(Key.conditions) ?? []).compactMap(ListCondition.init(parsing:))
         matchesAny = values(Key.match)?.first?.lowercased() == "any"
         sort = (values(Key.sort) ?? []).compactMap(Self.sort(parsing:))
         columns = values(Key.columns) ?? []
+    }
+
+    /// Looks up properties' values, trimmed and without blanks, by a key in `Key`: `key`
+    /// turns each property's own name (in lowercase) into one, or nil to skip it.
+    static func values(of properties: [Frontmatter.Property], key: @escaping (String) -> String?) -> (String) -> [String]? {
+        { wanted in
+            properties.first { key($0.key.lowercased()) == wanted }?.values
+                .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        }
     }
 
     /// `[[Sources]]` or `/Sources/` as a folder's path, `Sources`.
