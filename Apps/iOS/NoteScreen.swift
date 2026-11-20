@@ -126,6 +126,10 @@ struct NoteScreen: View {
             .sheet(isPresented: $session.showsProperties, onDismiss: { session.save() }) {
                 PropertiesSheet(session: session).environmentObject(store)
             }
+            .sheet(item: $session.editingList) { editing in
+                ListFiltersSheet(list: editing.list) { session.write($0, for: editing) }
+                    .environmentObject(store)
+            }
             .sheet(isPresented: $session.showsNotes, onDismiss: { session.finishNotes() }) {
                 NotesSheet(session: session).environmentObject(store)
             }
@@ -262,6 +266,8 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     /// The note's frontmatter, as its text is now.
     @Published private(set) var frontmatter: Frontmatter?
     @Published var showsProperties = false
+    /// The list whose filters are open: one written in the note, or the note's own.
+    @Published var editingList: ListEditing?
     /// What's related to this note, as on the Mac (links and recall made one): the notes
     /// sharing its topics or people, most shared first, then those linking here, by relation.
     /// Narrowed to `relatedType` when one's chosen.
@@ -407,13 +413,41 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         let store = store
         return PhoneListBlockView(embeds: store.embeds, list: list, index: index, rows: listBlockRows,
                                   open: { store.linkedRoute = .note($0) },
-                                  unfold: { [weak self] rows in self?.showRows(rows, ofListBlock: index) })
+                                  unfold: { [weak self] rows in self?.showRows(rows, ofListBlock: index) },
+                                  edit: { [weak self] in self?.editList(block: index) })
     }
 
     /// Shows `rows` of a `list` block, its room in the text changing to fit.
     private func showRows(_ rows: Int, ofListBlock index: Int) {
         listBlockRows.set(rows, of: index)
         textView?.restyleEmbeds()
+    }
+
+    /// A list being changed in the filters sheet: the note's `block`th `list` block, or (nil)
+    /// the note's own list.
+    struct ListEditing: Identifiable {
+        let id = UUID()
+        let list: ListDefinition
+        let block: Int?
+    }
+
+    /// Opens the filters of the note's `index`th `list` block, or (nil) of the note's own list.
+    func editList(block index: Int?) {
+        guard let textView else { return }
+        let list: ListDefinition?
+        if let index {
+            list = textView.listBlockBody(at: index).flatMap { ListDefinition(block: (textView.text as NSString).substring(with: $0)) }
+        } else {
+            list = ListDefinition(frontmatter: Frontmatter.parse(textView.text))
+        }
+        guard let list else { return }
+        textView.resignFirstResponder()
+        editingList = ListEditing(list: list, block: index)
+    }
+
+    /// Writes what the filters sheet changed, as one edit.
+    func write(_ changed: ListDefinition, for editing: ListEditing) {
+        if let block = editing.block { writeListBlock(changed, at: block) } else { writeList(changed) }
     }
 
     /// Writes a changed list into the note's `index`th `list` block, as one step to undo: its
@@ -484,7 +518,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
             guard let self, let header = self.header, header.listHeight != height else { return }
             header.listHeight = height
             self.textView?.setNeedsLayout()
-        })
+        }, edit: { [weak self] in self?.editList(block: nil) })
         header.list = host(view)
         textView?.setNeedsLayout()
     }
@@ -651,6 +685,10 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         #if DEBUG
         if firstOpen, let step = UserDefaults.standard.string(forKey: "PhoneEditList") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.debugEditList(step) }
+        }
+        // `-PhoneListSheet note|0|1…` opens the filters of the note's own list, or of a block.
+        if firstOpen, let which = UserDefaults.standard.string(forKey: "PhoneListSheet") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.editList(block: Int(which)) }
         }
         #endif
         if let draft = store.drafts.draft(for: note.id) {

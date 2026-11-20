@@ -763,7 +763,18 @@ final class PhoneStore: ObservableObject {
             personNotes = []
         }
         propertyValues = values
+        if let summaries = try? await index.propertySummaries() { propertySummaries = summaries }
         propertyValuesUpdate = update
+    }
+
+    /// What the index says of each property (how many notes, what its values look like), most
+    /// used first, for lists' filters: read with the property values.
+    @Published private(set) var propertySummaries: [SearchIndex.PropertySummary] = []
+
+    /// What the vault's properties hold, for lists' filters (see `ListVocabulary`, in IndexKit).
+    var listVocabulary: ListVocabulary {
+        ListVocabulary(pointTypes: pointTypes, propertyTypes: propertyTypes, summaries: propertySummaries,
+                       values: { [unowned self] in propertyValueList($0) })
     }
 
     /// A property's values, each once whatever its case, most used first.

@@ -178,10 +178,13 @@ struct PhoneListView: View {
     let open: (Note.ID?) -> Void
     /// Says how tall it is, as what it finds changes.
     var onHeight: ((CGFloat) -> Void)?
+    /// Opens the list's filters, from a line at its top saying what it is ("In Reading ·
+    /// format is Book · by published"), with a filter button at its end. Without it, no line.
+    var edit: (() -> Void)?
     @State private var values: [Note.ID: [String: [String]]] = [:]
 
     static let embedLimit = 10
-    static let countHeight: CGFloat = 26, rowHeight: CGFloat = 44, detailedRowHeight: CGFloat = 60, moreHeight: CGFloat = 40
+    static let summaryHeight: CGFloat = 34, countHeight: CGFloat = 26, rowHeight: CGFloat = 44, detailedRowHeight: CGFloat = 60, moreHeight: CGFloat = 40
 
     /// Unfolds it in place to show this many rows, rather than opening the list: a list written
     /// in a note, which has no note of its own to open. With it, "Show all" and "Show more"
@@ -192,16 +195,17 @@ struct PhoneListView: View {
     /// Whether it shows "Show fewer": unfolded, with more than the first 10 to fold away.
     static func canFold(count: Int, limit: Int) -> Bool { limit > embedLimit && count > embedLimit }
 
-    static func height(count: Int, limit: Int, hasDetails: Bool, unfolds: Bool = false) -> CGFloat {
+    static func height(count: Int, limit: Int, hasDetails: Bool, unfolds: Bool = false, edits: Bool = false) -> CGFloat {
         let rows = min(count, limit)
         let buttons = count > limit || unfolds && canFold(count: count, limit: limit)
-        return countHeight + CGFloat(rows) * (hasDetails ? detailedRowHeight : rowHeight) + (buttons ? moreHeight : 0)
+        return (edits ? summaryHeight : 0) + countHeight + CGFloat(rows) * (hasDetails ? detailedRowHeight : rowHeight) + (buttons ? moreHeight : 0)
     }
 
     var body: some View {
         let ids = embeds.noteIDs(matching: list.query)
         let shown = Array((ids ?? []).prefix(limit)).compactMap { embeds.store?.note($0) }
         VStack(alignment: .leading, spacing: 0) {
+            if let edit { summaryLine(edit) }
             Text(ids.map { $0.count == 1 ? "1 note" : "\($0.count) notes" } ?? " ")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -252,8 +256,32 @@ struct PhoneListView: View {
             values = await embeds.propertyValues(names, of: shown.map(\.id))
         }
         .onChange(of: ids?.count, initial: true) { _, count in
-            onHeight?(Self.height(count: count ?? 0, limit: limit, hasDetails: !list.columns.isEmpty))
+            onHeight?(Self.height(count: count ?? 0, limit: limit, hasDetails: !list.columns.isEmpty, edits: edit != nil))
         }
+    }
+
+    /// What the list is, in a line, cut short if it's long, and a filter button: a tap
+    /// anywhere on it opens the filters.
+    private func summaryLine(_ edit: @escaping () -> Void) -> some View {
+        Button(action: edit) {
+            HStack(spacing: 8) {
+                Text(embeds.store?.listVocabulary.summary(of: list) ?? "")
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+                Image(systemName: "line.3.horizontal.decrease.circle")
+                    .imageScale(.large)
+                    .foregroundStyle(.tint)
+            }
+            .font(.subheadline)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(height: Self.summaryHeight, alignment: .top)
+        .accessibilityLabel("Filters")
+        .accessibilityValue(embeds.store?.listVocabulary.summary(of: list) ?? "")
     }
 
     private struct ValuesKey: Equatable {
@@ -289,7 +317,7 @@ struct PhoneListView: View {
 /// A list written in a note, as a `list` block, drawn in place of its lines, read only: its
 /// first 10 notes, then Show all, which unfolds it in place (50 rows at a time), and Show
 /// fewer, which folds it again; set apart from the note's text by an outline, as on the Mac.
-/// Its filters are changed on the Mac.
+/// Its filters open from the line at its top.
 struct PhoneListBlockView: View {
     @ObservedObject var embeds: PhoneEmbeds
     let list: ListDefinition
@@ -298,11 +326,12 @@ struct PhoneListBlockView: View {
     @ObservedObject var rows: ListBlockRows
     let open: (Note.ID) -> Void
     let unfold: (Int) -> Void
+    let edit: () -> Void
 
     static let inset: CGFloat = 12, insetY: CGFloat = 6
 
     var body: some View {
-        PhoneListView(embeds: embeds, list: list, limit: rows.rows(of: index), open: { if let id = $0 { open(id) } }, unfold: unfold)
+        PhoneListView(embeds: embeds, list: list, limit: rows.rows(of: index), open: { if let id = $0 { open(id) } }, edit: edit, unfold: unfold)
             .padding(.horizontal, Self.inset)
             .padding(.vertical, Self.insetY)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -311,7 +340,7 @@ struct PhoneListBlockView: View {
 
     /// How tall it is for a list finding `count` notes, showing up to `rows` of them.
     static func height(count: Int, rows: Int, hasDetails: Bool) -> CGFloat {
-        PhoneListView.height(count: count, limit: rows, hasDetails: hasDetails, unfolds: true) + insetY * 2
+        PhoneListView.height(count: count, limit: rows, hasDetails: hasDetails, unfolds: true, edits: true) + insetY * 2
     }
 }
 
