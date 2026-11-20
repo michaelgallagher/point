@@ -37,8 +37,8 @@ struct ContentView: View {
                         .padding(.top, model.topBarHeight)
                         .overlay(alignment: .top) { SidebarTopBar() }
                 } side: {
-                    NoteList(includesPlaces: false)
-                        .overlay(alignment: .top) { NoteListTopBar() }
+                    NoteList(filterTools: model.filterTools, includesPlaces: false)
+                        .overlay(alignment: .top) { NoteListTopBar(filterTools: model.filterTools) }
                         // The notes in the page's colour, the tree alone in the sidebar's grey,
                         // and a line between the notes and the note (which share a colour).
                         .background(Color(nsColor: .textBackgroundColor))
@@ -47,7 +47,7 @@ struct ContentView: View {
             } else {
                 VStack(spacing: 0) {
                     SidebarTopBar()
-                    NoteList()
+                    NoteList(filterTools: model.filterTools)
                 }
             }
         }
@@ -253,21 +253,40 @@ private struct WindowMinimum: ViewModifier {
 
 private struct NoteList: View {
     @EnvironmentObject private var model: VaultModel
+    /// Whether the filter tools show at the top (two columns).
+    @ObservedObject var filterTools: FilterToolsState
     @FocusState private var searchFocused: Bool
     /// False in the two-column view, where folders and tags have their own column.
     var includesPlaces = true
+    /// The suggestion chosen with the arrow keys, if any.
+    @State private var highlighted: Int?
+    /// Escape hides the suggestions until the text changes.
+    @State private var dismissed = false
+    /// The pinned controls' height, chips and all (not the suggestions, which float over the
+    /// list): room the list leaves at its top.
+    @State private var controlsHeight: CGFloat = fieldHeight + topControlsPadding
+    /// Whether the list shows anything but labels, as the table last found (see `browser`).
+    @State private var listHasItems = true
 
     var body: some View {
         VStack(spacing: 0) {
             // In two columns, the name and sort are in the column's top bar (see
             // `NoteListTopBar`).
             if includesPlaces, model.place != .allNotes { PlaceHeader() }
-            // At the foot, floating over the list's end, which scrolls on beneath it, softly
-            // blurred (drawn by the list's scroll view).
+            // In two columns, pinned at the top under the column's bar, with what's filtering
+            // as chips below; in one, at the foot, floating over the list's end. Either way the
+            // list scrolls on beneath, blurred (drawn by the list's scroll view).
             browser
-                .overlay(alignment: .bottom) { filterField }
+                .overlay(alignment: filterAtTop ? .top : .bottom) {
+                    if filterAtTop { topControls } else { filterField }
+                }
         }
-        .onChange(of: model.searchFocusRequest) { _ in searchFocused = true }
+        // A turn later: the field may only now be appearing (⇧⌘F with the tools away).
+        .onChange(of: model.searchFocusRequest) { _ in DispatchQueue.main.async { searchFocused = true } }
+        // Shown, the tools' field takes the keyboard, a turn later, once it's there.
+        .onChange(of: filterTools.isShown) { shown in
+            if shown { DispatchQueue.main.async { searchFocused = true } }
+        }
         .overlay {
             if let message = model.errorMessage {
                 Text(message)
@@ -276,6 +295,13 @@ private struct NoteList: View {
                     .padding()
             }
         }
+    }
+
+    /// Whether the field, filter and sort are pinned at the list's top (when the bar's filter
+    /// button shows them): in two columns, unless `-filterAtTop NO` puts them back at the foot,
+    /// always showing (to compare while this is tried).
+    private var filterAtTop: Bool {
+        !includesPlaces && VaultModel.filtersAtTop
     }
 
     /// The filter field's height, its corners and the space around it: shaped like the tabs'
@@ -288,31 +314,86 @@ private struct NoteList: View {
     private static let sortInset: CGFloat = 6
     /// The bar at the foot: the field, and as much room above it as below.
     private static let footHeight = fieldHeight + fieldPadding * 2
+    /// At the top, the room above the field (the bar above has its own) and below it.
+    private static let topControlsGap: CGFloat = 2
+    private static let topControlsPadding: CGFloat = topControlsGap + 8
 
-    /// Narrows the list to what's named with what's typed: in one column, the folders, tags
-    /// and notes showing; in two, the notes, with how they're sorted on its right (in one
-    /// column, that's in the Notes section's label). Searching the whole vault is the explorer's.
-    private var filterField: some View {
+    private var suggestions: [VaultModel.FilterSuggestion] {
+        searchFocused && !dismissed ? model.filterSuggestions() : []
+    }
+
+    private func pick(_ suggestion: VaultModel.FilterSuggestion) {
+        model.pickFilterSuggestion(suggestion)
+        highlighted = nil
+    }
+
+    /// The field, and in two columns the filter and sort buttons beside it.
+    private func controlsRow(suggestions: [VaultModel.FilterSuggestion], atTop: Bool) -> some View {
         HStack(alignment: .bottom, spacing: Self.fieldPadding - Self.sortInset) {
-            FilterField(isFocused: $searchFocused, height: Self.fieldHeight) {
+            FilterField(isFocused: $searchFocused, height: Self.fieldHeight, suggestions: suggestions,
+                        highlighted: $highlighted, dismissed: $dismissed, atTop: atTop, pick: pick) {
                 // Return opens the top note.
                 if let first = model.sidebarRows(collapsed: [], content: content).lazy.compactMap(\.noteID).first { model.selection = first }
             }
             if showsSort {
-                FilterMenuButton()
+                FilterMenuButton(opensUpward: !atTop)
                     .frame(height: Self.fieldHeight)
-            }
-            if showsSort {
                 // A plain icon, as in the top bars.
-                SortButton(opensUpward: true)
+                SortButton(opensUpward: !atTop)
                     .frame(height: Self.fieldHeight)
             }
         }
         .padding(.leading, Self.fieldPadding)
         .padding(.trailing, showsSort ? Self.fieldPadding - Self.sortInset : Self.fieldPadding)
-        // The field's row is the foot's height; suggestions above it make the stack taller,
-        // over the list.
-        .padding(.vertical, Self.fieldPadding)
+    }
+
+    /// Narrows the list to what's named with what's typed: in one column, the folders, tags
+    /// and notes showing; in two, the notes, with how they're sorted on its right (in one
+    /// column, that's in the Notes section's label). Searching the whole vault is the explorer's.
+    private var filterField: some View {
+        controlsRow(suggestions: suggestions, atTop: false)
+            // The field's row is the foot's height; suggestions above it make the stack taller,
+            // over the list.
+            .padding(.vertical, Self.fieldPadding)
+    }
+
+    /// The controls pinned at the top: the field and buttons, then what's filtering as chips,
+    /// and the suggestions opening down over them and the list. The suggestions are in the
+    /// same stack, so it grows to hold them (glass reaching outside its view isn't drawn), but
+    /// only the controls and chips are measured for the room the list leaves.
+    private var topControls: some View {
+        let suggestions = suggestions
+        return VStack(spacing: 0) {
+            if filterTools.isShown {
+                topTools(suggestions: suggestions)
+                    // Down out of the bar, and back up into it.
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        // Clipped at the bar's foot, so they slide from under it rather than over the name.
+        .clipped()
+        .padding(.top, model.topBarHeight)
+    }
+
+    private func topTools(suggestions: [VaultModel.FilterSuggestion]) -> some View {
+        ZStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 0) {
+                controlsRow(suggestions: suggestions, atTop: true)
+                    .padding(.top, Self.topControlsGap)
+                    .padding(.bottom, Self.topControlsPadding - Self.topControlsGap)
+                if !model.filterTokens.isEmpty || model.showsOnlyUnread {
+                    FilterChips()
+                        .padding(.horizontal, Self.fieldPadding)
+                        .padding(.bottom, 8)
+                }
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { controlsHeight = $0 }
+            if !suggestions.isEmpty {
+                FilterSuggestionList(suggestions: suggestions, highlighted: $highlighted, pick: pick)
+                    .padding(.horizontal, Self.fieldPadding)
+                    .padding(.top, Self.topControlsGap + Self.fieldHeight + 4)
+            }
+        }
     }
 
     private var content: SidebarTable.Content { includesPlaces ? .everything : .notes }
@@ -326,15 +407,16 @@ private struct NoteList: View {
 
     /// Pins, folders (or nested tags), tags and notes for the current place.
     private var browser: some View {
-        SidebarTable(model: model, content: content, bottomInset: Self.footHeight)
+        SidebarTable(model: model, content: content, bottomInset: filterAtTop ? 0 : Self.footHeight,
+                     topInset: filterAtTop && filterTools.isShown ? controlsHeight : 0,
+                     onHasItems: { listHasItems = $0 })
             .overlay {
                 if model.place == .trash ? model.store.trashedNotes.isEmpty : model.notes(in: model.place).isEmpty, model.store.images(in: model.place).isEmpty, !listsPlaces || model.subplaces(of: model.place).isEmpty, model.place != .allNotes {
                     if let message = emptyMessage {
                         Text(message)
                             .foregroundStyle(.secondary)
                     }
-                } else if model.isFiltering || content == .notes && model.showsOnlyUnread,
-                          !model.sidebarRows(collapsed: [], content: content).contains(where: \.isItem) {
+                } else if model.isFiltering || content == .notes && model.showsOnlyUnread, !listHasItems {
                     Text(model.isFiltering ? "No matches" : "No unread notes")
                         .foregroundStyle(.secondary)
                 }
@@ -454,32 +536,34 @@ extension SidebarPlace {
     }
 }
 
-/// The filter field at the foot of the sidebar's list: tokens for what notes must be
-/// (`Topics: design`, `#work`, `Unread`), then what's typed, matched with titles. While a word
-/// is typed, what it could mean among the notes here is suggested above the field; picking
-/// one (with the arrow keys and Return, or a click) makes it a token. Terms typed in full
-/// (`#work`, `has:read`) become tokens at a space.
+/// The filter field: at the foot of the sidebar's list, tokens for what notes must be
+/// (`Topics: design`, `#work`, `Unread`), then what's typed, matched with titles; at the top of
+/// the two-column list, the typed text alone, with what's filtering as chips below it (see
+/// `FilterChips`). While a word is typed, what it could mean among the notes here is suggested
+/// (above the field at the foot, below it at the top); picking one (with the arrow keys and
+/// Return, or a click) makes it a token. Terms typed in full (`#work`, `has:read`) become
+/// tokens at a space.
 private struct FilterField: View {
     @EnvironmentObject private var model: VaultModel
     var isFocused: FocusState<Bool>.Binding
     /// The sidebar's row height, so the field is as tall as a selected row.
     let height: CGFloat
-    let onSubmit: () -> Void
+    /// What the word being typed could mean (worked out by the list, which may draw them).
+    let suggestions: [VaultModel.FilterSuggestion]
     /// The suggestion chosen with the arrow keys, if any.
-    @State private var highlighted: Int?
+    @Binding var highlighted: Int?
     /// Escape hides the suggestions until the text changes.
-    @State private var dismissed = false
-
-    private var suggestions: [VaultModel.FilterSuggestion] {
-        isFocused.wrappedValue && !dismissed ? model.filterSuggestions() : []
-    }
+    @Binding var dismissed: Bool
+    /// At the top of the list: the tokens are chips below, and the list draws the suggestions.
+    let atTop: Bool
+    let pick: (VaultModel.FilterSuggestion) -> Void
+    let onSubmit: () -> Void
 
     var body: some View {
-        let suggestions = suggestions
-        // The suggestions above the field, in the same stack (not an overlay reaching out of
-        // it, where glass isn't drawn).
+        // At the foot, the suggestions above the field, in the same stack (not an overlay
+        // reaching out of it, where glass isn't drawn).
         VStack(spacing: 6) {
-            if !suggestions.isEmpty {
+            if !atTop, !suggestions.isEmpty {
                 FilterSuggestionList(suggestions: suggestions, highlighted: $highlighted, pick: pick)
             }
             field
@@ -503,16 +587,17 @@ private struct FilterField: View {
 
     private var field: some View {
         let suggestions = suggestions
+        let tokens = atTop ? [] : model.filterTokens
         return HStack(spacing: 4) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
                 .padding(.trailing, 2)
             // Tokens first, as wide as their names while there's room, then the text.
             TokenLine {
-                ForEach(model.filterTokens, id: \.self) { term in
+                ForEach(tokens, id: \.self) { term in
                     FilterTokenView(term: term)
                 }
-                TextField(model.filterTokens.isEmpty ? "Filter" : "", text: $model.noteFilter)
+                TextField(tokens.isEmpty ? "Filter" : "", text: $model.noteFilter)
                     .textFieldStyle(.plain)
                     .focused(isFocused)
                     .frame(minWidth: 40)
@@ -539,6 +624,9 @@ private struct FilterField: View {
                         if !suggestions.isEmpty {
                             dismissed = true
                             highlighted = nil
+                        } else if atTop, !model.isFiltering {
+                            // Nothing to clear: put the tools away.
+                            model.setFilterTools(shown: false)
                         } else {
                             model.clearFilter()
                         }
@@ -550,8 +638,12 @@ private struct FilterField: View {
                         model.takeTypedTerms()
                     }
             }
-            if model.isFiltering {
-                Button { model.clearFilter() } label: {
+            // Clears the lot: at the top, the chips (Only Unread too) as well as what's typed.
+            if model.isFiltering || atTop && model.showsOnlyUnread {
+                Button {
+                    model.clearFilter()
+                    if atTop, model.showsOnlyUnread { model.toggleOnlyUnread() }
+                } label: {
                     Image(systemName: "xmark.circle.fill")
                 }
                 .buttonStyle(.plain)
@@ -566,10 +658,171 @@ private struct FilterField: View {
     }
 
     @State private var deleteMonitor: Any?
+}
 
-    private func pick(_ suggestion: VaultModel.FilterSuggestion) {
-        model.pickFilterSuggestion(suggestion)
-        highlighted = nil
+/// What's filtering the list, below the controls at its top: each term as a chip with its
+/// whole name (wrapping onto more lines rather than shortening), and Only Unread as one too.
+/// A chip's × takes it away; a click on its name offers to leave those notes out instead (or
+/// include them again). The field's ⓧ clears them all.
+private struct FilterChips: View {
+    @EnvironmentObject private var model: VaultModel
+
+    var body: some View {
+        ChipFlowLayout(spacing: 6, lineSpacing: 6) {
+            if model.showsOnlyUnread {
+                FilterChip(label: "Unread", negated: false, help: "Only unread notes, kept for this place") {
+                    model.toggleOnlyUnread()
+                }
+            }
+            ForEach(model.filterTokens, id: \.self) { term in
+                FilterChip(term: term)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// What filters the list, as chips at its top, scrolling with the notes, while the filter
+/// tools are away: drawn only (a click on the row shows the tools, to change them).
+struct FilterSummaryView: View {
+    let items: [FilterSummaryItem]
+
+    var body: some View {
+        ChipFlowLayout(spacing: 6, lineSpacing: 6) {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                Text(item.label)
+                    .font(.callout)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.horizontal, 8)
+                    .frame(height: FilterChip.height)
+                    .foregroundStyle(item.negated ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.accentColor))
+                    .background(Color.accentColor.opacity(item.negated ? 0.08 : 0.15), in: Capsule())
+            }
+        }
+        // In line with the count above (the row's own padding), and room below before the notes.
+        .padding(.horizontal, 6)
+        .padding(.top, 2)
+        .padding(.bottom, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Filtered by " + items.map(\.label).joined(separator: ", "))
+    }
+}
+
+/// One chip: its name (a click offers Leave Out or Include, and Remove, for a term), and ×.
+private struct FilterChip: View {
+    @EnvironmentObject private var model: VaultModel
+    let label: String
+    let negated: Bool
+    let help: String
+    /// The term it stands for; nil for Only Unread, which is the place's, not a term.
+    var term: String?
+    let remove: () -> Void
+    @State private var anchor = MenuAnchor.Holder()
+
+    static let height: CGFloat = 22
+
+    init(label: String, negated: Bool, help: String, remove: @escaping () -> Void) {
+        self.label = label
+        self.negated = negated
+        self.help = help
+        self.remove = remove
+    }
+
+    init(term: String) {
+        self.label = FilterText.label(of: term)
+        self.negated = term.hasPrefix("-")
+        self.help = negated ? "Notes without this. Click to include it." : "Click to leave these out"
+        self.term = term
+        self.remove = {}
+    }
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Text(label)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.leading, 8)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .background(MenuAnchor(holder: anchor))
+                .onTapGesture { showMenu() }
+                .help(help)
+            Button(action: removeIt) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .frame(width: 18, height: Self.height)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Remove")
+            .padding(.trailing, 2)
+        }
+        .font(.callout)
+        .frame(height: Self.height)
+        .foregroundStyle(negated ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.accentColor))
+        .background(Color.accentColor.opacity(negated ? 0.08 : 0.15), in: Capsule())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(label)
+        .accessibilityAction(named: "Remove") { removeIt() }
+    }
+
+    private func removeIt() {
+        if let term { model.filterTokens.removeAll { $0 == term } } else { remove() }
+    }
+
+    private func showMenu() {
+        guard let view = anchor.view else { return }
+        let menu = NSMenu()
+        if let term {
+            menu.addItem(BlockMenuItem(term.hasPrefix("-") ? "Include" : "Leave Out") {
+                if let index = model.filterTokens.firstIndex(of: term) { model.filterTokens[index] = FilterText.toggled(term) }
+            })
+        }
+        menu.addItem(BlockMenuItem("Remove") { removeIt() })
+        // Below the chip: the list is beneath.
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: -4), in: view)
+    }
+}
+
+/// Lays its views out in rows, left to right, starting a new row when the next doesn't fit;
+/// one wider than a row gets the row's width (and shortens).
+struct ChipFlowLayout: Layout {
+    var spacing: CGFloat = 6
+    var lineSpacing: CGFloat = 6
+
+    private struct Placed { var index: Int; var origin: CGPoint; var width: CGFloat }
+
+    private func arrange(width: CGFloat, subviews: Subviews) -> (placed: [Placed], size: CGSize) {
+        var placed: [Placed] = []
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, widest: CGFloat = 0
+        for (index, view) in subviews.enumerated() {
+            let ideal = view.sizeThatFits(.unspecified)
+            let w = min(ideal.width, width)
+            if x > 0, x + w > width {
+                x = 0
+                y += rowHeight + lineSpacing
+                rowHeight = 0
+            }
+            placed.append(Placed(index: index, origin: CGPoint(x: x, y: y), width: w))
+            x += w + spacing
+            widest = max(widest, x - spacing)
+            rowHeight = max(rowHeight, ideal.height)
+        }
+        return (placed, CGSize(width: widest, height: placed.isEmpty ? 0 : y + rowHeight))
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = arrange(width: proposal.width ?? .infinity, subviews: subviews)
+        return CGSize(width: proposal.width ?? result.size.width, height: result.size.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for item in arrange(width: bounds.width, subviews: subviews).placed {
+            subviews[item.index].place(at: CGPoint(x: bounds.minX + item.origin.x, y: bounds.minY + item.origin.y),
+                                       anchor: .topLeading, proposal: ProposedViewSize(width: item.width, height: nil))
+        }
     }
 }
 

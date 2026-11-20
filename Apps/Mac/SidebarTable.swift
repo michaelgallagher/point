@@ -22,6 +22,9 @@ enum SidebarRow: Hashable {
     case dateGroup(String, first: Note.ID)
     /// How much is here ("12 notes"), first in the two-column note list.
     case count(String)
+    /// What filters the two-column note list, as chips, while its filter tools are put away:
+    /// under the count, scrolling with the notes. A click shows the tools.
+    case filters([FilterSummaryItem])
 
     /// What a row opens in a tab, if it's a note's row (its ID) or an image's (its path).
     var noteID: Note.ID? {
@@ -36,9 +39,16 @@ enum SidebarRow: Hashable {
     var isItem: Bool {
         switch self {
         case .place, .note, .image, .trashed: true
-        case .header, .divider, .treeSwitch, .dateGroup, .count: false
+        case .header, .divider, .treeSwitch, .dateGroup, .count, .filters: false
         }
     }
+}
+
+/// One thing filtering the note list, as its chip shows it ("Topics: Planning", "Unread").
+struct FilterSummaryItem: Hashable {
+    let label: String
+    /// Leaving notes out ("Without read"): drawn quieter.
+    let negated: Bool
 }
 
 /// The sidebar's sections, each of which can be folded away.
@@ -101,11 +111,15 @@ extension VaultModel {
         // list while it's open: marking it read doesn't whisk it away. (The button is two
         // columns only: one has nowhere to turn it off.)
         let unread: Bool? = filterText.unread ?? (content == .notes && showsOnlyUnread ? true : nil)
+        // Read once, not for each note: each is a published property, slow to read thousands
+        // of times.
+        let selected = selection, looks = store.listLooks
         func shows(_ note: Note) -> Bool {
             guard filterText.matchesTitle(note.title) else { return false }
             if let matches, !matches.contains(note.id) { return false }
-            guard let unread, note.id != selection else { return true }
-            return unread ? store.isUnread(note.id) : store.canMarkRead(note.id) && !store.isUnread(note.id)
+            guard let unread, note.id != selected else { return true }
+            let look = looks[note.id]
+            return unread ? look?.isUnread == true : look?.readProperty != nil && look?.isUnread != true
         }
         if content != .places, place == .trash { return trashedNotes.filter { shows($0.title) }.map { .trashed($0) } }
         let images = content == .places ? [] : store.images(in: place).filter { shows($0.name) }
@@ -235,6 +249,12 @@ struct SidebarTable: NSViewRepresentable {
     var content = Content.everything
     /// Room at the foot, for the filter field floating over the list.
     var bottomInset: CGFloat = 0
+    /// Room at the top below the column's top bar, for the filter controls (and the chips of
+    /// what's filtering) pinned there; the list scrolls up beneath them, blurred with the bar.
+    var topInset: CGFloat = 0
+    /// Told whether the list has any notes, folders or tags in it (not only labels), when that
+    /// changes: for "No matches", without working out the rows again.
+    var onHasItems: ((Bool) -> Void)?
     /// The folded sections, comma separated, each as the place it's folded in and its name
     /// (`folder:Projects|Notes`): folding a section in one place leaves it open in others. A
     /// name alone (as saved before) is one folded at the top level.
@@ -322,13 +342,13 @@ struct SidebarTable: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        if !NSEdgeInsetsEqual(scrollView.contentInsets, insets) { scrollView.contentInsets = insets }
+        context.coordinator.setInsets(insets, on: scrollView)
         context.coordinator.parent = self
         context.coordinator.update(animated: true)
     }
 
     private var insets: NSEdgeInsets {
-        NSEdgeInsets(top: content == .notes ? model.topBarHeight : 0, left: 0, bottom: bottomInset, right: 0)
+        NSEdgeInsets(top: (content == .notes ? model.topBarHeight : 0) + topInset, left: 0, bottom: bottomInset, right: 0)
     }
 
     @MainActor
@@ -386,6 +406,15 @@ struct SidebarTable: NSViewRepresentable {
             var newRows = model.sidebarRows(collapsed: parent.collapsed, expanded: parent.expanded, content: parent.content)
             // In two columns, the count leads the notes (the bar above has only the name).
             if parent.content == .notes { newRows.insert(.count(model.listCountLabel), at: 0) }
+            let hasItems = newRows.contains(where: \.isItem)
+            if hasItems != shownHasItems {
+                shownHasItems = hasItems
+                // After this update: it changes the view that's being updated.
+                let report = parent.onHasItems
+                DispatchQueue.main.async { report?(hasItems) }
+            }
+            // And what filters them, while the filter tools are away.
+            if parent.content == .notes, case let items = model.filterSummary, !items.isEmpty { newRows.insert(.filters(items), at: 1) }
             // The tree doesn't move with the place it shows.
             let place = parent.content == .places ? SidebarPlace.allNotes : model.place
             let placeChanged = shownPlace != nil && shownPlace != place
@@ -397,6 +426,30 @@ struct SidebarTable: NSViewRepresentable {
             if !placeChanged, newRows == rows, heightInputs == shownHeightInputs {
                 // Same rows, made from the same notes: only the selection can have changed.
                 table.reloadData(forRowIndexes: table.rows(in: table.visibleRect).toIndexSet, columnIndexes: [0])
+                shownPlace = place
+                syncSelection()
+                return
+            }
+            if !placeChanged, heightInputs == shownHeightInputs, newRows != rows,
+               let changedFilters = Self.filtersRowChange(from: rows, to: newRows) {
+                // Only the chips' row came, went or changed (the filter tools put away or
+                // shown): that row alone, not the whole list again.
+                rows = newRows
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0
+                    switch changedFilters {
+                    case .inserted(let index):
+                        table.insertRows(at: [index], withAnimation: [])
+                        shownHeights.insert(tableView(table, heightOfRow: index), at: index)
+                    case .removed(let index):
+                        table.removeRows(at: [index], withAnimation: [])
+                        shownHeights.remove(at: index)
+                    case .changed(let index):
+                        table.reloadData(forRowIndexes: [index], columnIndexes: [0])
+                        table.noteHeightOfRows(withIndexesChanged: [index])
+                        shownHeights[index] = tableView(table, heightOfRow: index)
+                    }
+                }
                 shownPlace = place
                 syncSelection()
                 return
@@ -436,6 +489,26 @@ struct SidebarTable: NSViewRepresentable {
             }
             shownPlace = place
             syncSelection()
+        }
+
+        enum FiltersRowChange { case inserted(Int), removed(Int), changed(Int) }
+
+        /// How the rows differ, if only in the chips' row (which is near the top, so the rest
+        /// is compared from there).
+        static func filtersRowChange(from old: [SidebarRow], to new: [SidebarRow]) -> FiltersRowChange? {
+            func filtersIndex(_ rows: [SidebarRow]) -> Int? {
+                rows.prefix(3).firstIndex { if case .filters = $0 { true } else { false } }
+            }
+            switch (filtersIndex(old), filtersIndex(new)) {
+            case (nil, let index?) where old.count + 1 == new.count:
+                return old[..<index] == new[..<index] && old[index...] == new[(index + 1)...] ? .inserted(index) : nil
+            case (let index?, nil) where old.count == new.count + 1:
+                return old[..<index] == new[..<index] && old[(index + 1)...] == new[index...] ? .removed(index) : nil
+            case (let a?, let b?) where a == b && old.count == new.count:
+                return old[..<a] == new[..<a] && old[(a + 1)...] == new[(a + 1)...] ? .changed(a) : nil
+            default:
+                return nil
+            }
         }
 
         static func isDeeper(_ place: SidebarPlace, than old: SidebarPlace) -> Bool {
@@ -508,6 +581,7 @@ struct SidebarTable: NSViewRepresentable {
             case .place, .trashed, .image: return model.sidebarDensity.rowHeight
             case .treeSwitch: return model.sidebarDensity.rowHeight + 18
             case .count: return Self.countHeight
+            case .filters(let items): return filtersHeight(items, width: tableView.bounds.width - SidebarTableView.rowInset * 2)
             case .note(let id):
                 // Two lines only for a note that has something under its title: its kind's
                 // detail, or tags.
@@ -520,6 +594,83 @@ struct SidebarTable: NSViewRepresentable {
                 let height = Self.noteHeight(hasTags: hasTags, density: model.sidebarDensity) + extraTitleHeight(note, in: tableView)
                 rowHeights[id] = (key, height)
                 return height
+            }
+        }
+
+        /// The chips' row: as tall as they wrap to at this width, measured once for each.
+        private func filtersHeight(_ items: [FilterSummaryItem], width: CGFloat) -> CGFloat {
+            let key = FiltersMeasure(items: items, width: width.rounded())
+            if let known = filtersHeights[key] { return known }
+            let measure = NSHostingController(rootView: FilterSummaryView(items: items))
+            let height = ceil(measure.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude)).height)
+            filtersHeights[key] = height
+            return height
+        }
+
+        private struct FiltersMeasure: Hashable { let items: [FilterSummaryItem]; let width: CGFloat }
+        private var filtersHeights: [FiltersMeasure: CGFloat] = [:]
+        private var shownHasItems: Bool?
+
+        // MARK: Insets
+
+        private var targetInsets: NSEdgeInsets?
+        private var insetLink: CADisplayLink?
+        private var insetStart = NSEdgeInsets(), insetBegan: CFTimeInterval = 0
+        private weak var insetScrollView: NSScrollView?
+        #if DEBUG
+        private var insetFrames: [CFTimeInterval] = []
+        #endif
+
+        /// Sets the scroll view's insets. A change at the top of the note list (its filter tools
+        /// sliding down or up, a line of chips coming or going) moves the notes with it, on the
+        /// tools' curve and time, rather than jumping: an inset isn't animatable by AppKit or
+        /// SwiftUI, so it's stepped each frame.
+        func setInsets(_ target: NSEdgeInsets, on scrollView: NSScrollView) {
+            guard !NSEdgeInsetsEqual(targetInsets ?? scrollView.contentInsets, target) else { return }
+            targetInsets = target
+            let current = scrollView.contentInsets
+            guard parent.content == .notes, scrollView.window != nil, current.bottom == target.bottom,
+                  abs(current.top - target.top) > 0.5 else {
+                insetLink?.invalidate()
+                insetLink = nil
+                scrollView.contentInsets = target
+                return
+            }
+            insetStart = current
+            insetBegan = CACurrentMediaTime()
+            #if DEBUG
+            insetFrames = []
+            #endif
+            insetScrollView = scrollView
+            if insetLink == nil {
+                let link = scrollView.displayLink(target: self, selector: #selector(stepInsets(_:)))
+                link.add(to: .main, forMode: .common)
+                insetLink = link
+            }
+        }
+
+        @objc private func stepInsets(_ link: CADisplayLink) {
+            guard let scrollView = insetScrollView, let target = targetInsets else {
+                link.invalidate()
+                insetLink = nil
+                return
+            }
+            let t = min(1, (CACurrentMediaTime() - insetBegan) / VaultModel.filterToolsDuration)
+            // Ease in and out, as SwiftUI's `.easeInOut` does the tools.
+            let eased = t < 0.5 ? 4 * t * t * t : 1 - pow(-2 * t + 2, 3) / 2
+            var insets = target
+            insets.top = insetStart.top + (target.top - insetStart.top) * eased
+            scrollView.contentInsets = insets
+            #if DEBUG
+            insetFrames.append(CACurrentMediaTime())
+            #endif
+            if t >= 1 {
+                link.invalidate()
+                insetLink = nil
+                #if DEBUG
+                let gaps = zip(insetFrames.dropFirst(), insetFrames).map { ($0 - $1) * 1000 }
+                Trace.mark("inset slide: \(insetFrames.count) frames, longest gap \(String(format: "%.1f", gaps.max() ?? 0)) ms")
+                #endif
             }
         }
 
@@ -666,6 +817,8 @@ struct SidebarTable: NSViewRepresentable {
             case .place(let place, _):
                 // The tree browses as its selection changes (by click or arrow key).
                 if parent.content != .places { model.browse(place) }
+            case .filters:
+                model.setFilterTools(shown: true)
             case .treeSwitch:
                 // Its left half is Folders, its right half Tags.
                 guard let event = NSApp.currentEvent, let cell = sender.view(atColumn: 0, row: row, makeIfNecessary: false) else { return }
@@ -1131,6 +1284,9 @@ struct SidebarRowView: View {
                             .padding(.top, SidebarTable.Coordinator.groupLineRoom - 1)
                     }
                 }
+        case .filters(let items):
+            FilterSummaryView(items: items)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         case .count(let label):
             Text(label)
                 .lineLimit(1)

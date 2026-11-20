@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import SwiftUI
 import EditorKit
 import IndexKit
 import VaultKit
@@ -1334,8 +1335,46 @@ final class VaultModel: ObservableObject {
     /// Puts the cursor in the sidebar's filter field, showing the sidebar if it's hidden.
     func focusSearch() {
         isFocused = false
+        if browsingStyle == .twoColumns, !showsFilterTools {
+            setFilterTools(shown: true) // Which focuses the field as it appears.
+            if showsNoteList { return }
+        }
         searchFocusRequest += 1
     }
+
+    /// Whether the two-column list's filter tools (the field, the filter menu, sort and the
+    /// chips) show, pinned under its top bar. Hidden, what's filtering stays, described at the
+    /// top of the list. Its own object, watched by the notes column and its bar alone: a change
+    /// here doesn't redraw the rest of the window, as one published by the model would.
+    let filterTools = FilterToolsState()
+
+    var showsFilterTools: Bool { filterTools.isShown }
+
+    /// Shows or hides the filter tools, sliding down or up. Shown, the field takes the keyboard
+    /// (see `NoteList`).
+    func setFilterTools(shown: Bool) {
+        guard shown != showsFilterTools else { return }
+        withAnimation(.easeInOut(duration: Self.filterToolsDuration)) { filterTools.isShown = shown }
+    }
+
+    /// What filters the list, for the chips at its top while the tools are away (none while
+    /// they show, which have their own): Only Unread, each term, and any words typed.
+    var filterSummary: [FilterSummaryItem] {
+        guard !showsFilterTools, browsingStyle == .twoColumns, Self.filtersAtTop else { return [] }
+        var items: [FilterSummaryItem] = []
+        if showsOnlyUnread { items.append(FilterSummaryItem(label: "Unread", negated: false)) }
+        items += filterTokens.map { FilterSummaryItem(label: FilterText.label(of: $0), negated: $0.hasPrefix("-")) }
+        let typed = noteFilter.trimmingCharacters(in: .whitespaces)
+        if !typed.isEmpty { items.append(FilterSummaryItem(label: "\u{201C}\(typed)\u{201D}", negated: false)) }
+        return items
+    }
+
+    /// Whether the two-column list's filter is at its top, behind the bar's button (unless
+    /// `-filterAtTop NO` puts it back at the foot, always showing, to compare).
+    static var filtersAtTop: Bool { UserDefaults.standard.object(forKey: "filterAtTop") as? Bool ?? true }
+
+    /// How long the tools take to slide, and the list with them.
+    static let filterToolsDuration: TimeInterval = 0.25
 
     /// Shows a folder (clicked in a side's path): in the sidebar if it's showing, otherwise in
     /// the explorer, with the note open there highlighted.
@@ -1603,7 +1642,11 @@ final class VaultModel: ObservableObject {
         if let key = onlyUnreadKey { UserDefaults.standard.set(places.sorted(), forKey: key) }
     }
 
-    func unreadCount(in place: SidebarPlace) -> Int { notes(in: place).count { store.isUnread($0.id) } }
+    func unreadCount(in place: SidebarPlace) -> Int {
+        // The looks read once: a published property, slow to read for each of thousands.
+        let looks = store.listLooks
+        return notes(in: place).count { looks[$0.id]?.isUnread == true }
+    }
 
     private var onlyUnreadKey: String? { root.map { "onlyUnread." + VaultStore.vaultKey($0) } }
     private var onlyUnreadPlaces: Set<String> {
@@ -1723,4 +1766,9 @@ final class VaultModel: ObservableObject {
 @MainActor
 final class SidebarSlide: ObservableObject {
     @Published var isSliding = false
+}
+
+/// Whether the two-column note list's filter tools show (see `VaultModel.filterTools`).
+@MainActor final class FilterToolsState: ObservableObject {
+    @Published var isShown = false
 }

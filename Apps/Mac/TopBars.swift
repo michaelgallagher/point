@@ -103,6 +103,7 @@ struct SidebarTopBar: View {
 /// space drags the window.
 struct NoteListTopBar: View {
     @EnvironmentObject private var model: VaultModel
+    @ObservedObject var filterTools: FilterToolsState
 
     var body: some View {
         HStack(spacing: TopBar.buttonSpacing) {
@@ -112,10 +113,22 @@ struct NoteListTopBar: View {
                 .lineLimit(1)
             Spacer(minLength: 0)
             if model.place == .trash { EmptyTrashButton() }
+            if model.place != .trash {
+                // Shows or hides the filter tools under the bar; coloured while anything
+                // filters the list, so it shows even with the tools away.
+                let filtering = model.isFiltering || model.showsOnlyUnread
+                BarIcon(symbol: "line.3.horizontal.decrease", label: "Filter",
+                        help: filterTools.isShown ? "Hide filter" : "Filter these notes (⇧⌘F)",
+                        tint: filtering ? .accentColor : nil, isSelected: filterTools.isShown) {
+                    model.setFilterTools(shown: !filterTools.isShown)
+                }
+                .accessibilityAddTraits(filterTools.isShown ? .isSelected : [])
+            }
         }
         // In line with the list's text: its date headings, and its notes when not grouped
         // (the source list's row inset, then the row's own padding).
         .padding(.leading, 24)
+        // The filter button just left of the sidebar button.
         .padding(.trailing, TopBar.sidebarButtonInset + TopBar.sidebarButtonWidth)
         .frame(height: model.topBarHeight)
         .background(WindowDragArea())
@@ -964,6 +977,8 @@ struct SortButton: View {
 /// filters the list.
 struct FilterMenuButton: View {
     @EnvironmentObject private var model: VaultModel
+    /// At a list's foot, the menu opens above it; at its top, below.
+    var opensUpward = true
 
     /// How many tags and values a submenu lists, most used first.
     private static let listed = 25
@@ -1030,8 +1045,12 @@ struct FilterMenuButton: View {
 
     var body: some View {
         let isOn = model.showsOnlyUnread || !model.filterTokens.isEmpty
-        BarMenu("Filter", systemImage: isOn ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle",
-                help: "Filter these notes", opensUpward: true, tint: isOn ? .accentColor : nil, menu: menu)
+        // In two columns the bar's filter button has the funnel lines; this menu, beside the
+        // field, is the list of filters to pick from.
+        let symbol = model.browsingStyle == .twoColumns ? "list.bullet.badge.ellipsis"
+            : isOn ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle"
+        BarMenu("Filter", systemImage: symbol,
+                help: "Filter these notes", opensUpward: opensUpward, tint: isOn ? .accentColor : nil, menu: menu)
             .onAppear { _ = model.filterFacets }
             .accessibilityAddTraits(isOn ? .isSelected : [])
     }
@@ -1073,11 +1092,13 @@ struct BarIcon: View {
     var width = TopBar.iconSize
     var fontSize = TopBar.iconFontSize
     var tint: Color?
+    /// Shaded as a pressed toggle (the filter tools showing).
+    var isSelected = false
     let action: () -> Void
     @State private var isHovering = false
 
     var body: some View {
-        BarIconFace(symbol: symbol, enabled: enabled, isHovering: isHovering, weight: weight, width: width, fontSize: fontSize, tint: tint)
+        BarIconFace(symbol: symbol, enabled: enabled, isHovering: isHovering || isSelected, weight: weight, width: width, fontSize: fontSize, tint: tint)
             .allowsHitTesting(false) // The click area below takes the clicks.
             // Hover from the click area, which checks where the pointer really is: SwiftUI's
             // own missed the pointer leaving as the button moved away from it (the sidebar

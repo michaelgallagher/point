@@ -1708,6 +1708,24 @@ final class VaultStore: ObservableObject {
     /// in a folder, or those with a tag (or a tag under it).
     func notes(in place: SidebarPlace) -> [Note] {
         switch place {
+        case .allNotes, .folder, .tag:
+            // Asked several times each time the list draws (its rows, its count, whether it's
+            // empty), and a filter of every note in the vault: kept until the notes or their
+            // tags change (which is all these depend on).
+            if notesInCache.version != listVersion { notesInCache = (listVersion, [:]) }
+            if let known = notesInCache.lists[place.key] { return known }
+            let found = findNotes(in: place)
+            notesInCache.lists[place.key] = found
+            return found
+        default:
+            return findNotes(in: place)
+        }
+    }
+
+    private var notesInCache: (version: Int, lists: [String: [Note]]) = (-1, [:])
+
+    private func findNotes(in place: SidebarPlace) -> [Note] {
+        switch place {
         case .allNotes: return notes.filter { !$0.id.contains("/") }
         case .everything: return notes
         case .bookmarks: return bookmarkedNotes

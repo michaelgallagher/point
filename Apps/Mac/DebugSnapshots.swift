@@ -347,6 +347,50 @@ enum DebugSnapshots {
                 }
             }
         }
+        // `-PointFilterKeys "focus|text:topics:pla|down|return|backspace|escape"`: steps through
+        // the filter field as typed, a second apart (⇧⌘F's focus, text set, keys sent to this
+        // window), tracing the tokens, the text and the suggestions after each.
+        if let spec = UserDefaults.standard.string(forKey: "PointFilterKeys") {
+            let keys: [String: (String, UInt16)] = ["down": ("\u{F701}", 125), "up": ("\u{F700}", 126), "return": ("\r", 36),
+                                                    "escape": ("\u{1b}", 53), "backspace": ("\u{7f}", 51)]
+            for (step, action) in spec.split(separator: "|").map(String.init).enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4 + Double(step)) {
+                    // How long the change and the redraw it causes hold the main thread: until
+                    // the run loop comes round twice (the views update between).
+                    let start = Date()
+                    DispatchQueue.main.async { DispatchQueue.main.async {
+                        Trace.mark("keys \(action) took \(String(format: "%.1f", Date().timeIntervalSince(start) * 1000)) ms")
+                    } }
+                    if action == "focus" {
+                        model.focusSearch()
+                    } else if action == "tools" {
+                        model.setFilterTools(shown: !model.showsFilterTools)
+                    } else if action == "unread" {
+                        model.toggleOnlyUnread()
+                    } else if action == "scroll" {
+                        // The notes list: the scroll view holding the longest table.
+                        func scrollViews(in view: NSView) -> [NSScrollView] {
+                            (view as? NSScrollView).map { [$0] } ?? [] + view.subviews.flatMap(scrollViews)
+                        }
+                        let views = NSApp.windows.compactMap(\.contentView).flatMap(scrollViews).filter { $0.documentView is NSTableView }
+                        if let list = views.max(by: { ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0) }) {
+                            list.contentView.scroll(to: NSPoint(x: 0, y: 1200))
+                            list.reflectScrolledClipView(list.contentView)
+                        }
+                    } else if action.hasPrefix("text:") {
+                        model.noteFilter = String(action.dropFirst(5))
+                    } else if let (characters, code) = keys[action], let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 600 }),
+                              let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                           windowNumber: window.windowNumber, context: nil, characters: characters,
+                                                           charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code) {
+                        NSApp.sendEvent(event)
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        Trace.mark("keys \(action): tools \(model.showsFilterTools) tokens \(model.filterTokens) text \"\(model.noteFilter)\" unread \(model.showsOnlyUnread) suggested \(model.filterSuggestions().map(\.label).prefix(4)) selection \(model.selection ?? "-")")
+                    }
+                }
+            }
+        }
         // `-PointFilterMenu YES`: traces the filter button's menu, once the notes are in.
         if UserDefaults.standard.bool(forKey: "PointFilterMenu") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { _ = model.filterFacets }
