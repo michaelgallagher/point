@@ -313,7 +313,7 @@ enum DebugSnapshots {
                 for row in model.sidebarRows(collapsed: []) {
                     switch row {
                     case .header(let section): Trace.mark("row: [\(section.title)]")
-                    case .place(let place, let depth):
+                    case .place(let place, let depth, _):
                         Trace.mark("row: \(String(repeating: "  ", count: depth))\(model.symbol(for: place)) \(place.title) \(model.noteCount(of: place))")
                     case .note(let id): Trace.mark("row: note \(id)")
                     case .divider: Trace.mark("row: ---")
