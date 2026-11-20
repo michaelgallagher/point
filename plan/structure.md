@@ -88,7 +88,7 @@ What that keeps, and what it lets go:
 - **First, lists you read and click through.** Changing values right in a list's table (which writes each note's YAML) comes after, building on the table grid.
 - **Existing `.base` files** are converted once, or left alone.
 - **The planned properties view** across the vault becomes the first list.
-- **Maybe later:** a list block written inside a note, for one-off lists.
+- **A list block written inside a note,** for one-off lists: planned 20 November 2026, in [Lists written in a note](inline-lists.md).
 
 ## Comparing drafts
 
