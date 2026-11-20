@@ -138,4 +138,36 @@ extension ListDefinition {
         }
         return changes.map { (spelled[$0.key] ?? $0.key, $0.values, $0.isList) }
     }
+    /// The same changes, made to a note's `text` as one replacement: what's different between
+    /// the text before and after them, from the first line that changed to the last. Nil
+    /// if this is the note's list already. For an editor that writes it as one step to undo.
+    public func propertyEdit(in text: String) -> (range: NSRange, replacement: String)? {
+        let frontmatter = text.hasPrefix("---") ? Frontmatter.parse(text) : nil
+        guard self != ListDefinition(frontmatter: frontmatter) else { return nil }
+        var edited = text
+        for change in propertyChanges(over: frontmatter) {
+            // Read again after each: the one before moved everything after it.
+            let current = Frontmatter.parse(edited)
+            let edit: (NSRange, String)
+            if let values = change.values {
+                edit = current?.edit(setting: change.key, to: values, isList: change.isList)
+                    ?? Frontmatter.edit(adding: change.key, values: values, isList: change.isList)
+            } else if let removal = current?.edit(removing: change.key) {
+                edit = removal
+            } else { continue }
+            edited = (edited as NSString).replacingCharacters(in: edit.0, with: edit.1)
+        }
+        let old = text as NSString, new = edited as NSString
+        guard old != new else { return nil }
+        var start = 0
+        while start < old.length, start < new.length, old.character(at: start) == new.character(at: start) { start += 1 }
+        var end = 0
+        while end < old.length - start, end < new.length - start,
+              old.character(at: old.length - 1 - end) == new.character(at: new.length - 1 - end) { end += 1 }
+        // Whole lines, so a character made of two (an emoji) is never split.
+        start = old.lineRange(for: NSRange(location: start, length: 0)).location
+        while end > 0, old.character(at: old.length - end - 1) != 0x0A { end -= 1 }
+        return (NSRange(location: start, length: old.length - start - end),
+                new.substring(with: NSRange(location: start, length: new.length - start - end)))
+    }
 }

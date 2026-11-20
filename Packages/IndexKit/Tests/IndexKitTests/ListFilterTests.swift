@@ -128,3 +128,35 @@ struct ListNotePropertyTests {
         #expect(list.propertyChanges(over: note).isEmpty)
     }
 }
+
+struct ListNoteEditTests {
+    let text = "---\nType: list\nList-From: Reading\nlist-where:\n  - format is Book\nlist-sort: title\n---\nSome words 🙂.\n"
+
+    func applied(_ edit: (range: NSRange, replacement: String)) -> String {
+        (text as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
+    }
+
+    @Test func changesOnlyTheLinesThatChanged() throws {
+        var list = try #require(ListDefinition(frontmatter: Frontmatter.parse(text)))
+        list.folders = ["Archive"]
+        let edit = try #require(list.propertyEdit(in: text))
+        #expect(edit.replacement == "List-From: Archive\n")
+        #expect(applied(edit) == text.replacingOccurrences(of: "List-From: Reading", with: "List-From: Archive"))
+    }
+
+    @Test func makesSeveralChangesAtOnce() throws {
+        var list = try #require(ListDefinition(frontmatter: Frontmatter.parse(text)))
+        list.sort = []
+        list.columns = ["author"]
+        list.conditions.append(ListCondition("read", .isNotSet))
+        let result = applied(try #require(list.propertyEdit(in: text)))
+        #expect(ListDefinition(frontmatter: Frontmatter.parse(result)) == list)
+        #expect(!result.contains("list-sort"))
+        #expect(result.hasSuffix("---\nSome words 🙂.\n"))
+    }
+
+    @Test func theSameListIsNoEdit() throws {
+        let list = try #require(ListDefinition(frontmatter: Frontmatter.parse(text)))
+        #expect(list.propertyEdit(in: text) == nil)
+    }
+}
