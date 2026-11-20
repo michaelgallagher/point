@@ -68,6 +68,16 @@ struct MarkdownEditingTests {
         "- one|\n- two\n- three|",
         "- one\n- tw|o\nafter",
         "---\ntitle: x\n---\nBody te|xt",
+        "```|",
+        "```swift|",
+        "```swift  |",
+        "  ```|",
+        "~~~~|\nsome code",
+        "```|\ncode\n```",
+        "```sw|ift",
+        "```list|",
+        "```list|\nafter",
+        "text\n```|",
     ]
 
     /// `marked` without its bars, and the selection they mark.
@@ -100,6 +110,25 @@ struct MarkdownEditingTests {
             #expect(phoneText == view.string, "\(command.name) on \(marked.debugDescription)")
             #expect(phoneSelection == view.selectedRange(), "\(command.name) on \(marked.debugDescription)")
         }
+    }
+
+    @Test func fencesCloseThemselves() {
+        func returned(_ marked: String) -> String {
+            let (text, selection) = Self.parse(marked)
+            guard let edit = MarkdownEditing(text: text, selection: selection).newline() else { return "none" }
+            let result = (text as NSString).replacingCharacters(in: edit.range, with: edit.replacement) as NSString
+            return result.replacingCharacters(in: edit.selection, with: "|")
+        }
+        #expect(returned("```|") == "```\n|\n```")
+        #expect(returned("```swift  |") == "```swift\n|\n```")
+        #expect(returned("  ~~~~|\nsome code") == "  ~~~~\n  |\n  ~~~~\nsome code")
+        // Closed already, or the cursor in the fence's language: an ordinary line break.
+        #expect(returned("```|\ncode\n```") == "none")
+        #expect(returned("```sw|ift") == "none")
+        #expect(returned("`code`|") == "none")
+        // A list is closed at once, the cursor after it.
+        #expect(returned("```list|") == "```list\n```\n|")
+        #expect(returned("```list|\nafter") == "```list\n```\n|after")
     }
 
     @Test func wikiLinks() {

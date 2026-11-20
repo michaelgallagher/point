@@ -350,6 +350,17 @@ extension MarkdownTextView {
         guard selection.length == 0, let line = selectedLineRanges().first else {
             return super.insertNewline(sender)
         }
+        // At the end of a code block's opening fence with none closing it: the closing fence too.
+        if let edit = MarkdownEditing(text: string, tokens: tokens, selection: selection).closingFence() {
+            guard edit.changesText else { return setSelectionDirectly(edit.selection) }
+            replace(edit.range, with: edit.replacement, select: edit.selection)
+            // A `list` fence is a list now: the app opens its filters, as for Insert List.
+            if let index = ListBlocks.index(ofBlockAt: line.location, tokens: tokens),
+               ListBlocks.body(at: index, tokens: tokens, text: string as NSString) != nil {
+                onListBlockInserted?(index)
+            }
+            return
+        }
         let text = string as NSString
         let parts = parts(ofLineAt: line)
 

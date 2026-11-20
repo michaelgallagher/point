@@ -28,6 +28,19 @@ public final class PhoneTextView: UITextView {
     /// Called as the cursor moves into or out of a `[[link` or `#tag` being typed.
     public var onCompletionChange: ((MarkdownEditing.Completion?) -> Void)?
     private var completion: MarkdownEditing.Completion?
+    /// Called when a `list` block has just been made by typing (Return after ```` ```list ````,
+    /// or the slash menu's List), with which of the note's lists it is, for its filters to open.
+    public var onListBlockInserted: ((Int) -> Void)?
+    /// What typing `/` offers (see +SlashMenu), in order. None: `/` is just a character.
+    public var slashCommands: [SlashCommand] = []
+    /// Called as what the slash menu offers changes: none, and it's closed.
+    public var onSlashMenuChange: (([SlashCommand]) -> Void)?
+    /// Does a slash command the editor can't do itself (a template, a property, a daily note),
+    /// the `/` and what was typed after it gone. False: the editor does it, if it can.
+    public var performSlashCommand: ((SlashCommand) -> Bool)?
+    /// The `/` the menu is open for, and what it offers.
+    var slashQuery: SlashQuery?
+    var slashOffered: [SlashCommand] = []
     /// Called when a link is tapped.
     public var onOpenLink: ((LinkTarget) -> Void)?
     /// A view above the text (the note's title), scrolling with it, as wide as the text.
@@ -442,8 +455,24 @@ extension PhoneTextView: UITextViewDelegate {
             apply(MarkdownEdit(range: range, replacement: "\n" + text, selection: NSRange(location: start + 1 + (text as NSString).length, length: 0)))
             return false
         }
+        // Return with the slash menu open puts in its first command.
+        if text == "\n", slashQuery != nil, let first = slashOffered.first {
+            runSlashCommand(first)
+            return false
+        }
+        // Parsed now, not `tokens`, which are restyled a moment after each key and can be a
+        // key behind when keys come quickly.
         if text == "\n", let edit = MarkdownEditing(text: textStorage.string, selection: range).newline() {
+            let line = (textStorage.string as NSString).lineRange(for: NSRange(location: range.location, length: 0))
             apply(edit)
+            // A `list` fence closed by Return is a list now: the app opens its filters.
+            if edit.replacement.contains("```") || edit.replacement.contains("~~~") {
+                let now = MarkdownParser.parse(textStorage.string)
+                if let index = ListBlocks.index(ofBlockAt: line.location, tokens: now),
+                   ListBlocks.body(at: index, tokens: now, text: textStorage.string as NSString) != nil {
+                    onListBlockInserted?(index)
+                }
+            }
             return false
         }
         return true
@@ -505,6 +534,9 @@ extension PhoneTextView: @preconcurrency NSTextStorageDelegate {
     /// Says when what can be completed at the cursor has changed.
     func updateCompletion() {
         let new = selectedRange.length == 0 ? MarkdownEditing.completion(in: textStorage.string, at: selectedRange.location) : nil
+        // After the completion's change, which puts the bar's tools back: the menu again.
+        let completionChanged = new != completion
+        defer { updateSlashMenu(force: completionChanged && !slashOffered.isEmpty) }
         guard new != completion else { return }
         completion = new
         onCompletionChange?(new)

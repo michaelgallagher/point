@@ -385,6 +385,7 @@ public struct MarkdownEditing {
     /// What Return does in a list or a quote; nil for an ordinary line break.
     public func newline() -> MarkdownEdit? {
         guard selection.length == 0, let line = selectedLineRanges().first else { return nil }
+        if let edit = closingFence() { return edit }
         let parts = parts(ofLineAt: line)
 
         if let listMarker = parts.listMarker {
@@ -416,6 +417,54 @@ public struct MarkdownEditing {
             return inserting("\n> ")
         }
         return headingStartNewline()
+    }
+
+    /// Return at the end of a code block's opening fence (```` ``` ````, ```` ```swift ````,
+    /// ```` ```list ````) with no closing fence below it: the closing fence too, as the opening
+    /// one is indented and made, with the cursor on the empty line between. Nil when the block
+    /// is closed already (Return in a fence being edited), so a block is never closed twice.
+    ///
+    /// A closed block with an empty line after its opening fence (as the slash menu's Code block
+    /// writes it, the language typed after the fence): Return goes to that line, adding none.
+    public func closingFence() -> MarkdownEdit? {
+        guard selection.length == 0, let line = selectedLineRanges().first,
+              let block = tokens.first(where: {
+                  if case .codeBlock = $0.kind { return $0.syntax[0].location == line.location }
+                  return false
+              }) else { return nil }
+        if block.syntax.count == 2 {
+            var contentsEnd = 0, end = 0
+            text.getLineStart(nil, end: &end, contentsEnd: &contentsEnd, for: NSRange(location: line.location, length: 0))
+            guard selection.location == contentsEnd, end < block.syntax[1].location else { return nil }
+            var nextEnd = 0
+            text.getLineStart(nil, end: nil, contentsEnd: &nextEnd, for: NSRange(location: end, length: 0))
+            guard text.substring(with: NSRange(location: end, length: nextEnd - end)).trimmingCharacters(in: .whitespaces).isEmpty
+            else { return nil }
+            return MarkdownEdit(range: NSRange(location: selection.location, length: 0), replacement: "",
+                                selection: NSRange(location: nextEnd, length: 0))
+        }
+        // The cursor at the end of the fence's text, past nothing but spaces.
+        var contentsEnd = 0
+        text.getLineStart(nil, end: nil, contentsEnd: &contentsEnd, for: NSRange(location: line.location, length: 0))
+        let opening = text.substring(with: NSRange(location: line.location, length: contentsEnd - line.location))
+        let fenceText = opening.trimmingCharacters(in: .whitespaces)
+        var textEnd = contentsEnd
+        while textEnd > line.location, text.character(at: textEnd - 1) == 32 || text.character(at: textEnd - 1) == 9 { textEnd -= 1 }
+        guard selection.location >= textEnd, selection.location <= contentsEnd, block.range.location == line.location,
+              let character = fenceText.first else { return nil }
+        let indent = String(opening.prefix { $0 == " " || $0 == "\t" })
+        let fence = String(fenceText.prefix { $0 == character })
+        // Spaces after the fence's text go, so it ends cleanly.
+        let replaced = NSRange(location: textEnd, length: contentsEnd - textEnd)
+        if case .codeBlock(let language) = block.kind, language == MarkdownStyler.listLanguage {
+            // A list has no lines to type: it's closed at once, the cursor on the line after it.
+            let after = contentsEnd < text.length ? "" : "\n"
+            let replacement = "\n" + indent + fence + after
+            let end = textEnd + (replacement as NSString).length + (after.isEmpty ? 1 : 0)
+            return MarkdownEdit(range: replaced, replacement: replacement, selection: NSRange(location: end, length: 0))
+        }
+        return MarkdownEdit(range: replaced, replacement: "\n" + indent + "\n" + indent + fence,
+                            selection: NSRange(location: textEnd + 1 + (indent as NSString).length, length: 0))
     }
 
     /// Return at the start of a heading's text (just after its hidden `## `, where the cursor

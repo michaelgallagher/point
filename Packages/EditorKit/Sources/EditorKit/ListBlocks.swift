@@ -17,4 +17,15 @@ enum ListBlocks {
         }
         return nil
     }
+
+    /// Which of the note's `list` blocks (from 0) starts at `location`, nil if none does.
+    static func index(ofBlockAt location: Int, tokens: [MarkdownToken]) -> Int? {
+        var count = 0
+        for token in tokens {
+            guard case .codeBlock(let language) = token.kind, language == MarkdownStyler.listLanguage else { continue }
+            if token.range.location == location { return count }
+            count += 1
+        }
+        return nil
+    }
 }

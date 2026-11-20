@@ -164,6 +164,17 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     public var updateBlockEmbedView: ((NSView, BlockEmbed) -> Void)?
     /// Called when Insert List has put in a `list` block, with which block of the note it is.
     public var onListBlockInserted: ((Int) -> Void)?
+    /// What typing `/` offers (see +SlashMenu), in order. None: `/` is just a character.
+    public var slashCommands: [SlashCommand] = []
+    /// A command's shortcut, to show beside it in the slash menu.
+    public var slashShortcut: ((SlashCommand.ID) -> String?)?
+    /// Does a slash command the editor can't do itself (a template, a property, a daily note),
+    /// the `/` and what was typed after it gone. False: the editor does it, if it can.
+    public var performSlashCommand: ((SlashCommand) -> Bool)?
+    /// The slash menu showing, if it is (see +SlashMenu).
+    var slashMenu: SlashMenuState?
+    /// Where the `/` was when Escape closed its menu: it stays closed for that `/`.
+    var dismissedSlash: Int?
 
     /// Saves an image pasted or dropped into the note (its data, and its kind if known) and
     /// returns the name to embed it by, or nil if it couldn't be saved. Without it, images
@@ -371,6 +382,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         super.didChangeText()
         noteTableEdit(at: lastEditLocation)
         onTextChange?(self)
+        updateSlashMenu()
     }
 
     // MARK: Layout
@@ -694,6 +706,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
             if !stillSelecting {
                 neatenTableIfLeft()
                 followSelectionIntoTable()
+                updateSlashMenu()
             }
         }
         // Never into hidden frontmatter: what's selected can be deleted.
