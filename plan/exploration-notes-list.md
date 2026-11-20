@@ -371,3 +371,13 @@ A handful of smaller things from one list of Mike's.
 - **The sidebar's translucency** was already the system's: the sidebar is an `NSSplitViewItem` sidebar with nothing drawn over it. Since macOS 26 that's Liquid Glass, which shows much less of the desktop through it than the old vibrancy did; System Settings ▸ Accessibility ▸ Display ▸ Reduce transparency makes it plain grey.
 - **Tried:** each in the debug build on the test vault, in screenshots (Recent, the Attachments count, hidden places, details off, the heights); a unit test for clearing a value; VaultKit and IndexKit tests; the iPhone app builds.
 - **Not done:** Clear Value hasn't been clicked in the app (only the unit test); Recent and the attachments count weren't timed on the 10,000-note vault; the iPhone has none of the new settings or Recent.
+
+## Revised: the filter at the top, after use (20 November 2026)
+
+- **The count is in the column's top bar,** under the name, and says what the filter leaves ("2 of 8 notes"), Only Unread included. The table reports how many notes it shows (`ListCountState`, its own object so only the bar redraws). The count row at the top of the list has gone.
+- **Sort is in the top bar too,** beside the filter button, and works with the tools open or closed. The tools hold the field and the filter menu.
+- **Chips:** two or more are followed by "Clear filters" (everything, Only Unread and typed words too). The filter menu says "Clear Filters" when more than one thing filters. The field's ⓧ clears only what's typed.
+- **Spacing:** under whichever comes last, the field or the chips, as much room as the field has from the column's edge (10 points); 8 between the field and the chips. The filter menu button sits under the sidebar button above it.
+- **Escape** puts the tools away wherever the keyboard is, except while typing (the field steps through its own Escape; a note or property keeps its own), with a sheet up, or when a Cancel or Done button takes it first.
+- **The bars:** 4 points between every button (a tab too, allowing for the tab row's own inset). Tabs are as wide as the title they show (a shortened title had left a gap before the ×), with 5 points more before the ×. Back's chevron is as far from the divider as the sidebar symbol is on the other side. With the sidebar hidden, the sidebar button is as far from the window buttons as they are from the window's edge. Back and Forward are in the "…" menu again while the arrows are hidden.
+- **The tree** scrolls up under the window buttons, softly blurred (`BarEdgeScrollView.softTop`).
