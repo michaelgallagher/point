@@ -380,8 +380,34 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         return host(view)
     }
 
-    private func host(_ view: PhoneListView) -> UIView {
-        let controller = UIHostingController(rootView: view)
+    // MARK: Lists written in the note
+
+    /// How many rows each `list` block shows, while the note is open.
+    private let listBlockRows = ListBlockRows()
+    func rows(ofListBlock index: Int) -> Int { listBlockRows.rows(of: index) }
+
+    func listBlockHeight(_ body: String, index: Int) -> CGFloat? {
+        store.embeds.listBlockHeight(body, rows: rows(ofListBlock: index))
+    }
+
+    /// The view drawn in place of a `list` block's lines.
+    func makeListBlockView(_ body: String, index: Int) -> UIView {
+        guard let list = ListDefinition(block: body) else { return UIView() }
+        let store = store
+        let view = PhoneListBlockView(embeds: store.embeds, list: list, index: index, rows: listBlockRows,
+                                      open: { store.linkedRoute = .note($0) },
+                                      unfold: { [weak self] rows in self?.showRows(rows, ofListBlock: index) })
+        return host(view)
+    }
+
+    /// Shows `rows` of a `list` block, its room in the text changing to fit.
+    private func showRows(_ rows: Int, ofListBlock index: Int) {
+        listBlockRows.set(rows, of: index)
+        textView?.restyleEmbeds()
+    }
+
+    private func host(_ view: some View) -> UIView {
+        let controller = UIHostingController(rootView: AnyView(view))
         controller.sizingOptions = []
         controller.view.backgroundColor = .clear
         listControllers.append(controller)
@@ -1873,9 +1899,20 @@ struct EditorView: UIViewRepresentable {
         textView.onOpenLink = { [weak session] in session?.open($0) }
         textView.editMenuActions = { [weak session] in session?.readerMenu(for: $0) ?? [] }
         textView.onPlainTap = { [weak session] in session?.readerTapped() }
-        // Images and lists embedded in the note, drawn over it, as on the Mac.
-        textView.makeBlockEmbedView = { [weak session] in session?.makeEmbedView($0) ?? UIView() }
-        textView.blockEmbedHeight = { [weak session] in session?.listEmbedHeight($0) }
+        // Images and lists embedded in the note, drawn over it, as on the Mac; lists written in
+        // the note, as `list` blocks, in place of their lines.
+        textView.makeBlockEmbedView = { [weak session] embed in
+            switch embed {
+            case .note(let target): session?.makeEmbedView(target) ?? UIView()
+            case .list(let body, let index): session?.makeListBlockView(body, index: index) ?? UIView()
+            }
+        }
+        textView.blockEmbedHeight = { [weak session] embed in
+            switch embed {
+            case .note(let target): session?.listEmbedHeight(target)
+            case .list(let body, let index): session?.listBlockHeight(body, index: index)
+            }
+        }
         textView.imageURL = { [weak session] in session?.imageURL($0) }
         textView.onOpenImage = { [weak session] in session?.showImage($0) }
         DispatchQueue.main.async { session.open() }

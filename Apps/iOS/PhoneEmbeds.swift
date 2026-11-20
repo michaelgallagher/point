@@ -74,8 +74,9 @@ final class PhoneEmbeds: ObservableObject {
     /// What each query last found, and as of which index update.
     private var queryResults: [NoteQuery: (update: Int, ids: [Note.ID])] = [:]
     private var runningQueries: Set<NoteQuery> = []
-    /// The queries of lists embedded in notes, whose room changes with what they find.
-    private var embeddedQueries: Set<NoteQuery> = []
+    /// The queries of lists embedded or written in notes, whose room changes with what they
+    /// find, and the most rows any of them shows.
+    private var embeddedQueries: [NoteQuery: Int] = [:]
 
     /// The list a note is, if it is one: read off the main thread, notes restyling once it's known.
     func listDefinition(of id: Note.ID) -> ListDefinition? {
@@ -111,7 +112,8 @@ final class PhoneEmbeds: ObservableObject {
                 queryResults[query] = (update, ids)
                 guard before != ids else { return }
                 objectWillChange.send()
-                if embeddedQueries.contains(query), before.map(PhoneListView.embedRows) != PhoneListView.embedRows(ids) { changedSoon() }
+                // Restyled only if the rows shown, or whether there are more, have changed.
+                if let rows = embeddedQueries[query], before.map({ min($0.count, rows + 1) }) != min(ids.count, rows + 1) { changedSoon() }
             }
         }
         return cached?.ids
@@ -135,9 +137,18 @@ final class PhoneEmbeds: ObservableObject {
     /// How tall the block drawn for `![[target]]` is, if it's a list: nil until that's known.
     func listEmbedHeight(_ target: String, from sourceID: Note.ID) -> CGFloat? {
         guard let (_, list) = embeddedList(target, from: sourceID) else { return nil }
-        embeddedQueries.insert(list.query)
+        embeddedQueries[list.query] = max(embeddedQueries[list.query] ?? 0, PhoneListView.embedLimit)
         guard let ids = noteIDs(matching: list.query) else { return nil }
         return PhoneListView.height(count: ids.count, limit: PhoneListView.embedLimit, hasDetails: !list.columns.isEmpty)
+    }
+
+    /// How tall the block drawn for a `list` block in a note is, showing `rows` of what it
+    /// finds: nil if the block doesn't read as a list, so it shows as code. Until what it finds
+    /// is known, the room for none, so its lines don't show for a moment first.
+    func listBlockHeight(_ body: String, rows: Int) -> CGFloat? {
+        guard let list = ListDefinition(block: body) else { return nil }
+        embeddedQueries[list.query] = max(embeddedQueries[list.query] ?? 0, rows)
+        return PhoneListBlockView.height(count: noteIDs(matching: list.query)?.count ?? 0, rows: rows, hasDetails: !list.columns.isEmpty)
     }
 
     // MARK: Telling notes
@@ -172,12 +183,19 @@ struct PhoneListView: View {
     static let embedLimit = 10
     static let countHeight: CGFloat = 26, rowHeight: CGFloat = 44, detailedRowHeight: CGFloat = 60, moreHeight: CGFloat = 40
 
-    /// How many rows an embed shows of `ids`, and whether there are more.
-    static func embedRows(_ ids: [Note.ID]) -> Int { min(ids.count, embedLimit + 1) }
+    /// Unfolds it in place to show this many rows, rather than opening the list: a list written
+    /// in a note, which has no note of its own to open. With it, "Show all" and "Show more"
+    /// unfold, and "Show fewer" folds it to the first 10 again.
+    var unfold: ((Int) -> Void)?
+    static let unfoldStep = 50
 
-    static func height(count: Int, limit: Int, hasDetails: Bool) -> CGFloat {
+    /// Whether it shows "Show fewer": unfolded, with more than the first 10 to fold away.
+    static func canFold(count: Int, limit: Int) -> Bool { limit > embedLimit && count > embedLimit }
+
+    static func height(count: Int, limit: Int, hasDetails: Bool, unfolds: Bool = false) -> CGFloat {
         let rows = min(count, limit)
-        return countHeight + CGFloat(rows) * (hasDetails ? detailedRowHeight : rowHeight) + (count > limit ? moreHeight : 0)
+        let buttons = count > limit || unfolds && canFold(count: count, limit: limit)
+        return countHeight + CGFloat(rows) * (hasDetails ? detailedRowHeight : rowHeight) + (buttons ? moreHeight : 0)
     }
 
     var body: some View {
@@ -208,7 +226,22 @@ struct PhoneListView: View {
                 .frame(height: list.columns.isEmpty ? Self.rowHeight : Self.detailedRowHeight)
                 .overlay(alignment: .top) { if index > 0 { Divider() } }
             }
-            if let ids, ids.count > limit {
+            if let ids, let unfold {
+                if ids.count > limit || Self.canFold(count: ids.count, limit: limit) {
+                    HStack(spacing: 20) {
+                        if ids.count > limit {
+                            Button(limit == Self.embedLimit ? "Show all \(ids.count)" : "Show more") {
+                                unfold(limit == Self.embedLimit ? Self.unfoldStep : limit + Self.unfoldStep)
+                            }
+                        }
+                        if Self.canFold(count: ids.count, limit: limit) {
+                            Button("Show fewer") { unfold(Self.embedLimit) }
+                        }
+                    }
+                    .font(.subheadline)
+                    .frame(height: Self.moreHeight, alignment: .leading)
+                }
+            } else if let ids, ids.count > limit {
                 Button("Show all \(ids.count)") { open(nil) }
                     .font(.subheadline)
                     .frame(height: Self.moreHeight, alignment: .leading)
@@ -251,4 +284,42 @@ struct PhoneListView: View {
         .filter { !$0.isEmpty }
         .joined(separator: " · ")
     }
+}
+
+/// A list written in a note, as a `list` block, drawn in place of its lines, read only: its
+/// first 10 notes, then Show all, which unfolds it in place (50 rows at a time), and Show
+/// fewer, which folds it again; set apart from the note's text by an outline, as on the Mac.
+/// Its filters are changed on the Mac.
+struct PhoneListBlockView: View {
+    @ObservedObject var embeds: PhoneEmbeds
+    let list: ListDefinition
+    /// Which `list` block of the note it is, from 0.
+    let index: Int
+    @ObservedObject var rows: ListBlockRows
+    let open: (Note.ID) -> Void
+    let unfold: (Int) -> Void
+
+    static let inset: CGFloat = 12, insetY: CGFloat = 6
+
+    var body: some View {
+        PhoneListView(embeds: embeds, list: list, limit: rows.rows(of: index), open: { if let id = $0 { open(id) } }, unfold: unfold)
+            .padding(.horizontal, Self.inset)
+            .padding(.vertical, Self.insetY)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color(uiColor: .separator), lineWidth: 1))
+    }
+
+    /// How tall it is for a list finding `count` notes, showing up to `rows` of them.
+    static func height(count: Int, rows: Int, hasDetails: Bool) -> CGFloat {
+        PhoneListView.height(count: count, limit: rows, hasDetails: hasDetails, unfolds: true) + insetY * 2
+    }
+}
+
+/// How many rows each `list` block of an open note shows, by which block it is (from 0): the
+/// first 10 unless unfolded. Kept while the note is open, not written in it.
+@MainActor
+final class ListBlockRows: ObservableObject {
+    @Published private var rows: [Int: Int] = [:]
+    func rows(of index: Int) -> Int { rows[index] ?? PhoneListView.embedLimit }
+    func set(_ count: Int, of index: Int) { rows[index] = count == PhoneListView.embedLimit ? nil : count }
 }
