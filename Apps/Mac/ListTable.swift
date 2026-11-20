@@ -128,7 +128,8 @@ struct ListTable: NSViewRepresentable {
             isSyncing = true
             defer { isSyncing = false }
             let wanted = [ListTable.titleID] + parent.columns
-            if table.tableColumns.map(\.identifier.rawValue) != wanted {
+            let columnsChanged = table.tableColumns.map(\.identifier.rawValue) != wanted
+            if columnsChanged {
                 let widths = ListTable.savedWidths(for: parent.listID)
                 for column in table.tableColumns { table.removeTableColumn(column) }
                 for name in wanted {
@@ -154,12 +155,37 @@ struct ListTable: NSViewRepresentable {
                                         in: column)
             }
             if parent.rows != shownRows || parent.wraps != shownWraps {
+                let before = shownRows
                 shownRows = parent.rows
-                shownWraps = parent.wraps
                 table.hoveredRow = -1
-                table.reloadData()
+                if columnsChanged || parent.wraps != shownWraps || before.isEmpty {
+                    shownWraps = parent.wraps
+                    table.reloadData()
+                } else {
+                    changeRows(from: before, to: parent.rows, in: table)
+                }
             }
             measure()
+        }
+
+        /// Changes the table from one set of rows to another, as its filters or order change:
+        /// rows that go fade out, rows that come fade in, and rows that stay are kept, redrawn
+        /// only if what they show has changed, so the change reads as a change, not a reload.
+        private func changeRows(from before: [ListTable.Row], to after: [ListTable.Row], in table: NSTableView) {
+            let difference = after.map(\.id).difference(from: before.map(\.id))
+            if !difference.isEmpty {
+                table.beginUpdates()
+                for case .remove(let offset, _, _) in difference.removals.reversed() {
+                    table.removeRows(at: IndexSet(integer: offset), withAnimation: .effectFade)
+                }
+                for case .insert(let offset, _, _) in difference.insertions {
+                    table.insertRows(at: IndexSet(integer: offset), withAnimation: .effectFade)
+                }
+                table.endUpdates()
+            }
+            let old = Dictionary(before.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let changed = IndexSet(after.indices.filter { index in old[after[index].id].map { $0 != after[index] } ?? false })
+            if !changed.isEmpty { table.reloadData(forRowIndexes: changed, columnIndexes: IndexSet(integersIn: 0..<table.numberOfColumns)) }
         }
 
         /// The sort's column: "title", a note fact's name, or the property's.
