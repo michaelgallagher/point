@@ -159,6 +159,9 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         }
     }
     public var makeBlockEmbedView: ((BlockEmbed) -> NSView)?
+    /// Tells a view made by `makeBlockEmbedView` that what it draws has changed: a `list`
+    /// block's lines rewritten. The view stays, so what it shows changes in place.
+    public var updateBlockEmbedView: ((NSView, BlockEmbed) -> Void)?
     /// Called when Insert List has put in a `list` block, with which block of the note it is.
     public var onListBlockInserted: ((Int) -> Void)?
 

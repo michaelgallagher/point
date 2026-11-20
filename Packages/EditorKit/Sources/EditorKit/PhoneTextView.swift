@@ -65,6 +65,9 @@ public final class PhoneTextView: UITextView {
     var embedsSyncedHeight: CGFloat = 0
     /// Makes the view the app draws for a block embed (see `blockEmbedHeight`).
     public var makeBlockEmbedView: ((BlockEmbed) -> UIView)?
+    /// Tells a view made by `makeBlockEmbedView` that what it draws has changed: a `list`
+    /// block's lines rewritten. The view stays, so what it shows changes in place.
+    public var updateBlockEmbedView: ((UIView, BlockEmbed) -> Void)?
     /// Called when an image is tapped, with its file.
     public var onOpenImage: ((URL) -> Void)?
     /// Actions for the edit menu over a selection (reader mode's Highlight and Add to notes),

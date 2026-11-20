@@ -46,6 +46,13 @@ public enum BlockEmbed: Hashable, Sendable {
     /// line break) and which `list` block of the note it is, from 0: drawn in place of its
     /// lines, which are hidden.
     case list(body: String, index: Int)
+
+    /// What its view is kept by as the note changes: a `list` block by its place in the note,
+    /// so its view stays (and is updated) as its lines are rewritten; an embed by its name.
+    var viewKey: BlockEmbed {
+        if case .list(_, let index) = self { return .list(body: "", index: index) }
+        return self
+    }
 }
 
 /// A block the app draws (a `BlockEmbed`), in the room made above the line with this
@@ -190,13 +197,18 @@ struct EditorTheme {
 }
 
 /// The view for the `index`th block drawn in a note, whose target is `target`, from the views
-/// drawn last time (in order): its own if it's there, with any before it no longer drawn
-/// taken away; else a new one, made and put in its place. A view is never reused for another
-/// target: a `list` block whose lines changed gets a new view, not the next block's.
+/// drawn last time (in order): its own if it's there (by `viewKey`), with any before it no
+/// longer drawn taken away, and told by `update` if its target has changed (a `list` block's
+/// lines rewritten); else a new one, made and put in its place. A view is never reused for
+/// another block: not the next block's for a block that changed.
 func blockEmbedView<View>(_ views: inout [(target: BlockEmbed, view: View)], at index: Int, for target: BlockEmbed,
-                          make: () -> View, remove: (View) -> Void) -> View {
-    if let found = views.indices.dropFirst(index).first(where: { views[$0].target == target }) {
+                          make: () -> View, update: (View, BlockEmbed) -> Void, remove: (View) -> Void) -> View {
+    if let found = views.indices.dropFirst(index).first(where: { views[$0].target.viewKey == target.viewKey }) {
         for _ in index..<found { remove(views.remove(at: index).view) }
+        if views[index].target != target {
+            views[index].target = target
+            update(views[index].view, target)
+        }
         return views[index].view
     }
     let view = make()

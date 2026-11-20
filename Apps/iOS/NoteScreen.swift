@@ -331,7 +331,7 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     /// The list this note is, if it is one, shown under its title.
     private(set) var list: ListDefinition?
     /// What draws the lists embedded in it, and its own, kept while they show.
-    private var listControllers: [UIViewController] = []
+    private var listControllers: [UIHostingController<AnyView>] = []
 
     init(note: Note, store: PhoneStore, isNew: Bool) {
         self.note = note
@@ -392,12 +392,22 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
 
     /// The view drawn in place of a `list` block's lines.
     func makeListBlockView(_ body: String, index: Int) -> UIView {
-        guard let list = ListDefinition(block: body) else { return UIView() }
-        let store = store
-        let view = PhoneListBlockView(embeds: store.embeds, list: list, index: index, rows: listBlockRows,
-                                      open: { store.linkedRoute = .note($0) },
-                                      unfold: { [weak self] rows in self?.showRows(rows, ofListBlock: index) })
+        guard let view = listBlockView(body, index: index) else { return UIView() }
         return host(view)
+    }
+
+    /// A `list` block's lines changed (on the Mac, say): its view shows the changed list.
+    func updateListBlockView(_ view: UIView, body: String, index: Int) {
+        guard let controller = listControllers.first(where: { $0.view === view }), let root = listBlockView(body, index: index) else { return }
+        controller.rootView = AnyView(root)
+    }
+
+    private func listBlockView(_ body: String, index: Int) -> PhoneListBlockView? {
+        guard let list = ListDefinition(block: body) else { return nil }
+        let store = store
+        return PhoneListBlockView(embeds: store.embeds, list: list, index: index, rows: listBlockRows,
+                                  open: { store.linkedRoute = .note($0) },
+                                  unfold: { [weak self] rows in self?.showRows(rows, ofListBlock: index) })
     }
 
     /// Shows `rows` of a `list` block, its room in the text changing to fit.
@@ -1906,6 +1916,10 @@ struct EditorView: UIViewRepresentable {
             case .note(let target): session?.makeEmbedView(target) ?? UIView()
             case .list(let body, let index): session?.makeListBlockView(body, index: index) ?? UIView()
             }
+        }
+        textView.updateBlockEmbedView = { [weak session] view, embed in
+            guard case .list(let body, let index) = embed else { return }
+            session?.updateListBlockView(view, body: body, index: index)
         }
         textView.blockEmbedHeight = { [weak session] embed in
             switch embed {

@@ -16,9 +16,12 @@ struct ListPanel: View {
     /// How many rows show, before "Show more": a list of thousands mustn't slow the note.
     @State private var shownCount = Self.firstRows
     private static let firstRows = 50
+    /// What it found before its list changed, shown until what the changed one finds is known.
+    @State private var lastIDs: [Note.ID]?
 
     var body: some View {
-        let ids = store.noteIDs(matching: list.query)
+        let found = store.noteIDs(matching: list.query)
+        let ids = found ?? lastIDs
         VStack(alignment: .leading, spacing: 10) {
             ListFilters(list: list, listID: session.note.id, model: model, store: store, write: write)
             if let ids {
@@ -42,6 +45,9 @@ struct ListPanel: View {
         .padding(.horizontal, 28)
         .frame(maxWidth: .infinity)
         .onChange(of: list.query) { _ in shownCount = Self.firstRows }
+        .onChange(of: found) { found in
+            if let found { lastIDs = found }
+        }
     }
 
     private func write(_ changed: ListDefinition) {
@@ -318,15 +324,18 @@ struct ListBlockEmbed: View {
     @ObservedObject var store: VaultStore
     let paneID: VaultModel.NotePane.ID
     static let folded = 10, step = 50
+    /// What it found before its list changed, shown until what the changed one finds is known.
+    @State private var lastIDs: [Note.ID]?
 
     var body: some View {
         let id = Self.listID(note: session.note.id, index: index)
+        let found = store.noteIDs(matching: list.query)
         VStack(alignment: .leading, spacing: Self.filtersGap) {
             ListFilters(list: list, listID: id, model: model, store: store, write: write)
                 .background(GeometryReader { geometry in
                     Color.clear.preference(key: FiltersHeight.self, value: geometry.size.height)
                 })
-            if let ids = store.noteIDs(matching: list.query) {
+            if let ids = found ?? lastIDs {
                 let rows = session.rows(ofListBlock: index)
                 ListResults(list: list, listID: id, ids: ids, limit: rows,
                             moreLabel: rows == Self.folded ? "Show all \(ids.count)" : "Show more",
@@ -342,6 +351,9 @@ struct ListBlockEmbed: View {
         .padding(.vertical, Self.insetY)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
+        .onChange(of: found) { found in
+            if let found { lastIDs = found }
+        }
         // Its room is made for a line of filters at first; more lines, and the room grows.
         .onPreferenceChange(FiltersHeight.self) { height in
             session.setFiltersHeight(height, ofListBlock: index)

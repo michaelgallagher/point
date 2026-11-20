@@ -124,7 +124,7 @@ extension PhoneTextView {
                         let view = make(decoration.target)
                         addSubview(view)
                         return view
-                    }, remove: { $0.removeFromSuperview() })
+                    }, update: { [updateBlockEmbedView] view, target in updateBlockEmbedView?(view, target) }, remove: { $0.removeFromSuperview() })
                     blocks += 1
                     let frame = CGRect(x: origin.x + indent, y: origin.y + line.minY + decoration.spaceAbove,
                                        width: max(styler.theme.textWidth - indent, 100), height: decoration.height)

@@ -141,20 +141,30 @@ struct ListBlockTests {
 }
 
 struct BlockEmbedViewReuseTests {
-    @Test func aChangedBlockGetsANewViewNotTheNextOnes() {
+    @Test func aRewrittenBlockKeepsItsViewAndIsTold() {
         var views: [(target: BlockEmbed, view: String)] = [(.list(body: "a", index: 0), "A"), (.list(body: "b", index: 1), "B")]
-        var removed: [String] = []
+        var updated: [String] = [], removed: [String] = []
         let changed = BlockEmbed.list(body: "a2", index: 0)
-        #expect(blockEmbedView(&views, at: 0, for: changed, make: { "A2" }, remove: { removed.append($0) }) == "A2")
-        #expect(blockEmbedView(&views, at: 1, for: .list(body: "b", index: 1), make: { "new" }, remove: { removed.append($0) }) == "B")
-        #expect(views.map(\.view) == ["A2", "B"])
-        #expect(removed == ["A"])
+        #expect(blockEmbedView(&views, at: 0, for: changed, make: { "new" }, update: { view, _ in updated.append(view) }, remove: { removed.append($0) }) == "A")
+        #expect(blockEmbedView(&views, at: 1, for: .list(body: "b", index: 1), make: { "new" }, update: { view, _ in updated.append(view) }, remove: { removed.append($0) }) == "B")
+        #expect(views.map(\.target) == [changed, .list(body: "b", index: 1)])
+        #expect(updated == ["A"])
+        #expect(removed.isEmpty)
+    }
+
+    @Test func anEmbedNamingAnotherNoteGetsANewView() {
+        var views: [(target: BlockEmbed, view: String)] = [(.note("X"), "X"), (.note("Y"), "Y")]
+        var removed: [String] = []
+        #expect(blockEmbedView(&views, at: 0, for: .note("Z"), make: { "Z" }, update: { _, _ in }, remove: { removed.append($0) }) == "Z")
+        #expect(blockEmbedView(&views, at: 1, for: .note("Y"), make: { "new" }, update: { _, _ in }, remove: { removed.append($0) }) == "Y")
+        #expect(views.map(\.view) == ["Z", "Y"])
+        #expect(removed == ["X"])
     }
 
     @Test func aBlockTakenAwayTakesItsView() {
         var views: [(target: BlockEmbed, view: String)] = [(.note("X"), "X"), (.note("Y"), "Y")]
         var removed: [String] = []
-        #expect(blockEmbedView(&views, at: 0, for: .note("Y"), make: { "new" }, remove: { removed.append($0) }) == "Y")
+        #expect(blockEmbedView(&views, at: 0, for: .note("Y"), make: { "new" }, update: { _, _ in }, remove: { removed.append($0) }) == "Y")
         #expect(removed == ["X"])
         #expect(views.map(\.view) == ["Y"])
     }

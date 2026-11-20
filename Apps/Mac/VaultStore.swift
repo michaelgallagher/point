@@ -1996,13 +1996,15 @@ final class VaultStore: ObservableObject {
     }
 
     /// How tall the block drawn for a `list` block in a note is, showing `rows` of what it
-    /// finds under its filters, `filters` tall: nil if the block doesn't read as a list, so it
-    /// shows as code. Until what it finds is known, the room for none, so its lines don't show
-    /// for a moment first.
-    func listBlockHeight(_ body: String, rows: Int, filters: CGFloat) -> CGFloat? {
+    /// finds under its filters, `filters` tall, and how many it finds (nil until that's known):
+    /// nil if the block doesn't read as a list, so it shows as code. Until what it finds is
+    /// known, the room for `lastCount`, what the block found before it changed, or for none,
+    /// so its lines don't show for a moment first.
+    func listBlockHeight(_ body: String, rows: Int, filters: CGFloat, lastCount: Int?) -> (height: CGFloat, count: Int?)? {
         guard let list = ListDefinition(block: body) else { return nil }
         embeddedQueries[list.query] = max(embeddedQueries[list.query] ?? 0, rows)
-        return ListBlockEmbed.height(count: noteIDs(matching: list.query)?.count ?? 0, rows: rows, filters: filters)
+        let count = noteIDs(matching: list.query)?.count
+        return (ListBlockEmbed.height(count: count ?? lastCount ?? 0, rows: rows, filters: filters), count)
     }
 
     /// The note an embed names, if it's a list.

@@ -69,6 +69,11 @@ final class EditorSession: NSObject, ObservableObject {
 
     func rows(ofListBlock index: Int) -> Int { listBlockRows[index] ?? ListBlockEmbed.folded }
 
+    /// How many notes each `list` block last found: its room while a change to it is looked up.
+    private var listBlockCounts: [Int: Int] = [:]
+    func lastCount(ofListBlock index: Int) -> Int? { listBlockCounts[index] }
+    func setLastCount(_ count: Int, ofListBlock index: Int) { listBlockCounts[index] = count }
+
     /// How tall each `list` block's filters are, as drawn: more than a line, when they wrap.
     private var listBlockFilters: [Int: CGFloat] = [:]
     func filtersHeight(ofListBlock index: Int) -> CGFloat { listBlockFilters[index] ?? ListBlockEmbed.filtersLine }

@@ -509,24 +509,39 @@ private struct EditorView: NSViewRepresentable {
             guard let model, let session else { return nil }
             switch embed {
             case .note(let target): return model.store.listEmbedHeight(target, from: session.note.id)
-            case .list(let body, let index): return model.store.listBlockHeight(body, rows: session.rows(ofListBlock: index), filters: session.filtersHeight(ofListBlock: index))
+            case .list(let body, let index):
+                // Until a changed list's notes are known, the room for those it found before.
+                guard let (height, count) = model.store.listBlockHeight(body, rows: session.rows(ofListBlock: index),
+                                                                         filters: session.filtersHeight(ofListBlock: index),
+                                                                         lastCount: session.lastCount(ofListBlock: index)) else { return nil }
+                if let count { session.setLastCount(count, ofListBlock: index) }
+                return height
             }
         }
-        textView.makeBlockEmbedView = { [weak model, weak session, paneID] embed in
-            guard let model, let session else { return NSView() }
-            let root: AnyView
+        func root(_ embed: BlockEmbed, model: VaultModel, session: EditorSession) -> AnyView? {
             switch embed {
             case .note(let target):
-                guard let id = model.store.embeddedListID(target, from: session.note.id) else { return NSView() }
-                root = AnyView(ListEmbed(listID: id, model: model, store: model.store, paneID: paneID))
+                guard let id = model.store.embeddedListID(target, from: session.note.id) else { return nil }
+                return AnyView(ListEmbed(listID: id, model: model, store: model.store, paneID: paneID).environmentObject(model))
             case .list(let body, let index):
-                guard let list = ListDefinition(block: body) else { return NSView() }
-                root = AnyView(ListBlockEmbed(list: list, index: index, session: session, model: model, store: model.store, paneID: paneID))
+                guard let list = ListDefinition(block: body) else { return nil }
+                return AnyView(ListBlockEmbed(list: list, index: index, session: session, model: model, store: model.store, paneID: paneID)
+                    .environmentObject(model))
             }
-            let view = NSHostingView(rootView: root.environmentObject(model))
+        }
+        textView.makeBlockEmbedView = { [weak model, weak session] embed in
+            guard let model, let session, let root = root(embed, model: model, session: session) else { return NSView() }
+            let view = NSHostingView(rootView: root)
             // The room the text made for it, not the size SwiftUI would make it.
             view.sizingOptions = []
             return view
+        }
+        // A list block's lines rewritten (its filters changed, say): the same view, given the
+        // changed list, so it changes in place rather than being drawn again from nothing.
+        textView.updateBlockEmbedView = { [weak model, weak session] view, embed in
+            guard let model, let session, let view = view as? NSHostingView<AnyView>,
+                  let root = root(embed, model: model, session: session) else { return }
+            view.rootView = root
         }
         // A list put in with Insert List opens its filters, to say what it lists.
         textView.onListBlockInserted = { [weak model, weak session] index in
