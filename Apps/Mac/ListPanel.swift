@@ -145,27 +145,7 @@ struct ListFilters: View {
 
     /// A condition as its token reads: in the window's words ("read has no value").
     private func shown(_ condition: ListCondition) -> String {
-        let kind = store.listValueKind(of: subject(of: condition))
-        if condition.op.isAboutNote { return condition.written }
-        var value = condition.value
-        switch condition.op {
-        case .inLastDays, .inNextDays:
-            if let amount = condition.amount {
-                value = "\(amount.count) " + (amount.count == 1 ? String(amount.unit.rawValue.dropLast()) : amount.unit.rawValue)
-            }
-        case .between:
-            if let range = condition.range { value = "\(Self.shownDate(range.from)) and \(Self.shownDate(range.to))" }
-        case .is, .before, .after:
-            if kind == .date { value = Self.shownDate(value) }
-        default: break
-        }
-        if kind == .checkbox { value = "" }
-        return [condition.subject, kind.label(condition.op), condition.op.takesValue ? value : ""].filter { !$0.isEmpty }.joined(separator: " ")
-    }
-
-    /// A day as the Mac writes it (6 Nov 2026), for a day written in a list (2026-11-06).
-    static func shownDate(_ written: String) -> String {
-        PropertyDate.parse(written).map { $0.date.formatted(date: .abbreviated, time: .omitted) } ?? written
+        store.listVocabulary.reading(condition)
     }
 
     /// The order: note facts, then the vault's properties, most used first.
@@ -490,7 +470,7 @@ struct ListResults: View {
             let written = values[note.id]?[column.lowercased()] ?? []
             // Dates as the Mac writes them (6 Nov 2026).
             if store.listValueKind(ofProperty: column) == .date {
-                return written.map(ListFilters.shownDate).joined(separator: ", ")
+                return written.map(ListVocabulary.shownDate).joined(separator: ", ")
             }
             return written.map { value in
                 // A link shows as its name.

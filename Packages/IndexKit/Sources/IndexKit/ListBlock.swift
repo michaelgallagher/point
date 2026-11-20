@@ -111,3 +111,31 @@ extension ListDefinition {
         String(text.dropFirst(4).dropLast(4))
     }
 }
+
+// MARK: Writing a list note
+
+extension ListDefinition {
+    /// What to write in a list note's properties to make it this list: each `list-` property
+    /// that changed, by its spelling in the note, its values (nil: removed). A list with
+    /// nothing left to choose by keeps an empty `list-where`, so it stays a list (of every
+    /// note). Applied in order, as one edit.
+    public func propertyChanges(over frontmatter: Frontmatter?) -> [(key: String, values: [String]?, isList: Bool)] {
+        let current = ListDefinition(frontmatter: frontmatter)
+        let spelled = Dictionary((frontmatter?.properties ?? []).map { ($0.key.lowercased(), $0.key) }, uniquingKeysWith: { first, _ in first })
+        let before = Dictionary((current?.properties ?? []).map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+        var changes: [(key: String, values: [String]?, isList: Bool)] = []
+        for (key, values, isList) in properties
+        where before[key]?.values != values || before[key]?.isList != isList || spelled[key] == nil {
+            changes.append((key, values, isList))
+        }
+        let kept = Set(properties.map(\.key))
+        for key in Key.all where !kept.contains(key) && spelled[key] != nil {
+            changes.append((key, nil, false))
+        }
+        if folders.isEmpty, tags.isEmpty, conditions.isEmpty {
+            changes.removeAll { $0.key == Key.conditions }
+            changes.append((Key.conditions, [], true))
+        }
+        return changes.map { (spelled[$0.key] ?? $0.key, $0.values, $0.isList) }
+    }
+}

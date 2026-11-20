@@ -31,7 +31,7 @@ Today the iPhone shows lists but can't change them: a list note's filters, sort 
 
 ## Steps
 
-1. **Shared:** the filter model and the list note's property changes moved to IndexKit, with tests; the Mac using them, its window unchanged (checked in a snapshot).
+1. **Shared:** the filter model and the list note's property changes moved to IndexKit, with tests; the Mac using them, its window unchanged (checked in a snapshot). **Built 20 November:** `ListFilterSubject`, `ListValueKind` and `ListFilterRow` are in IndexKit's `ListFilters.swift`, with `ListVocabulary`, which says what a property holds from Point's kinds, the vault's property types, the index's summaries and a property's values (the Mac makes one from its store, `VaultStore.listVocabulary`), reads a condition in the filters' words (`reading`, the Mac's tokens) and a whole list in one line (`summary`, for the phone's line). `ListDefinition.propertyChanges(over:)`, in `ListBlock.swift`, is what the Mac's `writeList` did. Tests in `ListFilterTests`. Checked: the Mac's filters window and a list note's tokens, in snapshots, as before.
 2. **The phone's writing:** a block's lines and a list note's properties, as one undoable edit, with tests.
 3. **The sheet:** conditions (each kind's value), match all or any, sort, columns; Cancel and Done.
 4. **The line at the top of each list,** opening the sheet; a new list opening it at once.

@@ -582,25 +582,8 @@ final class EditorSession: NSObject, ObservableObject {
     /// properties that changed, by their names as the note spells them. A list with nothing
     /// left to choose by keeps an empty `list-where`, so it stays a list (of every note).
     func writeList(_ changed: ListDefinition) {
-        let current = ListDefinition(frontmatter: frontmatter)
-        guard changed != current else { return }
-        let properties = frontmatter?.properties ?? []
-        let spelled = Dictionary(properties.map { ($0.key.lowercased(), $0.key) }, uniquingKeysWith: { first, _ in first })
-        let before = Dictionary((current?.properties ?? []).map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
-        var changes: [(key: String, values: [String]?, isList: Bool)] = []
-        for (key, values, isList) in changed.properties
-        where before[key]?.values != values || before[key]?.isList != isList || spelled[key] == nil {
-            changes.append((key, values, isList))
-        }
-        let kept = Set(changed.properties.map(\.key))
-        for key in ListDefinition.Key.all where !kept.contains(key) && spelled[key] != nil {
-            changes.append((key, nil, false))
-        }
-        if changed.folders.isEmpty, changed.tags.isEmpty, changed.conditions.isEmpty {
-            changes.removeAll { $0.key == ListDefinition.Key.conditions }
-            changes.append((ListDefinition.Key.conditions, [], true))
-        }
-        setProperties(changes.map { (spelled[$0.key] ?? $0.key, $0.values, $0.isList) })
+        guard changed != ListDefinition(frontmatter: frontmatter) else { return }
+        setProperties(changed.propertyChanges(over: frontmatter))
     }
 
     @objc private func writeListFromNotification(_ notification: Notification) {
