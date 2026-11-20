@@ -416,6 +416,50 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         textView?.restyleEmbeds()
     }
 
+    /// Writes a changed list into the note's `index`th `list` block, as one step to undo: its
+    /// lines rewritten, keeping any the list doesn't read.
+    func writeListBlock(_ changed: ListDefinition, at index: Int) {
+        guard let textView, let range = textView.listBlockBody(at: index) else { return }
+        let body = (textView.text as NSString).substring(with: range)
+        guard let current = ListDefinition(block: body), changed != current else { return }
+        textView.replaceListBlockBody(at: index, with: changed.blockBody(over: body), actionName: "Change List")
+    }
+
+    #if DEBUG
+    /// `-PhoneEditList block|note`, with `-undo` after it to undo the edit too: changes the
+    /// note's first `list` block, or its own list, as the filters would (its first condition
+    /// taken away, sorted by title, its first two columns swapped), for trying the writing.
+    private func debugEditList(_ step: String) {
+        func changed(_ list: ListDefinition) -> ListDefinition {
+            var list = list
+            if !list.conditions.isEmpty { list.conditions.removeFirst() }
+            list.sort = [NoteQuery.Sort(.field(.title))]
+            if list.columns.count > 1 { list.columns.swapAt(0, 1) }
+            return list
+        }
+        guard let textView else { return }
+        if step.hasPrefix("block") {
+            guard let range = textView.listBlockBody(at: 0),
+                  let list = ListDefinition(block: (textView.text as NSString).substring(with: range)) else { return }
+            writeListBlock(changed(list), at: 0)
+        } else {
+            guard let list = ListDefinition(frontmatter: Frontmatter.parse(textView.text)) else { return }
+            writeList(changed(list))
+        }
+        if step.hasSuffix("-undo") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { textView.undoManager?.undo() }
+        }
+    }
+    #endif
+
+    /// Writes a changed list into the note's properties, if it's a list note, as one step to
+    /// undo: only the properties that changed, by the note's spelling of them.
+    func writeList(_ changed: ListDefinition) {
+        guard let textView, let edit = changed.propertyEdit(in: textView.text) else { return }
+        textView.applyAboveBody(edit.range, with: edit.replacement)
+        textView.undoManager?.setActionName("Change List")
+    }
+
     private func host(_ view: some View) -> UIView {
         let controller = UIHostingController(rootView: AnyView(view))
         controller.sizingOptions = []
@@ -604,6 +648,11 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         onDisk = text
         noteWebImages(in: text)
         noteFrontmatter(of: text)
+        #if DEBUG
+        if firstOpen, let step = UserDefaults.standard.string(forKey: "PhoneEditList") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.debugEditList(step) }
+        }
+        #endif
         if let draft = store.drafts.draft(for: note.id) {
             if draft.text == text { store.drafts.remove(for: note.id) } else { recoveredDraft = draft }
         }

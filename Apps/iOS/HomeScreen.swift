@@ -146,8 +146,9 @@ struct HomeScreen: View {
                 path = [.note(long.id)]
             }
             #if DEBUG
-            // `-PhoneOpenNote "Folder/Note.md"` opens that note at launch, for trying it out.
-            if let id = UserDefaults.standard.string(forKey: "PhoneOpenNote"), path.isEmpty, notes.contains(where: { $0.id == id }) {
+            // `-PhoneOpenNote "Folder/Note.md"` opens that note at launch, for trying it out, in
+            // place of the note being worked on.
+            if let id = UserDefaults.standard.string(forKey: "PhoneOpenNote"), path != [.note(id)], notes.contains(where: { $0.id == id }) {
                 path = [.note(id)]
             }
             #endif
