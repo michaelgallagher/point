@@ -209,6 +209,46 @@ public struct ListFilterRow: Identifiable, Equatable, Sendable {
     }
 }
 
+// MARK: A list's filters as rows
+
+extension ListFilterRow {
+    /// A list's filters as rows, as the filters show them: the folders it's from, the tags it
+    /// has, then its conditions.
+    public static func rows(of list: ListDefinition) -> [ListFilterRow] {
+        var rows = list.folders.map { folder -> ListFilterRow in
+            var row = ListFilterRow(subject: .folder, kind: .folder); row.text = folder; return row
+        }
+        rows += list.tags.map { tag -> ListFilterRow in
+            var row = ListFilterRow(subject: .tag, kind: .tag); row.text = tag; return row
+        }
+        return rows + list.conditions.map(ListFilterRow.init(condition:))
+    }
+}
+
+extension ListDefinition {
+    /// The list with these filters, matching all or any of them: a folder or tag it's in goes
+    /// in `from` or `tags`, the rest in `where`; rows not filled in are left out. Its order and
+    /// columns stay.
+    public func filtered(by rows: [ListFilterRow], matchingAny: Bool, kind: (ListFilterSubject) -> ListValueKind) -> ListDefinition {
+        var changed = self
+        changed.folders = []
+        changed.tags = []
+        changed.conditions = []
+        changed.matchesAny = matchingAny && rows.count > 1
+        for row in rows {
+            guard let condition = row.condition(kind: kind(row.subject)) else { continue }
+            if row.subject == .folder, row.op == .is {
+                changed.folders.append(ListDefinition.folderName(condition.value))
+            } else if row.subject == .tag, row.op == .is {
+                changed.tags.append(condition.value.trimmingCharacters(in: CharacterSet(charactersIn: "#")))
+            } else {
+                changed.conditions.append(condition)
+            }
+        }
+        return changed
+    }
+}
+
 // MARK: What a vault's properties hold
 
 /// What the vault's properties hold, for lists' filters and columns: from Point's kinds, the

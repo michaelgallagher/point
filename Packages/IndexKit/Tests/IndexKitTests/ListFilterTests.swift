@@ -80,6 +80,22 @@ struct ListFilterTests {
         #expect(vocabulary.reading(ListCondition("published", .before, "2026-11-06")) == "published is before \(day)")
     }
 
+    @Test func aListsFiltersAsRowsAndBack() {
+        let books = ListDefinition(folders: ["Reading"], tags: ["later"], conditions: [ListCondition("format", .is, "Book")],
+                                   sort: [NoteQuery.Sort(.property("published"), descending: true)], columns: ["author"])
+        var rows = ListFilterRow.rows(of: books)
+        #expect(rows.map(\.subject) == [.folder, .tag, .property("format")])
+        #expect(books.filtered(by: rows, matchingAny: false, kind: vocabulary.kind(of:)) == books)
+        // A row not filled in is left out; "any" needs two rows or more.
+        rows.append(ListFilterRow(subject: .property("subtitle"), kind: .text))
+        rows.removeFirst(2)
+        let changed = books.filtered(by: rows, matchingAny: true, kind: vocabulary.kind(of:))
+        #expect(changed.folders.isEmpty && changed.tags.isEmpty)
+        #expect(changed.conditions == books.conditions)
+        #expect(changed.matchesAny)
+        #expect(changed.sort == books.sort && changed.columns == books.columns)
+    }
+
     @Test func aListInOneLine() {
         let books = ListDefinition(folders: ["Reading"], conditions: [ListCondition("format", .is, "Book"), ListCondition("read", .isNotSet)],
                                    sort: [NoteQuery.Sort(.property("published"), descending: true)])
@@ -153,6 +169,28 @@ struct ListNoteEditTests {
         #expect(ListDefinition(frontmatter: Frontmatter.parse(result)) == list)
         #expect(!result.contains("list-sort"))
         #expect(result.hasSuffix("---\nSome words 🙂.\n"))
+    }
+
+    @Test func aNewKeyGoesWithTheListsOthers() throws {
+        var list = try #require(ListDefinition(frontmatter: Frontmatter.parse(text)))
+        list.conditions.append(ListCondition("read", .isNotSet))
+        list.matchesAny = true
+        list.columns = ["author"]
+        #expect(applied(try #require(list.propertyEdit(in: text))) == """
+            ---
+            Type: list
+            List-From: Reading
+            list-where:
+              - format is Book
+              - read is not set
+            list-match: any
+            list-sort: title
+            list-show:
+              - author
+            ---
+            Some words 🙂.
+
+            """)
     }
 
     @Test func theSameListIsNoEdit() throws {

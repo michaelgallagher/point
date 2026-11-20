@@ -85,7 +85,7 @@ struct ListBlockTests {
         #expect(other.blockBody(over: spelled) == "# books\nWhere: format is Book\n\nshow:\n  - author\n  - published\n")
     }
 
-    @Test func removesKeysNoLongerSetAndAddsNewOnesAtTheEnd() throws {
+    @Test func removesKeysNoLongerSetAndAddsNewOnesInTheirPlace() throws {
         var list = try #require(ListDefinition(block: books))
         list.sort = []
         list.columns = []
@@ -96,6 +96,15 @@ struct ListBlockTests {
         var unsorted = try #require(ListDefinition(block: spaced))
         unsorted.sort = []
         #expect(unsorted.blockBody(over: spaced) == "from: Reading\n\n")
+        // A new key goes before the first that follows it in the usual order, not at the end.
+        let full = "from: Reading\nwhere: format is Book\nsort: title\nshow:\n  - author\n"
+        var tagged = try #require(ListDefinition(block: full))
+        tagged.tags = ["later"]
+        #expect(tagged.blockBody(over: full) == "from: Reading\ntags:\n  - later\nwhere: format is Book\nsort: title\nshow:\n  - author\n")
+        var any = tagged
+        any.conditions.append(ListCondition("read", .isNotSet))
+        any.matchesAny = true
+        #expect(any.blockBody(over: full).contains("  - read is not set\nmatch: any\nsort: title\n"))
     }
 
     @Test func aNewBlock() {

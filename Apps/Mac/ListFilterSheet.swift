@@ -34,14 +34,7 @@ struct ListFiltersSheet: View {
         self.store = store
         self.list = list
         self.done = done
-        var rows = list.folders.map { folder -> ListFilterRow in
-            var row = ListFilterRow(subject: .folder, kind: .folder); row.text = folder; return row
-        }
-        rows += list.tags.map { tag -> ListFilterRow in
-            var row = ListFilterRow(subject: .tag, kind: .tag); row.text = tag; return row
-        }
-        rows += list.conditions.map(ListFilterRow.init(condition:))
-        _rows = State(initialValue: rows)
+        _rows = State(initialValue: ListFilterRow.rows(of: list))
         _matchesAny = State(initialValue: list.matchesAny)
     }
 
@@ -135,25 +128,9 @@ struct ListFiltersSheet: View {
         rows.allSatisfy { $0.condition(kind: store.listValueKind(of: $0.subject)) != nil }
     }
 
-    /// The list with these filters: a folder or tag it's in goes in `list-from` or
-    /// `list-tags`, the rest in `list-where`. Its order and columns stay.
+    /// The list with these filters (see `ListDefinition.filtered`). Its order and columns stay.
     private var made: ListDefinition {
-        var changed = list
-        changed.folders = []
-        changed.tags = []
-        changed.conditions = []
-        changed.matchesAny = matchesAny && rows.count > 1
-        for row in rows {
-            guard let condition = row.condition(kind: store.listValueKind(of: row.subject)) else { continue }
-            if row.subject == .folder, row.op == .is {
-                changed.folders.append(ListDefinition.folderName(condition.value))
-            } else if row.subject == .tag, row.op == .is {
-                changed.tags.append(condition.value.trimmingCharacters(in: CharacterSet(charactersIn: "#")))
-            } else {
-                changed.conditions.append(condition)
-            }
-        }
-        return changed
+        list.filtered(by: rows, matchingAny: matchesAny, kind: store.listValueKind(of:))
     }
 }
 

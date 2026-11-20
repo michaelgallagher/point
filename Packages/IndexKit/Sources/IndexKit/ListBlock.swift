@@ -59,8 +59,15 @@ extension ListDefinition {
         for (key, values, isList) in properties
         where before[key]?.values != values || before[key]?.isList != isList || spelled[key] == nil {
             guard let frontmatter = Frontmatter.parse(text), let name = spelled[key] ?? blockKey[key] else { continue }
-            let edit = frontmatter.edit(setting: name, to: values, isList: isList)
+            var edit = frontmatter.edit(setting: name, to: values, isList: isList)
+            // A key the block hadn't goes in its place in the usual order (from, tags, where,
+            // match, sort, show), before the first that follows it, not at the end.
+            if spelled[key] == nil, let following = Key.all.drop(while: { $0 != key }).dropFirst().lazy
+                .compactMap({ later in spelled[later].flatMap { name in frontmatter.properties.first { $0.key == name } } }).first {
+                edit = (NSRange(location: following.range.location, length: 0), Frontmatter.yaml(key: name, values: values, isList: isList))
+            }
             text = (text as NSString).replacingCharacters(in: edit.0, with: edit.1)
+            spelled[key] = name
         }
         let kept = Set(properties.map(\.key))
         for (key, name) in spelled where !kept.contains(key) {
@@ -148,10 +155,18 @@ extension ListDefinition {
         for change in propertyChanges(over: frontmatter) {
             // Read again after each: the one before moved everything after it.
             let current = Frontmatter.parse(edited)
-            let edit: (NSRange, String)
+            var edit: (NSRange, String)
             if let values = change.values {
                 edit = current?.edit(setting: change.key, to: values, isList: change.isList)
                     ?? Frontmatter.edit(adding: change.key, values: values, isList: change.isList)
+                // A key the note hadn't goes with its list's others, before the first that
+                // follows it in the usual order, not at the end of the frontmatter.
+                let has = { (key: String) in current?.properties.first { $0.key.lowercased() == key } }
+                if current != nil, has(change.key.lowercased()) == nil,
+                   let following = Key.all.drop(while: { $0 != change.key.lowercased() }).dropFirst().lazy.compactMap(has).first {
+                    edit = (NSRange(location: following.range.location, length: 0),
+                            Frontmatter.yaml(key: change.key, values: values, isList: change.isList))
+                }
             } else if let removal = current?.edit(removing: change.key) {
                 edit = removal
             } else { continue }
