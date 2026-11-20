@@ -1028,7 +1028,26 @@ private final class FlippedView: NSView {
 ///
 /// Where something floats over its foot (its bottom content inset), the system's soft style
 /// instead: the same blur, fading out upwards, with no line, once there's more beneath.
+/// With `softTop`, the top's the soft style too: fading out downwards, with no wash or line.
 public final class BarEdgeScrollView: NSScrollView {
+    /// The soft style at the top as well (the two-column tree, on the sidebar's material, under
+    /// the window buttons): the blur alone, fading below the inset, with no line.
+    public var softTop = false {
+        didSet {
+            guard softTop != oldValue else { return }
+            if softTop {
+                let fade = CAGradientLayer()
+                fade.colors = [NSColor.clear.cgColor, NSColor.black.cgColor, NSColor.black.cgColor]
+                fade.locations = [0, 0.45, 1]
+                fade.startPoint = CGPoint(x: 0.5, y: 0)
+                fade.endPoint = CGPoint(x: 0.5, y: 1)
+                edgeBlur.layer?.mask = fade
+            } else {
+                edgeBlur.layer?.mask = nil
+            }
+            tile()
+        }
+    }
     /// The colour washed over the blur at the foot; nil for none (on the sidebar's material).
     public var footWash: NSColor? = .textBackgroundColor {
         didSet { updateEdge(animated: false) }
@@ -1103,8 +1122,16 @@ public final class BarEdgeScrollView: NSScrollView {
             addSubview(edgeBlur, positioned: .above, relativeTo: contentView)
             addSubview(edgeLine, positioned: .above, relativeTo: edgeBlur)
         }
+        // Soft, the blur reaches a little below the inset as it fades.
+        let blurHeight = softTop ? min(height + Self.footFade, bounds.height) : height
+        edgeBlur.frame = NSRect(x: 0, y: isFlipped ? 0 : bounds.height - blurHeight, width: bounds.width, height: blurHeight)
+        if softTop {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            edgeBlur.layer?.mask?.frame = edgeBlur.bounds
+            CATransaction.commit()
+        }
         let top = isFlipped ? 0 : bounds.height - height
-        edgeBlur.frame = NSRect(x: 0, y: top, width: bounds.width, height: height)
         // One device pixel, as the system draws its hairlines.
         let pixel = 1 / (window?.backingScaleFactor ?? 2)
         edgeLine.frame = NSRect(x: 0, y: isFlipped ? height - pixel : top, width: bounds.width, height: pixel)
@@ -1162,8 +1189,8 @@ public final class BarEdgeScrollView: NSScrollView {
         guard edgeBlur.superview != nil else { return }
         effectiveAppearance.performAsCurrentDrawingAppearance {
             // The page's colour over the blur, so the bar's controls stay readable.
-            edgeBlur.layer?.backgroundColor = NSColor.textBackgroundColor.withAlphaComponent(0.45).cgColor
-            edgeLine.layer?.backgroundColor = NSColor.separatorColor.cgColor
+            edgeBlur.layer?.backgroundColor = softTop ? nil : NSColor.textBackgroundColor.withAlphaComponent(0.45).cgColor
+            edgeLine.layer?.backgroundColor = softTop ? nil : NSColor.separatorColor.cgColor
         }
         let scrolled = contentView.bounds.minY > -contentInsets.top + 0.5
         guard scrolled != isScrolledUnder || !animated else { return }

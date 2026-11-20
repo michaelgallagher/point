@@ -256,6 +256,9 @@ struct SidebarTable: NSViewRepresentable {
     /// Told whether the list has any notes, folders or tags in it (not only labels), when that
     /// changes: for "No matches", without working out the rows again.
     var onHasItems: ((Bool) -> Void)?
+    /// Told how many notes the list shows, when that changes: for the count in the column's
+    /// top bar, which says how many the filter leaves.
+    var onNoteCount: ((Int) -> Void)?
     /// What filters the list (its terms, then what's typed). The filter isn't published by the
     /// model (see `FilterToolsState`), so it's handed in: a change updates the table.
     var filter: [String] = []
@@ -332,6 +335,8 @@ struct SidebarTable: NSViewRepresentable {
         let scrollView = BarEdgeScrollView()
         // On the sidebar's material, the blur alone; on the page's colour, washed with it.
         scrollView.footWash = content == .notes ? .textBackgroundColor : nil
+        // The tree scrolls up under the window buttons too, softly blurred.
+        scrollView.softTop = content == .places
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentInsets = insets
         scrollView.documentView = table
@@ -352,7 +357,7 @@ struct SidebarTable: NSViewRepresentable {
     }
 
     private var insets: NSEdgeInsets {
-        NSEdgeInsets(top: (content == .notes ? model.topBarHeight : 0) + topInset, left: 0, bottom: bottomInset, right: 0)
+        NSEdgeInsets(top: (content == .everything ? 0 : model.topBarHeight) + topInset, left: 0, bottom: bottomInset, right: 0)
     }
 
     @MainActor
@@ -414,8 +419,15 @@ struct SidebarTable: NSViewRepresentable {
             let cellsChanged = cellInputs != shownCellInputs
             shownCellInputs = cellInputs
             var newRows = model.sidebarRows(collapsed: cellInputs.collapsed, expanded: cellInputs.expanded, content: parent.content)
-            // In two columns, the count leads the notes (the bar above has only the name).
-            if parent.content == .notes { newRows.insert(.count(model.listCountLabel), at: 0) }
+            // In two columns, how many notes show is in the column's top bar, under its name.
+            if parent.content == .notes {
+                let count = newRows.count { if case .note = $0 { true } else if case .trashed = $0 { true } else { false } }
+                if count != shownNoteCount {
+                    shownNoteCount = count
+                    let report = parent.onNoteCount
+                    DispatchQueue.main.async { report?(count) }
+                }
+            }
             let hasItems = newRows.contains(where: \.isItem)
             if hasItems != shownHasItems {
                 shownHasItems = hasItems
@@ -424,7 +436,7 @@ struct SidebarTable: NSViewRepresentable {
                 DispatchQueue.main.async { report?(hasItems) }
             }
             // And what filters them, while the filter tools are away.
-            if parent.content == .notes, case let items = model.filterSummary, !items.isEmpty { newRows.insert(.filters(items), at: 1) }
+            if parent.content == .notes, case let items = model.filterSummary, !items.isEmpty { newRows.insert(.filters(items), at: 0) }
             // The tree doesn't move with the place it shows.
             let place = parent.content == .places ? SidebarPlace.allNotes : model.place
             let placeChanged = shownPlace != nil && shownPlace != place
@@ -694,6 +706,7 @@ struct SidebarTable: NSViewRepresentable {
         private struct FiltersMeasure: Hashable { let items: [FilterSummaryItem]; let width: CGFloat }
         private var filtersHeights: [FiltersMeasure: CGFloat] = [:]
         private var shownHasItems: Bool?
+        private var shownNoteCount: Int?
 
         // MARK: Insets
 

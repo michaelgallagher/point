@@ -15,10 +15,14 @@ enum TopBar {
         return ((window.frame.height - middle) * 2).rounded()
     }
 
-    /// Past the zoom button, with a gap, measured from the window.
+    /// Where the sidebar button's square starts past the window buttons: its symbol as far
+    /// from the zoom button as the close button is from the window's edge. Measured from the
+    /// window.
     @MainActor static func windowButtonsInset(for window: NSWindow?) -> CGFloat? {
-        guard let window, let button = window.standardWindowButton(.zoomButton) else { return nil }
-        return (button.convert(button.bounds, to: nil).maxX + 10).rounded()
+        guard let window, let zoom = window.standardWindowButton(.zoomButton),
+              let close = window.standardWindowButton(.closeButton) else { return nil }
+        let edgeGap = close.convert(close.bounds, to: nil).minX
+        return (zoom.convert(zoom.bounds, to: nil).maxX + edgeGap - sidebarSymbolInset).rounded()
     }
 
     /// How far the bar starts past the window buttons while the sidebar is hidden: the sidebar
@@ -31,7 +35,7 @@ enum TopBar {
     static let sidebarButtonHidingWidth: CGFloat = 580
     /// The gap between buttons in a bar (the HStack's spacing): small, since the icons have no
     /// bezels and their own squares hold some space around each symbol.
-    static let buttonSpacing: CGFloat = 2
+    static let buttonSpacing: CGFloat = 4
     /// How far a side's bar starts past the sidebar's edge or the divider, and ends before the
     /// window's edge, so its buttons never touch either.
     static let edgeInset: CGFloat = 6
@@ -41,6 +45,8 @@ enum TopBar {
     /// chevron is thin in the middle of its own.
     static let dividerGap: CGFloat = 16
     private static let sidebarSymbolWidth: CGFloat = 20
+    /// How far the sidebar symbol is inside its square.
+    static let sidebarSymbolInset: CGFloat = (iconSize - sidebarSymbolWidth) / 2
     private static let chevronWidth: CGFloat = 8
     /// The sidebar button's square from the sidebar's edge.
     static let sidebarButtonInset: CGFloat = dividerGap - (iconSize - sidebarSymbolWidth) / 2
@@ -97,22 +103,35 @@ struct SidebarTopBar: View {
 }
 
 /// The two-column note list's top bar: the folder or tag's name (and, in the trash, emptying
-/// it), clear of the sidebar button at its end. How the notes are sorted is at the list's foot,
-/// beside the filter. See-through, like a
+/// it), and under the name how many notes there are; then sort and the filter tools' button,
+/// clear of the sidebar button at its end. See-through, like a
 /// side's bar: the list scrolls up beneath it and blurs (see `BarEdgeScrollView`). Its empty
 /// space drags the window.
 struct NoteListTopBar: View {
     @EnvironmentObject private var model: VaultModel
     @ObservedObject var filterTools: FilterToolsState
+    @ObservedObject var listCount: ListCountState
+
+    /// How the notes are sorted: not in the trash, nor Recent (in the order opened).
+    private var showsSort: Bool { model.place != .trash && model.place != .recent }
 
     var body: some View {
         HStack(spacing: TopBar.buttonSpacing) {
-            // The name alone: the count is the list's first line (see `SidebarRow.count`).
-            Text(model.place == .allNotes ? (model.root?.lastPathComponent ?? "Notes") : model.title(for: model.place))
-                .font(.headline)
-                .lineLimit(1)
+            // The name, and under it how many notes there are (how many the filter leaves, while
+            // anything filters).
+            VStack(alignment: .leading, spacing: 1) {
+                Text(model.place == .allNotes ? (model.root?.lastPathComponent ?? "Notes") : model.title(for: model.place))
+                    .font(.headline)
+                    .lineLimit(1)
+                Text(model.listCountLabel(shown: listCount.shown))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+            }
             Spacer(minLength: 0)
             if model.place == .trash { EmptyTrashButton() }
+            if showsSort { SortButton() }
             if model.place != .trash {
                 // Shows or hides the filter tools under the bar; coloured while anything
                 // filters the list, so it shows even with the tools away.
@@ -137,15 +156,18 @@ struct NoteListTopBar: View {
 
 extension VaultModel {
     /// How much is here, as the sidebar counts it: notes, or for the lists of tags and types,
-    /// how many there are.
-    var listCountLabel: String {
-        if showsOnlyUnread { return "\(unreadCount(in: place).formatted()) unread" }
+    /// how many there are. While anything filters the notes, how many it leaves of them all
+    /// ("12 of 340 notes"), `shown` being how many the list shows.
+    func listCountLabel(shown: Int?) -> String {
         let count = noteCount(of: place)
         let noun = switch place {
         case .trash: count == 1 ? "item" : "items"
         case .types: count == 1 ? "type" : "types"
         case .tags: count == 1 ? "tag" : "tags"
         default: count == 1 ? "note" : "notes"
+        }
+        if let shown, isFiltering || showsOnlyUnread, place != .types, place != .tags {
+            return "\(shown.formatted()) of \(count.formatted()) \(noun)"
         }
         return "\(count.formatted()) \(noun)"
     }
@@ -168,7 +190,9 @@ struct PaneTabBar: View {
     /// The tabs' row: past the window buttons and the sidebar button when the sidebar is
     /// hidden; otherwise just past the sidebar's edge or the divider.
     private var leadingInset: CGFloat {
-        guard startsAtWindowEdge else { return TopBar.edgeInset }
+        // Back's chevron as far from the divider as the sidebar button's symbol is on the
+        // other side of it (see `TopBar.dividerGap`).
+        guard startsAtWindowEdge else { return showsArrows ? TopBar.arrowInset(width: TopBar.narrowArrowWidth) : TopBar.edgeInset }
         return model.windowButtonsInset + (model.hidesSidebarButtonForWidth ? 0 : TopBar.sidebarButtonWidth)
     }
 
@@ -191,15 +215,17 @@ struct PaneTabBar: View {
     private var trailingInset: CGFloat { max((model.topBarHeight - TopBar.iconSize) / 2, TopBar.edgeInset) }
 
     var body: some View {
-        // One row, in the title bar: back and forward, the tabs, and the side's menu.
-        HStack(spacing: TopBar.buttonSpacing) {
+        // One row, in the title bar: back and forward, the tabs, and the side's menu. The tabs'
+        // row has its own inset around them, so less between: a tab is the same gap from a
+        // button as buttons are from each other.
+        HStack(spacing: TopBar.buttonSpacing - PaneTabs.inset) {
             if showsArrows {
                 BackForwardButtons(paneIndex: paneIndex, isNarrow: true)
                     .transition(.opacity)
             }
             PaneTabs(pane: pane, paneIndex: paneIndex)
-            if model.note(pane.tab.noteID) != nil || isLastSide {
-                PaneMenuButton(pane: pane, paneIndex: paneIndex, includesSplit: isLastSide)
+            if model.note(pane.tab.noteID) != nil || isLastSide || !showsArrows {
+                PaneMenuButton(pane: pane, paneIndex: paneIndex, includesSplit: isLastSide, includesHistory: !showsArrows)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -660,8 +686,11 @@ struct TabLayout {
 
     init(titles: [String]) {
         let padding = PaneTab.leadingPadding + PaneTab.closeWidth
-        widths = titles.map { min(Self.textWidth($0) + padding, Self.widest) }
-        labels = TabLabels.fit(titles, rooms: widths.map { $0 - padding })
+        let rooms = titles.map { min(Self.textWidth($0) + padding, Self.widest) }
+        labels = TabLabels.fit(titles, rooms: rooms.map { $0 - padding })
+        // As wide as what each shows: a title fitted to a tab can come out shorter than the
+        // room it had ("9 Nov" for "Weeknote - 2026-11-09"), which left a gap before the ×.
+        widths = labels.map { min(Self.textWidth($0) + padding, Self.widest) }
         rowWidth = widths.reduce(0, +) + PaneTabs.spacing * CGFloat(max(titles.count - 1, 0)) + PaneTabs.inset * 2
     }
 }
@@ -767,8 +796,12 @@ private struct PaneTab: View {
     static let fontSize: CGFloat = 13
     /// Before the title.
     static let leadingPadding: CGFloat = 10
-    /// The close button's room, after the title. It always shows, so nothing moves on hover.
-    static let closeWidth: CGFloat = 20
+    /// The close button's room, after the title, with a little more after it than before. It
+    /// always shows, so nothing moves on hover.
+    static let closeWidth: CGFloat = closeGap + 20 + closeTrailing
+    /// Between the title and the ×.
+    static let closeGap: CGFloat = 5
+    static let closeTrailing: CGFloat = 4
     /// The title, raised from the middle: centred by its line height, which counts room for
     /// descenders, it looked low.
     static let titleRaise: CGFloat = 1
@@ -794,7 +827,8 @@ private struct PaneTab: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(isHovering ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
-                    .frame(width: Self.closeWidth, height: Self.height)
+                    .frame(width: Self.closeWidth - Self.closeGap - Self.closeTrailing, height: Self.height)
+                    .padding(.trailing, Self.closeTrailing)
             }
             .overlay(alignment: .trailing) {
                 if showsLine {
@@ -815,7 +849,7 @@ private struct PaneTab: View {
             // Clicks, drags, hover and the menu are handled in AppKit: the tabs sit where a
             // title bar would, and there the window takes any drag not claimed first.
             .background(TabMouseArea(id: id, title: title, select: select, close: close, closeEdge: .trailing,
-                                     closeWidth: Self.closeWidth, selectsOnPress: true, shownPart: shownPart,
+                                     closeWidth: Self.closeWidth - Self.closeGap, selectsOnPress: true, shownPart: shownPart,
                                      menu: menu, isHovering: $isHovering))
             .help(help)
             .accessibilityElement(children: .combine)
@@ -910,11 +944,24 @@ private struct PaneMenuButton: View {
     let paneIndex: Int
     /// Split or Close Split, last, while the split button is hidden.
     var includesSplit = false
+    /// Back and Forward, first, while the arrows are hidden (a narrow side).
+    var includesHistory = false
 
     private func menu() -> NSMenu {
         let menu = NSMenu()
         // Items are enabled as set here (Save Web Images to Vault isn't always).
         menu.autoenablesItems = false
+        if includesHistory {
+            let back = BlockMenuItem("Back") { model.travel(back: true, inPane: paneIndex) }
+            back.isEnabled = model.canTravel(back: true, inPane: paneIndex)
+            back.keyEquivalent = "["
+            menu.addItem(back)
+            let forward = BlockMenuItem("Forward") { model.travel(back: false, inPane: paneIndex) }
+            forward.isEnabled = model.canTravel(back: false, inPane: paneIndex)
+            forward.keyEquivalent = "]"
+            menu.addItem(forward)
+            menu.addItem(.separator())
+        }
         // The split has its own button (but see `includesSplit`).
         if let note = model.note(pane.tab.noteID) {
             let bookmark = BlockMenuItem("Bookmark") { model.toggleBookmark(note.id) }
@@ -1038,9 +1085,8 @@ struct FilterMenuButton: View {
         }
         if model.isFiltering || model.showsOnlyUnread {
             menu.addItem(.separator())
-            menu.addItem(BlockMenuItem("Clear Filter") {
-                model.clearFilter()
-                if model.showsOnlyUnread { model.toggleOnlyUnread() }
+            menu.addItem(BlockMenuItem(model.appliedFilterCount > 1 ? "Clear Filters" : "Clear Filter") {
+                model.clearAllFilters()
             })
         }
         return menu

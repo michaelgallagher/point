@@ -217,10 +217,9 @@ final class SidebarSplitController: NSSplitViewController {
     /// view, above everything. It moves from one to the other where the two places meet.
     private func placeSidebarButton() {
         guard let window = view.window, let frameView = window.contentView?.superview,
-              let zoom = window.standardWindowButton(.zoomButton),
-              let close = window.standardWindowButton(.closeButton) else { return }
+              let close = window.standardWindowButton(.closeButton),
+              let fixedX = TopBar.windowButtonsInset(for: window) else { return }
         let size = NSSize(width: TopBar.iconSize, height: TopBar.iconSize)
-        let fixedX = (zoom.convert(zoom.bounds, to: nil).maxX + 10).rounded()
         let middle = close.convert(close.bounds, to: nil).midY
         let pane = sidebarContainer.view
         // The sidebar's edge as drawn now, also while it's sliding: its right edge, or where the

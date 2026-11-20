@@ -33,12 +33,12 @@ struct ContentView: View {
                 // the divider between them, run to the window's top, under the top bar.
                 // Each column has its own top bar; the notes scroll up beneath theirs.
                 SideBySide(key: "treeColumnFraction", fraction: 0.4, minimumWidths: (120, 180)) {
+                    // Scrolling up under its bar (the window buttons), softly blurred.
                     PlaceTreeColumn()
-                        .padding(.top, model.topBarHeight)
                         .overlay(alignment: .top) { SidebarTopBar() }
                 } side: {
                     NoteList(filterTools: model.filterTools, includesPlaces: false)
-                        .overlay(alignment: .top) { NoteListTopBar(filterTools: model.filterTools) }
+                        .overlay(alignment: .top) { NoteListTopBar(filterTools: model.filterTools, listCount: model.listCount) }
                         // The notes in the page's colour, the tree alone in the sidebar's grey,
                         // and a line between the notes and the note (which share a colour).
                         .background(Color(nsColor: .textBackgroundColor))
@@ -264,9 +264,11 @@ private struct NoteList: View {
     @State private var dismissed = false
     /// The pinned controls' height, chips and all (not the suggestions, which float over the
     /// list): room the list leaves at its top.
-    @State private var controlsHeight: CGFloat = fieldHeight + topControlsPadding
+    @State private var controlsHeight: CGFloat = topControlsGap + fieldHeight + fieldPadding
     /// Whether the list shows anything but labels, as the table last found (see `browser`).
     @State private var listHasItems = true
+    /// Escape, wherever the keyboard is, puts the tools away (see `watchEscape`).
+    @State private var escapeMonitor: Any?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -287,6 +289,11 @@ private struct NoteList: View {
         .onChange(of: filterTools.isShown) { shown in
             if shown { DispatchQueue.main.async { searchFocused = true } }
         }
+        .onAppear(perform: watchEscape)
+        .onDisappear {
+            if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
+            escapeMonitor = nil
+        }
         .overlay {
             if let message = model.errorMessage {
                 Text(message)
@@ -294,6 +301,24 @@ private struct NoteList: View {
                     .multilineTextAlignment(.center)
                     .padding()
             }
+        }
+    }
+
+    /// While the tools show, Escape puts them away wherever the keyboard is: in the list, the
+    /// tree, or nowhere in particular. Not while typing: in the field, Escape goes step by step
+    /// (see `FilterField`), and a note's text or a property being edited keeps its own Escape.
+    /// Nor with a sheet up, and anything else Escape stands for (a button's Cancel or Done) is
+    /// done first, instead.
+    private func watchEscape() {
+        guard filterAtTop, escapeMonitor == nil else { return }
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [model] event in
+            guard event.keyCode == 53,
+                  event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.function, .numericPad]).isEmpty,
+                  model.showsFilterTools, let window = model.window, event.window === window,
+                  window.attachedSheet == nil, !(window.firstResponder is NSText) else { return event }
+            if window.performKeyEquivalent(with: event) { return nil }
+            model.setFilterTools(shown: false)
+            return nil
         }
     }
 
@@ -330,7 +355,7 @@ private struct NoteList: View {
 
     /// The field, and in two columns the filter and sort buttons beside it.
     private func controlsRow(suggestions: [VaultModel.FilterSuggestion], atTop: Bool) -> some View {
-        HStack(alignment: .bottom, spacing: Self.fieldPadding - Self.sortInset) {
+        HStack(alignment: .bottom, spacing: atTop ? TopBar.buttonSpacing : Self.fieldPadding - Self.sortInset) {
             FilterField(isFocused: $searchFocused, height: Self.fieldHeight, suggestions: suggestions,
                         highlighted: $highlighted, dismissed: $dismissed, atTop: atTop, pick: pick) {
                 // Return opens the top note.
@@ -339,13 +364,18 @@ private struct NoteList: View {
             if showsSort {
                 FilterMenuButton(opensUpward: !atTop)
                     .frame(height: Self.fieldHeight)
-                // A plain icon, as in the top bars.
-                SortButton(opensUpward: !atTop)
-                    .frame(height: Self.fieldHeight)
+                // A plain icon, as in the top bars. At the top, it's in the column's bar, beside
+                // the filter button (see `NoteListTopBar`).
+                if !atTop {
+                    SortButton(opensUpward: true)
+                        .frame(height: Self.fieldHeight)
+                }
             }
         }
         .padding(.leading, Self.fieldPadding)
-        .padding(.trailing, showsSort ? Self.fieldPadding - Self.sortInset : Self.fieldPadding)
+        // At the top, the filter menu's square under the sidebar button's in the bar above.
+        .padding(.trailing, atTop && showsSort ? TopBar.sidebarButtonInset
+                 : showsSort ? Self.fieldPadding - Self.sortInset : Self.fieldPadding)
     }
 
     /// Narrows the list to what's named with what's typed: in one column, the folders, tags
@@ -378,14 +408,17 @@ private struct NoteList: View {
 
     private func topTools(suggestions: [VaultModel.FilterSuggestion]) -> some View {
         ZStack(alignment: .top) {
+            let hasChips = !model.filterTokens.isEmpty || model.showsOnlyUnread
             VStack(alignment: .leading, spacing: 0) {
+                // Under the last of them, field or chips, as much room as the field has from
+                // the column's edge.
                 controlsRow(suggestions: suggestions, atTop: true)
                     .padding(.top, Self.topControlsGap)
-                    .padding(.bottom, Self.topControlsPadding - Self.topControlsGap)
-                if !model.filterTokens.isEmpty || model.showsOnlyUnread {
+                    .padding(.bottom, hasChips ? Self.topControlsPadding - Self.topControlsGap : Self.fieldPadding)
+                if hasChips {
                     FilterChips()
                         .padding(.horizontal, Self.fieldPadding)
-                        .padding(.bottom, 8)
+                        .padding(.bottom, Self.fieldPadding)
                 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { controlsHeight = $0 }
@@ -410,7 +443,8 @@ private struct NoteList: View {
     private var browser: some View {
         SidebarTable(model: model, content: content, bottomInset: filterAtTop ? 0 : Self.footHeight,
                      topInset: filterAtTop && filterTools.isShown ? controlsHeight : 0,
-                     onHasItems: { listHasItems = $0 }, filter: filterTools.tokens + [filterTools.text])
+                     onHasItems: { listHasItems = $0 }, onNoteCount: { [listCount = model.listCount] in listCount.shown = $0 },
+                     filter: filterTools.tokens + [filterTools.text])
             .overlay {
                 if model.place == .trash ? model.store.trashedNotes.isEmpty : model.notes(in: model.place).isEmpty, model.store.images(in: model.place).isEmpty, !listsPlaces || model.subplaces(of: model.place).isEmpty, model.place != .allNotes {
                     if let message = emptyMessage {
@@ -642,17 +676,17 @@ private struct FilterField: View {
                         model.takeTypedTerms()
                     }
             }
-            // Clears the lot: at the top, the chips (Only Unread too) as well as what's typed.
-            if model.isFiltering || atTop && model.showsOnlyUnread {
+            // At the foot, clears the lot, tokens and all. At the top, only what's typed: each chip
+            // has its ×, and two or more have Clear filters after them.
+            if atTop ? !model.noteFilter.isEmpty : model.isFiltering {
                 Button {
-                    model.clearFilter()
-                    if atTop, model.showsOnlyUnread { model.toggleOnlyUnread() }
+                    if atTop { model.noteFilter = "" } else { model.clearFilter() }
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.tertiary)
-                .help("Clear filter")
+                .help(atTop ? "Clear text" : "Clear filter")
             }
         }
         .padding(.leading, 10)
@@ -667,7 +701,7 @@ private struct FilterField: View {
 /// What's filtering the list, below the controls at its top: each term as a chip with its
 /// whole name (wrapping onto more lines rather than shortening), and Only Unread as one too.
 /// A chip's × takes it away; a click on its name offers to leave those notes out instead (or
-/// include them again). The field's ⓧ clears them all.
+/// include them again). With two or more, Clear filters follows, taking them all away.
 private struct FilterChips: View {
     @EnvironmentObject private var model: VaultModel
     /// The filter's text and terms (see `FilterToolsState`): watched here, not through the model.
@@ -682,6 +716,17 @@ private struct FilterChips: View {
             }
             ForEach(model.filterTokens, id: \.self) { term in
                 FilterChip(term: term)
+            }
+            // Two or more: all of them at once (words typed too).
+            if model.filterTokens.count + (model.showsOnlyUnread ? 1 : 0) > 1 {
+                Button("Clear filters") { model.clearAllFilters() }
+                    .buttonStyle(.plain)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                    .frame(height: FilterChip.height)
+                    .contentShape(Rectangle())
+                    .help("Remove every filter")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

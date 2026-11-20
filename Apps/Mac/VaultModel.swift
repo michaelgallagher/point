@@ -1348,6 +1348,9 @@ final class VaultModel: ObservableObject {
     /// here doesn't redraw the rest of the window, as one published by the model would.
     let filterTools = FilterToolsState()
 
+    /// How many notes the two-column list shows (see `ListCountState`).
+    let listCount = ListCountState()
+
     var showsFilterTools: Bool { filterTools.isShown }
 
     /// Shows or hides the filter tools, sliding down or up. Shown, the field takes the keyboard
@@ -1493,6 +1496,17 @@ final class VaultModel: ObservableObject {
     func clearFilter() {
         filterTokens = []
         noteFilter = ""
+    }
+
+    /// How many things filter the list: each term, Only Unread, and any words typed.
+    var appliedFilterCount: Int {
+        filterTokens.count + (showsOnlyUnread ? 1 : 0) + (noteFilter.trimmingCharacters(in: .whitespaces).isEmpty ? 0 : 1)
+    }
+
+    /// Takes every filter away, Only Unread included.
+    func clearAllFilters() {
+        clearFilter()
+        if showsOnlyUnread { toggleOnlyUnread() }
     }
 
     /// The tags and values the notes here have, to suggest and offer: from the index, in
@@ -1775,6 +1789,12 @@ final class VaultModel: ObservableObject {
 @MainActor
 final class SidebarSlide: ObservableObject {
     @Published var isSliding = false
+}
+
+/// How many notes the two-column list shows, as its table last found: for the count in the
+/// column's top bar. Its own object, so a new count redraws the bar alone.
+@MainActor final class ListCountState: ObservableObject {
+    @Published var shown: Int?
 }
 
 /// The list's filter: whether the two-column list's tools show, and what's typed and picked
