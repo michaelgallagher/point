@@ -552,6 +552,43 @@ private struct EditorView: NSViewRepresentable {
             guard let model, let session else { return nil }
             return model.store.saveImage(data, type: type, for: session.note)
         }
+        // Typing `/` offers what can be put in there; those with a shortcut show it.
+        textView.slashCommands = SlashCommand.all
+        textView.slashShortcut = { id in
+            let action: ShortcutAction? = switch id {
+            case .list: .insertList
+            case .table: .insertTable
+            case .heading1: .heading1
+            case .heading2: .heading2
+            case .heading3: .heading3
+            case .bulletList: .bulletList
+            case .numberedList: .numberedList
+            case .checklist: .checklist
+            case .quote: .blockQuote
+            case .template: .applyTemplate
+            case .property: .addProperty
+            default: nil
+            }
+            return action.flatMap { ShortcutStore.shared.label(for: $0) }
+        }
+        // The commands that need the vault: a template, a property, a link to a daily note.
+        textView.performSlashCommand = { [weak model, weak textView] command in
+            guard let model, let textView else { return false }
+            switch command.id {
+            case .template:
+                model.applyTemplateInPalette()
+            case .property:
+                NotificationCenter.default.post(name: .pointAddProperty, object: model)
+            case .todaysNote, .tomorrowsNote:
+                guard let root = model.store.root else { return false }
+                let day = command.id == .todaysNote ? Date() : Calendar.current.date(byAdding: .day, value: 1, to: Date())!
+                let title = Templates.dailyNoteURL(for: day, in: root, settings: model.settings).deletingPathExtension().lastPathComponent
+                textView.insertText("[[\(model.store.linkText(forTitle: title))]]", replacementRange: textView.selectedRange())
+            default:
+                return false
+            }
+            return true
+        }
         // List items starting `! `, `? ` and so on are coloured, in the vault's colours.
         textView.listHighlights = model.settings.listCallouts.map {
             ($0.character, NSColor(srgbRed: CGFloat($0.red) / 255, green: CGFloat($0.green) / 255, blue: CGFloat($0.blue) / 255, alpha: 1))
