@@ -320,6 +320,38 @@ The fixes help everywhere, not just the tools. But 25 to 85 ms per change is sti
 
 **Not tried by hand:** clicking the bar button, the summary row and a chip's ×; the slide as seen (only frame times); dark mode; one column, which keeps its field at the foot and has no button.
 
+### Quicker still (20 November 2026, uncommitted, on top of the above)
+
+A second pass at the per-change times, aiming at one frame (16 ms). What changed:
+- **The filter is no longer published by the model.** The typed text and the tokens live in `FilterToolsState` with the tools' visibility; `noteFilter` and `filterTokens` on the model just pass through. Only the notes column, its bar, the field, the chips and the filter menu watch it. Before, every keystroke redrew everything watching the model, including the folder tree, whose rows each counted their notes.
+- **Rows find their note by ID.** Each note row looked itself up by going through all 10,000 notes (`model.notes.first`), every time it drew. `bookmarkedNotes` built a 10,000-entry dictionary each call (the tree asks it for the Bookmarks count); it uses `notesByID` now.
+- **No reload when nothing a row is handed has changed.** With the same rows, the table only remakes them if folding changed, or the two rows coming on and off the highlight. Each row watches the model, so it redraws itself for anything else.
+- **Heights worked out once.** Every row's height was worked out twice per reload (once for the table, once to keep), each time building the row's second line just to see if there was one, and reading half a dozen published settings per row. Now they're measured once, before the table asks, from settings read once, and kept per note until something they come from changes.
+- **An index answer no longer counts as the notes changing.** It bumped `listVersion`, which threw away every folder's notes and every height. It bumps a new `queryVersion` instead, which what's kept from answers (the filter's matches, whether a place tracks reading) watches.
+
+**Timings** (optimized build, Media's 4,000 notes, `-PointFilterKeys "tools|text:i|text:it|text:topics:pla|down|return|text:format:Book|return|backspace|escape|tools"`, screen on, both builds run the same way, median of three runs, in ms):
+
+| Step | Before | After |
+|---|---|---|
+| Open the tools | 48 | 15 |
+| Type `i`, then `it` | 58, 27 | 13, 8 |
+| Type `topics:pla` | 25 | 16 |
+| ↓ to the suggestion | 4 | 4 |
+| Return (a chip) | 49 | 17 |
+| Type `format:Book` | 46 | 15 |
+| Return (a second chip) | 68 | 23 |
+| Backspace (removes it) | 47 | 11 |
+| Escape (clears, closes) | 89 | 61 |
+| Close the tools | 57 | 20 |
+
+The slides themselves barely changed. The first opening still stalls for 210 to 340 ms in one gap (it did before too, 225 to 417), as the tools' views are made for the first time. Later slides have their longest gap at 9 to 34 ms (before, 9 to 57).
+
+Typing and most steps now take a frame or so. Escape, the second chip and closing don't yet, and the first opening stalls. What's left is the cost of changing which notes show. AppKit makes the visible rows again, about 18 SwiftUI hosting views at roughly half a millisecond each (about 10 ms). The rows are worked out again (2 to 5 ms). Escape also measures 4,000 heights again (about 10 ms) when the tags arrived after they were last measured. Getting these under a frame would mean drawing note rows in AppKit rather than SwiftUI, or reusing the row views for notes still showing. That's a bigger change.
+
+**Same behaviour:** the walk-through above, and a longer one (Only Unread on and off, the tools closed with chips, arrows up and down, Backspace twice, Escape three times) give the same tokens, text, suggestions, Only Unread and selection at every step as before. `-PointFilters` with eight filters (words, a term, a term and words, `is:unread`, a left-out term, `@thisweek`, `has:`, no match) lists the same notes.
+
+**Not tried by hand:** looking at it on screen (only timed), sort, one column.
+
 ### Questions for Mike
 
 1. Should the tools stay open per window, or for each place, as Only Unread is kept?
