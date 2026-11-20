@@ -57,6 +57,9 @@ final class VaultStore: ObservableObject {
     /// Goes up whenever a note, or its tags, changes, so the list can tell when nothing it
     /// shows has (as when only the tab shown has changed).
     private(set) var listVersion = 0
+    /// Goes up whenever the index answers a query differently from before (see `noteIDs(matching:)`):
+    /// for what's kept from queries' answers, as `listVersion` is for what's kept from the notes.
+    private(set) var queryVersion = 0
     /// The notes by ID, to find one without going through them all.
     private(set) var notesByID: [Note.ID: Note] = [:]
     /// Resolves links against the notes as they are now.
@@ -1876,7 +1879,10 @@ final class VaultStore: ObservableObject {
                     embedsChanged()
                 }
                 if changed {
-                    listVersion += 1
+                    // Not `listVersion`: an answer changes which notes a query finds, not the
+                    // notes, so what's kept for them (each folder's notes, their rows' heights)
+                    // stands.
+                    queryVersion += 1
                     objectWillChange.send()
                 }
             }
@@ -2200,8 +2206,7 @@ final class VaultStore: ObservableObject {
 
     /// The bookmarked notes that exist.
     var bookmarkedNotes: [Note] {
-        let byID = Dictionary(notes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        return bookmarks.compactMap { byID[$0] }
+        bookmarks.compactMap { notesByID[$0] }
     }
 
     func isBookmarked(_ id: Note.ID) -> Bool { bookmarks.contains(id) }

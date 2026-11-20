@@ -1420,15 +1420,22 @@ final class VaultModel: ObservableObject {
 
     /// What's typed in the sidebar's filter field: only what's listed whose name contains it
     /// stays (in two columns, the notes). Cleared on going to another place. Searching the
-    /// whole vault is the explorer's (⌘E).
-    @Published var noteFilter = ""
+    /// whole vault is the explorer's (⌘E). Kept in `filterTools`, watched by the list alone, so
+    /// a keystroke doesn't redraw the rest of the window.
+    var noteFilter: String {
+        get { filterTools.text }
+        set { if newValue != filterTools.text { filterTools.text = newValue } }
+    }
 
     // MARK: Filter terms
 
     /// The terms in the filter field shown as tokens, each as written (`#work`,
     /// `topics:"service design"`, `-in:Archive`), before what's typed (`noteFilter`).
-    /// Cleared, as the text is, on going to another place.
-    @Published var filterTokens: [String] = []
+    /// Cleared, as the text is, on going to another place. In `filterTools`, as the text is.
+    var filterTokens: [String] {
+        get { filterTools.tokens }
+        set { if newValue != filterTools.tokens { filterTools.tokens = newValue } }
+    }
 
     /// Whether the vault has a property by this name (any case).
     func isProperty(_ name: String) -> Bool {
@@ -1605,8 +1612,8 @@ final class VaultModel: ObservableObject {
         guard !filters.isEmpty else { return nil }
         let query = NoteQuery(filters, sort: [])
         if let ids = store.noteIDs(matching: query) {
-            if filterMatchesCache?.query != query || filterMatchesCache?.count != ids.count || filterMatchesCache?.version != store.listVersion {
-                filterMatchesCache = (query, store.listVersion, ids.count, Set(ids))
+            if filterMatchesCache?.query != query || filterMatchesCache?.count != ids.count || filterMatchesCache?.version != store.queryVersion {
+                filterMatchesCache = (query, store.queryVersion, ids.count, Set(ids))
             }
         }
         return filterMatchesCache?.ids ?? []
@@ -1621,14 +1628,16 @@ final class VaultModel: ObservableObject {
     func tracksReading(_ place: SidebarPlace) -> Bool {
         guard store.tracksReading else { return false }
         // Asked on every redraw: worked out once until the list changes.
-        if readingCache.version != store.listVersion { readingCache = (store.listVersion, [:]) }
+        // (A place's notes can come from the index's answers, as a type's do.)
+        let version = (store.listVersion, store.queryVersion)
+        if readingCache.version != version { readingCache = (version, [:]) }
         if let known = readingCache.places[place.key] { return known }
         let tracks = notes(in: place).contains { store.canMarkRead($0.id) }
         readingCache.places[place.key] = tracks
         return tracks
     }
 
-    private var readingCache: (version: Int, places: [String: Bool]) = (-1, [:])
+    private var readingCache: (version: (Int, Int), places: [String: Bool]) = ((-1, -1), [:])
 
     /// Whether this place shows only its unread notes: turned on for it, and kept for it in
     /// this vault, until turned off.
@@ -1768,7 +1777,11 @@ final class SidebarSlide: ObservableObject {
     @Published var isSliding = false
 }
 
-/// Whether the two-column note list's filter tools show (see `VaultModel.filterTools`).
+/// The list's filter: whether the two-column list's tools show, and what's typed and picked
+/// (see `VaultModel.filterTools`, `noteFilter` and `filterTokens`). Its own object, watched only
+/// by the list and what's in its tools, so filtering doesn't redraw the rest of the window.
 @MainActor final class FilterToolsState: ObservableObject {
     @Published var isShown = false
+    @Published var text = ""
+    @Published var tokens: [String] = []
 }

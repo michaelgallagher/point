@@ -255,6 +255,9 @@ struct SidebarTable: NSViewRepresentable {
     /// Told whether the list has any notes, folders or tags in it (not only labels), when that
     /// changes: for "No matches", without working out the rows again.
     var onHasItems: ((Bool) -> Void)?
+    /// What filters the list (its terms, then what's typed). The filter isn't published by the
+    /// model (see `FilterToolsState`), so it's handed in: a change updates the table.
+    var filter: [String] = []
     /// The folded sections, comma separated, each as the place it's folded in and its name
     /// (`folder:Projects|Notes`): folding a section in one place leaves it open in others. A
     /// name alone (as saved before) is one folded at the top level.
@@ -358,7 +361,9 @@ struct SidebarTable: NSViewRepresentable {
         private var rows: [SidebarRow] = []
         private var shownPlace: SidebarPlace?
         private var isSyncingSelection = false
-        /// Row heights as last laid out, to spot rows whose height changed.
+        /// The rows' heights, measured all at once whenever the rows or what their heights come
+        /// from change, before the table is told: it asks for each row's from here (thousands of
+        /// times on a reload), and rows whose height changed are spotted against them.
         private var shownHeights: [CGFloat] = []
 
         /// The count's row: a line of small type, a little room above it and below.
@@ -384,13 +389,13 @@ struct SidebarTable: NSViewRepresentable {
         func widthChanged() {
             guard let table, wrapsTitles, abs(table.bounds.width - measuredWidth) > 0.5 else { return }
             let notes = IndexSet(rows.indices.filter { if case .note = rows[$0] { true } else { false } })
+            shownHeights = measuredHeights(in: table)
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0
                 table.noteHeightOfRows(withIndexesChanged: notes)
             }
             // Their titles are broken to the new width too.
             table.reloadData(forRowIndexes: notes, columnIndexes: [0])
-            shownHeights = rows.indices.map { tableView(table, heightOfRow: $0) }
         }
 
         init(_ parent: SidebarTable) { self.parent = parent }
@@ -403,7 +408,11 @@ struct SidebarTable: NSViewRepresentable {
             guard let table else { return }
             watchFocus(in: table.window)
             today = Calendar.current.startOfDay(for: Date())
-            var newRows = model.sidebarRows(collapsed: parent.collapsed, expanded: parent.expanded, content: parent.content)
+            // Read once (each is worked out from a saved string), for the rows and their cells.
+            let cellInputs = CellInputs(collapsed: parent.collapsed, expanded: parent.expanded)
+            let cellsChanged = cellInputs != shownCellInputs
+            shownCellInputs = cellInputs
+            var newRows = model.sidebarRows(collapsed: cellInputs.collapsed, expanded: cellInputs.expanded, content: parent.content)
             // In two columns, the count leads the notes (the bar above has only the name).
             if parent.content == .notes { newRows.insert(.count(model.listCountLabel), at: 0) }
             let hasItems = newRows.contains(where: \.isItem)
@@ -419,15 +428,24 @@ struct SidebarTable: NSViewRepresentable {
             let place = parent.content == .places ? SidebarPlace.allNotes : model.place
             let placeChanged = shownPlace != nil && shownPlace != place
             // What the rows' heights come from: if none of it has changed, nor have they.
-            let heightInputs = HeightInputs(version: model.store.listVersion, width: table.bounds.width, wraps: wrapsTitles,
-                                            density: model.sidebarDensity, dateStyle: model.listDateStyle, sort: model.sort,
-                                            listDate: model.listDate, showsTags: model.showsTagsInList, day: today)
+            let heightInputs = heightInputs(for: table)
             defer { shownHeightInputs = heightInputs }
             if !placeChanged, newRows == rows, heightInputs == shownHeightInputs {
-                // Same rows, made from the same notes: only the selection can have changed.
-                table.reloadData(forRowIndexes: table.rows(in: table.visibleRect).toIndexSet, columnIndexes: [0])
+                // Same rows, made from the same notes: only the selection, or how sections and
+                // folders are folded, can have changed. Each row watches the model, so it
+                // redraws itself for anything else; made again, only if what it's handed changed
+                // (a filter keystroke that leaves the list as it was costs nothing here).
+                let wasSelected = table.selectedRow
                 shownPlace = place
                 syncSelection()
+                let visible = table.rows(in: table.visibleRect).toIndexSet
+                if cellsChanged {
+                    table.reloadData(forRowIndexes: visible, columnIndexes: [0])
+                } else if table.selectedRow != wasSelected {
+                    // The rows coming on and off the highlight.
+                    let both = IndexSet([wasSelected, table.selectedRow].filter { $0 >= 0 }).intersection(visible)
+                    if !both.isEmpty { table.reloadData(forRowIndexes: both, columnIndexes: [0]) }
+                }
                 return
             }
             if !placeChanged, heightInputs == shownHeightInputs, newRows != rows,
@@ -439,15 +457,15 @@ struct SidebarTable: NSViewRepresentable {
                     context.duration = 0
                     switch changedFilters {
                     case .inserted(let index):
+                        shownHeights.insert(measuredHeight(ofRow: index, in: table, heightContext(for: table), secondLines: secondLines()), at: index)
                         table.insertRows(at: [index], withAnimation: [])
-                        shownHeights.insert(tableView(table, heightOfRow: index), at: index)
                     case .removed(let index):
-                        table.removeRows(at: [index], withAnimation: [])
                         shownHeights.remove(at: index)
+                        table.removeRows(at: [index], withAnimation: [])
                     case .changed(let index):
+                        shownHeights[index] = measuredHeight(ofRow: index, in: table, heightContext(for: table), secondLines: secondLines())
                         table.reloadData(forRowIndexes: [index], columnIndexes: [0])
                         table.noteHeightOfRows(withIndexesChanged: [index])
-                        shownHeights[index] = tableView(table, heightOfRow: index)
                     }
                 }
                 shownPlace = place
@@ -457,8 +475,9 @@ struct SidebarTable: NSViewRepresentable {
             if !placeChanged, newRows == rows {
                 // Same rows: refresh their contents, and let any that gained or lost a tags
                 // line grow or shrink smoothly rather than jump.
-                let heights = rows.indices.map { tableView(table, heightOfRow: $0) }
+                let heights = measuredHeights(in: table)
                 let changed = IndexSet(heights.indices.filter { heights[$0] != shownHeights[safe: $0] })
+                shownHeights = heights
                 table.reloadData(forRowIndexes: IndexSet(integersIn: 0..<rows.count), columnIndexes: [0])
                 if !changed.isEmpty {
                     NSAnimationContext.runAnimationGroup { context in
@@ -467,7 +486,6 @@ struct SidebarTable: NSViewRepresentable {
                         table.noteHeightOfRows(withIndexesChanged: changed)
                     }
                 }
-                shownHeights = heights
                 shownPlace = place
                 syncSelection()
                 return
@@ -483,8 +501,9 @@ struct SidebarTable: NSViewRepresentable {
                     layer.add(transition, forKey: "slide")
                 }
                 rows = newRows
+                // Measured once, before the table asks for each.
+                shownHeights = measuredHeights(in: table)
                 table.reloadData()
-                shownHeights = rows.indices.map { tableView(table, heightOfRow: $0) }
                 if placeChanged { table.scrollRowToVisible(0) }
             }
             shownPlace = place
@@ -573,25 +592,89 @@ struct SidebarTable: NSViewRepresentable {
 
         func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
 
+        /// The rows' heights, as measured for the rows now shown (see `shownHeights`).
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+            shownHeights[safe: row] ?? measuredHeight(ofRow: row, in: tableView, heightContext(for: tableView), secondLines: secondLines())
+        }
+
+        /// Whether a note has a line under its title (its kind's detail, or tags), as
+        /// `VaultModel.listSecondLine` would give, without making the line: what it comes from
+        /// read once for all the rows.
+        private func secondLines() -> (Note.ID) -> Bool {
+            // (Each a published property, slow to read: read once, not for each row.)
+            let looks = model.store.listLooks, showsTags = model.showsTagsInList
+            let tags = showsTags ? model.store.tagsByNote : [:], indexed = showsTags ? model.store.indexedTags : [:]
+            return { id in
+                if let detail = looks[id]?.detail, detail.count > 1 || detail.first?.isEmpty == false { return true }
+                // As `VaultStore.listTags(for:)` finds them.
+                return showsTags && !(tags[id] ?? indexed[id] ?? []).isEmpty
+            }
+        }
+
+        /// What every note row's height depends on besides the note: read from the model once
+        /// for all the rows, not again for each of thousands.
+        private struct HeightContext: Equatable {
+            let width: CGFloat
+            let wraps: Bool
+            let density: VaultModel.SidebarDensity
+            let dateStyle: VaultModel.ListDateStyle
+            let sort: NoteSort
+            let listDate: VaultModel.ListDate
+            /// Dates show differently from one day to the next (a time today, a weekday after).
+            let day: Date
+        }
+
+        private func heightContext(for tableView: NSTableView) -> HeightContext {
+            HeightContext(width: tableView.bounds.width, wraps: wrapsTitles, density: model.sidebarDensity, dateStyle: model.listDateStyle,
+                          sort: model.sort, listDate: model.listDate, day: today)
+        }
+
+        private func heightInputs(for tableView: NSTableView) -> HeightInputs {
+            HeightInputs(version: model.store.listVersion, width: tableView.bounds.width, wraps: wrapsTitles,
+                         density: model.sidebarDensity, dateStyle: model.listDateStyle, sort: model.sort,
+                         listDate: model.listDate, showsTags: model.showsTagsInList, day: today)
+        }
+
+        /// Every row's height, for the rows as they are now. A note's is looked up, while
+        /// nothing it comes from has changed: thousands come back at once when a filter is
+        /// cleared, and each would otherwise be worked out again.
+        private func measuredHeights(in tableView: NSTableView) -> [CGFloat] {
+            let inputs = heightInputs(for: tableView)
+            if inputs != noteHeightsInputs { noteHeights = [:]; noteHeights.reserveCapacity(rows.count); noteHeightsInputs = inputs }
+            let context = heightContext(for: tableView), secondLines = secondLines()
+            return rows.indices.map { row in
+                guard case .note(let id) = rows[row] else { return measuredHeight(ofRow: row, in: tableView, context, secondLines: secondLines) }
+                if let known = noteHeights[id] { return known }
+                let height = measuredHeight(ofRow: row, in: tableView, context, secondLines: secondLines)
+                noteHeights[id] = height
+                return height
+            }
+        }
+
+        /// Each note's row height, for `noteHeightsInputs`.
+        private var noteHeights: [Note.ID: CGFloat] = [:]
+        private var noteHeightsInputs: HeightInputs?
+
+        private func measuredHeight(ofRow row: Int, in tableView: NSTableView, _ context: HeightContext,
+                                    secondLines hasSecondLine: (Note.ID) -> Bool) -> CGFloat {
+            let density = context.density
             switch rows[row] {
-            case .dateGroup: return model.sidebarDensity.headerHeight + (dividesAbove(row) ? Self.groupLineRoom : 0)
-            case .header: return model.sidebarDensity.headerHeight
-            case .divider: return model.sidebarDensity.dividerHeight
-            case .place, .trashed, .image: return model.sidebarDensity.rowHeight
-            case .treeSwitch: return model.sidebarDensity.rowHeight + 18
+            case .dateGroup: return density.headerHeight + (dividesAbove(row) ? Self.groupLineRoom : 0)
+            case .header: return density.headerHeight
+            case .divider: return density.dividerHeight
+            case .place, .trashed, .image: return density.rowHeight
+            case .treeSwitch: return density.rowHeight + 18
             case .count: return Self.countHeight
             case .filters(let items): return filtersHeight(items, width: tableView.bounds.width - SidebarTableView.rowInset * 2)
             case .note(let id):
                 // Two lines only for a note that has something under its title: its kind's
                 // detail, or tags.
-                let hasTags = model.listSecondLine(for: id) != nil
-                guard let note = model.note(id) else { return Self.noteHeight(hasTags: hasTags, density: model.sidebarDensity) }
-                let key = RowHeight(note: note, hasTags: hasTags, width: tableView.bounds.width, wraps: wrapsTitles,
-                                    density: model.sidebarDensity, dateStyle: model.listDateStyle, sort: model.sort,
-                                    listDate: model.listDate, day: today)
+                let hasTags = hasSecondLine(id)
+                guard let note = model.note(id) else { return Self.noteHeight(hasTags: hasTags, density: density) }
+                let key = RowHeight(title: note.title, modified: note.modified, created: note.created, isDownloaded: note.isDownloaded,
+                                    hasTags: hasTags, context: context)
                 if let known = rowHeights[id], known.key == key { return known.height }
-                let height = Self.noteHeight(hasTags: hasTags, density: model.sidebarDensity) + extraTitleHeight(note, in: tableView)
+                let height = Self.noteHeight(hasTags: hasTags, density: density) + (context.wraps ? extraTitleHeight(note, in: tableView) : 0)
                 rowHeights[id] = (key, height)
                 return height
             }
@@ -677,17 +760,16 @@ struct SidebarTable: NSViewRepresentable {
         /// Each note's row height, and what it was worked out from: worked out again only
         /// when one of those changes, not for every row at every update (each switch of tab).
         private var rowHeights: [Note.ID: (key: RowHeight, height: CGFloat)] = [:]
+        /// What a note's row's height comes from: of the note, what the row shows (its title,
+        /// its date, whether it's here or in iCloud), not the whole note (comparing its URL, for
+        /// each of thousands of rows, was slow).
         private struct RowHeight: Equatable {
-            let note: Note
+            let title: String
+            let modified: Date
+            let created: Date
+            let isDownloaded: Bool
             let hasTags: Bool
-            let width: CGFloat
-            let wraps: Bool
-            let density: VaultModel.SidebarDensity
-            let dateStyle: VaultModel.ListDateStyle
-            let sort: NoteSort
-            let listDate: VaultModel.ListDate
-            /// Dates show differently from one day to the next (a time today, a weekday after).
-            let day: Date
+            let context: HeightContext
         }
         private struct HeightInputs: Equatable {
             let version: Int
@@ -701,6 +783,13 @@ struct SidebarTable: NSViewRepresentable {
             let day: Date
         }
         private var shownHeightInputs: HeightInputs?
+        /// What a row's view is handed by the table, beyond its row and the model it watches
+        /// (which redraws it by itself): if none of it has changed, the rows needn't be made again.
+        private struct CellInputs: Equatable {
+            let collapsed: Set<SidebarSection>
+            let expanded: Set<String>
+        }
+        private var shownCellInputs: CellInputs?
         /// The start of today, looked up once an update rather than for every row.
         private var today = Calendar.current.startOfDay(for: Date())
 
@@ -774,7 +863,8 @@ struct SidebarTable: NSViewRepresentable {
             let identifier = NSUserInterfaceItemIdentifier("row")
             let cell = tableView.makeView(withIdentifier: identifier, owner: nil) as? HostingCell ?? HostingCell()
             cell.identifier = identifier
-            cell.show(SidebarRowView(row: rows[row], model: model, collapsed: parent.collapsed, expanded: parent.expanded,
+            let inputs = shownCellInputs ?? CellInputs(collapsed: parent.collapsed, expanded: parent.expanded)
+            cell.show(SidebarRowView(row: rows[row], model: model, collapsed: inputs.collapsed, expanded: inputs.expanded,
                                      wrapsTitles: wrapsTitles, rowWidth: tableView.bounds.width - SidebarTableView.rowInset * 2,
                                      dividesAbove: dividesAbove(row)))
             return cell
@@ -1334,7 +1424,8 @@ struct SidebarRowView: View {
             .padding(.trailing, 8)
             .frame(maxHeight: .infinity)
         case .note(let id):
-            if let note = model.notes.first(where: { $0.id == id }) {
+            // By its ID, not by going through every note (rows are drawn again and again).
+            if let note = model.store.notesByID[id] {
                 SidebarNoteRow(note: note, model: model, wrapsTitle: wrapsTitles, rowWidth: rowWidth, isEmphasized: isEmphasized)
             }
         case .treeSwitch:

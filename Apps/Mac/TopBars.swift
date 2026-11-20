@@ -977,6 +977,8 @@ struct SortButton: View {
 /// filters the list.
 struct FilterMenuButton: View {
     @EnvironmentObject private var model: VaultModel
+    /// The filter's terms (see `FilterToolsState`): watched here, not through the model.
+    @EnvironmentObject private var filterTools: FilterToolsState
     /// At a list's foot, the menu opens above it; at its top, below.
     var opensUpward = true
 

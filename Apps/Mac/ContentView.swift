@@ -12,7 +12,7 @@ struct ContentView: View {
         let twoColumns = model.browsingStyle == .twoColumns
         return SidebarSplitView(
             controller: model.sidebarSplit,
-            sidebar: AnyView(sidebar.environmentObject(model).environmentObject(store)),
+            sidebar: AnyView(sidebar.environmentObject(model).environmentObject(store).environmentObject(model.filterTools)),
             detail: AnyView(detail.environmentObject(model).environmentObject(store)),
             // Two columns start at half as wide again as one column, split 40/60 (see `sidebar`).
             widths: twoColumns ? (300, 360, 760) : (180, 240, 400),
@@ -409,7 +409,7 @@ private struct NoteList: View {
     private var browser: some View {
         SidebarTable(model: model, content: content, bottomInset: filterAtTop ? 0 : Self.footHeight,
                      topInset: filterAtTop && filterTools.isShown ? controlsHeight : 0,
-                     onHasItems: { listHasItems = $0 })
+                     onHasItems: { listHasItems = $0 }, filter: filterTools.tokens + [filterTools.text])
             .overlay {
                 if model.place == .trash ? model.store.trashedNotes.isEmpty : model.notes(in: model.place).isEmpty, model.store.images(in: model.place).isEmpty, !listsPlaces || model.subplaces(of: model.place).isEmpty, model.place != .allNotes {
                     if let message = emptyMessage {
@@ -545,6 +545,8 @@ extension SidebarPlace {
 /// tokens at a space.
 private struct FilterField: View {
     @EnvironmentObject private var model: VaultModel
+    /// The filter's text and terms (see `FilterToolsState`): watched here, not through the model.
+    @EnvironmentObject private var filterTools: FilterToolsState
     var isFocused: FocusState<Bool>.Binding
     /// The sidebar's row height, so the field is as tall as a selected row.
     let height: CGFloat
@@ -666,6 +668,8 @@ private struct FilterField: View {
 /// include them again). The field's ⓧ clears them all.
 private struct FilterChips: View {
     @EnvironmentObject private var model: VaultModel
+    /// The filter's text and terms (see `FilterToolsState`): watched here, not through the model.
+    @EnvironmentObject private var filterTools: FilterToolsState
 
     var body: some View {
         ChipFlowLayout(spacing: 6, lineSpacing: 6) {
@@ -713,6 +717,8 @@ struct FilterSummaryView: View {
 /// One chip: its name (a click offers Leave Out or Include, and Remove, for a term), and ×.
 private struct FilterChip: View {
     @EnvironmentObject private var model: VaultModel
+    /// The filter's text and terms (see `FilterToolsState`): watched here, not through the model.
+    @EnvironmentObject private var filterTools: FilterToolsState
     let label: String
     let negated: Bool
     let help: String
@@ -866,6 +872,8 @@ private struct TokenLine: Layout {
 /// A term in the filter field, as a token: a click offers to turn it round or remove it.
 private struct FilterTokenView: View {
     @EnvironmentObject private var model: VaultModel
+    /// The filter's text and terms (see `FilterToolsState`): watched here, not through the model.
+    @EnvironmentObject private var filterTools: FilterToolsState
     let term: String
     @State private var anchor = MenuAnchor.Holder()
 
