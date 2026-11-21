@@ -52,7 +52,7 @@ Return at the end of an opening fence (```` ``` ````, ```` ```swift ````, ```` `
 - **Fences close themselves** (`MarkdownEditing.closingFence`, tested against both editors). A closed block with an empty line under its fence takes the cursor there instead, so Return after a code block's language, as the menu writes it, goes in without a second closing fence.
 - **The commands** are `SlashCommand.all`, in EditorKit, shared; the trigger and the narrowing are `SlashMenu.query` and `SlashMenu.matching`. What a command writes is `MarkdownEditing.slashEdit`, tested: a block on lines of its own, with a blank line from the text around it.
 - **The Mac:** the list under the `/` (above it, near the window's bottom), with icons and the shortcuts set for each. Return, Tab or a click puts one in; Escape leaves what was typed. Image asks for files; template opens Apply Template's list; property adds one in the properties; List opens its filters.
-- **The iPhone:** the commands as buttons in the bar above the keyboard, in place of the tools, the first tinted, which Return puts in. Template asks which in a dialog; property opens the properties; List, from the menu or a ```` ```list ```` fence and Return, opens its filters. Image asks whether from the photo library or Files, saves what's chosen in the attachment folder as the Mac does (a photo as JPEG), and embeds it where the `/` was (21 November).
+- **The iPhone:** the commands as buttons in the bar above the keyboard, in place of the tools, the first tinted, which Return puts in. Template asks which in a dialog; property opens the properties; List, from the menu or a ```` ```list ```` fence and Return, opens its filters. Image asks whether from the photo library or Files, saves what's chosen in the attachment folder as the Mac does (a photo as JPEG), and embeds it where the `/` was (21 November). With a hardware keyboard, up and down move the highlight through the bar, which scrolls to keep it in view; Return or Tab puts it in; Escape closes the menu, as on the Mac (21 November; Escape and Tab not tried, as the Simulator's tools can't press them).
 - **Checked:** `/` doesn't open in words, links, web addresses, code, the properties or tables (tests); one Undo goes back to the `/` as typed, on both (a test on the Mac, by hand on the iPhone, where Undo selects what came back, as it does everywhere on iOS); the file after each command by hand; the trigger and narrowing take 0.04 ms a key in a 45 KB note.
 
 Simpler than planned:
@@ -61,10 +61,6 @@ Simpler than planned:
 - **Matching** is by the start of each word and by other names, written for the menu, not the palette's fuzzy matching, which is in IndexKit, which EditorKit doesn't use.
 - **Image is two steps to undo,** on both: the picker answers after the menu's own step, so one Undo takes the image out and the next brings back the `/` as typed. The saved file stays in the attachment folder.
 - **Tag** writes `#`, and tag completion takes over; **date and time** are `2026-11-20` and `14:05`. `/today` offers Today's date before Today's note, in the menu's order.
-
-Not done:
-
-- **Up and down on the iPhone,** with a hardware keyboard, to move through the menu; Return works.
 
 ## Not now
 
