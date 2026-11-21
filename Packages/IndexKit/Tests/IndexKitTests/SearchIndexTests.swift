@@ -147,6 +147,18 @@ struct SearchTests {
         #expect(names.map(\.count) == [3, 1, 1])
     }
 
+    @Test func listsPropertyNamesOfTheNotesAQueryFinds() async throws {
+        let vault = try await Fixture([
+            "Reading/A.md": "---\nauthor: Sam\nrating: 4\n---\nText",
+            "Reading/B.md": "---\nAuthor: Ann\n---\nText",
+            "Other.md": "---\nstatus: open\nrating: 2\n---\nText",
+        ])
+        defer { vault.cleanUp() }
+        let names = try await vault.index.propertyNames(matching: NoteQuery([.folder("Reading", includingSubfolders: true)], sort: [NoteQuery.Sort(.title)], limit: 1))
+        #expect(names.map { $0.name.lowercased() } == ["author", "rating"])
+        #expect(names.map(\.count) == [2, 1])
+    }
+
     @Test func listsEachPropertysValuesMostUsedFirst() async throws {
         let vault = try await Fixture([
             "A.md": "---\npeople:\n  - \"[[Ann]]\"\n  - Sam\ntopics: [Design, Access]\n---\nText",

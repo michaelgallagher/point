@@ -476,6 +476,30 @@ public actor SearchIndex {
         return result
     }
 
+    /// The properties the notes a query finds use, with how many of them use each, most used
+    /// first: what's worth sorting such a list by, or showing as its columns. Names differing
+    /// only in case are one, spelled as most of the notes spell it.
+    public func propertyNames(matching query: NoteQuery, now: Date = Date()) throws -> [(name: String, count: Int)] {
+        var finding = query
+        finding.sort = []
+        finding.limit = nil
+        let (sql, bindings) = finding.sql(now: now)
+        var names: [(name: String, count: Int)] = []
+        var positions: [String: Int] = [:]
+        let counting = "SELECT p.name, COUNT(*) FROM property_names p JOIN notes m ON m.row = p.note "
+            + "WHERE m.id IN (\(sql)) GROUP BY p.name ORDER BY COUNT(*) DESC, p.name"
+        for row in try db.query(counting, bindings) {
+            let name = row[0] as! String, count = row[1] as! Int
+            if let position = positions[name.lowercased()] {
+                names[position].count += count
+            } else {
+                positions[name.lowercased()] = names.count
+                names.append((name, count))
+            }
+        }
+        return names.sorted { $0.count != $1.count ? $0.count > $1.count : $0.name < $1.name }
+    }
+
     /// How many notes a query finds.
     public func count(matching query: NoteQuery, now: Date = Date()) throws -> Int {
         var counting = query
