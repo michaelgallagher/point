@@ -2,8 +2,10 @@ import ClipKit
 import EditorKit
 import IndexKit
 import MarkdownKit
+import PhotosUI
 import QuickLook
 import SwiftUI
+import UniformTypeIdentifiers
 import VaultKit
 
 /// One note, filling the screen, in the shared editor, its title at the top (its file name, as
@@ -131,6 +133,16 @@ struct NoteScreen: View {
                 ForEach(store.templates, id: \.url) { template in
                     Button(template.name) { session.applyTemplate(at: template.url) }
                 }
+            }
+            // The slash menu's Image: from the photo library or Files, saved in the vault.
+            .confirmationDialog("Add image", isPresented: $session.choosesImageSource, titleVisibility: .visible) {
+                Button("Photo library", systemImage: "photo.on.rectangle") { session.choosesPhotos = true }
+                Button("Files", systemImage: "folder") { session.choosesImageFiles = true }
+            }
+            .photosPicker(isPresented: $session.choosesPhotos, selection: $session.chosenPhotos, matching: .images)
+            .onChange(of: session.chosenPhotos) { _, items in session.addPhotos(items) }
+            .fileImporter(isPresented: $session.choosesImageFiles, allowedContentTypes: [.image], allowsMultipleSelection: true) { result in
+                session.addImageFiles((try? result.get()) ?? [])
             }
             .sheet(item: $session.editingList) { editing in
                 ListFiltersSheet(list: editing.list) { session.write($0, for: editing) }
@@ -274,6 +286,13 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
     @Published var showsProperties = false
     /// Choosing a template to apply, from the slash menu.
     @Published var choosesTemplate = false
+    /// The slash menu's Image: asking where from, then the photo library or Files.
+    @Published var choosesImageSource = false
+    @Published var choosesPhotos = false
+    @Published var choosesImageFiles = false
+    @Published var chosenPhotos: [PhotosPickerItem] = []
+    /// Where the `/` was: the cursor moves while the keyboard's down.
+    private var imageLocation: Int?
     /// The list whose filters are open: one written in the note, or the note's own.
     @Published var editingList: ListEditing?
     /// What's related to this note, as on the Mac (links and recall made one): the notes
@@ -451,6 +470,10 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         case .property:
             textView?.resignFirstResponder()
             showsProperties = true
+        case .image:
+            imageLocation = textView?.selectedRange.location
+            textView?.resignFirstResponder()
+            choosesImageSource = true
         case .todaysNote, .tomorrowsNote:
             let day = command.id == .todaysNote ? Date() : Calendar.current.date(byAdding: .day, value: 1, to: Date())!
             let title = Templates.dailyNoteURL(for: day, in: store.root, settings: store.settings).deletingPathExtension().lastPathComponent
@@ -459,6 +482,56 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
             return false
         }
         return true
+    }
+
+    /// Photos chosen for the slash menu's Image, read and then put in.
+    func addPhotos(_ items: [PhotosPickerItem]) {
+        guard !items.isEmpty else { return }
+        chosenPhotos = []
+        Task { [weak self] in
+            var images: [(data: Data, type: UTType?)] = []
+            for item in items {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    images.append((data, item.supportedContentTypes.first))
+                }
+            }
+            self?.insertImages(images)
+        }
+    }
+
+    /// Image files chosen in Files for the slash menu's Image.
+    func addImageFiles(_ urls: [URL]) {
+        let images = urls.compactMap { url -> (data: Data, type: UTType?)? in
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            return (try? Data(contentsOf: url)).map { ($0, UTType(filenameExtension: url.pathExtension)) }
+        }
+        insertImages(images)
+    }
+
+    /// Saves images in the vault, in the attachment folder as on the Mac, and embeds them at
+    /// the cursor, on lines of their own, as one step to undo.
+    func insertImages(_ images: [(data: Data, type: UTType?)]) {
+        guard !images.isEmpty, let textView else { return }
+        let root = store.root
+        var names: [String] = []
+        for image in images {
+            do {
+                let saved = try VaultImages.save(image.data, type: image.type, forNote: note, vault: root, setting: store.settings.attachmentFolder)
+                store.embeds.images.append(saved)
+                names.append(saved.name)
+            } catch {
+                notice = images.count == 1 ? "The image couldn’t be added." : "An image couldn’t be added."
+            }
+        }
+        guard !names.isEmpty else { return }
+        let embeds = names.map { "![[\($0)]]" }.joined(separator: "\n")
+        textView.becomeFirstResponder()
+        if let location = imageLocation, location <= (textView.text as NSString).length {
+            textView.selectedRange = NSRange(location: location, length: 0)
+        }
+        imageLocation = nil
+        textView.format { $0.insertingBlock(embeds, selecting: nil) }
     }
 
     func editList(block index: Int?) {
@@ -2025,8 +2098,8 @@ struct EditorView: UIViewRepresentable {
         textView.onListBlockInserted = { [weak session] index in
             DispatchQueue.main.async { session?.editList(block: index) }
         }
-        // Typing `/` offers what can be put in there, in the bar; images aren't put in on the phone yet.
-        textView.slashCommands = SlashCommand.all.filter { $0.id != .image }
+        // Typing `/` offers what can be put in there, in the bar.
+        textView.slashCommands = SlashCommand.all
         textView.onSlashMenuChange = { [weak bar] in bar?.showSlash($0) }
         textView.performSlashCommand = { [weak session] in session?.performSlash($0) ?? false }
         textView.onTextChange = { [weak session] in session?.changed($0) }
