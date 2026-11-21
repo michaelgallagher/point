@@ -121,7 +121,7 @@ struct ListFilters: View {
                         .pointingHand()
                         .help(list.matchesAny ? "Notes meeting any of these: click for all" : "Notes meeting all of these: click for any")
                     }
-                    ChipLabel(text: shown(condition), systemImage: store.listValueKind(of: subject(of: condition)).symbol,
+                    ChipLabel(text: shown(condition), systemImage: store.listSymbol(of: subject(of: condition)),
                               open: { sheet = .edit }) {
                         var changed = list; changed.conditions.remove(at: index); write(changed)
                     }

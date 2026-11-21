@@ -12,6 +12,18 @@ extension VaultStore {
     func listValueKind(ofProperty name: String) -> ListValueKind { listVocabulary.kind(ofProperty: name) }
     func listValueKind(of subject: ListFilterSubject) -> ListValueKind { listVocabulary.kind(of: subject) }
     func guessedType(ofProperty name: String) -> PropertyType { listVocabulary.guessedType(ofProperty: name) }
+
+    /// The symbol for the property naming a note's type (`type`, unless the vault names
+    /// another), wherever it shows: its own, not its kind's.
+    static let noteTypeSymbol = "circle.grid.2x2.topleft.checkmark.filled"
+
+    func isNoteTypeProperty(_ name: String) -> Bool { name.lowercased() == kinds.property.lowercased() }
+
+    /// A list filter's symbol: its kind's, or the note type's.
+    func listSymbol(of subject: ListFilterSubject) -> String {
+        if case .property(let name) = subject, isNoteTypeProperty(name) { return Self.noteTypeSymbol }
+        return listValueKind(of: subject).symbol
+    }
 }
 
 // MARK: The filters window
@@ -189,7 +201,7 @@ private struct FilterRowView: View {
                 startDrag()
                 return NSItemProvider(object: row.id.uuidString as NSString)
             } preview: {
-                Label(row.subject.name, systemImage: store.listValueKind(of: row.subject).symbol)
+                Label(row.subject.name, systemImage: store.listSymbol(of: row.subject))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .frame(width: 260, alignment: .leading)
@@ -202,9 +214,9 @@ private struct FilterRowView: View {
     /// What it's about: the note's own facts, then the vault's properties, A to Z.
     private var subjectPicker: some View {
         let facts: [ListFilterSubject] = [.folder, .tag, .field(.title), .field(.created), .field(.modified), .linksTo, .hasWords]
-        var items = facts.map { PopUp.Item($0.name, $0, symbol: store.listValueKind(of: $0).symbol) }
+        var items = facts.map { PopUp.Item($0.name, $0, symbol: store.listSymbol(of: $0)) }
         items.append(.separator)
-        items += properties.map { PopUp.Item($0.name, $0, symbol: store.listValueKind(of: $0).symbol) }
+        items += properties.map { PopUp.Item($0.name, $0, symbol: store.listSymbol(of: $0)) }
         // One written by hand that the vault doesn't use (yet).
         if case .property = row.subject, !properties.contains(row.subject) {
             items.append(PopUp.Item(row.subject.name, row.subject, symbol: "questionmark"))

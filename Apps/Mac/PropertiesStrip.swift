@@ -173,7 +173,9 @@ struct PropertiesStrip: View {
             Menu {
                 typePicker(for: property, current: type)
             } label: {
-                Image(systemName: kind?.type.symbol ?? type.symbol)
+                // The property naming the note's type has a symbol of its own.
+                Image(systemName: model.store.isNoteTypeProperty(property.key)
+                      ? VaultStore.noteTypeSymbol : kind?.type.symbol ?? type.symbol)
                     .foregroundStyle(.secondary)
                     .frame(width: Self.iconWidth)
             }
