@@ -33,14 +33,20 @@ public final class PhoneTextView: UITextView {
     public var onListBlockInserted: ((Int) -> Void)?
     /// What typing `/` offers (see +SlashMenu), in order. None: `/` is just a character.
     public var slashCommands: [SlashCommand] = []
-    /// Called as what the slash menu offers changes: none, and it's closed.
-    public var onSlashMenuChange: (([SlashCommand]) -> Void)?
+    /// Called as what the slash menu offers changes (none, and it's closed), with which is
+    /// highlighted, for Return to put in.
+    public var onSlashMenuChange: (([SlashCommand], Int) -> Void)?
     /// Does a slash command the editor can't do itself (a template, a property, a daily note),
     /// the `/` and what was typed after it gone. False: the editor does it, if it can.
     public var performSlashCommand: ((SlashCommand) -> Bool)?
     /// The `/` the menu is open for, and what it offers.
     var slashQuery: SlashQuery?
     var slashOffered: [SlashCommand] = []
+    var slashHighlighted = 0
+    /// The `/` Escape closed the menu for, so it stays closed while typing after it.
+    var dismissedSlash: Int?
+    /// Hardware keys the slash menu took, kept from the text's own handling till they're up.
+    var slashMenuPresses: Set<UIPress> = []
     /// Called when a link is tapped.
     public var onOpenLink: ((LinkTarget) -> Void)?
     /// A view above the text (the note's title), scrolling with it, as wide as the text.
@@ -353,6 +359,27 @@ public final class PhoneTextView: UITextView {
         isAdjustingSelection = false
     }
 
+    /// With a hardware keyboard, the slash menu's keys go to it before the text's own handling
+    /// (which moves the cursor with the arrows).
+    public override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let handled = presses.filter { $0.key.map(handleSlashMenuKey) ?? false }
+        slashMenuPresses.formUnion(handled)
+        let rest = presses.subtracting(handled)
+        if !rest.isEmpty { super.pressesBegan(rest, with: event) }
+    }
+
+    public override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = presses.subtracting(slashMenuPresses)
+        slashMenuPresses.subtract(presses)
+        if !rest.isEmpty { super.pressesEnded(rest, with: event) }
+    }
+
+    public override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = presses.subtracting(slashMenuPresses)
+        slashMenuPresses.subtract(presses)
+        if !rest.isEmpty { super.pressesCancelled(rest, with: event) }
+    }
+
     /// Delete, by the Mac's rules: at the start of a heading, list item or quote it removes the
     /// formatting; otherwise it takes visible text, never a hidden marker.
     public override func deleteBackward() {
@@ -455,9 +482,9 @@ extension PhoneTextView: UITextViewDelegate {
             apply(MarkdownEdit(range: range, replacement: "\n" + text, selection: NSRange(location: start + 1 + (text as NSString).length, length: 0)))
             return false
         }
-        // Return with the slash menu open puts in its first command.
-        if text == "\n", slashQuery != nil, let first = slashOffered.first {
-            runSlashCommand(first)
+        // Return with the slash menu open puts in the command highlighted.
+        if text == "\n", slashQuery != nil, let command = highlightedSlashCommand {
+            runSlashCommand(command)
             return false
         }
         // Parsed now, not `tokens`, which are restyled a moment after each key and can be a

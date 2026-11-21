@@ -2100,7 +2100,7 @@ struct EditorView: UIViewRepresentable {
         }
         // Typing `/` offers what can be put in there, in the bar.
         textView.slashCommands = SlashCommand.all
-        textView.onSlashMenuChange = { [weak bar] in bar?.showSlash($0) }
+        textView.onSlashMenuChange = { [weak bar] in bar?.showSlash($0, highlighted: $1) }
         textView.performSlashCommand = { [weak session] in session?.performSlash($0) ?? false }
         textView.onTextChange = { [weak session] in session?.changed($0) }
         textView.onOpenLink = { [weak session] in session?.open($0) }

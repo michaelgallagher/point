@@ -155,21 +155,21 @@ final class FormatBar: UIView {
         }
     }
 
-    /// Offers the slash menu's commands, the first (which Return puts in) tinted, or goes back
-    /// to the tools if there are none.
-    func showSlash(_ commands: [SlashCommand]) {
+    /// Offers the slash menu's commands, the one highlighted (which Return puts in) tinted and
+    /// scrolled to, or goes back to the tools if there are none.
+    func showSlash(_ commands: [SlashCommand], highlighted: Int) {
         choiceStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         choices.isHidden = commands.isEmpty
         scroller.isHidden = !commands.isEmpty
         choices.contentOffset = .zero
         for (index, command) in commands.enumerated() {
-            var configuration = index == 0 ? UIButton.Configuration.tinted() : UIButton.Configuration.gray()
+            var configuration = index == highlighted ? UIButton.Configuration.tinted() : UIButton.Configuration.gray()
             configuration.title = command.name
             configuration.image = UIImage(systemName: command.symbol)
             configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(scale: .small)
             configuration.imagePadding = 6
             configuration.cornerStyle = .capsule
-            if index > 0 { configuration.baseForegroundColor = .label }
+            if index != highlighted { configuration.baseForegroundColor = .label }
             let button = UIButton(configuration: configuration, primaryAction: UIAction { [weak self] _ in
                 self?.textView?.runSlashCommand(command)
             })
@@ -177,6 +177,10 @@ final class FormatBar: UIView {
             button.setContentCompressionResistancePriority(.required, for: .horizontal)
             choiceStack.addArrangedSubview(button)
         }
+        guard highlighted > 0, choiceStack.arrangedSubviews.indices.contains(highlighted) else { return }
+        layoutIfNeeded()
+        let frame = choiceStack.arrangedSubviews[highlighted].frame
+        choices.scrollRectToVisible(frame.insetBy(dx: -8, dy: 0), animated: false)
     }
 
     private func button(_ name: String, symbol: String? = nil, title: String? = nil, action: @escaping (PhoneTextView) -> Void) -> UIButton {
