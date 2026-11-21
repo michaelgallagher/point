@@ -20,7 +20,11 @@ struct PaneView: View {
         if let index = model.paneIndex(paneID) {
             let pane = model.panes[index]
             if model.isFocused {
+                // Below the title bar's row, not under it: the row draws its own blur and line
+                // over a scroll view beneath it, and in focus mode there's no bar to have them.
                 page(pane, index: index, underBar: 0)
+                    .padding(.top, model.topBarHeight)
+                    .background(TopBar.barColor)
             } else {
                 let linksNote = linksPanelNote(pane)
                 // With the links panel open, this side is narrower, its bar and all, so the

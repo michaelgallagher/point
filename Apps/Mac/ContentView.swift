@@ -99,27 +99,11 @@ struct ContentView: View {
                 // button where macOS does. No other toolbar items: an item, even an invisible
                 // one, takes the clicks meant for the bars drawn in that row (the back and forward
                 // arrows sat under one). The sidebar and each side draw their own bars there.
-                .overlay(alignment: .topLeading) {
-                    if model.isFocused {
-                        // The one control kept in focus mode: bring the note list back.
-                        Button { model.isFocused = false } label: {
-                            Image(systemName: "sidebar.left")
-                                .font(.system(size: 14))
-                                .padding(8)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.tertiary)
-                        .help("Show note list")
-                        .padding(.leading, 76)
-                        .padding(.top, 2)
-                    }
-                }
                 .onChange(of: model.searchFocusRequest) { _ in
                     if !model.showsNoteList { model.showsNoteList = true } // The filter needs the list.
                 }
                 .onChange(of: model.isFocused) { focused in
-                    model.sidebarSplit.hidesSidebarButton = focused
+                    model.sidebarSplit.isFocusMode = focused
                     updateSidebar(resizingWindow: false)
                 }
                 // Shown or hidden by hand, the window widens or narrows instead of the notes.

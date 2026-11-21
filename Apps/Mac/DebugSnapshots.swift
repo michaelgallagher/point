@@ -34,6 +34,10 @@ enum DebugSnapshots {
         tabTimingIfAsked(for: model)
         tabBarIfAsked(for: model)
         scanIfAsked(for: model)
+        // `-PointFocusMode YES`: focus mode, for checking how it looks.
+        if UserDefaults.standard.bool(forKey: "PointFocusMode") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.isFocused = true }
+        }
         // `-PointOpenSettings YES`: opens Settings (at `-settingsPage`), for checking it.
         if UserDefaults.standard.bool(forKey: "PointOpenSettings") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
