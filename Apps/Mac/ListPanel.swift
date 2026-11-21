@@ -22,33 +22,52 @@ struct ListPanel: View {
     var body: some View {
         let found = store.noteIDs(matching: list.query)
         let ids = found ?? lastIDs
-        VStack(alignment: .leading, spacing: 10) {
-            ListFilters(list: list, listID: session.note.id, model: model, store: store, write: write)
-            if let ids {
-                ListResults(list: list, listID: session.note.id, ids: ids, limit: shownCount, moreLabel: "Show \(min(ids.count - shownCount, 200)) more",
-                            more: { shownCount += 200 }, model: model, store: store, paneID: paneID, write: write)
-            } else {
-                Text("Finding notes…")
-                    .foregroundStyle(.secondary)
-                    .frame(minHeight: 24)
+        // No room between the count and the table, as where the count is drawn with the table.
+        VStack(alignment: .leading, spacing: 0) {
+            // Its filters, menus and count at the text's width, in line with the title and the text.
+            VStack(alignment: .leading, spacing: 10) {
+                ListFilters(list: list, listID: session.note.id, model: model, store: store, write: write)
+                if let ids {
+                    ListResults.countLine(ids.count)
+                }
             }
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor))
-                .frame(height: 1)
-                .padding(.top, 2)
+                .padding(.leading, 5) // Lines up with the title and the text, which are inset a little.
+                .frame(maxWidth: store.textColumnWidth, alignment: .leading)
+                .frame(maxWidth: .infinity)
+            // What it finds, wider than the text, reaching out evenly on both sides where the pane
+            // has the room: a table needs more width than a line of prose. Narrower panes, it
+            // fits them.
+            VStack(alignment: .leading, spacing: 10) {
+                if let ids {
+                    ListResults(list: list, listID: session.note.id, ids: ids, limit: shownCount, moreLabel: "Show \(min(ids.count - shownCount, 200)) more",
+                                more: { shownCount += 200 }, model: model, store: store, paneID: paneID, write: write,
+                                showsCount: false)
+                } else {
+                    Text("Finding notes…")
+                        .foregroundStyle(.secondary)
+                        .frame(minHeight: 24)
+                }
+                Rectangle()
+                    .fill(Color(nsColor: .separatorColor))
+                    .frame(height: 1)
+                    .padding(.top, 2)
+            }
+            .padding(.leading, 5)
+            .frame(maxWidth: store.textColumnWidth + Self.extraWidth, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
         .font(.callout)
         .padding(.top, 4)
         .padding(.bottom, 10)
-        .padding(.leading, 5) // Lines up with the title and the text, which are inset a little.
-        .frame(maxWidth: store.textColumnWidth, alignment: .leading)
         .padding(.horizontal, 28)
-        .frame(maxWidth: .infinity)
         .onChange(of: list.query) { _ in shownCount = Self.firstRows }
         .onChange(of: found) { found in
             if let found { lastIDs = found }
         }
     }
+
+    /// How much wider than the text column the list may be, shared between its two sides.
+    static let extraWidth: CGFloat = 320
 
     private func write(_ changed: ListDefinition) {
         session.writeList(changed)
@@ -69,6 +88,9 @@ struct ListFilters: View {
     let write: (ListDefinition) -> Void
     /// The filters window, while it's open: with a new condition to fill in, or not.
     @State private var sheet: SheetTarget?
+    /// The properties the list's notes use, most used first, once the index has said: what its
+    /// sort and columns menus offer first.
+    @State private var usedProperties: [String]?
 
     enum SheetTarget: String, Identifiable {
         case add, edit
@@ -104,18 +126,16 @@ struct ListFilters: View {
                         var changed = list; changed.conditions.remove(at: index); write(changed)
                     }
                 }
-                Button { sheet = .add } label: {
-                    Label("Add filter", systemImage: "plus")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .pointingHand()
+                AddFilterButton { sheet = .add }
             }
             HStack(spacing: 14) {
                 sortMenu
                 columnsMenu
             }
             .frame(height: Self.menusHeight)
+        }
+        .task(id: UsedPropertiesKey(query: list.query, generation: store.indexGeneration)) {
+            usedProperties = await store.propertyNames(matching: list.query)
         }
         // A list just made opens its filters, to say what it lists.
         .onAppear {
@@ -136,6 +156,11 @@ struct ListFilters: View {
         }
     }
 
+    private struct UsedPropertiesKey: Equatable {
+        let query: NoteQuery
+        let generation: Int
+    }
+
     /// The room between the filters and the line of menus under them, and that line's height.
     static let lineGap: CGFloat = 6, menusHeight: CGFloat = 20
 
@@ -148,23 +173,33 @@ struct ListFilters: View {
         store.listVocabulary.reading(condition)
     }
 
-    /// The order: note facts, then the vault's properties, most used first.
+    /// The order: the note facts, then the properties worth sorting by (see
+    /// `propertyChoices`), with the rest of the list's notes' properties under More
+    /// properties, then which way.
     private var sortMenu: some View {
         let current = list.sort.first ?? NoteQuery.Sort(.modified, descending: true)
+        // The property it's sorted by stays in sight, though no column shows it.
+        let sortedBy: [String] = if case .property(let name) = current.key { [name] } else { [] }
+        let choices = propertyChoices(including: sortedBy, restFromVault: false)
         return Menu {
-            ForEach(sortChoices, id: \.self) { name in
-                Button {
-                    let key: NoteQuery.Sort.Key = ListDefinition.field(named: name).map { .field($0) } ?? .property(name)
-                    // Dates newest first, at first; words from A.
-                    let descending = key == .field(.modified) || key == .field(.created)
-                    var changed = list; changed.sort = [NoteQuery.Sort(key, descending: descending)]; write(changed)
-                } label: {
-                    if Self.name(of: current.key).lowercased() == name.lowercased() { Label(name, systemImage: "checkmark") } else { Text(name) }
+            ForEach(["title", "date edited", "date created"], id: \.self) { name in sortChoice(name, current: current) }
+            if !choices.top.isEmpty {
+                Divider()
+                ForEach(choices.top, id: \.self) { name in sortChoice(name, current: current) }
+            }
+            if !choices.rest.isEmpty {
+                Menu("More properties") {
+                    ForEach(choices.rest, id: \.self) { name in sortChoice(name, current: current) }
                 }
             }
             Divider()
-            Button(current.descending ? "Ascending" : "Descending") {
-                var changed = list; changed.sort = [NoteQuery.Sort(current.key, descending: !current.descending)]; write(changed)
+            ForEach([false, true], id: \.self) { descending in
+                Button {
+                    var changed = list; changed.sort = [NoteQuery.Sort(current.key, descending: descending)]; write(changed)
+                } label: {
+                    let name = descending ? "Descending" : "Ascending"
+                    if current.descending == descending { Label(name, systemImage: "checkmark") } else { Text(name) }
+                }
             }
         } label: {
             Label("Sorted by \(Self.name(of: current.key))", systemImage: current.descending ? "arrow.down" : "arrow.up")
@@ -175,6 +210,18 @@ struct ListFilters: View {
         .fixedSize()
     }
 
+    private func sortChoice(_ name: String, current: NoteQuery.Sort) -> some View {
+        Button {
+            let key: NoteQuery.Sort.Key = ListDefinition.field(named: name).map { .field($0) } ?? .property(name)
+            // Dates newest first, at first; words from A.
+            let descending = key == .field(.modified) || key == .field(.created)
+            var changed = list; changed.sort = [NoteQuery.Sort(key, descending: descending)]; write(changed)
+        } label: {
+            let shown = ListTable.heading(name)
+            if Self.name(of: current.key).lowercased() == name.lowercased() { Label(shown, systemImage: "checkmark") } else { Text(shown) }
+        }
+    }
+
     static func name(of key: NoteQuery.Sort.Key) -> String {
         switch key {
         case .field(let field): ListDefinition.name(of: field)
@@ -182,16 +229,33 @@ struct ListFilters: View {
         }
     }
 
-    private var sortChoices: [String] {
-        ["title", "date edited", "date created"] + store.propertySummaries.prefix(40).map(\.name)
-    }
+    /// How many properties show in a menu before More properties.
+    private static let shortList = 10
 
-    /// The vault's properties, A to Z, less the list's own and any named like a note fact.
-    private var columnProperties: [String] {
-        var seen = Set(["title", "folder", "date edited", "date created"])
-        return store.propertySummaries.map(\.name)
-            .filter { !ListDefinition.isListKey($0) && seen.insert($0.lowercased()).inserted }
-            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    /// The properties to offer in the sort and columns menus, in two parts. Straight in the
+    /// menu: the list's columns and `extra`, then the properties its notes use most, up to
+    /// `shortList`. Under More properties, A to Z: the rest its notes use, or, with
+    /// `restFromVault`, the rest the vault uses (a column can be added before any of the
+    /// notes has a value for it). Until the notes' properties are known, and for a list that
+    /// finds none, the vault's stand in. Never the list's own properties, nor any named like a
+    /// note fact.
+    private func propertyChoices(including extra: [String], restFromVault: Bool) -> (top: [String], rest: [String]) {
+        let facts: Set<String> = ["title", "folder", "date edited", "date created"]
+        let vault = store.propertySummaries.map(\.name)
+        let used = usedProperties.flatMap { $0.isEmpty ? nil : $0 } ?? vault
+        var seen = Set<String>()
+        func add(_ name: String, to names: inout [String]) {
+            let lowered = name.lowercased()
+            guard !facts.contains(lowered), !ListDefinition.isListKey(name), seen.insert(lowered).inserted else { return }
+            names.append(name)
+        }
+        var top: [String] = []
+        for name in list.columns + extra { add(name, to: &top) }
+        for name in used where top.count < Self.shortList { add(name, to: &top) }
+        var rest: [String] = []
+        for name in restFromVault ? used + vault : used { add(name, to: &rest) }
+        rest.sort { $0.localizedStandardCompare($1) == .orderedAscending }
+        return (top, rest)
     }
 
     private func columnToggle(_ name: String) -> some View {
@@ -205,14 +269,23 @@ struct ListFilters: View {
             }))
     }
 
-    /// Which columns show after the title.
+    /// Which columns show after the title: the note facts, then the properties worth showing
+    /// (see `propertyChoices`), with every other property in the vault under More
+    /// properties. A tick by each shown. One kind of item throughout, so each click reaches its
+    /// own column.
     private var columnsMenu: some View {
-        Menu {
-            // Note facts, then properties A to Z; a tick by each shown. One kind of item
-            // throughout, so each click reaches its own column.
+        let choices = propertyChoices(including: [], restFromVault: true)
+        return Menu {
             ForEach(["folder", "date edited", "date created"], id: \.self) { name in columnToggle(name) }
-            Divider()
-            ForEach(columnProperties, id: \.self) { name in columnToggle(name) }
+            if !choices.top.isEmpty {
+                Divider()
+                ForEach(choices.top, id: \.self) { name in columnToggle(name) }
+            }
+            if !choices.rest.isEmpty {
+                Menu("More properties") {
+                    ForEach(choices.rest, id: \.self) { name in columnToggle(name) }
+                }
+            }
         } label: {
             Label("Columns", systemImage: "tablecells")
                 .foregroundStyle(.secondary)
@@ -258,6 +331,32 @@ private struct ChipLabel: View {
         .background(Capsule().fill(Color.primary.opacity(isHovered && open != nil ? 0.16 : 0.07)))
         .overlay(Capsule().strokeBorder(Color.primary.opacity(isHovered && open != nil ? 0.18 : 0), lineWidth: 1))
         .contentShape(Capsule())
+        .pointingHand()
+        .animation(.easeOut(duration: 0.1), value: isHovered)
+    }
+}
+
+/// Add filter: an outline the shape of a token, with no fill, so it reads as a way to add
+/// one rather than one of them. Outline and text darken under the pointer.
+private struct AddFilterButton: View {
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: "plus")
+                    .font(.caption)
+                Text("Add filter")
+            }
+                .foregroundStyle(isHovered ? .primary : .secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .overlay(Capsule().strokeBorder(Color.primary.opacity(isHovered ? 0.4 : 0.18), lineWidth: 1))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
         .pointingHand()
         .animation(.easeOut(duration: 0.1), value: isHovered)
     }
@@ -396,6 +495,8 @@ struct ListResults: View {
     /// list written in a note can be changed, but its rows are a line each, as its room is
     /// made before it's drawn.
     var wrapsRows: Bool? = nil
+    /// Whether the count of notes shows above the table; a list note shows it with its filters.
+    var showsCount = true
     /// The shown rows' property values, from the index, as of these rows and columns.
     @State private var values: [Note.ID: [String: [String]]] = [:]
     @State private var tableHeight: CGFloat = ListTable.headerHeight
@@ -403,9 +504,7 @@ struct ListResults: View {
     var body: some View {
         let shown = Array(ids.prefix(limit)).compactMap { store.notesByID[$0] }
         VStack(alignment: .leading, spacing: 0) {
-            Text(ids.count == 1 ? "1 note" : "\(ids.count) notes")
-                .foregroundStyle(.secondary)
-                .frame(height: Self.countHeight, alignment: .topLeading)
+            if showsCount { Self.countLine(ids.count) }
             if !shown.isEmpty {
                 ListTable(columns: list.columns,
                           rows: shown.map { note in ListTable.Row(id: note.id, title: note.title, cells: list.columns.map { value(of: $0, for: note) }) },
@@ -444,6 +543,13 @@ struct ListResults: View {
     }
 
     static let countHeight: CGFloat = 22, moreHeight: CGFloat = 26
+
+    /// "14 notes", above the table.
+    static func countLine(_ count: Int) -> some View {
+        Text(count == 1 ? "1 note" : "\(count) notes")
+            .foregroundStyle(.secondary)
+            .frame(height: countHeight, alignment: .topLeading)
+    }
 
     static func tableHeight(rows: Int) -> CGFloat {
         ListTable.headerHeight + CGFloat(rows) * (ListTable.rowHeight + ListTable.rowGap)

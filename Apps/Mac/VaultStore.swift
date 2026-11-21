@@ -2019,6 +2019,13 @@ final class VaultStore: ObservableObject {
         return (try? await index.propertyValues(names, of: ids)) ?? [:]
     }
 
+    /// The properties the notes a query finds use, most used among them first, from the
+    /// index: for a list's sort and columns menus. Empty if there's no index.
+    func propertyNames(matching query: NoteQuery) async -> [String] {
+        guard let index else { return [] }
+        return ((try? await index.propertyNames(matching: query)) ?? []).map(\.name)
+    }
+
     func isPinned(_ place: SidebarPlace) -> Bool { pins.contains(place) }
 
     // MARK: Property types
