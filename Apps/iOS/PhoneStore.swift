@@ -380,7 +380,10 @@ final class PhoneStore: ObservableObject {
         if changed > 0 || listLooksKinds != kinds {
             let kinds = kinds, names = kinds.listLookProperties
             let values = names.isEmpty ? [:] : ((try? await index.propertyValues(named: names)) ?? [:])
-            let looks = await Task.detached(priority: .utility) { values.compactMapValues { kinds.listLook(values: $0) } }.value
+            let templates = settings.templatesFolder
+            let looks = await Task.detached(priority: .utility) {
+                NoteKinds.withoutReading(values.compactMapValues { kinds.listLook(values: $0) }, inFolder: templates)
+            }.value
             listLooksKinds = kinds
             if looks != listLooks { listLooks = looks }
         }

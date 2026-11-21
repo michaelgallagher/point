@@ -2090,8 +2090,9 @@ final class VaultStore: ObservableObject {
             return
         }
         guard let values = try? await index.propertyValues(named: names), generation == vaultGeneration, kinds == self.kinds else { return }
+        let templates = settings.templatesFolder
         let looks = await Task.detached(priority: .utility) {
-            values.compactMapValues { kinds.listLook(values: $0) }
+            NoteKinds.withoutReading(values.compactMapValues { kinds.listLook(values: $0) }, inFolder: templates)
         }.value
         guard generation == vaultGeneration, kinds == self.kinds else { return }
         listLooksLoaded = true

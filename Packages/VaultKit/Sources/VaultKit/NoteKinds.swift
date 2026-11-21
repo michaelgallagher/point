@@ -160,6 +160,23 @@ public struct NoteKinds: Sendable, Equatable {
         return look.isPlain ? nil : look
     }
 
+    /// Notes' looks with those in the templates folder never unread, nor to be marked read: a
+    /// template's `read` is empty because it's a template, not because it's waiting to be read.
+    /// What shows under their titles stays. `looks` is by note ID, the path in the vault.
+    public static func withoutReading(_ looks: [String: ListLook], inFolder folder: String) -> [String: ListLook] {
+        let folder = folder.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        guard !folder.isEmpty else { return looks }
+        let prefix = folder.lowercased() + "/"
+        var result = looks
+        for (id, look) in looks where id.lowercased().hasPrefix(prefix) && look.readProperty != nil {
+            var look = look
+            look.isUnread = false
+            look.readProperty = nil
+            result[id] = look.isPlain ? nil : look
+        }
+        return result
+    }
+
     /// A day as a note's properties have it: `2026-11-19`.
     public static func day(_ date: Date = Date()) -> String {
         let formatter = DateFormatter()

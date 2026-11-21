@@ -175,4 +175,16 @@ struct KindListLookTests {
         #expect(NoteKinds.markingUnread(unread, property: "read") == unread)
         #expect(NoteKinds.markingUnread("Text\n", property: "read") == "Text\n")
     }
+
+    @Test func templatesAreNeverUnread() {
+        let unread = NoteKinds.ListLook(isUnread: true, readProperty: "read")
+        let detailed = NoteKinds.ListLook(isUnread: true, detail: ["Ann"], readProperty: "read")
+        let looks = ["Templates/Media.md": unread, "templates/Book.md": detailed, "Sources/Book.md": unread, "Templates.md": unread]
+        let result = NoteKinds.withoutReading(looks, inFolder: "/Templates/")
+        #expect(result["Templates/Media.md"] == nil)
+        #expect(result["templates/Book.md"] == NoteKinds.ListLook(detail: ["Ann"]))
+        #expect(result["Sources/Book.md"] == unread)
+        #expect(result["Templates.md"] == unread)
+        #expect(NoteKinds.withoutReading(looks, inFolder: "") == looks)
+    }
 }
