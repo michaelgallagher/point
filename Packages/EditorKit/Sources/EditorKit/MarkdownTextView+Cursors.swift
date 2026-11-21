@@ -90,7 +90,7 @@ extension MarkdownTextView {
     ]
 
     public override func doCommand(by selector: Selector) {
-        if handleSlashMenuKey(selector) { return }
+        if handlePopupKey(selector) { return }
         guard hasMultipleCursors, !isApplyingToCursors else { return super.doCommand(by: selector) }
         if selector == #selector(cancelOperation(_:)) { return collapseCursors() }
         if Self.perCursorCommands.contains(selector) {

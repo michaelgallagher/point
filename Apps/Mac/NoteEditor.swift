@@ -486,6 +486,8 @@ private struct EditorView: NSViewRepresentable {
         textView.linkTextForTitle = { [weak model] title in model?.store.linkText(forTitle: title) ?? title }
         // `@` and a name: a link to that person's note.
         textView.completePerson = { [weak model] partial in model?.store.peopleSuggestions(for: partial) ?? [] }
+        // `#` and a letter or two: the tags it could be.
+        textView.completeTag = { [weak model] partial in model?.store.tagSuggestions(for: partial) ?? [] }
         // Typing ends the chance to reopen a just-closed tab with ⌘Z.
         let onTextChange = textView.onTextChange
         textView.onTextChange = { [weak model] view in

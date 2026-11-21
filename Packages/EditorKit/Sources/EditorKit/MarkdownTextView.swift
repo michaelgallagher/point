@@ -42,10 +42,8 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     /// People (their notes' titles) for an `@mention` being typed: picking one writes a link
     /// to their note, `[[Name]]`. Nil: `@` is just a character.
     public var completePerson: ((String) -> [String])?
-    /// What was typed when titles were last suggested, and the titles (see +Links).
-    var offeredCompletion: (typed: String, titles: [String])?
-    /// Set while a key press is handled (see +Links).
-    var isTypingKey = false
+    /// Tags for a `#tag` being typed, best first, without their `#`.
+    public var completeTag: ((String) -> [String])?
 
     var styler = MarkdownStyler()
 
@@ -171,10 +169,10 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     /// Does a slash command the editor can't do itself (a template, a property, a daily note),
     /// the `/` and what was typed after it gone. False: the editor does it, if it can.
     public var performSlashCommand: ((SlashCommand) -> Bool)?
-    /// The slash menu showing, if it is (see +SlashMenu).
-    var slashMenu: SlashMenuState?
-    /// Where the `/` was when Escape closed its menu: it stays closed for that `/`.
-    var dismissedSlash: Int?
+    /// The popup showing, if it is: slash commands, notes, tags or people (see +Popup).
+    var popup: EditorPopup?
+    /// Where what the popup was for starts, when Escape closed it: it stays closed for that.
+    var dismissedPopup: Int?
 
     /// Saves an image pasted or dropped into the note (its data, and its kind if known) and
     /// returns the name to embed it by, or nil if it couldn't be saved. Without it, images
@@ -382,7 +380,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         super.didChangeText()
         noteTableEdit(at: lastEditLocation)
         onTextChange?(self)
-        updateSlashMenu()
+        updatePopup()
     }
 
     // MARK: Layout
@@ -706,7 +704,7 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
             if !stillSelecting {
                 neatenTableIfLeft()
                 followSelectionIntoTable()
-                updateSlashMenu()
+                updatePopup()
             }
         }
         // Never into hidden frontmatter: what's selected can be deleted.
@@ -960,8 +958,6 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
         super.insertText(string, replacementRange: replacementRange)
         isAdjustingSelection = false
         showLinkBeingTyped()
-        suggestCompletionsIfInWikiLink()
-        suggestPeopleIfMentioning()
     }
 
     public override func cut(_ sender: Any?) {

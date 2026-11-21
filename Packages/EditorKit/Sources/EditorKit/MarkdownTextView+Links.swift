@@ -19,7 +19,8 @@ public enum LinkTarget: Equatable, Sendable {
     }
 }
 
-/// Following links, and completing `[[wikilinks]]` from note titles.
+/// Following links, and finding the `[[wikilink]]` or `@mention` being typed (the popup offers
+/// what it could be: see +Popup).
 extension MarkdownTextView {
     // MARK: Following links
 
@@ -96,10 +97,6 @@ extension MarkdownTextView {
         return nil
     }
 
-    public override var rangeForUserCompletion: NSRange {
-        wikiLinkPartialRange() ?? mentionPartialRange() ?? super.rangeForUserCompletion
-    }
-
     // MARK: Mentioning people
 
     /// The name being typed after an `@`, ending at the cursor: `@Sa` gives the range of `Sa`.
@@ -132,90 +129,5 @@ extension MarkdownTextView {
         return nil
     }
 
-    /// Shows people while a name is typed after `@`.
-    func suggestPeopleIfMentioning() {
-        guard completePerson != nil, mentionPartialRange() != nil else { return }
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.mentionPartialRange() != nil else { return }
-            self.complete(nil)
-        }
-    }
-
-    /// Suggests note titles, with none chosen: AppKit fills in a chosen one as the cursor's
-    /// word while the list is open, and a key typed then keeps it, so typing `[[2026-10-28 W`
-    /// would have kept whichever note came first (most of all with notes named by date, which
-    /// share their start). A suggestion goes in only once picked from the list.
-    public override func completions(forPartialWordRange charRange: NSRange, indexOfSelectedItem index: UnsafeMutablePointer<Int>) -> [String]? {
-        if wikiLinkPartialRange() == nil, mentionPartialRange() != nil, let completePerson {
-            index.pointee = -1
-            let typed = (string as NSString).substring(with: charRange)
-            let people = completePerson(typed)
-            offeredCompletion = (typed, people)
-            return people
-        }
-        guard wikiLinkPartialRange() != nil, let completeNoteTitle else {
-            return super.completions(forPartialWordRange: charRange, indexOfSelectedItem: index)
-        }
-        index.pointee = -1
-        let typed = (string as NSString).substring(with: charRange)
-        let titles = completeNoteTitle(typed)
-        offeredCompletion = (typed, titles)
-        return titles
-    }
-
-    /// Finishes the link with the title picked (Return, Tab or a click), adding its closing
-    /// brackets. A key typed while the list is open ends it with what was typed, not the
-    /// title showing.
-    public override func insertCompletion(_ word: String, forPartialWordRange charRange: NSRange, movement: Int, isFinal flag: Bool) {
-        if wikiLinkPartialRange() == nil, mentionPartialRange() != nil, let offered = offeredCompletion {
-            if flag { offeredCompletion = nil }
-            let picked = flag && offered.titles.contains(word) && !((isTypingKey && movement == NSOtherTextMovement) || movement == NSCancelTextMovement)
-            guard picked else {
-                // Nothing filled in while choosing: what was typed stays.
-                return super.insertCompletion(offered.typed, forPartialWordRange: charRange, movement: movement, isFinal: flag)
-            }
-            // The `@` and the name typed become a link to the person's note.
-            let whole = NSRange(location: charRange.location - 1, length: charRange.length + 1)
-            insertText("[[\(word)]]", replacementRange: whole)
-            return
-        }
-        guard wikiLinkPartialRange() != nil, let offered = offeredCompletion else {
-            return super.insertCompletion(word, forPartialWordRange: charRange, movement: movement, isFinal: flag)
-        }
-        if flag { offeredCompletion = nil }
-        if flag, (isTypingKey && movement == NSOtherTextMovement) || movement == NSCancelTextMovement {
-            return super.insertCompletion(offered.typed, forPartialWordRange: charRange, movement: movement, isFinal: flag)
-        }
-        guard flag, offered.titles.contains(word) else {
-            return super.insertCompletion(word, forPartialWordRange: charRange, movement: movement, isFinal: flag)
-        }
-        // Finish the link, unless its closing brackets are already there.
-        let text = string as NSString
-        let after = NSMaxRange(charRange)
-        let hasClose = after + 2 <= text.length && text.substring(with: NSRange(location: after, length: 2)) == "]]"
-        let link = linkTextForTitle?(word) ?? word
-        guard link != word else {
-            return super.insertCompletion(hasClose ? word : word + "]]", forPartialWordRange: charRange, movement: movement, isFinal: flag)
-        }
-        // A name and a label: put in as an edit of its own, as AppKit only fills in the word.
-        super.insertCompletion(offered.typed, forPartialWordRange: charRange, movement: movement, isFinal: flag)
-        insertText(hasClose ? link : link + "]]", replacementRange: charRange)
-    }
-
-    /// Whether a key is being typed (rather than a suggestion clicked), for `insertCompletion`.
-    public override func keyDown(with event: NSEvent) {
-        isTypingKey = true
-        defer { isTypingKey = false }
-        super.keyDown(with: event)
-    }
-
-    /// Shows note-title suggestions while a wikilink target is being typed.
-    func suggestCompletionsIfInWikiLink() {
-        guard completeNoteTitle != nil, wikiLinkPartialRange() != nil else { return }
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.wikiLinkPartialRange() != nil else { return }
-            self.complete(nil)
-        }
-    }
 }
 #endif

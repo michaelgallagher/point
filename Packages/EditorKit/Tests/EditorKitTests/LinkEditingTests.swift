@@ -43,7 +43,6 @@ struct LinkEditingTests {
         let view = EditorTestSupport.makeEditor("See [[Imp", height: 300)
         view.setSelectionDirectly(NSRange(location: 9, length: 0))
         #expect(view.wikiLinkPartialRange() == NSRange(location: 6, length: 3))
-        #expect(view.rangeForUserCompletion == NSRange(location: 6, length: 3))
     }
 
     @Test func notAfterTheLinkIsClosedOrAliased() {
@@ -55,80 +54,87 @@ struct LinkEditingTests {
         #expect(aliased.wikiLinkPartialRange() == nil)
     }
 
-    @Test func completionFinishesTheLink() {
-        let view = EditorTestSupport.makeEditor("See [[Imp", height: 300)
-        view.completeNoteTitle = { _ in ["Imprint App", "Important"] }
-        view.setSelectionDirectly(NSRange(location: 9, length: 0))
-        var index = 0
-        #expect(view.completions(forPartialWordRange: NSRange(location: 6, length: 3), indexOfSelectedItem: &index) == ["Imprint App", "Important"])
-        view.insertCompletion("Imprint App", forPartialWordRange: NSRange(location: 6, length: 3), movement: NSReturnTextMovement, isFinal: true)
-        #expect(view.string == "See [[Imprint App]]")
-        #expect(view.tokens.contains { $0.kind == .wikiLink(target: "Imprint App") })
+    /// An editor with the cursor at the end, focused, as when typing.
+    private func typing(_ text: String, titles: [String]) -> MarkdownTextView {
+        let view = EditorTestSupport.makeEditor(text, height: 300)
+        view.completeNoteTitle = { _ in titles }
+        view.window?.makeFirstResponder(view)
+        view.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
+        return view
     }
 
-    @Test func noSuggestionIsChosenUntilPicked() {
-        let view = EditorTestSupport.makeEditor("See [[2026-10-2", height: 300)
-        view.completeNoteTitle = { _ in ["2026-10-20 Budget review", "2026-10-28 Weekly planning"] }
-        view.setSelectionDirectly(NSRange(location: 15, length: 0))
-        var index = 0
-        _ = view.completions(forPartialWordRange: NSRange(location: 6, length: 9), indexOfSelectedItem: &index)
-        #expect(index == -1)
+    @Test func thePopupOffersTitlesAndReturnFinishesTheLink() {
+        let view = typing("See [[Imp", titles: ["Imprint App", "Important"])
+        #expect(view.popup?.model.rows.map(\.title) == ["Imprint App", "Important"])
+        #expect(view.handlePopupKey(#selector(NSResponder.insertNewline(_:))))
+        #expect(view.string == "See [[Imprint App]]")
+        #expect(view.tokens.contains { $0.kind == .wikiLink(target: "Imprint App") })
+        #expect(view.popup == nil)
+    }
+
+    @Test func downChoosesAnother() {
+        let view = typing("See [[Imp", titles: ["Imprint App", "Important"])
+        #expect(view.handlePopupKey(#selector(NSResponder.moveDown(_:))))
+        #expect(view.handlePopupKey(#selector(NSResponder.insertTab(_:))))
+        #expect(view.string == "See [[Important]]")
     }
 
     @Test func typingOnKeepsWhatWasTyped() {
-        // A key typed while the list shows a title ends the completion with what was typed:
-        // the title isn't kept.
-        let view = EditorTestSupport.makeEditor("See [[2026-10-28", height: 300)
-        view.completeNoteTitle = { _ in ["2026-10-28 Weekly planning"] }
-        view.setSelectionDirectly(NSRange(location: 16, length: 0))
-        let partial = NSRange(location: 6, length: 10)
-        var index = 0
-        _ = view.completions(forPartialWordRange: partial, indexOfSelectedItem: &index)
-        view.isTypingKey = true
-        view.insertCompletion("2026-10-28 Weekly planning", forPartialWordRange: partial, movement: NSOtherTextMovement, isFinal: true)
-        view.isTypingKey = false
-        #expect(view.string == "See [[2026-10-28")
-    }
-
-    @Test func returnWithNothingPickedLeavesTheLinkOpen() {
-        let view = EditorTestSupport.makeEditor("See [[2026-10-28", height: 300)
-        view.completeNoteTitle = { _ in ["2026-10-28 Weekly planning"] }
-        view.setSelectionDirectly(NSRange(location: 16, length: 0))
-        let partial = NSRange(location: 6, length: 10)
-        var index = 0
-        _ = view.completions(forPartialWordRange: partial, indexOfSelectedItem: &index)
-        view.insertCompletion("2026-10-28", forPartialWordRange: partial, movement: NSReturnTextMovement, isFinal: true)
-        #expect(view.string == "See [[2026-10-28")
+        // Nothing's filled in while the list shows: what's typed is all there is.
+        let view = typing("See [[2026-10-28", titles: ["2026-10-28 Weekly planning"])
+        view.insertText(" W", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(view.string == "See [[2026-10-28 W")
+        #expect(view.popup != nil)
     }
 
     @Test func clickingASuggestionFinishesTheLink() {
-        let view = EditorTestSupport.makeEditor("See [[2026-10", height: 300)
-        view.completeNoteTitle = { _ in ["2026-10-28 Weekly planning"] }
-        view.setSelectionDirectly(NSRange(location: 13, length: 0))
-        let partial = NSRange(location: 6, length: 7)
-        var index = 0
-        _ = view.completions(forPartialWordRange: partial, indexOfSelectedItem: &index)
-        view.insertCompletion("2026-10-28 Weekly planning", forPartialWordRange: partial, movement: NSOtherTextMovement, isFinal: true)
+        let view = typing("See [[2026-10", titles: ["2026-10-20 Budget review", "2026-10-28 Weekly planning"])
+        view.popup?.model.pick(1)
         #expect(view.string == "See [[2026-10-28 Weekly planning]]")
     }
 
-    @Test func escapeKeepsWhatWasTyped() {
-        let view = EditorTestSupport.makeEditor("See [[2026-10", height: 300)
-        view.completeNoteTitle = { _ in ["2026-10-28 Weekly planning"] }
-        view.setSelectionDirectly(NSRange(location: 13, length: 0))
-        let partial = NSRange(location: 6, length: 7)
-        var index = 0
-        _ = view.completions(forPartialWordRange: partial, indexOfSelectedItem: &index)
-        view.insertCompletion("2026-10-28 Weekly planning", forPartialWordRange: partial, movement: NSCancelTextMovement, isFinal: true)
+    @Test func escapeKeepsWhatWasTypedAndReturnIsANewLine() {
+        let view = typing("See [[2026-10", titles: ["2026-10-28 Weekly planning"])
+        #expect(view.handlePopupKey(#selector(NSResponder.cancelOperation(_:))))
+        #expect(view.popup == nil)
         #expect(view.string == "See [[2026-10")
+        #expect(!view.handlePopupKey(#selector(NSResponder.insertNewline(_:))))
+        // Typing on, it stays closed for that link.
+        view.insertText("-2", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(view.popup == nil)
     }
 
     @Test func completionDoesntDoubleExistingBrackets() {
         let view = EditorTestSupport.makeEditor("See [[Imp]]", height: 300)
         view.completeNoteTitle = { _ in ["Imprint App"] }
-        view.setSelectionDirectly(NSRange(location: 9, length: 0))
-        view.insertCompletion("Imprint App", forPartialWordRange: NSRange(location: 6, length: 3), movement: NSReturnTextMovement, isFinal: true)
+        view.window?.makeFirstResponder(view)
+        view.setSelectedRange(NSRange(location: 9, length: 0))
+        #expect(view.handlePopupKey(#selector(NSResponder.insertNewline(_:))))
         #expect(view.string == "See [[Imprint App]]")
+    }
+
+    @Test func aTagIsFinishedWithASpace() {
+        let view = EditorTestSupport.makeEditor("Filed #wo", height: 300)
+        view.completeTag = { _ in ["work", "work/imprint"] }
+        view.window?.makeFirstResponder(view)
+        view.setSelectedRange(NSRange(location: 9, length: 0))
+        #expect(view.popup?.model.rows.map(\.title) == ["work", "work/imprint"])
+        #expect(view.handlePopupKey(#selector(NSResponder.moveDown(_:))))
+        #expect(view.handlePopupKey(#selector(NSResponder.insertNewline(_:))))
+        #expect(view.string == "Filed #work/imprint ")
+    }
+
+    @Test func noTagPopupForAHashAloneOrInCode() {
+        let heading = EditorTestSupport.makeEditor("#", height: 300)
+        heading.completeTag = { _ in ["work"] }
+        heading.window?.makeFirstResponder(heading)
+        heading.setSelectedRange(NSRange(location: 1, length: 0))
+        #expect(heading.popup == nil)
+        let code = EditorTestSupport.makeEditor("`#wo`", height: 300)
+        code.completeTag = { _ in ["work"] }
+        code.window?.makeFirstResponder(code)
+        code.setSelectedRange(NSRange(location: 4, length: 0))
+        #expect(code.popup == nil)
     }
 }
 
@@ -158,21 +164,18 @@ struct MentionTests {
 
     @Test func pickingAPersonWritesALink() {
         let view = editor("Met @sa today")
-        view.setSelectionDirectly(NSRange(location: 7, length: 0))
-        let partial = NSRange(location: 5, length: 2)
-        var index = 0
-        #expect(view.completions(forPartialWordRange: partial, indexOfSelectedItem: &index) == ["Sam Lee", "Samira Khan"])
-        #expect(index == -1)
-        view.insertCompletion("Sam Lee", forPartialWordRange: partial, movement: NSReturnTextMovement, isFinal: true)
+        view.window?.makeFirstResponder(view)
+        view.setSelectedRange(NSRange(location: 7, length: 0))
+        #expect(view.popup?.model.rows.map(\.title) == ["Sam Lee", "Samira Khan"])
+        #expect(view.handlePopupKey(#selector(NSResponder.insertNewline(_:))))
         #expect(view.string == "Met [[Sam Lee]] today")
     }
 
-    @Test func typingOnKeepsTheAt() {
+    @Test func escapeKeepsTheAt() {
         let view = editor("Met @sa")
-        let partial = NSRange(location: 5, length: 2)
-        var index = 0
-        _ = view.completions(forPartialWordRange: partial, indexOfSelectedItem: &index)
-        view.insertCompletion("Sam Lee", forPartialWordRange: partial, movement: NSCancelTextMovement, isFinal: true)
+        view.window?.makeFirstResponder(view)
+        view.setSelectedRange(NSRange(location: 7, length: 0))
+        #expect(view.handlePopupKey(#selector(NSResponder.cancelOperation(_:))))
         #expect(view.string == "Met @sa")
     }
 }
