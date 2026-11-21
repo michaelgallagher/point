@@ -369,7 +369,7 @@ final class ListRowView: NSTableRowView {
     override func drawBackground(in dirtyRect: NSRect) {
         if isHovered {
             NSColor.labelColor.withAlphaComponent(0.05).setFill()
-            NSBezierPath(roundedRect: bounds.insetBy(dx: 0, dy: 1), xRadius: 4, yRadius: 4).fill()
+            bounds.insetBy(dx: 0, dy: 1).fill()
         }
     }
 
