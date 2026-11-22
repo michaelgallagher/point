@@ -250,14 +250,16 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
     /// A highlighted list item's background: its colour, faint, from just before its marker to
     /// the end of the text column, on each line the item takes.
     private func drawListHighlight(_ color: PlatformColor, for range: NSRange, storage: NSTextStorage, container: NSTextContainer, origin: CGPoint) {
+        // The item's marker is where its text starts: at its line's start, or after `> ` in a quote.
         let start = (storage.string as NSString).lineRange(for: NSRange(location: range.location, length: 0)).location
-        guard let decoration = storage.attribute(.pointListMarker, at: start, effectiveRange: nil) as? ListMarkerDecoration else { return }
+        guard let decoration = (storage.attribute(.pointListMarker, at: start, effectiveRange: nil)
+                                ?? storage.attribute(.pointListMarker, at: range.location, effectiveRange: nil)) as? ListMarkerDecoration else { return }
         let glyphs = glyphRange(forCharacterRange: range, actualCharacterRange: nil)
         guard glyphs.length > 0 else { return }
         var bounds = CGRect.null
         enumerateLineFragments(forGlyphRange: glyphs) { line, _, _, _, _ in bounds = bounds.union(line) }
         guard !bounds.isNull else { return }
-        let left = container.lineFragmentPadding + notesInset(at: range.location, storage: storage) + theme.indentPerLevel * CGFloat(decoration.level) - 4
+        let left = container.lineFragmentPadding + notesInset(at: range.location, storage: storage) + decoration.inset + theme.indentPerLevel * CGFloat(decoration.level) - 4
         // Lowered to centre on the letters: the line has the font's room above its capitals
         // as well as the line height's, so the whole line's rect sat high on the text.
         let font = storage.attribute(.font, at: range.location, effectiveRange: nil) as? PlatformFont ?? theme.body
@@ -427,7 +429,7 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
             // An empty item: its hidden marker glyphs still sit on the baseline.
             baseline = origin.y + line.minY + location(forGlyphAt: glyphIndexForCharacter(at: index)).y
         }
-        let x = origin.x + container.lineFragmentPadding + notesInset(at: index, storage: storage) + theme.indentPerLevel * CGFloat(decoration.level)
+        let x = origin.x + container.lineFragmentPadding + notesInset(at: index, storage: storage) + decoration.inset + theme.indentPerLevel * CGFloat(decoration.level)
 
         switch decoration.marker {
         case .bullet:
@@ -506,7 +508,7 @@ final class PointLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         let font = textFont(near: item.index, storage: storage)
         let first = firstVisibleCharacter(onLineOf: item.index, storage: storage) ?? item.index
         let baseline = origin.y + line.minY + location(forGlyphAt: glyphIndexForCharacter(at: first)).y
-        let x = origin.x + container.lineFragmentPadding + notesInset(at: item.index, storage: storage) + theme.indentPerLevel * CGFloat(item.decoration.level)
+        let x = origin.x + container.lineFragmentPadding + notesInset(at: item.index, storage: storage) + item.decoration.inset + theme.indentPerLevel * CGFloat(item.decoration.level)
         return markerRect(item.decoration.marker, x: x, baseline: baseline, font: font)
     }
 

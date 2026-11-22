@@ -146,16 +146,22 @@ extension PhoneTextView {
         let index = manager.characterIndex(for: local, in: textContainer, fractionOfDistanceBetweenInsertionPoints: nil)
         let text = textStorage.string as NSString
         let lineStart = text.lineRange(for: NSRange(location: min(index, textStorage.length - 1), length: 0)).location
-        guard let token = tokens.first(where: { $0.range.location == lineStart }),
+        let lineEnd = NSMaxRange(text.lineRange(for: NSRange(location: lineStart, length: 0)))
+        // At the line's start, or after a quote's `> `.
+        guard let token = tokens.first(where: { token in
+                  guard case .listItem = token.kind, token.range.location >= lineStart, token.range.location < lineEnd else { return false }
+                  return token.range.location == lineStart
+                      || text.substring(with: NSRange(location: lineStart, length: token.range.location - lineStart)).hasPrefix(">")
+              }),
               case .listItem(.task(let done), _) = token.kind,
-              let decoration = textStorage.attribute(.pointListMarker, at: lineStart, effectiveRange: nil) as? ListMarkerDecoration,
+              let decoration = textStorage.attribute(.pointListMarker, at: token.range.location, effectiveRange: nil) as? ListMarkerDecoration,
               let marker = token.syntax.first else { return nil }
 
         let line = manager.lineRect(containing: lineStart, storage: textStorage)
         let font = manager.textFont(near: lineStart, storage: textStorage)
         let visible = manager.firstVisibleCharacter(onLineOf: lineStart, storage: textStorage)
         let baseline = line.minY + (visible.map { manager.location(forGlyphAt: manager.glyphIndexForCharacter(at: $0)).y } ?? font.ascender)
-        let x = textContainer.lineFragmentPadding + manager.theme.indentPerLevel * CGFloat(decoration.level)
+        let x = textContainer.lineFragmentPadding + decoration.inset + manager.theme.indentPerLevel * CGFloat(decoration.level)
         let box = manager.checkboxRect(x: x, baseline: baseline, font: font).insetBy(dx: -12, dy: -8)
         guard box.contains(local) else { return nil }
 

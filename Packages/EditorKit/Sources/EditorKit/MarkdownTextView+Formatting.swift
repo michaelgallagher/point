@@ -75,23 +75,34 @@ extension MarkdownTextView {
         var content: String
         var listMarker: ListMarker?
         var headingLevel: Int?
+        /// The quote's `> ` before it all, on a line in a quote: kept as the line's rewritten.
+        var quote = ""
     }
 
     func parts(ofLineAt range: NSRange) -> LineParts {
         let text = string as NSString
         let line = text.substring(with: range)
-        let token = tokens.first { $0.isBlock && $0.range.location == range.location }
+        // In a quote, the line's own parts come after its `> `.
+        let quote = tokens.first { token in
+            switch token.kind {
+            case .blockquote, .callout: NSLocationInRange(range.location, token.range)
+            default: false
+            }
+        }?.syntax.first { $0.location == range.location }.map { text.substring(with: $0) } ?? ""
+        let start = range.location + (quote as NSString).length
+        let rest = String(line.dropFirst(quote.count))
+        let token = tokens.first { $0.isBlock && $0.range.location == start }
         switch token?.kind {
         case .heading(let level)?:
             let marker = text.substring(with: token!.syntax[0])
-            return LineParts(indent: "", marker: marker, content: String(line.dropFirst(marker.count)), headingLevel: level)
+            return LineParts(indent: "", marker: marker, content: String(rest.dropFirst(marker.count)), headingLevel: level, quote: quote)
         case .listItem(let listMarker, _)?:
             let markerRange = token!.syntax[0]
-            let indent = text.substring(with: NSRange(location: range.location, length: markerRange.location - range.location))
+            let indent = text.substring(with: NSRange(location: start, length: markerRange.location - start))
             let content = text.substring(with: NSRange(location: NSMaxRange(markerRange), length: NSMaxRange(range) - NSMaxRange(markerRange)))
-            return LineParts(indent: indent, marker: text.substring(with: markerRange), content: content, listMarker: listMarker)
+            return LineParts(indent: indent, marker: text.substring(with: markerRange), content: content, listMarker: listMarker, quote: quote)
         default:
-            return LineParts(indent: "", marker: "", content: line)
+            return LineParts(indent: "", marker: "", content: rest, quote: quote)
         }
     }
 
@@ -125,7 +136,7 @@ extension MarkdownTextView {
         for (index, line) in lines.enumerated() {
             let old = parts(ofLineAt: line)
             let new = transform(old)
-            pieces.append(new.indent + new.marker + new.content)
+            pieces.append(new.quote + new.indent + new.marker + new.content)
             if index == 0 {
                 cursorShift = (new.indent + new.marker as NSString).length - (old.indent + old.marker as NSString).length
             }
@@ -370,7 +381,7 @@ extension MarkdownTextView {
                 if !parts.indent.isEmpty {
                     changeIndent(by: -1)
                 } else {
-                    replace(line, with: "")
+                    replace(line, with: parts.quote) // In a quote, the quote goes on.
                 }
                 return
             }
@@ -382,7 +393,7 @@ extension MarkdownTextView {
                 let delimiter = parts.marker.trimmingCharacters(in: .whitespaces).last.map(String.init) ?? "."
                 next = "\(number + 1)\(delimiter) "
             }
-            insertText("\n" + parts.indent + next, replacementRange: selection)
+            insertText("\n" + parts.quote + parts.indent + next, replacementRange: selection)
             return
         }
 
@@ -536,16 +547,16 @@ extension MarkdownTextView {
         let local = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
         let index = layoutManager.characterIndexForPoint(local, in: container)
         let lineStart = lineStart(of: min(index, max(storage.length - 1, 0)))
-        guard let token = tokens.first(where: { $0.range.location == lineStart }),
+        guard let token = listItem(onLineAt: lineStart),
               case .listItem(.task(let done), _) = token.kind,
-              let decoration = storage.attribute(.pointListMarker, at: lineStart, effectiveRange: nil) as? ListMarkerDecoration,
+              let decoration = storage.attribute(.pointListMarker, at: token.range.location, effectiveRange: nil) as? ListMarkerDecoration,
               let marker = token.syntax.first else { return false }
 
         let line = layoutManager.lineRect(containing: lineStart, storage: storage)
         let font = layoutManager.textFont(near: lineStart, storage: storage)
         let visible = layoutManager.firstVisibleCharacter(onLineOf: lineStart, storage: storage)
         let baseline = line.minY + (visible.map { layoutManager.location(forGlyphAt: layoutManager.glyphIndexForCharacter(at: $0)).y } ?? font.ascender)
-        let x = container.lineFragmentPadding + layoutManager.theme.indentPerLevel * CGFloat(decoration.level)
+        let x = container.lineFragmentPadding + decoration.inset + layoutManager.theme.indentPerLevel * CGFloat(decoration.level)
         let box = layoutManager.checkboxRect(x: x, baseline: baseline, font: font).insetBy(dx: -5, dy: -5)
         guard box.contains(local) else { return false }
 
@@ -582,23 +593,33 @@ extension MarkdownTextView {
         let origin = textContainerOrigin
         let index = layoutManager.characterIndexForPoint(NSPoint(x: point.x - origin.x, y: point.y - origin.y), in: container)
         let lineStart = lineStart(of: min(index, storage.length - 1))
-        guard let token = tokens.first(where: { $0.range.location == lineStart }), let marker = token.syntax.first,
+        guard let token = listItem(onLineAt: lineStart), let marker = token.syntax.first,
               let target = markerTarget(onLineAt: lineStart), target.contains(point) else { return nil }
         return (token.range, marker)
+    }
+
+    /// The list item on the line starting at `lineStart`: at its start, or after a quote's `> `.
+    func listItem(onLineAt lineStart: Int) -> MarkdownToken? {
+        let lineEnd = NSMaxRange((string as NSString).lineRange(for: NSRange(location: lineStart, length: 0)))
+        return tokens.first { token in
+            guard case .listItem = token.kind, token.range.location >= lineStart, token.range.location < lineEnd else { return false }
+            return token.range.location == lineStart
+                || (string as NSString).substring(with: NSRange(location: lineStart, length: token.range.location - lineStart)).hasPrefix(">")
+        }
     }
 
     /// Where a bulleted or task item's bullet or checkbox is, in the view, with a little room
     /// around it (a bullet is a small target). Numbered items have none: they aren't highlighted.
     func markerTarget(onLineAt lineStart: Int) -> NSRect? {
         guard let layoutManager = pointLayoutManager, let container = textContainer, let storage = textStorage,
-              let token = blockTokens[lineStart], case .listItem(let kind, _) = token.kind,
-              let decoration = storage.attribute(.pointListMarker, at: lineStart, effectiveRange: nil) as? ListMarkerDecoration else { return nil }
+              let token = listItem(onLineAt: lineStart), case .listItem(let kind, _) = token.kind,
+              let decoration = storage.attribute(.pointListMarker, at: token.range.location, effectiveRange: nil) as? ListMarkerDecoration else { return nil }
         if case .ordered = kind { return nil }
         let line = layoutManager.lineRect(containing: lineStart, storage: storage)
         let font = layoutManager.textFont(near: lineStart, storage: storage)
         let visible = layoutManager.firstVisibleCharacter(onLineOf: lineStart, storage: storage)
         let baseline = line.minY + (visible.map { layoutManager.location(forGlyphAt: layoutManager.glyphIndexForCharacter(at: $0)).y } ?? font.ascender)
-        let x = container.lineFragmentPadding + layoutManager.theme.indentPerLevel * CGFloat(decoration.level)
+        let x = container.lineFragmentPadding + decoration.inset + layoutManager.theme.indentPerLevel * CGFloat(decoration.level)
         let room: CGFloat = kind == .bullet ? -6 : -5
         let target = layoutManager.markerRect(kind, x: x, baseline: baseline, font: font).insetBy(dx: room, dy: room)
         return target.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)

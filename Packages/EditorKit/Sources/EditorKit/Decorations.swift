@@ -103,6 +103,8 @@ struct TableDecoration: Hashable {
 struct ListMarkerDecoration: Hashable {
     let marker: ListMarker
     let level: Int
+    /// How far in the item's list starts: a quote's indent, for a list in a quote.
+    var inset: CGFloat = 0
 }
 
 /// Sizes and colours for the editor. Apple Notes is the reference for the feel.

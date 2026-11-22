@@ -384,6 +384,23 @@ struct MarkdownStyler {
         storage.addAttribute(.pointBlockEmbed, value: BlockEmbedDecoration(target: embed, height: height, spaceAbove: above), range: fence)
     }
 
+    /// How far a quote's text is indented.
+    static let quoteIndent: CGFloat = 16
+
+    /// The quote's indent, for a heading or list item inside a quote (after `> ` on its line),
+    /// which sets its own paragraph style over the quote's; nothing elsewhere.
+    private func quoteInset(before range: NSRange, in text: NSString) -> CGFloat {
+        let lineStart = text.lineRange(for: NSRange(location: range.location, length: 0)).location
+        guard range.location > lineStart else { return 0 }
+        return text.substring(with: NSRange(location: lineStart, length: range.location - lineStart)).contains(">") ? Self.quoteIndent : 0
+    }
+
+    /// `range` from the start of its line.
+    private func fromLineStart(_ range: NSRange, in text: NSString) -> NSRange {
+        let lineStart = text.lineRange(for: NSRange(location: range.location, length: 0)).location
+        return NSRange(location: lineStart, length: NSMaxRange(range) - lineStart)
+    }
+
     private func intersects(_ a: NSRange, _ b: NSRange) -> Bool {
         a.location <= NSMaxRange(b) && b.location <= NSMaxRange(a)
     }
@@ -404,12 +421,17 @@ struct MarkdownStyler {
 
         case .heading(let level):
             let font = theme.headingFont(level: level)
-            storage.addAttributes([.font: font, .paragraphStyle: paragraphStyle { _ in }], range: range)
+            let inset = quoteInset(before: range, in: text)
+            storage.addAttribute(.font, value: font, range: range)
+            storage.addAttribute(.paragraphStyle, value: paragraphStyle {
+                $0.firstLineHeadIndent = inset
+                $0.headIndent = inset
+            }, range: fromLineStart(range, in: text))
 
         case .blockquote, .callout:
             let style = paragraphStyle {
-                $0.firstLineHeadIndent = 16
-                $0.headIndent = 16
+                $0.firstLineHeadIndent = Self.quoteIndent
+                $0.headIndent = Self.quoteIndent
             }
             var block = BlockDecoration.quote
             if case .callout(let type) = token.kind {
@@ -426,17 +448,20 @@ struct MarkdownStyler {
 
         case .listItem(let marker, let indent):
             let level = Int((Double(indent) / 4).rounded(.up))
-            let start = theme.indentPerLevel * CGFloat(level) + theme.markerWidth(for: marker)
+            let inset = quoteInset(before: range, in: text)
+            let start = inset + theme.indentPerLevel * CGFloat(level) + theme.markerWidth(for: marker)
             let style = paragraphStyle {
                 $0.firstLineHeadIndent = start
                 $0.headIndent = start
             }
-            storage.addAttribute(.paragraphStyle, value: style, range: range)
+            // From the line's start: a paragraph takes its style from its first character, which
+            // in a quote is the `>`, before the item.
+            storage.addAttribute(.paragraphStyle, value: style, range: fromLineStart(range, in: text))
             if let markerRange = token.syntax.first {
                 // Hide the indent and the marker; the layout manager draws the marker instead.
                 let hidden = NSRange(location: range.location, length: NSMaxRange(markerRange) - range.location)
                 storage.addAttribute(.pointHidden, value: true, range: hidden)
-                storage.addAttribute(.pointListMarker, value: ListMarkerDecoration(marker: marker, level: level),
+                storage.addAttribute(.pointListMarker, value: ListMarkerDecoration(marker: marker, level: level, inset: inset),
                                      range: NSRange(location: range.location, length: 1))
                 if case .task(done: true) = marker {
                     let content = NSRange(location: NSMaxRange(markerRange), length: NSMaxRange(range) - NSMaxRange(markerRange))

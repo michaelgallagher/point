@@ -226,22 +226,33 @@ public struct MarkdownEditing {
         var content: String
         var listMarker: ListMarker?
         var headingLevel: Int?
+        /// The quote's `> ` before it all, on a line in a quote: kept as the line's rewritten.
+        var quote = ""
     }
 
     func parts(ofLineAt range: NSRange) -> LineParts {
         let line = text.substring(with: range)
-        let token = tokens.first { $0.isBlock && $0.range.location == range.location }
+        // In a quote, the line's own parts come after its `> `.
+        let quote = tokens.first { token in
+            switch token.kind {
+            case .blockquote, .callout: NSLocationInRange(range.location, token.range)
+            default: false
+            }
+        }?.syntax.first { $0.location == range.location }.map { text.substring(with: $0) } ?? ""
+        let start = range.location + (quote as NSString).length
+        let rest = String(line.dropFirst(quote.count))
+        let token = tokens.first { $0.isBlock && $0.range.location == start }
         switch token?.kind {
         case .heading(let level)?:
             let marker = text.substring(with: token!.syntax[0])
-            return LineParts(indent: "", marker: marker, content: String(line.dropFirst(marker.count)), headingLevel: level)
+            return LineParts(indent: "", marker: marker, content: String(rest.dropFirst(marker.count)), headingLevel: level, quote: quote)
         case .listItem(let listMarker, _)?:
             let markerRange = token!.syntax[0]
-            let indent = text.substring(with: NSRange(location: range.location, length: markerRange.location - range.location))
+            let indent = text.substring(with: NSRange(location: start, length: markerRange.location - start))
             let content = text.substring(with: NSRange(location: NSMaxRange(markerRange), length: NSMaxRange(range) - NSMaxRange(markerRange)))
-            return LineParts(indent: indent, marker: text.substring(with: markerRange), content: content, listMarker: listMarker)
+            return LineParts(indent: indent, marker: text.substring(with: markerRange), content: content, listMarker: listMarker, quote: quote)
         default:
-            return LineParts(indent: "", marker: "", content: line)
+            return LineParts(indent: "", marker: "", content: rest, quote: quote)
         }
     }
 
@@ -270,7 +281,7 @@ public struct MarkdownEditing {
         for (index, line) in lines.enumerated() {
             let old = parts(ofLineAt: line)
             let new = transform(old)
-            pieces.append(new.indent + new.marker + new.content)
+            pieces.append(new.quote + new.indent + new.marker + new.content)
             if index == 0 {
                 cursorShift = (new.indent + new.marker as NSString).length - (old.indent + old.marker as NSString).length
             }
@@ -393,8 +404,9 @@ public struct MarkdownEditing {
         if let listMarker = parts.listMarker {
             if parts.content.trimmingCharacters(in: .whitespaces).isEmpty {
                 // Return on an empty item outdents it, or ends the list at the top level.
+                // (In a quote, the quote goes on.)
                 return parts.indent.isEmpty
-                    ? MarkdownEdit(range: line, replacement: "", selection: NSRange(location: line.location, length: 0))
+                    ? MarkdownEdit(range: line, replacement: parts.quote, selection: NSRange(location: line.location + (parts.quote as NSString).length, length: 0))
                     : changeIndent(by: -1)
             }
             let next: String
@@ -405,7 +417,7 @@ public struct MarkdownEditing {
                 let delimiter = parts.marker.trimmingCharacters(in: .whitespaces).last.map(String.init) ?? "."
                 next = "\(number + 1)\(delimiter) "
             }
-            return inserting("\n" + parts.indent + next)
+            return inserting("\n" + parts.quote + parts.indent + next)
         }
 
         if let quote = tokens.first(where: { ($0.kind == .blockquote || { if case .callout = $0.kind { true } else { false } }($0)) && NSLocationInRange(line.location, $0.range) }) {

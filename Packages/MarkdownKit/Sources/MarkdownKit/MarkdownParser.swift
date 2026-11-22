@@ -241,7 +241,12 @@ private struct Parser {
                 syntax.append(markerEnd..<end)
                 contentStart = end
             }
-            inline(contentStart..<line.upperBound)
+            // A heading or list item inside the quote, as Obsidian reads it (not a callout's
+            // title, which is the rest of its first line).
+            let content = contentStart..<line.upperBound
+            if (j == i && calloutType != nil) || (!parseHeading(content) && !parseListItem(content)) {
+                inline(content)
+            }
             j += 1
         }
         let range = lines[i].lowerBound..<lines[j - 1].upperBound
