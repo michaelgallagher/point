@@ -215,9 +215,10 @@ struct AppCommands: Commands {
             Button("Rename Note…") { model?.renaming = model?.selectedNote }
                 .shortcut(.renameNote, in: shortcuts)
                 .disabled(model?.selectedNote == nil)
-            Button("Move to Folder…") { model?.moving = model?.selectedNote }
+            // These act on the notes picked in the list, when there are several.
+            Button("Move to Folder…") { if let model, !model.actedOn.isEmpty { model.moving = .init(model.actedOn) } }
                 .shortcut(.moveToFolder, in: shortcuts)
-                .disabled(model?.selectedNote == nil)
+                .disabled(model?.actedOn.isEmpty != false)
             Button("Add Tag…") { model?.tagging = model?.selectedNote }
                 .shortcut(.addTag, in: shortcuts)
                 .disabled(model?.selectedNote == nil)
@@ -228,22 +229,25 @@ struct AppCommands: Commands {
             .shortcut(.saveWebImages, in: shortcuts)
             .disabled(!webImages.canSave(model?.selectedNote?.id))
             // For a note whose kind says when it was read (Media, say): as Mail does.
-            Button(model.flatMap { m in m.selection.map(m.isUnread) } == false ? "Mark as Unread" : "Mark as Read") {
-                if let model, let id = model.selection { model.toggleRead(id) }
+            let ids = model?.actedOn.map(\.id) ?? []
+            let several = ids.count > 1
+            Button(model.map { m in ids.filter(m.canMarkRead).contains(where: m.isUnread) } == false ? "Mark as Unread" : "Mark as Read") {
+                model?.toggleRead(ids)
             }
             .shortcut(.toggleRead, in: shortcuts)
-            .disabled(model.flatMap { m in m.selection.map(m.canMarkRead) } != true)
-            Button(model.flatMap { m in m.selection.map(m.isBookmarked) } == true ? "Remove Bookmark" : "Add Bookmark") {
-                if let model, let id = model.selection { model.toggleBookmark(id) }
+            .disabled(model.map { m in ids.contains(where: m.canMarkRead) } != true)
+            Button(model.map { m in !ids.isEmpty && ids.allSatisfy(m.isBookmarked) } == true
+                   ? (several ? "Remove Bookmarks" : "Remove Bookmark") : (several ? "Add Bookmarks" : "Add Bookmark")) {
+                model?.toggleBookmarks(ids)
             }
             .shortcut(.toggleBookmark, in: shortcuts)
-            .disabled(model?.selectedNote == nil)
+            .disabled(ids.isEmpty)
             Button("Show in Finder") { if let model, let note = model.selectedNote { model.showInFinder(note) } }
                 .shortcut(.showInFinder, in: shortcuts)
                 .disabled(model?.selectedNote == nil)
-            Button("Move to Trash") { if let model, let note = model.selectedNote { model.moveToTrash(note) } }
+            Button("Move to Trash") { if let model { model.moveToTrash(model.actedOn) } }
                 .shortcut(.moveToTrash, in: shortcuts)
-                .disabled(model?.selectedNote == nil)
+                .disabled(model?.actedOn.isEmpty != false)
         }
         // No divider first: the menu already has one between groups, and two showed a gap.
         CommandGroup(after: .textEditing) {

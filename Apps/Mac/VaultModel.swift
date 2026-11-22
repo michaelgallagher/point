@@ -120,6 +120,13 @@ final class VaultModel: ObservableObject {
     /// What a dragged sidebar row carries: a note's ID, or for a folder, this and its path.
     static let folderDragPrefix = "point-folder:"
 
+    /// Notes for Move to Folder's sheet: one, or several picked in the list.
+    struct NotesToMove: Identifiable {
+        let id = UUID()
+        let notes: [Note]
+        init(_ notes: [Note]) { self.notes = notes }
+    }
+
     /// Something dropped on a folder ("" is the vault root): a note or a folder goes inside.
     func drop(_ dragged: String, onFolder folder: String) {
         if dragged.hasPrefix(Self.folderDragPrefix) {
@@ -127,6 +134,41 @@ final class VaultModel: ObservableObject {
         } else {
             move(noteID: dragged, toFolder: folder)
         }
+    }
+
+    // MARK: Several notes picked in the list
+
+    /// The notes picked in the list with ⌘- or ⇧-click, when there's more than one, in the
+    /// list's order; empty otherwise. The open note stays as it was: these are what the list's
+    /// menu, the File menu's note commands and a drag act on.
+    @Published var listSelection: [Note.ID] = []
+
+    /// What the note commands act on: the notes picked in the list, or the open note.
+    var actedOn: [Note] {
+        listSelection.count > 1 ? listSelection.compactMap { note($0) } : selectedNote.map { [$0] } ?? []
+    }
+
+    /// Marks every note that can be marked read read, or if they're all read already, unread.
+    func toggleRead(_ ids: [Note.ID]) {
+        let readable = ids.filter(canMarkRead)
+        let read = readable.contains(where: isUnread)
+        for id in readable where isUnread(id) != !read { store.setRead(id, read) }
+    }
+
+    /// Bookmarks them all, or if they're all bookmarked already, takes their bookmarks off.
+    func toggleBookmarks(_ ids: [Note.ID]) {
+        let adding = ids.contains { !isBookmarked($0) }
+        for id in ids where isBookmarked(id) != adding { store.toggleBookmark(id) }
+    }
+
+    func moveToTrash(_ notes: [Note]) {
+        for note in notes { moveToTrash(note) }
+        listSelection = []
+    }
+
+    func move(_ notes: [Note], toFolder folder: String) {
+        for note in notes { move(noteID: note.id, toFolder: folder) }
+        listSelection = []
     }
 
     func moveToTrash(_ note: Note) {
@@ -335,7 +377,11 @@ final class VaultModel: ObservableObject {
     /// the tab where it's already open.
     var selection: Note.ID? {
         get { panes[activePane].tab.noteID }
-        set { show(newValue) }
+        set {
+            // A note opened: the list's several picked go back to the one.
+            if !listSelection.isEmpty { listSelection = [] }
+            show(newValue)
+        }
     }
 
     var selectedNote: Note? {
@@ -1112,7 +1158,8 @@ final class VaultModel: ObservableObject {
         guard let path = store.createFolder(named: name, in: parent) else { return }
         browse(.folder(path))
     }
-    @Published var moving: Note?
+    /// The notes Move to Folder is asking where to put.
+    @Published var moving: NotesToMove?
     @Published var tagging: Note?
     /// Whether the New Note from Template sheet is showing.
     @Published var isCreatingFromTemplate = false

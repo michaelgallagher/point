@@ -333,6 +333,8 @@ struct SidebarTable: NSViewRepresentable {
         table.intercellSpacing = NSSize(width: 0, height: 0)
         table.usesAutomaticRowHeights = false
         table.allowsEmptySelection = true
+        // Several notes, with ⌘- and ⇧-click, to move, mark, bookmark or trash together.
+        table.allowsMultipleSelection = content != .places
         table.addTableColumn(NSTableColumn(identifier: .init("main")))
         table.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         table.delegate = context.coordinator
@@ -610,8 +612,12 @@ struct SidebarTable: NSViewRepresentable {
                 }
                 return
             }
-            if let id = model.selection, let row = rows.firstIndex(of: .note(id)) {
-                if table.selectedRow != row { table.selectRowIndexes([row], byExtendingSelection: false) }
+            if model.listSelection.count > 1 {
+                // Several picked: those of them still in the list.
+                let picked = IndexSet(model.listSelection.compactMap { rows.firstIndex(of: .note($0)) })
+                if table.selectedRowIndexes != picked { table.selectRowIndexes(picked, byExtendingSelection: false) }
+            } else if let id = model.selection, let row = rows.firstIndex(of: .note(id)) {
+                if table.selectedRowIndexes != [row] { table.selectRowIndexes([row], byExtendingSelection: false) }
             } else if table.selectedRow >= 0 {
                 table.deselectAll(nil)
             }
@@ -851,17 +857,21 @@ struct SidebarTable: NSViewRepresentable {
                 return !(hasArrow(place, inTree: inTree) && isClick && clickedArrow(row: row, depth: depth, in: tableView))
             }
             guard let id = rows[row].noteID else { return false }
-            // ⌥⌘-click opens the note beside this one; ⌘-click opens it in a new tab.
+            // ⌥⌘-click opens the note beside this one. (⌘- and ⇧-click pick several, as in Finder.)
             let modifiers = NSApp.currentEvent?.modifierFlags.intersection([.command, .option, .shift, .control]) ?? []
             if modifiers == [.command, .option] {
                 model.openToTheSide(id)
                 return false
             }
-            if modifiers.contains(.command) {
-                model.newTab(noteID: id)
-                return false
-            }
             return true
+        }
+
+        /// Several rows only ever notes: a ⇧-click across a date's label or a section's
+        /// heading leaves them out.
+        func tableView(_ tableView: NSTableView, selectionIndexesForProposedSelection proposed: IndexSet) -> IndexSet {
+            guard proposed.count > 1 else { return proposed }
+            let notes = proposed.filteredIndexSet { rows.indices.contains($0) && rows[$0].noteID != nil }
+            return notes.isEmpty ? proposed : notes
         }
 
         func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool { false }
@@ -914,6 +924,12 @@ struct SidebarTable: NSViewRepresentable {
 
         func tableViewSelectionDidChange(_ notification: Notification) {
             guard !isSyncingSelection, let table, table.selectedRow >= 0 else { return }
+            if parent.content != .places, table.selectedRowIndexes.count > 1 {
+                // Several picked: the open note stays; they're what the commands act on.
+                model.listSelection = table.selectedRowIndexes.compactMap { rows.indices.contains($0) ? rows[$0].noteID : nil }
+                return
+            }
+            if !model.listSelection.isEmpty { model.listSelection = [] }
             if case .place(let place, _, _) = rows[table.selectedRow], parent.content == .places {
                 pickedFromPins = section(ofRow: table.selectedRow) == .pinned
                 model.browse(place)
@@ -1055,12 +1071,17 @@ struct SidebarTable: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo, row: Int,
                        dropOperation: NSTableView.DropOperation) -> Bool {
-            guard info.draggingSource != nil, let dragged = info.draggingPasteboard.string(forType: .string) else { return false }
+            // Every row dragged: several notes picked go together.
+            let dragged = (info.draggingPasteboard.pasteboardItems ?? []).compactMap { $0.string(forType: .string) }
+            guard info.draggingSource != nil, !dragged.isEmpty else { return false }
+            let folder: String
             switch rows[row] {
-            case .place(.folder(let path), _, _): model.drop(dragged, onFolder: path)
-            case .place(.allNotes, _, _), .header(.folders): model.drop(dragged, onFolder: "")
+            case .place(.folder(let path), _, _): folder = path
+            case .place(.allNotes, _, _), .header(.folders): folder = ""
             default: return false
             }
+            for item in dragged { model.drop(item, onFolder: folder) }
+            if dragged.count > 1 { model.listSelection = [] }
             return true
         }
 
@@ -1073,6 +1094,18 @@ struct SidebarTable: NSViewRepresentable {
             case .trashed(let trashed):
                 menu.addItem(item("Put Back") { $0.store.restore(trashed) })
                 menu.addItem(item("Delete Now") { $0.store.deleteForever(trashed) })
+            case .note(let id) where model.listSelection.count > 1 && model.listSelection.contains(id):
+                // One of several picked: for them all.
+                let notes = model.actedOn
+                let ids = notes.map(\.id)
+                let readable = ids.filter(model.canMarkRead)
+                if !readable.isEmpty {
+                    menu.addItem(item(readable.contains(where: model.isUnread) ? "Mark as Read" : "Mark as Unread") { $0.toggleRead(ids) })
+                }
+                menu.addItem(item(ids.allSatisfy(model.isBookmarked) ? "Remove Bookmarks" : "Add Bookmarks") { $0.toggleBookmarks(ids) })
+                menu.addItem(item("Move \(notes.count) Notes to Folder…") { $0.moving = .init(notes) })
+                menu.addItem(.separator())
+                menu.addItem(item("Move \(notes.count) Notes to Trash") { $0.moveToTrash(notes) })
             case .note(let id):
                 guard let note = model.notes.first(where: { $0.id == id }) else { return }
                 menu.addItem(item("Open in New Tab") { $0.newTab(noteID: note.id) })
@@ -1083,7 +1116,7 @@ struct SidebarTable: NSViewRepresentable {
                 }
                 menu.addItem(item(model.isBookmarked(id) ? "Remove Bookmark" : "Add Bookmark") { $0.toggleBookmark(id) })
                 menu.addItem(item("Rename…") { $0.renaming = note })
-                menu.addItem(item("Move to Folder…") { $0.moving = note })
+                menu.addItem(item("Move to Folder…") { $0.moving = .init([note]) })
                 menu.addItem(item("Add Tag…") { $0.tagging = note })
                 menu.addItem(item("Show in Finder") { $0.showInFinder(note) })
                 menu.addItem(.separator())

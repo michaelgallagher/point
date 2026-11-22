@@ -177,8 +177,8 @@ struct ContentView: View {
         .sheet(isPresented: $model.isShowingShortcuts) {
             ShortcutsSheet()
         }
-        .sheet(item: $model.moving) { note in
-            MoveSheet(note: note)
+        .sheet(item: $model.moving) { moving in
+            MoveSheet(notes: moving.notes)
         }
         .sheet(item: $model.tagging) { note in
             AddTagSheet(note: note)
@@ -1266,20 +1266,21 @@ private struct TemplatePicker: View {
 private struct MoveSheet: View {
     @EnvironmentObject private var model: VaultModel
     @Environment(\.dismiss) private var dismiss
-    let note: Note
+    let notes: [Note]
     @State private var filter = ""
     @State private var selection: String?
 
-    /// Every folder ("" is the vault root), filtered as you type, except the note's own.
+    /// Every folder ("" is the vault root), filtered as you type, except the one the notes
+    /// are all in already.
     private var folders: [String] {
         let all = [""] + model.folderTree.noteCounts.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-        let current = FolderTree.folder(of: note.id)
-        return all.filter { $0 != current && (filter.isEmpty || $0.localizedCaseInsensitiveContains(filter)) }
+        let current = Set(notes.map { FolderTree.folder(of: $0.id) })
+        return all.filter { !(current.count == 1 && current.contains($0)) && (filter.isEmpty || $0.localizedCaseInsensitiveContains(filter)) }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Move “\(note.title)”")
+            Text(notes.count == 1 ? "Move “\(notes[0].title)”" : "Move \(notes.count) notes")
                 .font(.headline)
             TextField("Filter folders", text: $filter)
             // The rows' edges on the field's, their icons where its text starts.
@@ -1309,7 +1310,7 @@ private struct MoveSheet: View {
     private func move() {
         guard let selection else { return }
         dismiss()
-        model.move(noteID: note.id, toFolder: selection)
+        model.move(notes, toFolder: selection)
     }
 }
 

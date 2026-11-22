@@ -967,7 +967,7 @@ private struct PaneMenuButton: View {
             let bookmark = BlockMenuItem("Bookmark") { model.toggleBookmark(note.id) }
             bookmark.state = model.isBookmarked(note.id) ? .on : .off
             menu.addItem(bookmark)
-            menu.addItem(BlockMenuItem("Move File…") { model.moving = note })
+            menu.addItem(BlockMenuItem("Move File…") { model.moving = .init([note]) })
             // As File › Save Web Images to Vault: only where the note has pictures from the web.
             let saving = WebImageNotes.shared.saving.contains(note.id)
             let webImages = BlockMenuItem(saving ? "Saving Web Images…" : "Save Web Images to Vault") { model.store.saveWebImages(in: note) }

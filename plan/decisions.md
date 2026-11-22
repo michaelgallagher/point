@@ -138,7 +138,7 @@ A single flat list of notes won't scale, so the sidebar browses folders and tags
 | ⌘T | New tab |
 | ⇧⌘N | New folder, inside the folder being browsed (also "New Folder Inside…" on a folder's right-click menu) |
 | ⇧⌘T | Apply a template to the note (2 November 2026, branch `tabs-experiment`; was ⌥⌘T. The tab list it showed went, as the tabs are shown again) |
-| ⌘-click | Open a note or link in a new tab. On a bullet or checkbox: the colour menu |
+| ⌘-click | Open a link in a new tab. On a bullet or checkbox: the colour menu. In the note list, pick several notes, as in Finder (⇧-click picks a run); the list's menu, the File menu's Move to Folder, Mark as Read, bookmarks and Move to Trash, and a drag onto a folder then act on them all (22 November 2026; it opened the note in a new tab before, which right-click › Open in New Tab still does) |
 | ⌘, | Settings |
 
 All shortcuts will be remappable.
