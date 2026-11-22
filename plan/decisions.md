@@ -96,6 +96,7 @@ A single flat list of notes won't scale, so the sidebar browses folders and tags
 
 - A near-blank window with almost all interface chrome hidden.
 - Keeps a button to show the note list. A few other icons may stay; which ones is to be decided.
+- **Removed** (22 November 2026). Taking the top bar away fought the window's own title bar: on macOS 26 it draws a blur and line over whatever scrolls under it, and hiding them broke the bars' buttons or moved the window buttons. Hiding the sidebar (⌘S) already gives a single, quiet note, so focus mode wasn't worth the trouble.
 
 ## Search and connections
 

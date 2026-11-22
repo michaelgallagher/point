@@ -363,13 +363,12 @@ final class VaultModel: ObservableObject {
         split.notesSplitMinimums = { [weak self] in self?.notesSplitMinimums ?? (240, 240) }
         // Dragged closed or open: the sidebar's state follows, without resizing the window.
         split.collapsedByDragging = { [weak self] collapsed in
-            guard let self, !self.isFocused, self.showsNoteList == collapsed else { return }
+            guard let self, self.showsNoteList == collapsed else { return }
             self.setSidebarAutomatically(!collapsed)
         }
         split.onToggle = { [weak self] in
             guard let self else { return }
-            // As the system's button did: out of focus mode, else show or hide the sidebar.
-            if self.isFocused { self.isFocused = false } else { self.showsNoteList.toggle() }
+            self.showsNoteList.toggle()
         }
         return split
     }()
@@ -380,12 +379,12 @@ final class VaultModel: ObservableObject {
     /// notes keep their width, so this holds through a slide.
     @Published private(set) var notesAreNarrow = false
     /// The sidebar button gone, while the sidebar's hidden in narrow notes.
-    var hidesSidebarButtonForWidth: Bool { notesAreNarrow && !showsNoteList && !isFocused }
+    var hidesSidebarButtonForWidth: Bool { notesAreNarrow && !showsNoteList }
 
     /// A side's bar is narrow enough to give up its buttons: while the sidebar's hidden, below
     /// `TopBar.sidebarButtonHidingWidth`.
     func hidesBarButtons(sideWidth width: CGFloat) -> Bool {
-        !showsNoteList && !isFocused && isNarrow(sideWidth: width)
+        !showsNoteList && isNarrow(sideWidth: width)
     }
 
     /// Narrower than `TopBar.sidebarButtonHidingWidth`, a side of a split by its own width.
@@ -414,13 +413,13 @@ final class VaultModel: ObservableObject {
     /// The narrowest each side of a split can be: the first wider while the sidebar's hidden,
     /// to leave its bar room beside the window buttons and the sidebar button.
     var notesSplitMinimums: (main: CGFloat, side: CGFloat) {
-        let clearance = !showsNoteList || isFocused ? windowButtonsInset + TopBar.sidebarButtonWidth - TopBar.buttonSpacing : 0
+        let clearance = !showsNoteList ? windowButtonsInset + TopBar.sidebarButtonWidth - TopBar.buttonSpacing : 0
         return (240 + clearance, 240)
     }
 
     /// The narrowest the window can be: the notes' narrowest, plus the sidebar while it shows.
     var minimumWindowWidth: CGFloat {
-        SidebarSplitController.minimumNotesWidth + (showsNoteList && !isFocused ? sidebarWidth : 0)
+        SidebarSplitController.minimumNotesWidth + (showsNoteList ? sidebarWidth : 0)
     }
 
     /// While the sidebar slides in or out (see `SidebarSplitController.slidingChanged`). Kept
@@ -482,7 +481,7 @@ final class VaultModel: ObservableObject {
         let limit = max(CGFloat(store.sidebarAutoHideWidth), SidebarSplitController.minimumNotesWidth + sidebarWidth)
         defer { lastWidth = width }
         // Not while the window is resizing itself to show or hide the sidebar.
-        guard store.autoHidesSidebar, !isFocused, !sidebarSplit.isResizing else { return }
+        guard store.autoHidesSidebar, !sidebarSplit.isResizing else { return }
         if lastWidth > limit, width <= limit, showsNoteList {
             setSidebarAutomatically(false)
             sidebarAutoHidden = true
@@ -1177,10 +1176,6 @@ final class VaultModel: ObservableObject {
 
     // MARK: Window
 
-    /// Focus mode: just the text, with all other interface hidden.
-    @Published var isFocused = false {
-        didSet { updateSidebarButton() }
-    }
     /// Whether the sidebar is showing (⌘S, or a two-finger swipe if turned on in Settings,
     /// hides and shows it).
     /// Remembered, so new windows open the way the last one was left: hiding the sidebar
@@ -1193,7 +1188,7 @@ final class VaultModel: ObservableObject {
             if !isAutoToggling { sidebarAutoHidden = false } // Shown or hidden by hand.
             // Sliding from now, before anything is laid out for the change (the split view says
             // when it has finished; in case it doesn't animate at all, not for long).
-            if !isAutoToggling && !isFocused {
+            if !isAutoToggling {
                 sidebarSlide.isSliding = true
                 slideToggles += 1
                 let toggle = slideToggles
@@ -1334,7 +1329,6 @@ final class VaultModel: ObservableObject {
 
     /// Puts the cursor in the sidebar's filter field, showing the sidebar if it's hidden.
     func focusSearch() {
-        isFocused = false
         if browsingStyle == .twoColumns, !showsFilterTools {
             setFilterTools(shown: true) // Which focuses the field as it appears.
             if showsNoteList { return }
@@ -1382,7 +1376,7 @@ final class VaultModel: ObservableObject {
     /// Shows a folder (clicked in a side's path): in the sidebar if it's showing, otherwise in
     /// the explorer, with the note open there highlighted.
     func reveal(folder path: String) {
-        if showsNoteList && !isFocused {
+        if showsNoteList {
             browse(.folder(path))
             return
         }
@@ -1400,7 +1394,7 @@ final class VaultModel: ObservableObject {
     func search(tag: String) {
         // With the sidebar hidden, show the tag's notes in the explorer rather than bringing
         // the sidebar back.
-        if !showsNoteList || isFocused {
+        if !showsNoteList {
             explorerPlace = .tag(tag)
             explorerInNotes = true
             explorerNote = nil

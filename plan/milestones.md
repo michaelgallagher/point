@@ -24,7 +24,7 @@ Each milestone ends with a build for Mike to try and review.
 - Wiki links with autocomplete, tags, the frontmatter strip, daily notes and templates.
 - Note list sorting and optional date and tag details.
 - External change handling (Obsidian, iCloud) and conflict surfacing.
-- Raw toggle, focus mode (hide all chrome), back and forward, link pasting.
+- Raw toggle, focus mode (hide all chrome; removed 22 November 2026, see decisions), back and forward, link pasting.
 
 ## M3 — Search and palette
 - Index, fuzzy and word-form search, filters.

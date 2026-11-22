@@ -348,9 +348,6 @@ struct AppCommands: Commands {
                 .shortcut(.showMarkdown, in: shortcuts)
                 .disabled(model == nil)
             Toggle("Show Word Count", isOn: $store.showsWordCount)
-            Toggle("Focus", isOn: bind(\.isFocused, false))
-                .shortcut(.focus, in: shortcuts)
-                .disabled(model == nil)
             Divider()
             Button("Reload Notes") { Task { await store.reload() } }
                 .shortcut(.reloadNotes, in: shortcuts)

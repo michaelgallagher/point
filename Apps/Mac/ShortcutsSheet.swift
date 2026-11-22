@@ -44,7 +44,6 @@ struct ShortcutsSheet: View {
         ]),
         ("Window", [
             (.commands([.toggleNoteList]), "Show or hide the sidebar"),
-            (.commands([.focus]), "Focus"),
             (.commands([.showMarkdown]), "Show Markdown"),
             (.commands([.biggerText, .smallerText]), "Bigger, smaller text"),
             (.commands([.reloadNotes]), "Reload notes"),

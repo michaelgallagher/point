@@ -27,7 +27,7 @@ import SwiftUI
 /// wider than the screen, it takes the screen's width and the notes give up the rest, which
 /// they get back when the sidebar hides (and a window that can't shrink below its minimum
 /// gives the notes the difference until the sidebar shows again). In full screen, zoomed to
-/// fill the screen, in focus mode, or when narrowing the window hid it, the window keeps its
+/// fill the screen, or when narrowing the window hid it, the window keeps its
 /// size and the notes take the space.
 ///
 /// Every resize is worked out from the sidebar's real width at the time, not a remembered
@@ -48,7 +48,7 @@ final class SidebarSplitController: NSSplitViewController {
     private lazy var sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarContainer)
     /// The sidebar button, drawn by SwiftUI, placed by this.
     private lazy var sidebarButton: NSHostingView<SidebarButton> = {
-        let button = NSHostingView(rootView: SidebarButton(isFocusMode: false, action: { [weak self] in self?.sidebarButtonPressed() }))
+        let button = NSHostingView(rootView: SidebarButton(action: { [weak self] in self?.sidebarButtonPressed() }))
         button.sizingOptions = []
         // No safe area: in the sidebar's pane, the title bar's 52 points were one, and the
         // button (made to ignore it) drew 8 points above where it was placed.
@@ -78,23 +78,7 @@ final class SidebarSplitController: NSSplitViewController {
     /// Whether the sidebar is sliding in or out: SwiftUI doesn't lay anything out again during
     /// the window's animation, so views that would change on the way hold still till it ends.
     var slidingChanged: ((Bool) -> Void)?
-    /// Focus mode: the window's top row goes (the toolbar's band, its blur and line), the page
-    /// running to the top, and the sidebar button becomes the way out, in the same place beside
-    /// the window buttons.
-    var isFocusMode = false {
-        didSet {
-            guard isFocusMode != oldValue else { return }
-            sidebarButton.rootView = SidebarButton(isFocusMode: isFocusMode) { [weak self] in self?.sidebarButtonPressed() }
-            if let window = view.window {
-                // The toolbar stays, so the window buttons keep their place; its band goes.
-                window.titlebarAppearsTransparent = isFocusMode
-                window.titlebarSeparatorStyle = isFocusMode ? .none : .automatic
-            }
-            updateSidebarButtonVisibility()
-            placeSidebarButton()
-        }
-    }
-    /// Shows or hides the sidebar, or in focus mode leaves it (see `onToggle`).
+    /// Shows or hides the sidebar (see `onToggle`).
     private func sidebarButtonPressed() { toggleSidebar(nil) }
     /// Fades the sidebar button out (or back in): while the sidebar's hidden, in notes too
     /// narrow to spare its room (see `TopBar.sidebarButtonHidingWidth`). On the sidebar's own
@@ -112,11 +96,9 @@ final class SidebarSplitController: NSSplitViewController {
             }
         }
     }
-    /// Hidden once faded out, so it can't be clicked where it can't be seen (never in focus
-    /// mode, where it's the way out).
+    /// Hidden once faded out, so it can't be clicked where it can't be seen.
     private func updateSidebarButtonVisibility() {
-        sidebarButton.isHidden = !isFocusMode && fadesSidebarButton && sidebarButton.alphaValue == 0
-        if isFocusMode { sidebarButton.alphaValue = 1 }
+        sidebarButton.isHidden = fadesSidebarButton && sidebarButton.alphaValue == 0
     }
     /// The sidebar button, in place of the split view's own toggle, so it shows and hides the
     /// sidebar as ⌘S does.
@@ -878,19 +860,10 @@ final class SidebarContainer: NSViewController {
 
 /// The sidebar button: a round glass button, as the system's was.
 struct SidebarButton: View {
-    /// In focus mode, it leaves focus mode instead.
-    let isFocusMode: Bool
     let action: () -> Void
 
     var body: some View {
-        Group {
-            if isFocusMode {
-                BarButton("Leave focus", systemImage: "arrow.down.right.and.arrow.up.left",
-                          help: "Leave focus (\(ShortcutStore.shared.label(for: .focus) ?? "Focus"))", fontSize: TopBar.sidebarIconFontSize, action: action)
-            } else {
-                BarButton("Sidebar", systemImage: "sidebar.left", help: "Show or hide the sidebar (⌘S)", fontSize: TopBar.sidebarIconFontSize, action: action)
-            }
-        }
-        .ignoresSafeArea() // Placed exactly, in the title bar.
+        BarButton("Sidebar", systemImage: "sidebar.left", help: "Show or hide the sidebar (⌘S)", fontSize: TopBar.sidebarIconFontSize, action: action)
+            .ignoresSafeArea() // Placed exactly, in the title bar.
     }
 }

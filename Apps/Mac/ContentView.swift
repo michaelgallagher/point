@@ -17,7 +17,7 @@ struct ContentView: View {
             // Two columns start at half as wide again as one column, split 40/60 (see `sidebar`).
             widths: twoColumns ? (300, 360, 760) : (180, 240, 400),
             widthKey: twoColumns ? "sidebarWidth.twoColumns" : "sidebarWidth.singleColumn",
-            showsSidebar: model.showsNoteList && !model.isFocused
+            showsSidebar: model.showsNoteList
         )
         .ignoresSafeArea(.container, edges: .top)
     }
@@ -77,7 +77,7 @@ struct ContentView: View {
     /// mode, when the window's width hid it, or where the window can't resize, the notes take
     /// the space instead.
     private func updateSidebar(resizingWindow: Bool) {
-        model.sidebarSplit.setSidebar(shown: model.showsNoteList && !model.isFocused, resizingWindow: resizingWindow)
+        model.sidebarSplit.setSidebar(shown: model.showsNoteList, resizingWindow: resizingWindow)
     }
 
     /// The note being worked on (in the active pane), else the vault's name.
@@ -102,13 +102,9 @@ struct ContentView: View {
                 .onChange(of: model.searchFocusRequest) { _ in
                     if !model.showsNoteList { model.showsNoteList = true } // The filter needs the list.
                 }
-                .onChange(of: model.isFocused) { focused in
-                    model.sidebarSplit.isFocusMode = focused
-                    updateSidebar(resizingWindow: false)
-                }
                 // Shown or hidden by hand, the window widens or narrows instead of the notes.
                 .onChange(of: model.showsNoteList) { _ in
-                    updateSidebar(resizingWindow: !model.lastToggleWasAutomatic && !model.isFocused)
+                    updateSidebar(resizingWindow: !model.lastToggleWasAutomatic)
                 }
             }
         }

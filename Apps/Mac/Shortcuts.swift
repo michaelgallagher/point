@@ -63,7 +63,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
     case explorer, runCommand, searchVault, searchInList, findInNote
     // View
     case toggleNoteList, biggerText, smallerText, actualSize, split, moveTabToOtherSide, nextTab, previousTab,
-         switchToTab, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, lastTab, showMarkdown, focus, reloadNotes
+         switchToTab, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, lastTab, showMarkdown, reloadNotes
     // Go
     case enclosingFolder, topLevel, back, forward
     // Format
@@ -86,7 +86,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .explorer, .runCommand, .searchVault, .searchInList, .findInNote: "Edit"
         case .toggleNoteList, .biggerText, .smallerText, .actualSize, .split, .moveTabToOtherSide, .nextTab, .previousTab,
              .switchToTab, .tab1, .tab2, .tab3, .tab4, .tab5, .tab6, .tab7, .tab8, .lastTab,
-             .showMarkdown, .focus, .reloadNotes: "View"
+             .showMarkdown, .reloadNotes: "View"
         case .enclosingFolder, .topLevel, .back, .forward: "Go"
         case .highlightOrange, .highlightRed, .highlightYellow, .highlightGreen, .highlightTeal, .highlightPurple,
              .highlightGrey, .highlightBrown, .removeHighlight: "Highlight List Item"
@@ -135,7 +135,6 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .tab1, .tab2, .tab3, .tab4, .tab5, .tab6, .tab7, .tab8: "Tab \(tabNumber ?? 0)"
         case .lastTab: "Last Tab"
         case .showMarkdown: "Show Markdown"
-        case .focus: "Focus"
         case .reloadNotes: "Reload Notes"
         case .enclosingFolder: "Enclosing Folder"
         case .topLevel: "Top Level"
@@ -230,7 +229,6 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .tab1, .tab2, .tab3, .tab4, .tab5, .tab6, .tab7, .tab8: Shortcut("\(tabNumber ?? 0)", option: true)
         case .lastTab: Shortcut("9", option: true)
         case .showMarkdown: Shortcut("m", shift: true)
-        case .focus: Shortcut("\\", shift: true)
         case .reloadNotes: Shortcut("r")
         case .enclosingFolder: Shortcut("up")
         case .back: Shortcut("[")

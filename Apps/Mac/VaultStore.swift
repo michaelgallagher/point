@@ -2414,7 +2414,7 @@ final class VaultStore: ObservableObject {
         },
         isNoteListShowing: { [weak self] in self?.activeWindow?.showsNoteList ?? true },
         onSwipe: { [weak self] toTheLeft in
-            guard let window = self?.activeWindow, !window.isFocused, window.showsNoteList == toTheLeft else { return }
+            guard let window = self?.activeWindow, window.showsNoteList == toTheLeft else { return }
             window.showsNoteList = !toTheLeft
         }
     )

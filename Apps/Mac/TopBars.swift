@@ -185,7 +185,7 @@ struct PaneTabBar: View {
 
     /// With the sidebar hidden, the first side's tabs start past the window buttons and the
     /// sidebar button.
-    private var startsAtWindowEdge: Bool { paneIndex == 0 && (!model.showsNoteList || model.isFocused) }
+    private var startsAtWindowEdge: Bool { paneIndex == 0 && !model.showsNoteList }
 
     /// The tabs' row: past the window buttons and the sidebar button when the sidebar is
     /// hidden; otherwise just past the sidebar's edge or the divider.

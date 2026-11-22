@@ -19,43 +19,35 @@ struct PaneView: View {
     var body: some View {
         if let index = model.paneIndex(paneID) {
             let pane = model.panes[index]
-            if model.isFocused {
-                // Below the title bar's row, not under it: the row draws its own blur and line
-                // over a scroll view beneath it, and in focus mode there's no bar to have them.
-                page(pane, index: index, underBar: 0)
-                    .padding(.top, model.topBarHeight)
-                    .background(TopBar.barColor)
-            } else {
-                let linksNote = linksPanelNote(pane)
-                // With the links panel open, this side is narrower, its bar and all, so the
-                // note is laid out at its width from the start, even moving from note to note.
-                HStack(spacing: 0) {
-                    if #available(macOS 26, *) {
-                        page(pane, index: index, underBar: TopBar.cover(for: pane, in: model))
-                            .overlay(alignment: .top) { PaneTabBar(pane: pane, paneIndex: index) }
-                    } else {
-                        VStack(spacing: 0) {
-                            PaneTabBar(pane: pane, paneIndex: index)
-                            page(pane, index: index, underBar: 0)
-                        }
-                    }
-                    if let linksNote {
-                        LinksSidePanel(connections: model.connections(for: linksNote), paneID: paneID, roomBeside: paneWidth)
-                            .transition(.move(edge: .trailing))
+            let linksNote = linksPanelNote(pane)
+            // With the links panel open, this side is narrower, its bar and all, so the
+            // note is laid out at its width from the start, even moving from note to note.
+            HStack(spacing: 0) {
+                if #available(macOS 26, *) {
+                    page(pane, index: index, underBar: TopBar.cover(for: pane, in: model))
+                        .overlay(alignment: .top) { PaneTabBar(pane: pane, paneIndex: index) }
+                } else {
+                    VStack(spacing: 0) {
+                        PaneTabBar(pane: pane, paneIndex: index)
+                        page(pane, index: index, underBar: 0)
                     }
                 }
-                .clipped()
-                .background(GeometryReader { geometry in
-                    Color.clear
-                        .onAppear {
-                            paneWidth = geometry.size.width
-                            model.paneFrames[paneID] = geometry.frame(in: .global)
-                        }
-                        .onChange(of: geometry.size.width) { paneWidth = $0 }
-                        .onChange(of: geometry.frame(in: .global)) { model.paneFrames[paneID] = $0 }
-                })
-                .animation(LinksSidePanel.animation, value: linksNote != nil)
+                if let linksNote {
+                    LinksSidePanel(connections: model.connections(for: linksNote), paneID: paneID, roomBeside: paneWidth)
+                        .transition(.move(edge: .trailing))
+                }
             }
+            .clipped()
+            .background(GeometryReader { geometry in
+                Color.clear
+                    .onAppear {
+                        paneWidth = geometry.size.width
+                        model.paneFrames[paneID] = geometry.frame(in: .global)
+                    }
+                    .onChange(of: geometry.size.width) { paneWidth = $0 }
+                    .onChange(of: geometry.frame(in: .global)) { model.paneFrames[paneID] = $0 }
+            })
+            .animation(LinksSidePanel.animation, value: linksNote != nil)
         }
     }
 
