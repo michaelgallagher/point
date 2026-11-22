@@ -4,9 +4,9 @@ import EditorKit
 import SwiftUI
 import VaultKit
 
-/// ⌘F, Search Vault (mode `.search`): one place to open notes and folders, search tags and run
-/// commands, all from the keyboard. ⇧⌘E, Run Command (mode `.commands`): only the commands.
-/// ⌘E, Browse Folders (mode `.browse`): the vault's folders, tags and notes, a place at a time
+/// ⌘E, Search Vault (mode `.search`): one place to open notes and folders, search tags and run
+/// commands (only commands after ">"), all from the keyboard. Run Command (mode `.commands`):
+/// only the commands. Browse Folders (mode `.browse`): the vault's folders, tags and notes, a place at a time
 /// (see `PaletteBrowse`); a folder picked in Search Vault opens there too.
 /// ⌃Tab: only the open tabs, in number order, to switch between them. Letting go of ⌃ goes to
 /// the one highlighted, which starts as the tab shown before this.
@@ -152,7 +152,7 @@ struct CommandPalette: View {
             if isSwitchingTabs, model.isHoldingTabSwitch { close() }
         }
         .onChange(of: model.startPageRequest.count) { _ in
-            // ⌘E or ⌘F on a start page switches the page itself.
+            // Search Vault or Browse Folders on a start page switches the page itself.
             guard isPage else { return }
             if model.startPageRequest.mode == .browse { browsePlace = model.browsePlace }
             setPageBrowses(model.startPageRequest.mode == .browse)

@@ -251,8 +251,9 @@ struct AppCommands: Commands {
         }
         // No divider first: the menu already has one between groups, and two showed a gap.
         CommandGroup(after: .textEditing) {
-            // The same in every layout, both in the palette: ⌘F, Search Vault, to search, open notes
-            // and run commands; ⌘E, Browse Folders, to browse folders and tags a level at a time.
+            // One palette in every layout: ⌘E, Search Vault, to find notes, folders and tags and run
+            // commands. Run Command (only commands) and Browse Folders open it a particular way,
+            // with no keys of their own unless set in Settings.
             // (The shortcut IDs keep their old names, so shortcuts changed in Settings stay put.)
             Button("Search Vault") { model?.togglePalette(.search) }
                 .shortcut(.explorer, in: shortcuts)

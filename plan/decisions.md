@@ -120,10 +120,9 @@ A single flat list of notes won't scale, so the sidebar browses folders and tags
 
 | Keys | Action |
 |---|---|
-| ⌘F | Search Vault: the palette to search notes, folders and tags, and use commands; a folder picked there is browsed in the palette |
-| ⌘E | Browse Folders: the palette a place at a time, the vault's folders, tags and notes, ← and → to go up and in (22 November 2026; was the two-column Explorer) |
+| ⌘E | Search Vault: the one palette, to find notes, folders and tags and use commands (`>` for only commands); a folder picked there is browsed in it, ← and → to go up and in (22 November 2026; was ⌘F, with Browse Folders on ⌘E and Run Command on ⇧⌘E) |
+| ⌘F | Find in Note (22 November 2026; was ⌥⌘F) |
 | ⇧⌘F | The note list's search field, in the sidebar layouts (branch `minimalist`; was ⌘F) |
-| ⌥⌘F | Find within the note |
 | ⌘B / ⌘I / ⌘U | Bold / italic / highlight |
 | ⌘1 … ⌘6 | Heading level |
 | ⌘K | Link selected text |

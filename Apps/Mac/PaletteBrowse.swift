@@ -2,7 +2,7 @@ import IndexKit
 import SwiftUI
 import VaultKit
 
-/// Browsing folders in the palette (Browse Folders, ⌘E; or a folder picked in Search Vault):
+/// Browsing folders in the palette (Browse Folders, or a folder picked in Search Vault):
 /// one place at a time, as one list. At the vault's top, its pinned places, types, folders and
 /// tags, then the notes at its top level; in a folder, its folders then its notes; in a tag,
 /// the tags under it then its notes. Return (or →) goes into a place and opens a note; ← (or ⌫

@@ -1258,8 +1258,8 @@ final class VaultModel: ObservableObject {
             if !isPaletteShown { endTabSwitch() }
         }
     }
-    /// Whether the palette searches and runs commands (Search Vault, ⌘F) or browses folders and
-    /// tags (Browse Folders, ⌘E).
+    /// Whether the palette searches and runs commands (Search Vault, ⌘E) or browses folders and
+    /// tags (Browse Folders), and so on.
     @Published var paletteMode = PaletteMode.search
     /// Text to start the palette with, such as a tag clicked in a note.
     @Published var paletteSeed: String?
@@ -1267,10 +1267,11 @@ final class VaultModel: ObservableObject {
     /// there next time.
     var browsePlace: SidebarPlace = .allNotes
     var browseNote: Note.ID?
-    /// ⌘E or ⌘F pressed while a start page is showing: the page switches to that mode.
+    /// Search Vault or Browse Folders chosen while a start page is showing: the page switches
+    /// to that mode.
     @Published private(set) var startPageRequest: (mode: PaletteMode, count: Int) = (.search, 0)
 
-    /// Searching and commands (Search Vault, ⌘F), only commands (Run Command, ⇧⌘E), browsing folders and tags (Browse Folders, ⌘E),
+    /// Searching and commands (Search Vault, ⌘E), only commands (Run Command), browsing folders and tags (Browse Folders),
     /// only the open tabs (⌃Tab), or the folders to move the note to (Move Note).
     enum PaletteMode { case search, commands, browse, tabs, moveNote, applyTemplate }
     /// ⌃Tab pressed again while the tabs palette shows: it moves to the next tab down.
@@ -1358,8 +1359,8 @@ final class VaultModel: ObservableObject {
             }
             return
         }
-        // On a start page, ⌘E and ⌘F switch the page itself between searching and
-        // exploring, rather than opening a palette on top of it. Run Command has no page.
+        // On a start page, Search Vault and Browse Folders switch the page itself between
+        // searching and browsing, rather than opening a palette on top of it. Run Command has no page.
         if selection == nil, !isPaletteShown, mode != .commands {
             startPageRequest = (mode, startPageRequest.count + 1)
             return
@@ -1458,7 +1459,7 @@ final class VaultModel: ObservableObject {
 
     /// What's typed in the sidebar's filter field: only what's listed whose name contains it
     /// stays (in two columns, the notes). Cleared on going to another place. Searching the
-    /// whole vault is the palette's (⌘F). Kept in `filterTools`, watched by the list alone, so
+    /// whole vault is the palette's (⌘E). Kept in `filterTools`, watched by the list alone, so
     /// a keystroke doesn't redraw the rest of the window.
     var noteFilter: String {
         get { filterTools.text }

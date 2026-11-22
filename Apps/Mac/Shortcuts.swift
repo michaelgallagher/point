@@ -213,11 +213,11 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .closeTab: Shortcut("w")
         case .toggleRead: Shortcut("u", shift: true) // As in Mail.
         case .showInFinder: Shortcut("r", option: true)
-        case .explorer: Shortcut("f")
-        case .runCommand: Shortcut("e", shift: true)
-        case .searchVault: Shortcut("e")
+        // One palette, on ⌘E, finds and does everything (commands too, after ">"), so ⌘F,
+        // the easier key, finds in the note (22 November 2026).
+        case .explorer: Shortcut("e")
         case .searchInList: Shortcut("f", shift: true)
-        case .findInNote: Shortcut("f", option: true)
+        case .findInNote: Shortcut("f")
         case .toggleNoteList: Shortcut("s")
         case .biggerText: Shortcut("=") // The ⌘+ key, without Shift.
         case .smallerText: Shortcut("-")
