@@ -67,7 +67,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
     // Go
     case enclosingFolder, topLevel, back, forward
     // Format
-    case bold, italic, highlight, strikethrough, inlineCode, bodyText, heading1, heading2, heading3, heading4,
+    case formatMenu, bold, italic, highlight, strikethrough, inlineCode, bodyText, heading1, heading2, heading3, heading4,
          heading5, heading6, bulletList, numberedList, checklist, blockQuote, indent, outdent, moveLineUp, moveLineDown, fold,
          unfold, addCursorAbove, addCursorBelow, addNextMatch, addLink, insertTable, insertList, addProperty
     // Format › Highlight List Item, by colour name (see `MarkdownTextView.colourName`).
@@ -141,6 +141,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .topLevel: "Top Level"
         case .back: "Back"
         case .forward: "Forward"
+        case .formatMenu: "Show Formatting Menu"
         case .bold: "Bold"
         case .italic: "Italic"
         case .highlight: "Highlight"
@@ -234,6 +235,8 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .enclosingFolder: Shortcut("up")
         case .back: Shortcut("[")
         case .forward: Shortcut("]")
+        // ⌘/ is this list of shortcuts.
+        case .formatMenu: Shortcut("j")
         case .bold: Shortcut("b")
         case .italic: Shortcut("i")
         case .highlight: Shortcut("u")

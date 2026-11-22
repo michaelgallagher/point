@@ -11,6 +11,9 @@ struct FormatCommands: Commands {
 
     var body: some Commands {
         CommandMenu("Format") {
+            // The commands below, in a popup under the selection, found by typing.
+            item(.formatMenu, #selector(MarkdownTextView.showFormatMenu(_:)))
+            Divider()
             item(.bold, #selector(MarkdownTextView.toggleBold(_:)))
             item(.italic, #selector(MarkdownTextView.toggleItalic(_:)))
             item(.highlight, #selector(MarkdownTextView.toggleHighlight(_:)))

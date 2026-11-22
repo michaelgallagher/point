@@ -573,6 +573,26 @@ private struct EditorView: NSViewRepresentable {
             }
             return action.flatMap { ShortcutStore.shared.label(for: $0) }
         }
+        // The formatting menu shows each command's shortcut, as the Format menu has it.
+        textView.formatShortcut = { action in
+            let actions: [Selector: ShortcutAction] = [
+                #selector(MarkdownTextView.toggleBold(_:)): .bold,
+                #selector(MarkdownTextView.toggleItalic(_:)): .italic,
+                #selector(MarkdownTextView.toggleHighlight(_:)): .highlight,
+                #selector(MarkdownTextView.toggleStrikethrough(_:)): .strikethrough,
+                #selector(MarkdownTextView.toggleCode(_:)): .inlineCode,
+                #selector(MarkdownTextView.addLink(_:)): .addLink,
+                #selector(MarkdownTextView.makeBodyText(_:)): .bodyText,
+                #selector(MarkdownTextView.makeHeading1(_:)): .heading1,
+                #selector(MarkdownTextView.makeHeading2(_:)): .heading2,
+                #selector(MarkdownTextView.makeHeading3(_:)): .heading3,
+                #selector(MarkdownTextView.toggleBulletList(_:)): .bulletList,
+                #selector(MarkdownTextView.toggleNumberedList(_:)): .numberedList,
+                #selector(MarkdownTextView.toggleChecklist(_:)): .checklist,
+                #selector(MarkdownTextView.toggleBlockQuote(_:)): .blockQuote,
+            ]
+            return actions[action].flatMap { ShortcutStore.shared.label(for: $0) }
+        }
         // The commands that need the vault: a template, a property, a link to a daily note.
         textView.performSlashCommand = { [weak model, weak textView] command in
             guard let model, let textView else { return false }

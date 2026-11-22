@@ -51,6 +51,7 @@ struct ShortcutsSheet: View {
             (.commands([.keyboardShortcuts]), "This list"),
         ]),
         ("Formatting", [
+            (.commands([.formatMenu]), "Formatting menu: type to find a style, Return to apply it"),
             (.commands([.bold, .italic, .highlight]), "Bold, italic, highlight"),
             (.commands([.strikethrough]), "Strikethrough"),
             (.commands([.inlineCode]), "Inline code"),
