@@ -78,6 +78,14 @@ struct ListTable: NSViewRepresentable {
         return scroll
     }
 
+    /// The room it's given: its height is set from outside (see `ListPanel`), and its width is
+    /// the list's. Asked as the note scrolls (SwiftUI lays a list in a note out again as it
+    /// moves), AppKit's own answer, the scroll view's fitting size, cost a pass of Auto Layout
+    /// each time.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? nsView.frame.width, height: proposal.height ?? nsView.frame.height)
+    }
+
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self
         context.coordinator.table?.allowsColumnReordering = reorder != nil
@@ -432,8 +440,13 @@ final class ListCellView: NSTableCellView {
 final class PassThroughScrollView: NSScrollView {
     var onLayout: (() -> Void)?
 
+    /// Straight to the note's own scroll view, the next one out. Through the responder chain,
+    /// each event went by way of SwiftUI's view that holds the list, which handled it as its
+    /// own on the way.
     override func scrollWheel(with event: NSEvent) {
-        nextResponder?.scrollWheel(with: event)
+        var view = superview
+        while let current = view, !(current is NSScrollView) { view = current.superview }
+        if let outer = view { outer.scrollWheel(with: event) } else { nextResponder?.scrollWheel(with: event) }
     }
 
     override func layout() {
