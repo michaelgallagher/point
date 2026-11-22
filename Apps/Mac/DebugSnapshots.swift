@@ -553,15 +553,21 @@ enum DebugSnapshots {
         }
     }
 
-    /// `-PointEditListBlock edit|undo|insert`, with `-PointScrollNote`: after 3 seconds, in
-    /// that note, changes its first `list` block as its filters and headings would (takes away
-    /// its first condition, sorts by title, swaps its first two columns); or does that and
-    /// undoes it; or puts a new list in at the note's end, which opens its filters.
+    /// `-PointEditListBlock edit|undo|insert|table`, with `-PointScrollNote`: after 3 seconds,
+    /// in that note, changes its first `list` block as its filters and headings would (takes
+    /// away its first condition, sorts by title, swaps its first two columns); or does that and
+    /// undoes it; or puts a new list in at the note's end, which opens its filters; or makes
+    /// its first `list` block a table, as Convert to table does.
     private static func editListBlockIfAsked(for model: VaultModel) {
         guard let step = UserDefaults.standard.string(forKey: "PointEditListBlock"),
               let id = UserDefaults.standard.string(forKey: "PointScrollNote") else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
             guard let session = EditorSession.live.allObjects.first(where: { $0.note.id == id }) else { return }
+            if step == "table", let textView = session.debugTextView, let body = textView.listBlockBody(at: 0),
+               let list = ListDefinition(block: (textView.string as NSString).substring(with: body)) {
+                Task { await ListBlockEmbed.convertToTable(list, at: 0, ids: model.store.noteIDs(matching: list.query), session: session, store: model.store) }
+                return
+            }
             session.debugEditListBlock(step)
             Trace.mark("list block \(step) in \(id)")
         }

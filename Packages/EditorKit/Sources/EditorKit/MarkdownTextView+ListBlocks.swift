@@ -22,6 +22,17 @@ extension MarkdownTextView {
         return true
     }
 
+    /// Replaces the whole of the note's `index`th `list` block, its fences too, with `text`
+    /// (the list's notes as a table, say), as one undoable edit named `actionName`, the cursor
+    /// after it. False if there's no such block.
+    @discardableResult
+    public func replaceListBlock(at index: Int, with text: String, actionName: String) -> Bool {
+        guard let range = ListBlocks.block(at: index, tokens: tokens, text: string as NSString) else { return false }
+        guard replace(range, with: text, select: NSRange(location: range.location + (text as NSString).length, length: 0)) else { return false }
+        undoManager?.setActionName(actionName)
+        return true
+    }
+
     /// Puts in an empty `list` block (a list of every note) on lines of its own, with a blank
     /// line before and after it, and the cursor after it; then tells `onListBlockInserted`
     /// which block of the note it is, for the app to open its filters.

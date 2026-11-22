@@ -109,6 +109,23 @@ struct ListBlockTests {
         _ = window
     }
 
+    @Test func replacesAWholeBlockFencesAndAll() throws {
+        let (textView, _) = editor(note)
+        let window = textView.window
+        let table = "| Title |\n| --- |\n| [[A]] |"
+        #expect(textView.replaceListBlock(at: 0, with: table, actionName: "Convert to Table"))
+        #expect(textView.string == "Some notes.\n\n\(table)\n\nMore notes.\n\n```list\n```\n")
+        #expect(textView.selectedRange() == NSRange(location: ("Some notes.\n\n" + table as NSString).length, length: 0))
+        // The other block is now the first.
+        #expect(textView.replaceListBlock(at: 0, with: table, actionName: "Convert to Table"))
+        #expect(textView.string.hasSuffix("More notes.\n\n\(table)\n"))
+        #expect(!textView.replaceListBlock(at: 0, with: table, actionName: "Convert to Table"))
+        textView.undoManager?.undo()
+        textView.undoManager?.undo()
+        #expect(textView.string == note)
+        _ = window
+    }
+
     /// Puts a list in with the cursor at `|`, and gives the text with the cursor marked.
     private func inserting(_ marked: String) -> (String, [Int]) {
         let at = (marked as NSString).range(of: "|").location

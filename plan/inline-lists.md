@@ -57,6 +57,16 @@ And still more notes.
 - **Insert List** (palette, and the Format menu, under Insert Table; no shortcut until one's set): puts an empty `list` block on lines of its own after the cursor's line, with a blank line before and after, the cursor after it, and opens its filters window. The list starts as all notes, as New List does with nothing being browsed. (Planned as "New list in this note"; named to sit beside Insert Table.)
 - **On the iPhone,** the block shows its list, read only, as embeds are. Show all unfolds it in place there too. Typing in the block's lines, with Markdown showing, still works.
 
+## Made into a table
+
+22 November 2026. Branch `list-to-table`.
+
+- **Convert to table,** beside Sorted by and Columns on a `list` block, on the Mac: the block, fences and all, becomes a Markdown table of the notes it finds now, all of them, not only those shown. One undoable edit ("Convert to Table"), the cursor after the table.
+- **The table** is headed Title, then the block's columns, named as its headings are. Each note is a link (`[[Apples]]`, or `[[2026-11-06-questions|Questions?]]` for a note Point named), so the table still leads to its notes. Values are as the list shows them, dates as the Mac writes them (4 Mar 2019), except that links stay links. Pipes are escaped (`\|`) and line breaks made spaces, so nothing splits a cell; padded to line up when it fits in 80 columns, as Point writes tables.
+- **It's a copy,** not a list: it doesn't change as the notes do. Undo brings the list back.
+- **Not for list notes** or `![[…]]` embeds of them for now; a list note is a list on purpose. Not on the iPhone, which can't change lists yet.
+- **Tried:** an EditorKit test for replacing a whole block and undoing it; the debug build on a test vault (`-PointEditListBlock table`): the file after, with a link value, a value with a pipe, dates, and a note the conditions leave out.
+
 ## Not now
 
 - **Moving a block into a list note of its own** (and leaving `![[…]]` in its place). Perhaps later.

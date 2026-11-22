@@ -1,4 +1,6 @@
+import AppKit
 import IndexKit
+import MarkdownKit
 import SwiftUI
 import VaultKit
 
@@ -86,6 +88,8 @@ struct ListFilters: View {
     @ObservedObject var model: VaultModel
     @ObservedObject var store: VaultStore
     let write: (ListDefinition) -> Void
+    /// Writes the list's notes into the note as a table, in its place: a `list` block's.
+    var convertToTable: (() -> Void)? = nil
     /// The filters window, while it's open: with a new condition to fill in, or not.
     @State private var sheet: SheetTarget?
     /// The properties the list's notes use, most used first, once the index has said: what its
@@ -131,6 +135,14 @@ struct ListFilters: View {
             HStack(spacing: 14) {
                 sortMenu
                 columnsMenu
+                if let convertToTable {
+                    Button(action: convertToTable) {
+                        Label("Convert to table", systemImage: "doc.text")
+                    }
+                    .buttonStyle(.plain)
+                    .fixedSize()
+                    .help("Write these notes into the note as a table, in the list's place")
+                }
             }
             .frame(height: Self.menusHeight)
         }
@@ -410,7 +422,8 @@ struct ListBlockEmbed: View {
         let id = Self.listID(note: session.note.id, index: index)
         let found = store.noteIDs(matching: list.query)
         VStack(alignment: .leading, spacing: Self.filtersGap) {
-            ListFilters(list: list, listID: id, model: model, store: store, write: write)
+            ListFilters(list: list, listID: id, model: model, store: store, write: write,
+                        convertToTable: { Task { await Self.convertToTable(list, at: index, ids: found ?? lastIDs, session: session, store: store) } })
                 .background(GeometryReader { geometry in
                     Color.clear.preference(key: FiltersHeight.self, value: geometry.size.height)
                 })
@@ -441,6 +454,15 @@ struct ListBlockEmbed: View {
 
     private func write(_ changed: ListDefinition) {
         session.writeListBlock(changed, at: index)
+    }
+
+    /// Writes all its notes, not only those shown, as a table in its place.
+    static func convertToTable(_ list: ListDefinition, at index: Int, ids: [Note.ID]?, session: EditorSession, store: VaultStore) async {
+        guard let ids else { return NSSound.beep() }
+        let notes = ids.compactMap { store.notesByID[$0] }
+        let properties = list.columns.filter { ListDefinition.field(named: $0) == nil }
+        let values = await store.propertyValues(properties, of: notes.map(\.id))
+        session.replaceListBlock(at: index, with: ListResults.markdownTable(list: list, notes: notes, values: values, store: store))
     }
 
     private struct FiltersHeight: PreferenceKey {
@@ -567,6 +589,13 @@ struct ListResults: View {
     }
 
     private func value(of column: String, for note: Note) -> String {
+        Self.value(of: column, for: note, values: values, store: store, keepsLinks: false)
+    }
+
+    /// What a cell shows: a note fact, or the property's values as written, a date as the Mac
+    /// writes it (6 Nov 2026) and, unless `keepsLinks`, a link as its name.
+    static func value(of column: String, for note: Note, values: [Note.ID: [String: [String]]],
+                      store: VaultStore, keepsLinks: Bool) -> String {
         switch ListDefinition.field(named: column) {
         case .title: return note.title
         case .folder: return FolderTree.folder(of: note.id)
@@ -574,18 +603,28 @@ struct ListResults: View {
         case .modified: return note.modified.formatted(date: .abbreviated, time: .omitted)
         case nil:
             let written = values[note.id]?[column.lowercased()] ?? []
-            // Dates as the Mac writes them (6 Nov 2026).
             if store.listValueKind(ofProperty: column) == .date {
                 return written.map(ListVocabulary.shownDate).joined(separator: ", ")
             }
             return written.map { value in
-                // A link shows as its name.
-                guard value.hasPrefix("[["), value.hasSuffix("]]") else { return value }
+                guard !keepsLinks, value.hasPrefix("[["), value.hasSuffix("]]") else { return value }
                 return String(value.dropFirst(2).dropLast(2).split(separator: "|").last ?? "")
             }.joined(separator: ", ")
         }
     }
 
+    /// A list's notes as a Markdown table, as they are now: a link to each note, then a
+    /// column for each property it shows, headed as its table is. Links in its values stay
+    /// links; pipes are escaped, so nothing splits a cell.
+    static func markdownTable(list: ListDefinition, notes: [Note], values: [Note.ID: [String: [String]]], store: VaultStore) -> String {
+        let header = ["Title"] + list.columns.map(ListTable.heading)
+        let rows = notes.map { note in
+            ["[[\(LinkResolver.linkText(for: note))]]"]
+                + list.columns.map { value(of: $0, for: note, values: values, store: store, keepsLinks: true) }
+        }
+        return MarkdownTable(alignments: Array(repeating: .none, count: header.count),
+                             rows: ([header] + rows).map { $0.map(MarkdownTable.cellText) }).markdown()
+    }
 }
 
 /// Lays its views out in rows, wrapping as they fill the width.

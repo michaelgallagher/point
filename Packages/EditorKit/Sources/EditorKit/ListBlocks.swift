@@ -18,6 +18,23 @@ enum ListBlocks {
         return nil
     }
 
+    /// The whole of the note's `index`th closed `list` block, its fences too: from the start
+    /// of its opening fence's line to the end of its closing fence's, without its line break.
+    static func block(at index: Int, tokens: [MarkdownToken], text: NSString) -> NSRange? {
+        var count = 0
+        for token in tokens {
+            guard case .codeBlock(let language) = token.kind, language == MarkdownStyler.listLanguage else { continue }
+            defer { count += 1 }
+            guard count == index else { continue }
+            guard token.syntax.count == 2 else { return nil }
+            let start = text.lineRange(for: token.syntax[0]).location
+            var lineStart = 0, lineEnd = 0, contentsEnd = 0
+            text.getLineStart(&lineStart, end: &lineEnd, contentsEnd: &contentsEnd, for: token.syntax[1])
+            return NSRange(location: start, length: contentsEnd - start)
+        }
+        return nil
+    }
+
     /// Which of the note's `list` blocks (from 0) starts at `location`, nil if none does.
     static func index(ofBlockAt location: Int, tokens: [MarkdownToken]) -> Int? {
         var count = 0

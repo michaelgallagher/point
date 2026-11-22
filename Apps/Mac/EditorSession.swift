@@ -102,6 +102,13 @@ final class EditorSession: NSObject, ObservableObject {
         textView.replaceListBlockBody(at: index, with: changed.blockBody(over: body), actionName: "Change List")
     }
 
+    /// Puts `text` in place of the note's `index`th `list` block, its fences too, as one
+    /// undoable edit: the list made into a table.
+    func replaceListBlock(at index: Int, with text: String) {
+        guard !isReleased, let textView else { return }
+        textView.replaceListBlock(at: index, with: text, actionName: "Convert to Table")
+    }
+
     #if DEBUG
     /// For `-PointEditListBlock` (see `DebugSnapshots`).
     func debugEditListBlock(_ step: String) {
