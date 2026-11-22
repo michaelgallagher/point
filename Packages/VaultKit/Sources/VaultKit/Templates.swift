@@ -92,6 +92,28 @@ public enum Templates {
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
+    /// A filled-in template applied to a note that isn't open (so has no cursor): its
+    /// properties merged into the note's, as `merge` does, and its body at the top of the
+    /// note's, on lines of its own.
+    public static func applied(_ rendered: String, to note: String) -> String {
+        let application = merge(rendered, into: note)
+        var text = note as NSString
+        var bodyStart = 0
+        if let range = application.frontmatterRange, let block = application.frontmatter {
+            text = text.replacingCharacters(in: range, with: block) as NSString
+            bodyStart = range.location + (block as NSString).length
+        } else if let existing = Frontmatter.parse(note) {
+            bodyStart = NSMaxRange(existing.range)
+        }
+        // After the frontmatter's closing line.
+        if bodyStart > 0, bodyStart < text.length, text.character(at: bodyStart) == 0x0A { bodyStart += 1 }
+        var body = application.body
+        guard !body.isEmpty else { return text as String }
+        let rest = text.substring(from: bodyStart)
+        if !rest.isEmpty, !body.hasSuffix("\n") { body += "\n" }
+        return text.replacingCharacters(in: NSRange(location: bodyStart, length: 0), with: body)
+    }
+
     /// Where today's daily note lives (whether or not it exists yet).
     public static func dailyNoteURL(for date: Date = Date(), in root: URL, settings: ObsidianSettings) -> URL {
         // The format can include folders, such as `YYYY/MM/YYYY-MM-DD`.

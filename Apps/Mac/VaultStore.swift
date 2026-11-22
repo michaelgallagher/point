@@ -2137,6 +2137,27 @@ final class VaultStore: ObservableObject {
         filesChanged([note.url])
     }
 
+    /// A filled-in template applied to a note that isn't open in an editor, in its file.
+    func applyTemplate(_ rendered: String, toClosed note: Note) {
+        guard EditorSession.save(note.url) else {
+            return Self.showProblem("Couldn’t apply the template to “\(note.title)”", detail: "Point couldn’t save the note first.")
+        }
+        do {
+            let text = try NoteReader.read(contentsOf: note.url)
+            let applied = Templates.applied(rendered, to: text)
+            guard applied != text else { return }
+            switch try NoteWriter.write(applied, to: note.url, expecting: text, ifChanged: .report) {
+            case .saved: break
+            default:
+                return Self.showProblem("Couldn’t apply the template to “\(note.title)”",
+                                        detail: "The note changed while Point was writing it. Try again.")
+            }
+        } catch {
+            return Self.showProblem("Couldn’t apply the template to “\(note.title)”", error)
+        }
+        filesChanged([note.url])
+    }
+
     /// A kind's templates in the templates folder, each with a short label.
     func templates(of kind: NoteKinds.Kind) -> [(label: String, url: URL)] {
         NoteKinds.templates(of: kind, among: templates)

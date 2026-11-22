@@ -29,6 +29,14 @@ struct CommandPalette: View {
     /// For a start page, the side it's on: what's picked on it opens there, in its own tab,
     /// even if the other side was being worked on since.
     var paneID: VaultModel.NotePane.ID?
+    /// Doing something to a result: its actions (⌘K or Tab), then what an action asks for
+    /// (a folder, a template). Each step back (←, ⌫ or Escape) goes back one.
+    @State private var steps: [PaletteStep] = []
+    /// Opened by Move Note or Apply Template, for the note being viewed: closes rather than
+    /// going back to the results.
+    @State private var openedForStep = false
+    /// What was typed, and the row highlighted, before the actions were shown, to go back to.
+    @State private var beforeSteps: (query: String, highlighted: Int) = ("", 0)
     /// What it's narrowed to, once changed in it (⌘1 to ⌘4, the bar, a folder picked); until
     /// then, what it was opened for.
     @State private var chosenScope: PaletteScope?
@@ -36,10 +44,10 @@ struct CommandPalette: View {
     var maxWidth: CGFloat = CommandPalette.widest
 
     private var isSwitchingTabs: Bool { !isPage && model.paletteMode == .tabs }
-    private var isMovingNote: Bool { !isPage && model.paletteMode == .moveNote }
-    private var isApplyingTemplate: Bool { !isPage && model.paletteMode == .applyTemplate }
-    /// Choosing a tab, a folder or a template: a job of its own, not narrowed.
-    private var isPicking: Bool { isSwitchingTabs || isMovingNote || isApplyingTemplate }
+    private var isMovingNote: Bool { if case .moveTo = steps.last { true } else { false } }
+    private var isApplyingTemplate: Bool { if case .applyTemplate = steps.last { true } else { false } }
+    /// Choosing a tab, an action, a folder or a template: a job of its own, not narrowed.
+    private var isPicking: Bool { isSwitchingTabs || !steps.isEmpty }
     private var scope: PaletteScope {
         chosenScope ?? (isPage ? .all : PaletteScope(mode: model.paletteMode))
     }
@@ -50,15 +58,16 @@ struct CommandPalette: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: isMovingNote ? "folder" : isApplyingTemplate ? "doc.on.doc" : isPicking ? "map" : scope.symbol)
+                Image(systemName: isMovingNote ? "folder" : isApplyingTemplate ? "doc.on.doc" : !steps.isEmpty ? "ellipsis.circle" : isPicking ? "map" : scope.symbol)
                     .foregroundStyle(.secondary)
                     .frame(width: 20)
                 PaletteField(text: $query, placeholder: placeholder, fontSize: isPage ? 22 : 18,
                              onMove: move, onSubmit: run, onCancel: cancel, onCloseItem: closeHighlightedTab,
-                             onLeft: isPicking ? nil : { back() },
+                             onLeft: isSwitchingTabs ? nil : { back() },
                              onRight: isPicking ? nil : { enterHighlightedPlace() },
                              onScope: isPicking ? nil : { number in PaletteScope(rawValue: number).map(setScope) },
-                             scopeKeysNeedFocus: isPage)
+                             scopeKeysNeedFocus: isPage,
+                             onActions: isSwitchingTabs || isMovingNote || isApplyingTemplate ? nil : { toggleActions() })
             }
             .font(isPage ? .title2 : .title3)
             .padding(.horizontal, 16)
@@ -73,7 +82,12 @@ struct CommandPalette: View {
             }
             .padding(.bottom, isPage ? 10 : 0)
 
-            if !isPicking {
+            if !steps.isEmpty {
+                PaletteStepTrail(titles: stepTitles, back: back)
+                    .padding(.horizontal, isPage ? 16 : 18)
+                    .padding(.top, isPage ? 0 : -10)
+                    .padding(.bottom, isPage ? 8 : 10)
+            } else if !isPicking {
                 PaletteScopeBar(scope: scope, choose: setScope)
                     .padding(.horizontal, isPage ? 10 : 12)
                     .padding(.top, isPage ? 0 : -10)
@@ -130,6 +144,7 @@ struct CommandPalette: View {
                 query = seed
                 model.paletteSeed = nil
             }
+            startSteps(for: model.paletteMode)
             if isBrowsing { browsePlace = model.browsePlace }
             // At once: ⌃ can be let go at any moment, and a later refresh would lose the row.
             if isSwitchingTabs {
@@ -153,6 +168,7 @@ struct CommandPalette: View {
             guard !isPage else { return }
             query = ""
             chosenScope = nil
+            startSteps(for: model.paletteMode)
             if isBrowsing { browsePlace = model.browsePlace }
             refresh()
         }
@@ -187,14 +203,20 @@ struct CommandPalette: View {
         if isSwitchingTabs { return "Switch to a tab" }
         if isRunningCommands { return "Run a command" }
         if isNotesOnly { return "Search notes" }
-        if isMovingNote { return "Move “\(model.selectedNote?.title ?? "")” to…" }
-        if isApplyingTemplate { return model.templates.isEmpty ? "No templates (choose a folder in Settings, under Templates)" : "Apply a template to “\(model.selectedNote?.title ?? "")”" }
+        switch steps.last {
+        case .actions(let subject): return "Do something with “\(subject.title(model: model))”"
+        case .moveTo(let id): return "Move “\(model.note(id)?.title ?? "")” to…"
+        case .applyTemplate(let id):
+            return model.templates.isEmpty ? "No templates (choose a folder in Settings, under Templates)" : "Apply a template to “\(model.note(id)?.title ?? "")”"
+        case nil: break
+        }
         return "Search or use commands"
     }
 
     /// Escape closes the palette; on a start page, it clears what's typed, then searches
     /// everything again.
     private func cancel() {
+        if !steps.isEmpty { return stepBack() }
         guard isPage else { return close() }
         if !query.isEmpty { query = "" } else if scope != .all { setScope(.all) }
     }
@@ -211,11 +233,75 @@ struct CommandPalette: View {
     /// ← at the start of what's typed, or ⌫ with nothing typed: up a folder while browsing;
     /// otherwise (or at the vault's top), back to everything.
     private func back() {
+        if !steps.isEmpty { return stepBack() }
         if isBrowsing, let parent = PaletteBrowse.parent(of: browsePlace) {
             go(to: parent, highlighting: PaletteBrowse.item(browsePlace, from: parent, model: model).id)
         } else if scope != .all {
             setScope(.all)
         }
+    }
+
+    // MARK: Actions
+
+    /// The trail above an action's list: what it's done to, then each step.
+    private var stepTitles: [String] {
+        steps.map { step in
+            switch step {
+            case .actions(let subject): subject.title(model: model)
+            case .moveTo: "Move to"
+            case .applyTemplate: "Apply Template"
+            }
+        }
+    }
+
+    /// Opened by Move Note or Apply Template: straight to the folders or templates, for the
+    /// note being viewed.
+    private func startSteps(for mode: VaultModel.PaletteMode) {
+        guard !isPage else { return }
+        switch (mode, model.selection) {
+        case (.moveNote, let id?): steps = [.moveTo(id)]
+        case (.applyTemplate, let id?): steps = [.applyTemplate(id)]
+        default: steps = []
+        }
+        openedForStep = !steps.isEmpty
+    }
+
+    /// ⌘K or Tab: the highlighted result's actions; again, back to the results.
+    private func toggleActions() {
+        if case .actions = steps.last { return stepBack() }
+        guard steps.isEmpty, items.indices.contains(highlighted),
+              let subject = PaletteSubject(items[highlighted]) else { return NSSound.beep() }
+        beforeSteps = (query, highlighted)
+        push(.actions(subject))
+    }
+
+    private func push(_ step: PaletteStep) {
+        steps.append(step)
+        query = ""
+        refresh()
+    }
+
+    /// One step back: from a folder or template to the actions, from the actions to the
+    /// results as they were. Opened for a step, back from it closes.
+    private func stepBack() {
+        steps.removeLast()
+        if steps.isEmpty, openedForStep { return close() }
+        if steps.isEmpty {
+            query = beforeSteps.query
+            refresh(keeping: beforeSteps.highlighted)
+        } else {
+            query = ""
+            refresh()
+        }
+    }
+
+    private func refreshActions(for subject: PaletteSubject) {
+        var actions = PaletteAction.all(for: subject, model: model)
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty { actions = Self.rank(actions, by: trimmed, name: \.name) }
+        items = actions.map(PaletteItem.action)
+        headers = [:]
+        highlighted = 0
     }
 
     // MARK: Browsing
@@ -260,8 +346,12 @@ struct CommandPalette: View {
         let query = query
         if isBrowsing { return refreshBrowse(keeping: keeping) }
         if isSwitchingTabs { return refreshTabs(keeping: keeping) }
-        if isMovingNote { return refreshFolders() }
-        if isApplyingTemplate { return refreshTemplates() }
+        switch steps.last {
+        case .actions(let subject): return refreshActions(for: subject)
+        case .moveTo(let id): return refreshFolders(movingNote: id)
+        case .applyTemplate: return refreshTemplates()
+        case nil: break
+        }
         if isRunningCommands { return refreshCommands() }
         let commands = PaletteCommand.all(for: model)
         // Notes open in tabs come first, in number order, wherever the one being viewed is.
@@ -441,8 +531,8 @@ struct CommandPalette: View {
         highlighted = 0
     }
 
-    private func refreshFolders() {
-        let current = model.selectedNote.map { FolderTree.folder(of: $0.id) }
+    private func refreshFolders(movingNote id: Note.ID) {
+        let current = FolderTree.folder(of: id)
         let all = [""] + model.folderTree.noteCounts.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         var folders = all.filter { $0 != current }
         let trimmed = query.trimmingCharacters(in: .whitespaces)
@@ -483,8 +573,15 @@ struct CommandPalette: View {
         let item = items[highlighted]
         // A place opens here, in the palette.
         if case .place(let place, _, _, _, _) = item { return go(to: place) }
+        // An action that asks for something (a folder, a template) asks here.
+        if case .action(let action) = item, case .step(let step) = action.perform { return push(step) }
+        if case .action(let action) = item, case .browse(let place) = action.perform {
+            steps = []
+            return go(to: place)
+        }
         if isBrowsing, let id = item.noteID { model.browseNote = id }
-        if !isPage { close() }
+        let step = steps.last
+        if !isPage { close() } else { steps = [] }
         switch item {
         case .note(let id, _, _) where isSwitchingTabs:
             model.goToTab(of: id)
@@ -494,9 +591,11 @@ struct CommandPalette: View {
         case .create(let title): model.createNote(titled: title)
         case .command(let command): command.action()
         case .folder(let folder):
-            if let note = model.selectedNote { model.move(noteID: note.id, toFolder: folder) }
+            if case .moveTo(let id) = step { model.move(noteID: id, toFolder: folder) }
         case .template(_, let url):
-            model.applyTemplate(at: url)
+            if case .applyTemplate(let id) = step { model.applyTemplate(at: url, to: id) }
+        case .action(let action):
+            if case .run(let perform) = action.perform { perform() }
         case .place: break
         }
     }
@@ -519,6 +618,8 @@ enum PaletteItem: Identifiable {
     /// A folder, tag or other place to browse: its name, how many notes, its symbol, and
     /// where it is, if deeper than where it's listed.
     case place(SidebarPlace, String, Int, String, String?)
+    /// Something to do to a result (see `PaletteAction`).
+    case action(PaletteAction)
 
     var noteID: Note.ID? {
         if case .note(let id, _, _) = self { return id }
@@ -534,6 +635,7 @@ enum PaletteItem: Identifiable {
         case .folder(let folder): "folder:\(folder)"
         case .template(_, let url): "template:\(url.path)"
         case .place(let place, _, _, _, _): "place:\(place.key)"
+        case .action(let action): "action:\(action.name)"
         }
     }
 
@@ -547,6 +649,7 @@ enum PaletteItem: Identifiable {
         case .folder(let folder): folder
         case .template(let name, _): name
         case .place(_, let name, _, _, _): name
+        case .action(let action): action.name
         }
     }
 }
@@ -660,6 +763,7 @@ struct PaletteRow: View {
         case .folder: "folder"
         case .template: "doc.on.doc"
         case .place(_, _, _, let symbol, _): symbol
+        case .action(let action): action.symbol
         }
     }
 
@@ -672,6 +776,7 @@ struct PaletteRow: View {
         case .folder(let folder): folder.isEmpty ? "Vault (top level)" : folder
         case .template(let name, _): name
         case .place(_, let name, _, _, _): name
+        case .action(let action): action.name
         }
     }
 
@@ -681,6 +786,7 @@ struct PaletteRow: View {
         case .tag(_, let count): "\(count) \(count == 1 ? "note" : "notes")"
         case .create, .folder, .template: nil
         case .place(_, _, let count, _, _): "\(count)"
+        case .action(let action): action.shortcut
         case .command(let command): command.shortcut
         }
     }
@@ -867,9 +973,12 @@ private struct PaletteField: NSViewRepresentable {
     /// Whether ⌘1 to ⌘4 are taken only while it's being typed in: on a start page, where the
     /// other side's note keeps them (⌘1 is Heading 1). Over the window, it has them as it shows.
     var scopeKeysNeedFocus = false
+    /// ⌘K or Tab: the highlighted result's actions (⌘K before the menus see it: it's also
+    /// Add Link).
+    var onActions: (() -> Void)?
 
     func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField()
+        let field = PaletteTextField()
         field.placeholderString = placeholder
         field.isBordered = false
         field.drawsBackground = false
@@ -878,7 +987,6 @@ private struct PaletteField: NSViewRepresentable {
         field.delegate = context.coordinator
         context.coordinator.field = field
         context.coordinator.watchScopeKeys()
-        DispatchQueue.main.async { field.window?.makeFirstResponder(field) }
         return field
     }
 
@@ -906,17 +1014,24 @@ private struct PaletteField: NSViewRepresentable {
             nonisolated(unsafe) weak var coordinator = self
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
                 guard event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command,
-                      let number = event.charactersIgnoringModifiers.flatMap(Int.init), (1...4).contains(number)
+                      let key = event.charactersIgnoringModifiers?.lowercased(), ["1", "2", "3", "4", "k"].contains(key)
                 else { return event }
-                let taken = MainActor.assumeIsolated { coordinator?.takeScopeKey(number) ?? false }
+                let taken = MainActor.assumeIsolated { coordinator?.takeKey(key) ?? false }
                 return taken ? nil : event
             }
         }
 
-        @MainActor private func takeScopeKey(_ number: Int) -> Bool {
-            guard let field, let onScope = parent.onScope, field.window?.isKeyWindow == true,
+        /// ⌘1 to ⌘4 and ⌘K, while the palette shows (on a start page, while it's typed in).
+        @MainActor private func takeKey(_ key: String) -> Bool {
+            guard let field, field.window?.isKeyWindow == true,
                   !parent.scopeKeysNeedFocus || field.currentEditor() != nil else { return false }
-            onScope(number)
+            if key == "k" {
+                guard let onActions = parent.onActions else { return false }
+                onActions()
+            } else {
+                guard let onScope = parent.onScope, let number = Int(key) else { return false }
+                onScope(number)
+            }
             return true
         }
 
@@ -932,6 +1047,7 @@ private struct PaletteField: NSViewRepresentable {
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
             switch selector {
+            case #selector(NSResponder.insertTab(_:)) where parent.onActions != nil: parent.onActions?()
             case #selector(NSResponder.moveUp(_:)): parent.onMove(-1)
             case #selector(NSResponder.moveDown(_:)): parent.onMove(1)
             case #selector(NSResponder.insertNewline(_:)): parent.onSubmit()
@@ -1011,6 +1127,25 @@ struct PaletteScopeBar: View {
                 .buttonStyle(.plain)
             }
             Spacer(minLength: 0)
+            // What ⌘K does, so it's found.
+            Text("Actions ⌘K")
+                .font(.callout)
+                .foregroundStyle(Color.secondary.opacity(0.7))
+                .lineLimit(1)
+                .padding(.trailing, 6)
+        }
+    }
+}
+
+/// The palette's field: it takes the keyboard as it's put in its window (not a moment after
+/// it's made, when it may not be in one yet, so typing and Escape would go nowhere).
+final class PaletteTextField: NSTextField {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.window === window else { return }
+            window.makeFirstResponder(self)
         }
     }
 }

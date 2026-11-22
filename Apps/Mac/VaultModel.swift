@@ -1023,6 +1023,11 @@ final class VaultModel: ObservableObject {
     func createNote(text: String = "", titled title: String? = nil) {
         var folder = ""
         if case .folder(let path) = place { folder = path }
+        createNote(text: text, titled: title, inFolder: folder)
+    }
+
+    /// Creates a note in a folder ("" for the vault root) and opens it, its name to type.
+    func createNote(text: String = "", titled title: String? = nil, inFolder folder: String) {
         guard let id = store.createNote(text: text, titled: title, inFolder: folder) else { return }
         if title == nil { namingNoteID = id }
         // A new tab, unless this one is empty, and templates on offer until typing starts.
@@ -1065,9 +1070,20 @@ final class VaultModel: ObservableObject {
     /// Applies a template, filled in, to this window's note: its properties merged into the
     /// note's, its body at the cursor.
     func applyTemplate(at url: URL) {
-        guard let note = selectedNote, let template = try? NoteReader.read(contentsOf: url) else { return NSSound.beep() }
+        guard let id = selection else { return NSSound.beep() }
+        applyTemplate(at: url, to: id)
+    }
+
+    /// Applies a template to any note: in its editor if it's open (at the cursor, one step to
+    /// undo), otherwise to its file, its body at the top (see `Templates.applied`).
+    func applyTemplate(at url: URL, to id: Note.ID) {
+        guard let note = note(id), let template = try? NoteReader.read(contentsOf: url) else { return NSSound.beep() }
         let text = Templates.render(template, title: note.title, settings: settings)
-        NotificationCenter.default.post(name: .pointApplyTemplate, object: self, userInfo: ["text": text, "noteID": note.id])
+        if EditorSession.editing(id) != nil {
+            NotificationCenter.default.post(name: .pointApplyTemplate, object: self, userInfo: ["text": text, "noteID": id])
+        } else {
+            store.applyTemplate(text, toClosed: note)
+        }
     }
 
     // MARK: Links

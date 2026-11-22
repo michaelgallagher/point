@@ -154,3 +154,27 @@ struct ObsidianSettingsWriteTests {
         #expect(ObsidianSettings.load(vault: root).templatesFolder == "Meta")
     }
 }
+
+/// A template applied to a note that isn't open: properties merged, the body at the top.
+struct AppliedTemplateTests {
+    @Test func bodyGoesAfterTheFrontmatter() {
+        let note = "---\ntags: [a]\n---\nExisting text.\n"
+        let template = "---\ntags: [b]\nstatus: draft\n---\n## Agenda\n"
+        let result = Templates.applied(template, to: note)
+        #expect(result.hasPrefix("---\n"))
+        #expect(result.contains("status: draft"))
+        #expect(result.contains("b"))
+        #expect(result.hasSuffix("---\n## Agenda\nExisting text.\n"))
+    }
+
+    @Test func aNoteWithoutPropertiesGainsTheTemplates() {
+        let result = Templates.applied("---\nstatus: draft\n---\nBody\n", to: "Text\n")
+        #expect(result == "---\nstatus: draft\n---\nBody\nText\n")
+    }
+
+    @Test func aTemplateWithoutPropertiesGoesAtTheTop() {
+        #expect(Templates.applied("Intro", to: "Text\n") == "Intro\nText\n")
+        #expect(Templates.applied("Intro\n", to: "---\na: 1\n---\nText\n") == "---\na: 1\n---\nIntro\nText\n")
+        #expect(Templates.applied("Intro\n", to: "") == "Intro\n")
+    }
+}
