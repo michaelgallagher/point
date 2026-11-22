@@ -34,6 +34,10 @@ enum DebugSnapshots {
         tabTimingIfAsked(for: model)
         tabBarIfAsked(for: model)
         scanIfAsked(for: model)
+        #if DEBUG
+        ScrollFeel.runIfAsked(for: model)
+        ScrollTrace.startIfAsked()
+        #endif
         // `-PointFocusMode YES`: focus mode, for checking how it looks.
         if UserDefaults.standard.bool(forKey: "PointFocusMode") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.isFocused = true }
