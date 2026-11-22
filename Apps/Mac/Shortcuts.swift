@@ -120,7 +120,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .moveToTrash: "Move to Trash"
         case .explorer: "Search Vault"
         case .runCommand: "Run Command…"
-        case .searchVault: "Explorer"
+        case .searchVault: "Browse Folders"
         case .searchInList: "Filter List"
         case .findInNote: "Find in Note"
         case .toggleNoteList: "Show or Hide Note List"

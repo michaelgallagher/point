@@ -1259,20 +1259,20 @@ final class VaultModel: ObservableObject {
         }
     }
     /// Whether the palette searches and runs commands (Search Vault, ⌘F) or browses folders and
-    /// tags in two columns (Explorer, ⌘E).
+    /// tags (Browse Folders, ⌘E).
     @Published var paletteMode = PaletteMode.search
     /// Text to start the palette with, such as a tag clicked in a note.
     @Published var paletteSeed: String?
-    /// Where the palette's explorer was left (place, column, note), to start there next time.
-    var explorerPlace: SidebarPlace = .allNotes
-    var explorerInNotes = false
-    var explorerNote: Note.ID?
+    /// Where browsing in the palette was left, and the note last opened from it, to start
+    /// there next time.
+    var browsePlace: SidebarPlace = .allNotes
+    var browseNote: Note.ID?
     /// ⌘E or ⌘F pressed while a start page is showing: the page switches to that mode.
     @Published private(set) var startPageRequest: (mode: PaletteMode, count: Int) = (.search, 0)
 
-    /// Searching and commands (Search Vault, ⌘F), only commands (Run Command, ⇧⌘E), browsing folders and tags (Explorer, ⌘E),
+    /// Searching and commands (Search Vault, ⌘F), only commands (Run Command, ⇧⌘E), browsing folders and tags (Browse Folders, ⌘E),
     /// only the open tabs (⌃Tab), or the folders to move the note to (Move Note).
-    enum PaletteMode { case search, commands, explorer, tabs, moveNote, applyTemplate }
+    enum PaletteMode { case search, commands, browse, tabs, moveNote, applyTemplate }
     /// ⌃Tab pressed again while the tabs palette shows: it moves to the next tab down.
     @Published private(set) var paletteCycleRequest = 0
     /// The keys let go while the tabs palette shows: it goes to the tab highlighted.
@@ -1421,37 +1421,31 @@ final class VaultModel: ObservableObject {
     static let filterToolsDuration: TimeInterval = 0.25
 
     /// Shows a folder (clicked in a side's path): in the sidebar if it's showing, otherwise in
-    /// the explorer, with the note open there highlighted.
+    /// the palette, browsing it, with the note open there highlighted.
     func reveal(folder path: String) {
         if showsNoteList {
             browse(.folder(path))
             return
         }
-        explorerPlace = .folder(path)
-        explorerNote = selection.flatMap { id in notes(in: .folder(path)).contains { $0.id == id } ? id : nil }
-        explorerInNotes = explorerNote != nil
+        browseInPalette(.folder(path))
+    }
+
+    /// Opens the palette browsing `place`, the note being viewed highlighted if it's there.
+    private func browseInPalette(_ place: SidebarPlace) {
+        browsePlace = place
+        browseNote = nil
         isPaletteShown = false
         DispatchQueue.main.async { [weak self] in
-            self?.paletteMode = .explorer
+            self?.paletteMode = .browse
             self?.isPaletteShown = true
         }
     }
 
     /// Shows a tag's notes, for example after a tag is clicked in a note.
     func search(tag: String) {
-        // With the sidebar hidden, show the tag's notes in the explorer rather than bringing
+        // With the sidebar hidden, show the tag's notes in the palette rather than bringing
         // the sidebar back.
-        if !showsNoteList {
-            explorerPlace = .tag(tag)
-            explorerInNotes = true
-            explorerNote = nil
-            isPaletteShown = false
-            DispatchQueue.main.async { [weak self] in
-                self?.paletteMode = .explorer
-                self?.isPaletteShown = true
-            }
-            return
-        }
+        if !showsNoteList { return browseInPalette(.tag(tag)) }
         browse(.tag(tag))
     }
 
@@ -1464,7 +1458,7 @@ final class VaultModel: ObservableObject {
 
     /// What's typed in the sidebar's filter field: only what's listed whose name contains it
     /// stays (in two columns, the notes). Cleared on going to another place. Searching the
-    /// whole vault is the explorer's (⌘E). Kept in `filterTools`, watched by the list alone, so
+    /// whole vault is the palette's (⌘F). Kept in `filterTools`, watched by the list alone, so
     /// a keystroke doesn't redraw the rest of the window.
     var noteFilter: String {
         get { filterTools.text }

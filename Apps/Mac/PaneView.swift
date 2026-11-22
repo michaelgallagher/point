@@ -74,7 +74,7 @@ struct PaneView: View {
                             .padding(.top, underBar)
                             .id(paneID.uuidString + image.path)
                     } else {
-                        // An empty tab is a start page: search, recent notes and the explorer.
+                        // An empty tab is a start page: search, recent notes, and browsing folders.
                         CommandPalette(isPage: true, paneID: paneID)
                             .padding(.top, underBar)
                             .id(pane.tab.id) // A fresh page for each tab.

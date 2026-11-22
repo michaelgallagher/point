@@ -147,10 +147,14 @@ struct ContentView: View {
                     // the window however narrow that side is.
                     GeometryReader { geometry in
                         let window = geometry.frame(in: .global)
-                        let half = min(270, window.width / 2 - 16)
+                        // As wide as it may be, but no wider than the side it's over (and never
+                        // too narrow to use, unless the window is).
+                        let side = model.targetPaneFrame?.width ?? window.width
+                        let width = min(CommandPalette.widest, max(side - 40, min(420, window.width - 40)))
+                        let half = width / 2
                         let centre = model.targetPaneFrame.map { $0.midX - window.minX } ?? window.width / 2
-                        let clamped = min(max(centre, half + 16), window.width - half - 16)
-                        CommandPalette()
+                        let clamped = min(max(centre, half + 20), window.width - half - 20)
+                        CommandPalette(maxWidth: width)
                             .padding(.top, 80)
                             .frame(maxWidth: .infinity)
                             .offset(x: clamped - window.width / 2)
@@ -360,7 +364,7 @@ private struct NoteList: View {
 
     /// Narrows the list to what's named with what's typed: in one column, the folders, tags
     /// and notes showing; in two, the notes, with how they're sorted on its right (in one
-    /// column, that's in the Notes section's label). Searching the whole vault is the explorer's.
+    /// column, that's in the Notes section's label). Searching the whole vault is the palette's.
     private var filterField: some View {
         controlsRow(suggestions: suggestions, atTop: false)
             // The field's row is the foot's height; suggestions above it make the stack taller,

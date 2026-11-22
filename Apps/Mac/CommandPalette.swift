@@ -4,9 +4,10 @@ import EditorKit
 import SwiftUI
 import VaultKit
 
-/// ⌘F, Search Vault (mode `.search`): one place to open notes, search tags and run commands, all
-/// from the keyboard. ⇧⌘E, Run Command (mode `.commands`): only the commands. ⌘E, Explorer (mode `.explorer`): the same palette as two columns of
-/// folders, tags and their notes.
+/// ⌘F, Search Vault (mode `.search`): one place to open notes and folders, search tags and run
+/// commands, all from the keyboard. ⇧⌘E, Run Command (mode `.commands`): only the commands.
+/// ⌘E, Browse Folders (mode `.browse`): the vault's folders, tags and notes, a place at a time
+/// (see `PaletteBrowse`); a folder picked in Search Vault opens there too.
 /// ⌃Tab: only the open tabs, in number order, to switch between them. Letting go of ⌃ goes to
 /// the one highlighted, which starts as the tab shown before this.
 /// An empty tab shows the same palette as a page: the start page.
@@ -21,16 +22,19 @@ struct CommandPalette: View {
     @State private var openIDs: Set<Note.ID> = []
     @State private var tags: [(tag: String, count: Int)] = []
     @State private var searchTask: Task<Void, Never>?
-    @StateObject private var explorer = ExplorerState()
+    /// While browsing: the place shown.
+    @State private var browsePlace: SidebarPlace = .allNotes
     /// Shown as a tab's start page rather than over the window.
     var isPage = false
     /// For a start page, the side it's on: what's picked on it opens there, in its own tab,
     /// even if the other side was being worked on since.
     var paneID: VaultModel.NotePane.ID?
-    /// On a start page: browsing in the explorer, rather than searching.
-    @State private var pageExplores = false
+    /// On a start page: browsing folders, rather than searching.
+    @State private var pageBrowses = false
+    /// The floating palette's widest: narrower over a narrow window or side.
+    var maxWidth: CGFloat = CommandPalette.widest
 
-    private var isExploring: Bool { isPage ? pageExplores : model.paletteMode == .explorer }
+    private var isBrowsing: Bool { isPage ? pageBrowses : model.paletteMode == .browse }
     private var isSwitchingTabs: Bool { !isPage && model.paletteMode == .tabs }
     private var isMovingNote: Bool { !isPage && model.paletteMode == .moveNote }
     private var isApplyingTemplate: Bool { !isPage && model.paletteMode == .applyTemplate }
@@ -39,12 +43,13 @@ struct CommandPalette: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: isExploring ? "magnifyingglass" : isMovingNote ? "folder" : isApplyingTemplate ? "doc.on.doc" : isRunningCommands ? "command" : "map")
+                Image(systemName: isBrowsing ? "folder" : isMovingNote ? "folder" : isApplyingTemplate ? "doc.on.doc" : isRunningCommands ? "command" : "map")
                     .foregroundStyle(.secondary)
                     .frame(width: 20)
                 PaletteField(text: $query, placeholder: placeholder, fontSize: isPage ? 22 : 18,
                              onMove: move, onSubmit: run, onCancel: cancel, onCloseItem: closeHighlightedTab,
-                             onLeft: isExploring ? { explorerLeft() } : nil, onRight: isExploring ? { explorerRight() } : nil)
+                             onLeft: isBrowsing ? { browseUp() } : nil,
+                             onRight: isBrowsing || model.paletteMode == .search || isPage ? { enterHighlightedPlace() } : nil)
             }
             .font(isPage ? .title2 : .title3)
             .padding(.horizontal, 16)
@@ -59,13 +64,14 @@ struct CommandPalette: View {
             }
             .padding(.bottom, isPage ? 10 : 0)
 
-            if isExploring {
-                if !isPage { Divider() }
-                ExplorerColumns(state: explorer, open: { id in open(id, inNewTab: false) },
-                                drop: { dragged, folder in model.drop(dragged, onFolder: folder) })
-                    .frame(height: isPage ? nil : Self.listHeight)
-                    .frame(maxHeight: isPage ? .infinity : nil)
-            } else if !items.isEmpty || !isPage {
+            if isBrowsing {
+                PaletteBrowseTrail(place: browsePlace, model: model) { go(to: $0) }
+                    .padding(.horizontal, isPage ? 16 : 18)
+                    .padding(.top, isPage ? 0 : -8)
+                    .padding(.bottom, isPage ? 8 : 10)
+            }
+
+            if !items.isEmpty || !isPage || isBrowsing {
                 if !isPage { Divider() }
                 ScrollViewReader { scroller in
                     ScrollView {
@@ -88,23 +94,28 @@ struct CommandPalette: View {
                         }
                         .padding(6)
                     }
-                    // The same height as the explorer, so the palette doesn't change size;
-                    // as a page, it fills the tab.
+                    // One height, so the palette doesn't change size as it's typed in or
+                    // browsed; as a page, it fills the tab.
                     .frame(height: isPage ? nil : Self.listHeight)
                     .frame(maxHeight: isPage ? .infinity : nil)
+                    .overlay {
+                        if isBrowsing, items.isEmpty {
+                            Text(query.isEmpty ? "Nothing here" : "Nothing matches").foregroundStyle(.secondary)
+                        }
+                    }
                     .onChange(of: highlighted) { offset in
                         if items.indices.contains(offset) { scroller.scrollTo(items[offset].id) }
                     }
                 }
             }
         }
-        .modifier(PaletteChrome(isPage: isPage, isWide: isExploring))
+        .modifier(PaletteChrome(isPage: isPage, maxWidth: maxWidth))
         .task {
             if !isPage, let seed = model.paletteSeed {
                 query = seed
                 model.paletteSeed = nil
             }
-            if isExploring { explorer.load(model) }
+            if isBrowsing { browsePlace = model.browsePlace }
             // At once: ⌃ can be let go at any moment, and a later refresh would lose the row.
             if isSwitchingTabs {
                 refresh()
@@ -115,18 +126,18 @@ struct CommandPalette: View {
             refresh()
         }
         .onChange(of: query) { _ in refresh() }
-        // Something moved (dragged in the explorer, say): list it where it is now.
+        // A folder made, moved or gone while browsing: list it as it is now.
         .onReceive(model.store.$folderTree.dropFirst()) { _ in
-            if isExploring { explorer.reload() }
+            if isBrowsing { refresh(keeping: highlighted) }
         }
         // At launch the palette (or a start page) can appear before the notes have loaded.
         .onChange(of: model.notes.count) { _ in
-            if query.isEmpty, !isExploring { refresh() }
+            if query.isEmpty { refresh(keeping: isBrowsing ? highlighted : nil) }
         }
         .onChange(of: model.paletteMode) { _ in
             guard !isPage else { return }
             query = ""
-            if isExploring { explorer.load(model) }
+            if isBrowsing { browsePlace = model.browsePlace }
             refresh()
         }
         // ⌃Tab again: the next tab down.
@@ -143,15 +154,20 @@ struct CommandPalette: View {
         .onChange(of: model.startPageRequest.count) { _ in
             // ⌘E or ⌘F on a start page switches the page itself.
             guard isPage else { return }
-            setPageExplores(model.startPageRequest.mode == .explorer)
+            if model.startPageRequest.mode == .browse { browsePlace = model.browsePlace }
+            setPageBrowses(model.startPageRequest.mode == .browse)
         }
     }
 
-    /// The palette's list height, searching or exploring.
+    /// The palette's list height, searching or browsing.
     static let listHeight: CGFloat = 520
+    /// The floating palette's width, where the window (or the side it's over) has room.
+    static let widest: CGFloat = 680
 
     private var placeholder: String {
-        if isExploring { return explorer.inNotes ? "Filter notes" : "Filter folders and tags" }
+        if isBrowsing {
+            return browsePlace == .allNotes ? "Filter folders, tags and notes" : "Filter \(PaletteBrowse.name(of: browsePlace, model: model))"
+        }
         if isSwitchingTabs { return "Switch to a tab" }
         if isRunningCommands { return "Run a command" }
         if isMovingNote { return "Move “\(model.selectedNote?.title ?? "")” to…" }
@@ -159,28 +175,53 @@ struct CommandPalette: View {
         return "Search or use commands"
     }
 
-    /// Escape closes the palette; on a start page, it clears what's typed, then leaves the
-    /// explorer.
+    /// Escape closes the palette; on a start page, it clears what's typed, then stops
+    /// browsing.
     private func cancel() {
         guard isPage else { return close() }
-        if !query.isEmpty { query = "" } else if pageExplores { setPageExplores(false) }
+        if !query.isEmpty { query = "" } else if pageBrowses { setPageBrowses(false) }
     }
 
-    private func setPageExplores(_ explores: Bool) {
+    private func setPageBrowses(_ browses: Bool) {
         query = ""
-        pageExplores = explores
-        if explores { explorer.load(model) }
+        pageBrowses = browses
         refresh()
     }
 
-    // MARK: Explorer keys
+    // MARK: Browsing
 
-    private func explorerRight() {
-        if explorer.enterNotes() { query = "" } else { NSSound.beep() }
+    /// Shows a place's folders and notes: browsing, if searching before.
+    private func go(to place: SidebarPlace, highlighting row: String? = nil) {
+        browsePlace = place
+        model.browsePlace = place
+        if isPage {
+            if !pageBrowses { pageBrowses = true }
+        } else if model.paletteMode != .browse {
+            // Its change starts at the place just set.
+            model.paletteMode = .browse
+            return
+        }
+        query = ""
+        refresh()
+        if let row, let index = items.firstIndex(where: { $0.id == row }) { highlighted = index }
     }
 
-    private func explorerLeft() {
-        if explorer.leaveNotes() { query = "" } else if isPage { setPageExplores(false) } else { NSSound.beep() }
+    /// ← or ⌫: up to the place above, the one left highlighted. At the top, a start page goes
+    /// back to searching.
+    private func browseUp() {
+        if let parent = PaletteBrowse.parent(of: browsePlace) {
+            go(to: parent, highlighting: PaletteBrowse.item(browsePlace, from: parent, model: model).id)
+        } else if isPage {
+            setPageBrowses(false)
+        } else {
+            NSSound.beep()
+        }
+    }
+
+    /// → at the end of what's typed: into the place highlighted, if it's one.
+    private func enterHighlightedPlace() {
+        guard items.indices.contains(highlighted), case .place(let place, _, _, _, _) = items[highlighted] else { return }
+        go(to: place)
     }
 
     /// A start page's side becomes the one being worked on, so what's picked opens in its tab.
@@ -205,10 +246,7 @@ struct CommandPalette: View {
     private func refresh(keeping: Int? = nil) {
         searchTask?.cancel()
         let query = query
-        if isExploring {
-            explorer.setFilter(query)
-            return
-        }
+        if isBrowsing { return refreshBrowse(keeping: keeping) }
         if isSwitchingTabs { return refreshTabs(keeping: keeping) }
         if isMovingNote { return refreshFolders() }
         if isApplyingTemplate { return refreshTemplates() }
@@ -222,9 +260,9 @@ struct CommandPalette: View {
         searchTask = Task {
             // Each kind of thing in its own labelled section, in this order.
             var open: [PaletteItem] = [], marked: [PaletteItem] = [], notes: [PaletteItem] = []
-            var tagItems: [PaletteItem] = [], commandItems: [PaletteItem] = []
+            var tagItems: [PaletteItem] = [], commandItems: [PaletteItem] = [], folderItems: [PaletteItem] = []
             var notesTitle = "Notes"
-            var commandsFirst = false
+            var commandsFirst = false, foldersFirst = false
             let trimmed = query.trimmingCharacters(in: .whitespaces)
 
             if trimmed.hasPrefix(">") {
@@ -276,6 +314,14 @@ struct CommandPalette: View {
                     notes.append(.create(title))
                 }
                 tagItems = tags.filter { Fuzzy.score(query: trimmed, name: $0.tag) != nil }.prefix(3).map { PaletteItem.tag($0.tag, $0.count) }
+                if !hasTags { folderItems = PaletteBrowse.folders(matching: trimmed, limit: 3, model: model) }
+                // A folder whose name matches better than any note's title comes before the
+                // notes, so typing a folder's name and pressing Return goes into it.
+                if let best = folderItems.first.flatMap({ Fuzzy.score(query: trimmed, name: $0.name) }) {
+                    let bestTitle = (open + marked + notes).filter { $0.noteID != nil }
+                        .compactMap { Fuzzy.score(query: trimmed, name: $0.name) }.min()
+                    foldersFirst = best < bestTitle ?? .max
+                }
                 // Commands whose names match better than any note's title come first, so "move"
                 // goes to Move Note… rather than a note that only mentions moving. Only when
                 // every word is a whole word or the start of one, so typing a new note's name
@@ -295,10 +341,12 @@ struct CommandPalette: View {
             // Nothing matched but the new note (and no command first): it comes first, so
             // Return makes it.
             let groups = commandsFirst
-                ? [("Commands", commandItems), ("Open Tabs", open), ("Bookmarks", marked), (notesTitle, notes), ("Tags", tagItems)]
+                ? [("Commands", commandItems), ("Open Tabs", open), ("Bookmarks", marked), (notesTitle, notes), ("Folders", folderItems), ("Tags", tagItems)]
                 : open.isEmpty && marked.isEmpty && notes.count == 1 && notes.first.map({ if case .create = $0 { true } else { false } }) == true
-                ? [(notesTitle, notes), ("Tags", tagItems), ("Commands", commandItems)]
-                : [("Open Tabs", open), ("Bookmarks", marked), (notesTitle, notes), ("Tags", tagItems), ("Commands", commandItems)]
+                ? [(notesTitle, notes), ("Folders", folderItems), ("Tags", tagItems), ("Commands", commandItems)]
+                : foldersFirst
+                ? [("Folders", folderItems), ("Open Tabs", open), ("Bookmarks", marked), (notesTitle, notes), ("Tags", tagItems), ("Commands", commandItems)]
+                : [("Open Tabs", open), ("Bookmarks", marked), (notesTitle, notes), ("Folders", folderItems), ("Tags", tagItems), ("Commands", commandItems)]
             var all: [PaletteItem] = [], labels: [Int: String] = [:]
             for (title, group) in groups where !group.isEmpty {
                 labels[all.count] = title
@@ -307,8 +355,29 @@ struct CommandPalette: View {
             items = all
             headers = labels
             // Past the note being viewed, as going to it does nothing.
-            let first = open.count > 1 && all.first?.noteID == model.selection ? 1 : 0
+            let first = !foldersFirst && open.count > 1 && all.first?.noteID == model.selection ? 1 : 0
             highlighted = keeping.map { max(0, min($0, items.count - 1)) } ?? first
+        }
+    }
+
+    /// The place being browsed: its places and notes, filtered by what's typed. The note open
+    /// now, or the one last opened from here, highlighted if it's in it.
+    private func refreshBrowse(keeping: Int?) {
+        openIDs = Set(model.openNoteIDs)
+        var all: [PaletteItem] = [], labels: [Int: String] = [:]
+        for (title, group) in PaletteBrowse.sections(at: browsePlace, filter: query, model: model) {
+            labels[all.count] = title
+            all += group
+        }
+        items = all
+        headers = labels
+        if let keeping {
+            highlighted = max(0, min(keeping, items.count - 1))
+        } else if query.isEmpty, let id = model.browseNote ?? model.selection,
+                  let index = items.firstIndex(where: { $0.noteID == id }) {
+            highlighted = index
+        } else {
+            highlighted = 0
         }
     }
 
@@ -332,7 +401,7 @@ struct CommandPalette: View {
         }
     }
 
-    /// Every command, filtered by what's typed (a leading ">", as in Explorer, is ignored).
+    /// Every command, filtered by what's typed (a leading ">", as in Search Vault, is ignored).
     private func refreshCommands() {
         var commands = PaletteCommand.all(for: model)
         var trimmed = query.trimmingCharacters(in: .whitespaces)
@@ -368,7 +437,7 @@ struct CommandPalette: View {
     /// ⌘⌫ on a note open in a tab closes that tab, and the palette stays open. Returns false
     /// for anything else, so ⌘⌫ deletes what's typed as usual.
     private func closeHighlightedTab() -> Bool {
-        guard !isExploring, items.indices.contains(highlighted), let id = items[highlighted].noteID,
+        guard items.indices.contains(highlighted), let id = items[highlighted].noteID,
               openIDs.contains(id), model.openNoteIDs.contains(id) else { return false }
         let row = highlighted
         model.closeTab(of: id)
@@ -385,7 +454,6 @@ struct CommandPalette: View {
     // MARK: Keyboard
 
     private func move(_ step: Int) {
-        if isExploring { return explorer.move(step) }
         guard !items.isEmpty else { return }
         highlighted = (highlighted + step + items.count) % items.count
     }
@@ -393,12 +461,11 @@ struct CommandPalette: View {
     private func run() {
         takeSide()
         let inNewTab = NSApp.currentEvent?.modifierFlags.contains(.command) == true
-        if isExploring {
-            if explorer.inNotes, let note = explorer.currentNote { open(note.id, inNewTab: inNewTab) } else { explorerRight() }
-            return
-        }
         guard items.indices.contains(highlighted) else { return }
         let item = items[highlighted]
+        // A place opens here, in the palette.
+        if case .place(let place, _, _, _, _) = item { return go(to: place) }
+        if isBrowsing, let id = item.noteID { model.browseNote = id }
         if !isPage { close() }
         switch item {
         case .note(let id, _, _) where isSwitchingTabs:
@@ -412,6 +479,7 @@ struct CommandPalette: View {
             if let note = model.selectedNote { model.move(noteID: note.id, toFolder: folder) }
         case .template(_, let url):
             model.applyTemplate(at: url)
+        case .place: break
         }
     }
 
@@ -430,6 +498,9 @@ enum PaletteItem: Identifiable {
     case folder(String)
     /// A template to apply to the note.
     case template(String, URL)
+    /// A folder, tag or other place to browse: its name, how many notes, its symbol, and
+    /// where it is, if deeper than where it's listed.
+    case place(SidebarPlace, String, Int, String, String?)
 
     var noteID: Note.ID? {
         if case .note(let id, _, _) = self { return id }
@@ -444,6 +515,7 @@ enum PaletteItem: Identifiable {
         case .command(let command): "command:\(command.name)"
         case .folder(let folder): "folder:\(folder)"
         case .template(_, let url): "template:\(url.path)"
+        case .place(let place, _, _, _, _): "place:\(place.key)"
         }
     }
 
@@ -456,6 +528,7 @@ enum PaletteItem: Identifiable {
         case .command(let command): command.name
         case .folder(let folder): folder
         case .template(let name, _): name
+        case .place(_, let name, _, _, _): name
         }
     }
 }
@@ -464,26 +537,25 @@ enum PaletteItem: Identifiable {
 /// on the tab's own background.
 private struct PaletteChrome: ViewModifier {
     let isPage: Bool
-    /// The explorer's two columns need more room.
-    let isWide: Bool
+    /// The floating palette's widest.
+    let maxWidth: CGFloat
 
     func body(content: Content) -> some View {
         if isPage {
             content
-                .frame(maxWidth: 600) // The same width searching and exploring.
+                .frame(maxWidth: CommandPalette.widest)
                 .padding(.top, 48)
                 .padding(.horizontal, 24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else {
-            // As wide as it wants, within a narrow window.
+            // As wide as it may be, within a narrow window or side.
             content
-                .frame(maxWidth: 540) // The same width searching and exploring.
+                .frame(maxWidth: maxWidth)
                 .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 // One shadow for the whole panel, not one per row.
                 .compositingGroup()
                 .shadow(color: .black.opacity(0.25), radius: 24, y: 10)
-                .padding(.horizontal, 20) // Clear of a narrow window's edges.
         }
     }
 }
@@ -529,6 +601,13 @@ struct PaletteRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
                     .lineLimit(1)
+                if case .place(_, _, _, _, let path?) = item {
+                    Text(path)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                        .foregroundStyle(isHighlighted ? .white.opacity(0.8) : .secondary)
+                }
                 if case .note(_, _, let snippet?) = item {
                     Text(snippet.filter { $0 != SearchResult.matchStart && $0 != SearchResult.matchEnd }.replacingOccurrences(of: "\n", with: " "))
                         .font(.caption)
@@ -540,6 +619,11 @@ struct PaletteRow: View {
             if let detail {
                 Text(detail)
                     .font(.callout)
+                    .foregroundStyle(isHighlighted ? .white.opacity(0.8) : .secondary)
+            }
+            if case .place = item {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(isHighlighted ? .white.opacity(0.8) : .secondary)
             }
         }
@@ -557,6 +641,7 @@ struct PaletteRow: View {
         case .command(let command): command.symbol ?? "command"
         case .folder: "folder"
         case .template: "doc.on.doc"
+        case .place(_, _, _, let symbol, _): symbol
         }
     }
 
@@ -568,6 +653,7 @@ struct PaletteRow: View {
         case .command(let command): command.name
         case .folder(let folder): folder.isEmpty ? "Vault (top level)" : folder
         case .template(let name, _): name
+        case .place(_, let name, _, _, _): name
         }
     }
 
@@ -576,6 +662,7 @@ struct PaletteRow: View {
         case .note: isViewing ? "Viewing" : nil
         case .tag(_, let count): "\(count) \(count == 1 ? "note" : "notes")"
         case .create, .folder, .template: nil
+        case .place(_, _, let count, _, _): "\(count)"
         case .command(let command): command.shortcut
         }
     }
@@ -693,8 +780,8 @@ struct PaletteCommand {
         }
         // Last of the four offered before anything's typed (New Note, Move Note, Apply
         // Template, then this).
-        commands.append(PaletteCommand(name: "Explorer", shortcut: ShortcutStore.shared.label(for: .searchVault), isSuggested: true) {
-            DispatchQueue.main.async { model.togglePalette(.explorer) }
+        commands.append(PaletteCommand(name: "Browse Folders", shortcut: ShortcutStore.shared.label(for: .searchVault), isSuggested: true, symbol: "folder") {
+            DispatchQueue.main.async { model.togglePalette(.browse) }
         })
         if let note = model.selectedNote {
             // Each template, straight into the note.
@@ -752,8 +839,8 @@ private struct PaletteField: NSViewRepresentable {
     /// ⌘⌫: closes the highlighted tab, if it is one (returning true); otherwise the text
     /// field deletes to the start of the line as usual.
     var onCloseItem: (() -> Bool)?
-    /// ← at the start of the text, and → at its end (or ⌫ with nothing typed): for the
-    /// explorer to go up a level or into one.
+    /// ← at the start of the text (or ⌫ with nothing typed), and → at its end: to go up a
+    /// level while browsing, or into the place highlighted.
     var onLeft: (() -> Void)?
     var onRight: (() -> Void)?
 

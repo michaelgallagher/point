@@ -252,7 +252,7 @@ struct AppCommands: Commands {
         // No divider first: the menu already has one between groups, and two showed a gap.
         CommandGroup(after: .textEditing) {
             // The same in every layout, both in the palette: ⌘F, Search Vault, to search, open notes
-            // and run commands; ⌘E, Explorer, to browse folders and tags in two columns.
+            // and run commands; ⌘E, Browse Folders, to browse folders and tags a level at a time.
             // (The shortcut IDs keep their old names, so shortcuts changed in Settings stay put.)
             Button("Search Vault") { model?.togglePalette(.search) }
                 .shortcut(.explorer, in: shortcuts)
@@ -261,7 +261,7 @@ struct AppCommands: Commands {
             Button("Run Command…") { model?.togglePalette(.commands) }
                 .shortcut(.runCommand, in: shortcuts)
                 .disabled(model == nil || store.root == nil)
-            Button("Explorer") { model?.togglePalette(.explorer) }
+            Button("Browse Folders") { model?.togglePalette(.browse) }
                 .shortcut(.searchVault, in: shortcuts)
                 .disabled(model == nil || store.root == nil)
             // The sidebar's own filter field (there's no sidebar in Minimal).

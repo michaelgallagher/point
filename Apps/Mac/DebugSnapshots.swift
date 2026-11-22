@@ -487,12 +487,12 @@ enum DebugSnapshots {
                 }
             }),
             ("2-start-page", { model.newTab() }),
-            ("3-start-page-explorer", { model.togglePalette(.explorer) }),
+            ("3-start-page-browse", { model.togglePalette(.browse) }),
             ("3b-start-page-search-again", { model.togglePalette(.search) }),
             ("4-new-note", { model.createNote() }),
-            ("5-palette-explorer", {
+            ("5-palette-browse", {
                 model.closeTab() // The new, empty note goes, as an untouched new note does.
-                model.togglePalette(.explorer)
+                model.togglePalette(.browse)
             }),
             ("5b-palette-search", { model.togglePalette(.search) }),
             ("6-one-tab", {
@@ -501,8 +501,8 @@ enum DebugSnapshots {
             }),
             ("8-split", { model.toggleSplit() }),
             ("9-no-list", { model.showsNoteList = false }),
-            ("9b-tag-in-explorer", {
-                // A tag clicked with the sidebar hidden: its notes, in the explorer.
+            ("9b-tag-in-palette", {
+                // A tag clicked with the sidebar hidden: its notes, browsed in the palette.
                 if case .tag(let tag)? = model.tagNodes.first?.place { model.search(tag: tag) }
             }),
             ("7-note-in-folder", {
@@ -1695,7 +1695,7 @@ enum DebugSnapshots {
 
     /// `-PointShortcutTest <note ID>`, on a note whose first line is a list item: presses ⇧⌘1 and
     /// ⇧⌘2 through the menus (orange and red highlights), gives orange ⌃⌘J and presses that, then
-    /// ⌘F and ⌘E (Search Vault and Explorer). Puts the shortcuts back as they were after.
+    /// ⌘F and ⌘E (Search Vault and Browse Folders). Puts the shortcuts back as they were after.
     private static func shortcutTestIfAsked(for model: VaultModel) {
         guard let id = UserDefaults.standard.string(forKey: "PointShortcutTest") else { return }
         func check(_ name: String, _ ok: Bool, _ detail: String = "") {
@@ -1767,7 +1767,7 @@ enum DebugSnapshots {
                       check("⌘E is a menu key", press("e", keyCode: 14, .command, unmodified: "e"))
                       check("⌘F is a menu key", press("f", keyCode: 3, .command, unmodified: "f"))
                       check("⌘F is Edit › Search Vault", menuItem(["Edit", "Search Vault"]).map { $0.0.items[$0.1].keyEquivalent } == "f")
-                      check("⌘E is Edit › Explorer", menuItem(["Edit", "Explorer"]).map { $0.0.items[$0.1].keyEquivalent } == "e") },
+                      check("⌘E is Edit › Browse Folders", menuItem(["Edit", "Browse Folders"]).map { $0.0.items[$0.1].keyEquivalent } == "e") },
                 ]
                 for (index, step) in steps.enumerated() {
                     DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.6) { MainActor.assumeIsolated { step() } }

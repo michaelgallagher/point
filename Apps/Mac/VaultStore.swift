@@ -1151,7 +1151,7 @@ final class VaultStore: ObservableObject {
         didSet { UserDefaults.standard.set(showsRecentInSidebar, forKey: "showsRecentInSidebar"); listVersion += 1 }
     }
     /// Whether the sidebar lists the templates and attachments folders. (Templates are also
-    /// in Settings › Templates; either folder is still in the explorer.)
+    /// in Settings › Templates; either folder is still in Browse Folders.)
     @Published var showsTemplatesInSidebar = UserDefaults.standard.object(forKey: "showsTemplatesInSidebar") == nil || UserDefaults.standard.bool(forKey: "showsTemplatesInSidebar") {
         didSet { UserDefaults.standard.set(showsTemplatesInSidebar, forKey: "showsTemplatesInSidebar"); listVersion += 1 }
     }

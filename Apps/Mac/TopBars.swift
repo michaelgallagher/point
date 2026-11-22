@@ -273,7 +273,7 @@ private struct TopBarBackground: View {
 }
 
 /// The folders a note is in, from the vault's top ("Projects / Archive"), above its title on
-/// the page, each clickable to show it in the sidebar or the explorer. Empty for a note at the
+/// the page, each clickable to show it in the sidebar or the palette. Empty for a note at the
 /// vault's top.
 struct PanePath: View {
     @ObservedObject var model: VaultModel
