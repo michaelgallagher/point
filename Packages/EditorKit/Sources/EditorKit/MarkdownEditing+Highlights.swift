@@ -61,6 +61,51 @@ extension MarkdownEditing {
         return quoted
     }
 
+    /// A style across lines, or over a line's own markers (a list item triple-clicked): each
+    /// line's part of the selection in its own pair of markers, inside the line's markers, as
+    /// for highlighting, since a pair can't span lines or take in a bullet. If every line's
+    /// part is in the style already, the style comes off them all instead. Nil if nothing
+    /// would change.
+    func togglingInlineByLine(_ marker: String, kind: MarkdownToken.Kind) -> MarkdownEdit? {
+        let character = (marker as NSString).character(at: 0)
+        let segments = highlightSegments(kind: kind, markerCharacter: character)
+        guard let first = segments.first, let last = segments.last else { return nil }
+        let styled = tokens.filter { $0.kind == kind && $0.syntax.count == 2 }
+        let allStyled = segments.allSatisfy { segment in
+            styled.contains { NSLocationInRange(segment.location, $0.range) && NSMaxRange(segment) <= NSMaxRange($0.range) }
+        }
+        var range = NSRange(location: first.location, length: NSMaxRange(last) - first.location)
+        if allStyled {
+            let touched = styled.filter { token in segments.contains { NSIntersectionRange(token.range, $0).length > 0 } }
+            for token in touched { range = NSUnionRange(range, token.range) }
+            let replacement = text(in: range, leavingOut: touched.flatMap(\.syntax))
+            return MarkdownEdit(range: range, replacement: replacement,
+                                selection: NSRange(location: range.location, length: (replacement as NSString).length))
+        }
+        var replacement = ""
+        var at = first.location
+        for segment in segments {
+            replacement += text.substring(with: NSRange(location: at, length: segment.location - at))
+            replacement += marker + withoutMarkers(of: kind, in: segment) + marker
+            at = NSMaxRange(segment)
+        }
+        guard replacement != text.substring(with: range) else { return nil }
+        return MarkdownEdit(range: range, replacement: replacement,
+                            selection: NSRange(location: first.location, length: (replacement as NSString).length))
+    }
+
+    /// Whether the selection crosses a line break, or starts in its line's own markers (`- `,
+    /// `> `, `## `): a style then goes on each line's text separately.
+    var selectionNeedsStylingByLine: Bool {
+        guard selection.length > 0, NSMaxRange(selection) <= text.length else { return false }
+        var end = NSMaxRange(selection)
+        // A triple-click takes in the line break: that's still one line.
+        if end > selection.location, text.character(at: end - 1) == 10 { end -= 1 }
+        if text.range(of: "\n", range: NSRange(location: selection.location, length: end - selection.location)).location != NSNotFound { return true }
+        let line = parserLine(at: selection.location, withBreak: false)
+        return selection.location < contentStart(of: line)
+    }
+
     /// The note's highlights from `start` on, each with its text (markers left out), in order.
     public static func highlights(in text: String, from start: Int = 0, skipping: String? = nil) -> [(range: NSRange, text: String)] {
         let editing = MarkdownEditing(text: text, selection: NSRange(location: 0, length: 0))
@@ -100,7 +145,7 @@ extension MarkdownEditing {
 
     /// Where a line's text starts, after its block markers: quote markers, a footnote's label,
     /// a list item's marker and checkbox, a heading's hashes.
-    private func contentStart(of line: NSRange) -> Int {
+    func contentStart(of line: NSRange) -> Int {
         let string = text.substring(with: line)
         let pattern = #"^[ \t]*(?:>[ \t]?)*[ \t]*(?:\[\^[^\]\s]+\]:[ \t]*)?(?:(?:[-*+]|\d{1,9}[.)])[ \t]+(?:\[[ xX]\][ \t]+)?)?(?:#{1,6}[ \t]+)?"#
         guard let match = string.range(of: pattern, options: .regularExpression) else { return line.location }
@@ -112,33 +157,37 @@ extension MarkdownEditing {
     /// word's edge where `==` wouldn't be read as a highlight there (`don==’t`). For
     /// highlighting (not `forQuoting`), also over highlights it touches, and short of a bare
     /// link it ends on (which would take in the closing `==`).
-    func highlightSegments(skipping: String? = nil, forQuoting: Bool = false) -> [NSRange] {
+    func highlightSegments(skipping: String? = nil, forQuoting: Bool = false,
+                           kind: MarkdownToken.Kind = .highlight, markerCharacter: UInt16 = equals) -> [NSRange] {
         guard selection.length > 0, NSMaxRange(selection) <= text.length else { return [] }
         var segments: [NSRange] = []
         // Lines as the parser has them: split at line feeds only (not at U+2028 or U+2029).
         var at = parserLine(at: selection.location, withBreak: false).location
         while true {
             let line = parserLine(at: at, withBreak: false)
-            if let segment = segment(on: line, skipping: skipping, forQuoting: forQuoting) { segments.append(segment) }
+            if let segment = segment(on: line, skipping: skipping, forQuoting: forQuoting, kind: kind, markerCharacter: markerCharacter) {
+                segments.append(segment)
+            }
             at = NSMaxRange(line) + 1
             guard at < NSMaxRange(selection), at <= text.length else { break }
         }
         return segments
     }
 
-    /// The selection's part of one line, as `highlightSegments` describes; nil if none.
-    private func segment(on line: NSRange, skipping: String?, forQuoting: Bool) -> NSRange? {
+    /// The selection's part of one line, as `highlightSegments` describes, for a style of
+    /// `kind` whose markers are `markerCharacter`s; nil if none.
+    private func segment(on line: NSRange, skipping: String?, forQuoting: Bool, kind: MarkdownToken.Kind, markerCharacter: UInt16) -> NSRange? {
         guard !isInUnhighlightableBlock(line.location), !isSkipped(line, skipping) else { return nil }
         let lineStart = contentStart(of: line)
         var start = max(selection.location, lineStart)
         var end = min(NSMaxRange(selection), NSMaxRange(line))
         let trimmed = trimmingWhitespace(NSRange(location: start, length: max(0, end - start)))
         guard trimmed.length > 0 else { return nil }
-        // An `=` at an edge would run into the marker (`===`): left out, unless it's a
-        // highlight's own.
-        let ownMarkers = tokens.filter { $0.kind == .highlight && $0.syntax.count == 2 }
+        // A marker's character at an edge would run into the marker (`===`): left out, unless
+        // it's the style's own.
+        let ownMarkers = tokens.filter { $0.kind == kind && $0.syntax.count == 2 }
         if !ownMarkers.contains(where: { $0.range.location == trimmed.location || NSMaxRange($0.range) == NSMaxRange(trimmed) }) {
-            let rest = trimmingEdges(trimmed, of: Self.equals)
+            let rest = trimmingEdges(trimmed, of: markerCharacter)
             guard rest.length > 0 else { return nil }
             start = rest.location
             end = NSMaxRange(rest)
@@ -157,7 +206,7 @@ extension MarkdownEditing {
                 let r = token.range
                 let overlaps = r.location < end && NSMaxRange(r) > start
                 let partly = overlaps && (r.location < start || NSMaxRange(r) > end)
-                let touching = !forQuoting && token.kind == .highlight
+                let touching = !forQuoting && token.kind == kind
                     && (isSpacesOnly(from: NSMaxRange(r), to: start) || isSpacesOnly(from: end, to: r.location))
                 if partly || touching {
                     start = min(start, r.location)
@@ -208,7 +257,7 @@ extension MarkdownEditing {
     }
 
     private static func isSpace(_ c: UInt16) -> Bool { c == 0x20 || c == 0x09 || c == 0xA0 }
-    private static let equals = UInt16(UInt8(ascii: "="))
+    static let equals = UInt16(UInt8(ascii: "="))
 
     /// `range` without `character`s and spaces at either end.
     private func trimmingEdges(_ range: NSRange, of character: UInt16) -> NSRange {
@@ -239,8 +288,12 @@ extension MarkdownEditing {
     }
 
     /// A segment's text without the markers of the highlights inside it.
-    private func withoutHighlightMarkers(_ segment: NSRange) -> String {
-        let markers = tokens.filter { $0.kind == .highlight && $0.syntax.count == 2 && NSIntersectionRange($0.range, segment).length == $0.range.length }
+    private func withoutHighlightMarkers(_ segment: NSRange) -> String { withoutMarkers(of: .highlight, in: segment) }
+
+    /// A segment's text without the markers of the spans of `kind` inside it, so a style put on
+    /// it doesn't go on twice.
+    private func withoutMarkers(of kind: MarkdownToken.Kind, in segment: NSRange) -> String {
+        let markers = tokens.filter { $0.kind == kind && $0.syntax.count == 2 && NSIntersectionRange($0.range, segment).length == $0.range.length }
             .flatMap(\.syntax)
         return text(in: segment, leavingOut: markers)
     }

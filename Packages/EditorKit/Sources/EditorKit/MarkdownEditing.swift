@@ -95,6 +95,8 @@ public struct MarkdownEditing {
     /// - inside a word, the whole word is styled, or unstyled;
     /// - anywhere else, the style is held for what's typed next.
     func toggleInline(_ marker: String, kind: MarkdownToken.Kind) -> MarkdownEdit? {
+        // Across lines, or over a line's markers: each line's text styled on its own.
+        if selectionNeedsStylingByLine { return togglingInlineByLine(marker, kind: kind) }
         var selection = selection
         let cursor = NSRange(location: selection.location, length: 0)
 
