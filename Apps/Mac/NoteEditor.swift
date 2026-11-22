@@ -455,7 +455,7 @@ private struct EditorView: NSViewRepresentable {
         // Hidden until the header's height is known, so the text doesn't show at the top for a
         // moment and then move down.
         textView.alphaValue = 0
-        let header = NSHostingView(rootView: NoteHeaderHost(
+        let header = InNoteHostingView(rootView: NoteHeaderHost(
             session: session, model: model, paneID: paneID, offersTemplates: offersTemplates,
             onHeight: { [weak textView, animator = HeaderHeightAnimator(textView: textView)] height in
                 animator.move(to: height)
@@ -533,7 +533,7 @@ private struct EditorView: NSViewRepresentable {
         }
         textView.makeBlockEmbedView = { [weak model, weak session] embed in
             guard let model, let session, let root = root(embed, model: model, session: session) else { return NSView() }
-            let view = NSHostingView(rootView: root)
+            let view = InNoteHostingView(rootView: root)
             // The room the text made for it, not the size SwiftUI would make it.
             view.sizingOptions = []
             return view
@@ -541,7 +541,7 @@ private struct EditorView: NSViewRepresentable {
         // A list block's lines rewritten (its filters changed, say): the same view, given the
         // changed list, so it changes in place rather than being drawn again from nothing.
         textView.updateBlockEmbedView = { [weak model, weak session] view, embed in
-            guard let model, let session, let view = view as? NSHostingView<AnyView>,
+            guard let model, let session, let view = view as? InNoteHostingView<AnyView>,
                   let root = root(embed, model: model, session: session) else { return }
             view.rootView = root
         }
