@@ -166,6 +166,9 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     public var slashCommands: [SlashCommand] = []
     /// A command's shortcut, to show beside it in the slash menu.
     public var slashShortcut: ((SlashCommand.ID) -> String?)?
+    /// A formatting command's shortcut, by the action its menu item sends, to show beside it in
+    /// the formatting menu (see +FormatMenu).
+    public var formatShortcut: ((Selector) -> String?)?
     /// Does a slash command the editor can't do itself (a template, a property, a daily note),
     /// the `/` and what was typed after it gone. False: the editor does it, if it can.
     public var performSlashCommand: ((SlashCommand) -> Bool)?
@@ -924,6 +927,11 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     }
 
     public override func insertText(_ string: Any, replacementRange: NSRange) {
+        // Typed while the formatting menu shows: narrows it, leaving the selection be.
+        if replacementRange.location == NSNotFound, !hasMarkedText(),
+           let text = (string as? String) ?? (string as? NSAttributedString)?.string, typeIntoFormatMenu(text) {
+            return
+        }
         // Typed with several cursors: at each of them.
         if hasMultipleCursors, !isApplyingToCursors, replacementRange.location == NSNotFound, !hasMarkedText() {
             performAtEachCursor { self.insertText(string, replacementRange: replacementRange) }

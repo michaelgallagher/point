@@ -13,6 +13,9 @@ enum EditorPopupContext: Equatable {
     case tag(MarkdownEditing.Completion)
     /// The name after `@`, up to the cursor.
     case person(NSRange)
+    /// The formatting menu (see +FormatMenu), for the selection it opened for, and what's been
+    /// typed to narrow it.
+    case format(selection: NSRange, typed: String)
 
     /// Where it starts (the `/`, `[[`, `#` or `@`): Escape closes the popup for it, until
     /// another is typed.
@@ -22,6 +25,7 @@ enum EditorPopupContext: Equatable {
         case .note(let completion): completion.range.location - 2
         case .tag(let completion): completion.range.location - 1
         case .person(let range): range.location - 1
+        case .format(let selection, _): selection.location
         }
     }
 }
@@ -40,6 +44,7 @@ final class EditorPopup {
     /// The slash commands offered, or the titles, tags or people.
     var commands: [SlashCommand] = []
     var choices: [String] = []
+    var formatCommands: [FormatCommand] = []
     let model = EditorPopupModel()
     let view: NSHostingView<EditorPopupList>
 
@@ -56,6 +61,9 @@ final class EditorPopup {
 final class EditorPopupModel: ObservableObject {
     @Published var rows: [EditorPopupRow] = []
     @Published var highlighted = 0
+    /// What's typed to narrow the formatting menu, shown above its rows; nil for the others,
+    /// which narrow by what's typed in the note.
+    @Published var filter: String?
     var pick: (Int) -> Void = { _ in }
     /// Where the mouse first was over the popup, and whether it's moved since: only a mouse
     /// moving over the rows highlights one.
@@ -76,6 +84,11 @@ extension MarkdownTextView {
     /// Shows, narrows or closes the popup for the cursor where it is now.
     func updatePopup() {
         let selection = selectedRange()
+        // The formatting menu stays while its selection does.
+        if let popup, case .format(let opened, _) = popup.context {
+            if selection == opened, window?.firstResponder === self { return }
+            hidePopup()
+        }
         let context = selection.length == 0 && !hasMarkedText() && !hasMultipleCursors && window?.firstResponder === self
             ? popupContext(at: selection.location) : nil
         if dismissedPopup != nil, context?.anchor != dismissedPopup { dismissedPopup = nil }
@@ -99,6 +112,8 @@ extension MarkdownTextView {
         case .person(let range):
             popup.choices = completePerson?((string as NSString).substring(with: range)) ?? []
             popup.model.rows = popup.choices.map { EditorPopupRow(symbol: "person", title: $0) }
+        case .format:
+            return
         }
         guard popup.count > 0 else { return hidePopup() }
         if popup.model.rows.map(\.title) != previous { popup.model.highlighted = 0 }
@@ -145,7 +160,7 @@ extension MarkdownTextView {
     }
 
     /// Under the line where it starts, at its start; above it if there's no room below.
-    private func placePopup(_ popup: EditorPopup) {
+    func placePopup(_ popup: EditorPopup) {
         guard let layoutManager, let textContainer else { return }
         let anchor = min(max(popup.context.anchor, 0), max((string as NSString).length - 1, 0))
         let glyphs = layoutManager.glyphRange(forCharacterRange: NSRange(location: anchor, length: 1), actualCharacterRange: nil)
@@ -153,7 +168,7 @@ extension MarkdownTextView {
         line.origin.x += textContainerOrigin.x
         line.origin.y += textContainerOrigin.y
         let rows = min(popup.count, Self.popupVisibleRows)
-        let height = CGFloat(rows) * Self.popupRowHeight + 12
+        let height = CGFloat(rows + (popup.model.filter == nil ? 0 : 1)) * Self.popupRowHeight + 12
         let visible = visibleRect
         var y = line.maxY + 4
         if y + height > visible.maxY, line.minY - height - 4 > visible.minY { y = line.minY - height - 4 }
@@ -171,8 +186,10 @@ extension MarkdownTextView {
             popup.model.highlighted = (popup.model.highlighted + 1) % popup.count
         case #selector(insertNewline(_:)), #selector(insertTab(_:)):
             choosePopupRow(min(popup.model.highlighted, popup.count - 1))
+        case #selector(deleteBackward(_:)):
+            return deleteInFormatMenu()
         case #selector(cancelOperation(_:)), #selector(complete(_:)):
-            dismissedPopup = popup.context.anchor
+            if case .format = popup.context {} else { dismissedPopup = popup.context.anchor }
             hidePopup()
         default:
             return false
@@ -197,6 +214,9 @@ extension MarkdownTextView {
         guard let popup else { return }
         let context = popup.context
         switch context {
+        case .format:
+            guard popup.formatCommands.indices.contains(index) else { return }
+            runFormatCommand(popup.formatCommands[index])
         case .slash:
             guard popup.commands.indices.contains(index) else { return }
             runSlashCommand(popup.commands[index])
@@ -235,6 +255,30 @@ struct EditorPopupList: View {
     @ObservedObject var model: EditorPopupModel
 
     var body: some View {
+        VStack(spacing: 0) {
+            if let filter = model.filter {
+                // What's typed, as a search field shows it: the menu's own, not the note's.
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .frame(width: 18)
+                        .foregroundStyle(.secondary)
+                    Text(filter.isEmpty ? "Type to filter" : filter)
+                        .foregroundStyle(filter.isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .font(.system(size: 13))
+                .padding(.horizontal, 8)
+                .frame(height: MarkdownTextView.popupRowHeight)
+                .padding(.horizontal, 6)
+                .padding(.top, 6)
+            }
+            rowList
+        }
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: MarkdownTextView.popupCornerRadius))
+    }
+
+    private var rowList: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 0) {
@@ -255,12 +299,13 @@ struct EditorPopupList: View {
                             }
                     }
                 }
-                .padding(6)
+                .padding(.horizontal, 6)
+                .padding(.top, model.filter == nil ? 6 : 0)
+                .padding(.bottom, 6)
             }
             .scrollIndicators(.never)
             .onChange(of: model.highlighted) { _, index in proxy.scrollTo(index) }
         }
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: MarkdownTextView.popupCornerRadius))
     }
 
     private func line(_ row: EditorPopupRow, highlighted: Bool) -> some View {
