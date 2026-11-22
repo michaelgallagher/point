@@ -24,6 +24,7 @@ struct ShortcutsSheet: View {
         ("Finding", [
             (.commands([.findInNote]), "Find in note"),
             (.commands([.explorer]), "Search vault: notes, folders, tags and commands (> for only commands; a new name and Return makes that note)"),
+            (.fixed("⌘1 … ⌘4"), "In search vault: everything, only notes, folders and tags, only commands"),
             (.commands([.runCommand]), "Run a command: commands only, no notes"),
             (.commands([.searchVault]), "Browse folders: folders, tags and their notes, a level at a time"),
             (.commands([.searchInList]), "Filter the sidebar's list"),

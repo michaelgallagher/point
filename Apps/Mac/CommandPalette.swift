@@ -4,10 +4,10 @@ import EditorKit
 import SwiftUI
 import VaultKit
 
-/// ⌘E, Search Vault (mode `.search`): one place to open notes and folders, search tags and run
-/// commands (only commands after ">"), all from the keyboard. Run Command (mode `.commands`):
-/// only the commands. Browse Folders (mode `.browse`): the vault's folders, tags and notes, a place at a time
-/// (see `PaletteBrowse`); a folder picked in Search Vault opens there too.
+/// ⌘E, Search Vault: one place to open notes and folders, search tags and run commands, all from
+/// the keyboard, narrowed with ⌘1 to ⌘4 (see `PaletteScope`): everything, only notes, folders
+/// and tags (browsed a place at a time, see `PaletteBrowse`), or only commands (as after ">").
+/// Run Command and Browse Folders open it narrowed to commands or to folders.
 /// ⌃Tab: only the open tabs, in number order, to switch between them. Letting go of ⌃ goes to
 /// the one highlighted, which starts as the tab shown before this.
 /// An empty tab shows the same palette as a page: the start page.
@@ -29,27 +29,36 @@ struct CommandPalette: View {
     /// For a start page, the side it's on: what's picked on it opens there, in its own tab,
     /// even if the other side was being worked on since.
     var paneID: VaultModel.NotePane.ID?
-    /// On a start page: browsing folders, rather than searching.
-    @State private var pageBrowses = false
+    /// What it's narrowed to, once changed in it (⌘1 to ⌘4, the bar, a folder picked); until
+    /// then, what it was opened for.
+    @State private var chosenScope: PaletteScope?
     /// The floating palette's widest: narrower over a narrow window or side.
     var maxWidth: CGFloat = CommandPalette.widest
 
-    private var isBrowsing: Bool { isPage ? pageBrowses : model.paletteMode == .browse }
     private var isSwitchingTabs: Bool { !isPage && model.paletteMode == .tabs }
     private var isMovingNote: Bool { !isPage && model.paletteMode == .moveNote }
     private var isApplyingTemplate: Bool { !isPage && model.paletteMode == .applyTemplate }
-    private var isRunningCommands: Bool { !isPage && model.paletteMode == .commands }
+    /// Choosing a tab, a folder or a template: a job of its own, not narrowed.
+    private var isPicking: Bool { isSwitchingTabs || isMovingNote || isApplyingTemplate }
+    private var scope: PaletteScope {
+        chosenScope ?? (isPage ? .all : PaletteScope(mode: model.paletteMode))
+    }
+    private var isBrowsing: Bool { !isPicking && scope == .places }
+    private var isRunningCommands: Bool { !isPicking && scope == .commands }
+    private var isNotesOnly: Bool { !isPicking && scope == .notes }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: isBrowsing ? "folder" : isMovingNote ? "folder" : isApplyingTemplate ? "doc.on.doc" : isRunningCommands ? "command" : "map")
+                Image(systemName: isMovingNote ? "folder" : isApplyingTemplate ? "doc.on.doc" : isPicking ? "map" : scope.symbol)
                     .foregroundStyle(.secondary)
                     .frame(width: 20)
                 PaletteField(text: $query, placeholder: placeholder, fontSize: isPage ? 22 : 18,
                              onMove: move, onSubmit: run, onCancel: cancel, onCloseItem: closeHighlightedTab,
-                             onLeft: isBrowsing ? { browseUp() } : nil,
-                             onRight: isBrowsing || model.paletteMode == .search || isPage ? { enterHighlightedPlace() } : nil)
+                             onLeft: isPicking ? nil : { back() },
+                             onRight: isPicking ? nil : { enterHighlightedPlace() },
+                             onScope: isPicking ? nil : { number in PaletteScope(rawValue: number).map(setScope) },
+                             scopeKeysNeedFocus: isPage)
             }
             .font(isPage ? .title2 : .title3)
             .padding(.horizontal, 16)
@@ -64,10 +73,16 @@ struct CommandPalette: View {
             }
             .padding(.bottom, isPage ? 10 : 0)
 
+            if !isPicking {
+                PaletteScopeBar(scope: scope, choose: setScope)
+                    .padding(.horizontal, isPage ? 10 : 12)
+                    .padding(.top, isPage ? 0 : -10)
+                    .padding(.bottom, isPage ? 8 : 8)
+            }
+
             if isBrowsing {
                 PaletteBrowseTrail(place: browsePlace, model: model) { go(to: $0) }
                     .padding(.horizontal, isPage ? 16 : 18)
-                    .padding(.top, isPage ? 0 : -8)
                     .padding(.bottom, isPage ? 8 : 10)
             }
 
@@ -137,6 +152,7 @@ struct CommandPalette: View {
         .onChange(of: model.paletteMode) { _ in
             guard !isPage else { return }
             query = ""
+            chosenScope = nil
             if isBrowsing { browsePlace = model.browsePlace }
             refresh()
         }
@@ -154,8 +170,8 @@ struct CommandPalette: View {
         .onChange(of: model.startPageRequest.count) { _ in
             // Search Vault or Browse Folders on a start page switches the page itself.
             guard isPage else { return }
-            if model.startPageRequest.mode == .browse { browsePlace = model.browsePlace }
-            setPageBrowses(model.startPageRequest.mode == .browse)
+            query = ""
+            setScope(PaletteScope(mode: model.startPageRequest.mode))
         }
     }
 
@@ -170,22 +186,36 @@ struct CommandPalette: View {
         }
         if isSwitchingTabs { return "Switch to a tab" }
         if isRunningCommands { return "Run a command" }
+        if isNotesOnly { return "Search notes" }
         if isMovingNote { return "Move “\(model.selectedNote?.title ?? "")” to…" }
         if isApplyingTemplate { return model.templates.isEmpty ? "No templates (choose a folder in Settings, under Templates)" : "Apply a template to “\(model.selectedNote?.title ?? "")”" }
         return "Search or use commands"
     }
 
-    /// Escape closes the palette; on a start page, it clears what's typed, then stops
-    /// browsing.
+    /// Escape closes the palette; on a start page, it clears what's typed, then searches
+    /// everything again.
     private func cancel() {
         guard isPage else { return close() }
-        if !query.isEmpty { query = "" } else if pageBrowses { setPageBrowses(false) }
+        if !query.isEmpty { query = "" } else if scope != .all { setScope(.all) }
     }
 
-    private func setPageBrowses(_ browses: Bool) {
-        query = ""
-        pageBrowses = browses
+    /// Narrows the palette (⌘1 to ⌘4, or the bar), keeping what's typed; the one it's narrowed
+    /// to already goes back to everything. Folders start where they were last browsed.
+    private func setScope(_ new: PaletteScope) {
+        let new = new == scope && new != .all ? .all : new
+        if new == .places { browsePlace = model.browsePlace }
+        chosenScope = new
         refresh()
+    }
+
+    /// ← at the start of what's typed, or ⌫ with nothing typed: up a folder while browsing;
+    /// otherwise (or at the vault's top), back to everything.
+    private func back() {
+        if isBrowsing, let parent = PaletteBrowse.parent(of: browsePlace) {
+            go(to: parent, highlighting: PaletteBrowse.item(browsePlace, from: parent, model: model).id)
+        } else if scope != .all {
+            setScope(.all)
+        }
     }
 
     // MARK: Browsing
@@ -194,28 +224,10 @@ struct CommandPalette: View {
     private func go(to place: SidebarPlace, highlighting row: String? = nil) {
         browsePlace = place
         model.browsePlace = place
-        if isPage {
-            if !pageBrowses { pageBrowses = true }
-        } else if model.paletteMode != .browse {
-            // Its change starts at the place just set.
-            model.paletteMode = .browse
-            return
-        }
+        chosenScope = .places
         query = ""
         refresh()
         if let row, let index = items.firstIndex(where: { $0.id == row }) { highlighted = index }
-    }
-
-    /// ← or ⌫: up to the place above, the one left highlighted. At the top, a start page goes
-    /// back to searching.
-    private func browseUp() {
-        if let parent = PaletteBrowse.parent(of: browsePlace) {
-            go(to: parent, highlighting: PaletteBrowse.item(browsePlace, from: parent, model: model).id)
-        } else if isPage {
-            setPageBrowses(false)
-        } else {
-            NSSound.beep()
-        }
     }
 
     /// → at the end of what's typed: into the place highlighted, if it's one.
@@ -257,6 +269,7 @@ struct CommandPalette: View {
         let openSet = Set(openNotes.map(\.id))
         openIDs = openSet
         let bookmarked = model.bookmarkedNotes
+        let notesOnly = isNotesOnly
         searchTask = Task {
             // Each kind of thing in its own labelled section, in this order.
             var open: [PaletteItem] = [], marked: [PaletteItem] = [], notes: [PaletteItem] = []
@@ -265,7 +278,7 @@ struct CommandPalette: View {
             var commandsFirst = false, foldersFirst = false
             let trimmed = query.trimmingCharacters(in: .whitespaces)
 
-            if trimmed.hasPrefix(">") {
+            if trimmed.hasPrefix(">"), !notesOnly {
                 commandItems = Self.rank(commands, by: String(trimmed.dropFirst()), name: \.name).map(PaletteItem.command)
             } else if trimmed.hasPrefix("#"), !trimmed.contains(where: \.isWhitespace) {
                 // Only a tag so far: the matching tags. With more after it (`#design budget`),
@@ -336,6 +349,11 @@ struct CommandPalette: View {
                     commandsFirst = bestScore < bestTitle ?? .max
                 }
                 commandItems = ranked.prefix(commandsFirst ? 5 : 3).map(PaletteItem.command)
+            }
+            // Narrowed to notes (⌘2): nothing else.
+            if notesOnly {
+                (commandItems, tagItems, folderItems) = ([], [], [])
+                (commandsFirst, foldersFirst) = (false, false)
             }
             guard !Task.isCancelled else { return }
             // Nothing matched but the new note (and no command first): it comes first, so
@@ -843,6 +861,12 @@ private struct PaletteField: NSViewRepresentable {
     /// level while browsing, or into the place highlighted.
     var onLeft: (() -> Void)?
     var onRight: (() -> Void)?
+    /// ⌘1 to ⌘4 while typing in it: narrows the palette (1 to 4), before the menus see them
+    /// (⌘1 is also Heading 1).
+    var onScope: ((Int) -> Void)?
+    /// Whether ⌘1 to ⌘4 are taken only while it's being typed in: on a start page, where the
+    /// other side's note keeps them (⌘1 is Heading 1). Over the window, it has them as it shows.
+    var scopeKeysNeedFocus = false
 
     func makeNSView(context: Context) -> NSTextField {
         let field = NSTextField()
@@ -852,8 +876,14 @@ private struct PaletteField: NSViewRepresentable {
         field.focusRingType = .none
         field.font = .systemFont(ofSize: fontSize)
         field.delegate = context.coordinator
+        context.coordinator.field = field
+        context.coordinator.watchScopeKeys()
         DispatchQueue.main.async { field.window?.makeFirstResponder(field) }
         return field
+    }
+
+    static func dismantleNSView(_ field: NSTextField, coordinator: Coordinator) {
+        coordinator.stopWatchingScopeKeys()
     }
 
     func updateNSView(_ field: NSTextField, context: Context) {
@@ -866,7 +896,34 @@ private struct PaletteField: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: PaletteField
+        weak var field: NSTextField?
+        private var monitor: Any?
         init(parent: PaletteField) { self.parent = parent }
+
+        /// ⌘1 to ⌘4, taken while the field is being typed in, in the key window.
+        func watchScopeKeys() {
+            // On the main thread, as every local monitor is.
+            nonisolated(unsafe) weak var coordinator = self
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                guard event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command,
+                      let number = event.charactersIgnoringModifiers.flatMap(Int.init), (1...4).contains(number)
+                else { return event }
+                let taken = MainActor.assumeIsolated { coordinator?.takeScopeKey(number) ?? false }
+                return taken ? nil : event
+            }
+        }
+
+        @MainActor private func takeScopeKey(_ number: Int) -> Bool {
+            guard let field, let onScope = parent.onScope, field.window?.isKeyWindow == true,
+                  !parent.scopeKeysNeedFocus || field.currentEditor() != nil else { return false }
+            onScope(number)
+            return true
+        }
+
+        func stopWatchingScopeKeys() {
+            monitor.map(NSEvent.removeMonitor)
+            monitor = nil
+        }
 
         func controlTextDidChange(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
@@ -892,6 +949,68 @@ private struct PaletteField: NSViewRepresentable {
             default: return false
             }
             return true
+        }
+    }
+}
+
+/// What the palette is narrowed to, ⌘1 to ⌘4.
+enum PaletteScope: Int, CaseIterable {
+    case all = 1, notes, places, commands
+
+    /// How it opens for a palette mode: Browse Folders to folders, Run Command to commands.
+    init(mode: VaultModel.PaletteMode) {
+        switch mode {
+        case .browse: self = .places
+        case .commands: self = .commands
+        default: self = .all
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .all: "All"
+        case .notes: "Notes"
+        case .places: "Folders"
+        case .commands: "Commands"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .all: "magnifyingglass"
+        case .notes: "doc.text"
+        case .places: "folder"
+        case .commands: "command"
+        }
+    }
+}
+
+/// Under the field: what the palette can be narrowed to, the one it is marked, each a click
+/// or its ⌘ number away.
+struct PaletteScopeBar: View {
+    let scope: PaletteScope
+    let choose: (PaletteScope) -> Void
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(PaletteScope.allCases, id: \.self) { each in
+                let isOn = each == scope
+                Button { choose(each) } label: {
+                    HStack(spacing: 5) {
+                        Text(each.title)
+                        Text("⌘\(each.rawValue)")
+                            .foregroundStyle(isOn ? Color.accentColor.opacity(0.7) : Color.secondary.opacity(0.7))
+                    }
+                    .font(.callout)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(isOn ? Color.accentColor.opacity(0.15) : .clear))
+                    .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer(minLength: 0)
         }
     }
 }
