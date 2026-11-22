@@ -13,8 +13,15 @@ struct FormatMenuTests {
         return view
     }
 
+    /// Typed in the menu's own field.
     private func type(_ text: String, in view: MarkdownTextView) {
-        view.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+        view.popup?.model.filter = (view.popup?.model.filter ?? "") + text
+    }
+
+    /// Return in the field.
+    private func choose(in view: MarkdownTextView) {
+        guard let model = view.popup?.model else { return }
+        model.pick(model.highlighted)
     }
 
     @Test func opensWithEveryCommand() {
@@ -25,7 +32,7 @@ struct FormatMenuTests {
 
     @Test func returnAppliesTheHighlightedStyle() {
         let view = opened("Some words here", selecting: NSRange(location: 5, length: 5))
-        #expect(view.handlePopupKey(#selector(NSResponder.insertNewline(_:))))
+        choose(in: view)
         #expect(view.string == "Some **words** here")
         #expect(view.popup == nil)
     }
@@ -36,45 +43,48 @@ struct FormatMenuTests {
         #expect(view.string == "Some words here")
         #expect(view.selectedRange() == NSRange(location: 5, length: 5))
         #expect(view.popup?.model.rows.first?.title == "Strikethrough")
-        #expect(view.popup?.model.filter == "str")
-        #expect(view.handlePopupKey(#selector(NSResponder.insertTab(_:))))
+        view.popup?.model.move(by: 0)
+        choose(in: view)
         #expect(view.string == "Some ~~words~~ here")
+    }
+
+    @Test func downChoosesAnother() {
+        let view = opened("A line", selecting: NSRange(location: 0, length: 6))
+        type("heading", in: view)
+        view.popup?.model.move(by: 1)
+        choose(in: view)
+        #expect(view.string == "## A line")
     }
 
     @Test func findsByOtherNames() {
         let view = opened("A line", selecting: NSRange(location: 0, length: 6))
         type("h2", in: view)
         #expect(view.popup?.model.rows.map(\.title) == ["Heading 2"])
-        #expect(view.handlePopupKey(#selector(NSResponder.insertNewline(_:))))
+        choose(in: view)
         #expect(view.string == "## A line")
     }
 
-    @Test func typingWhatMatchesNothingIsIgnored() {
+    @Test func whatMatchesNothingLeavesNoRows() {
         let view = opened("Some words here", selecting: NSRange(location: 5, length: 5))
-        type("bo", in: view)
-        type("z", in: view)
-        #expect(view.popup?.model.filter == "bo")
+        type("boz", in: view)
+        #expect(view.popup?.model.rows.isEmpty == true)
+        choose(in: view)
         #expect(view.string == "Some words here")
     }
 
-    @Test func deleteTakesBackWhatWasTypedThenCloses() {
+    @Test func closingLeavesTheNoteAsItWas() {
         let view = opened("Some words here", selecting: NSRange(location: 5, length: 5))
         type("it", in: view)
-        #expect(view.handlePopupKey(#selector(NSResponder.deleteBackward(_:))))
-        #expect(view.popup?.model.filter == "i")
-        #expect(view.handlePopupKey(#selector(NSResponder.deleteBackward(_:))))
-        #expect(view.handlePopupKey(#selector(NSResponder.deleteBackward(_:))))
+        view.popup?.model.close()
         #expect(view.popup == nil)
         #expect(view.string == "Some words here")
+        #expect(view.selectedRange() == NSRange(location: 5, length: 5))
     }
 
-    @Test func escapeOrMovingTheSelectionClosesIt() {
-        let escaped = opened("Some words here", selecting: NSRange(location: 5, length: 5))
-        #expect(escaped.handlePopupKey(#selector(NSResponder.cancelOperation(_:))))
-        #expect(escaped.popup == nil)
-        let moved = opened("Some words here", selecting: NSRange(location: 5, length: 5))
-        moved.setSelectedRange(NSRange(location: 0, length: 0))
-        #expect(moved.popup == nil)
+    @Test func movingTheSelectionClosesIt() {
+        let view = opened("Some words here", selecting: NSRange(location: 5, length: 5))
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        #expect(view.popup == nil)
     }
 
     @Test func showsShortcuts() {

@@ -58,9 +58,10 @@ struct FormatCommand: Equatable {
 }
 
 /// The formatting menu (⌘J in the app): the editor's popup, under the selection, offering the
-/// Format menu's styles and kinds of line. Typing narrows it without touching the selection;
-/// Delete takes back what was typed (or, with nothing typed, closes it); up and down choose;
-/// Return, Tab or a click applies the one highlighted; Escape, or moving the selection, closes it.
+/// Format menu's styles and kinds of line. It has a search field of its own, with the keyboard,
+/// so typing narrows it without touching the note; the note's cursor stays where it was, still.
+/// Up and down choose; Return, Tab or a click applies the one highlighted; Escape, Delete with
+/// nothing typed, or clicking elsewhere closes it.
 extension MarkdownTextView {
     @objc public func showFormatMenu(_ sender: Any?) {
         guard !hasMarkedText(), !hasMultipleCursors else { return NSSound.beep() }
@@ -68,35 +69,21 @@ extension MarkdownTextView {
         dismissedPopup = nil
         let popup = EditorPopup(context: .format(selection: selectedRange(), typed: ""))
         popup.model.pick = { [weak self] in self?.choosePopupRow($0) }
+        popup.model.filter = ""
+        popup.model.onFilter = { [weak self] in self?.filterFormatMenu($0) }
+        popup.model.close = { [weak self] in self?.closeFormatMenu() }
         self.popup = popup
         addSubview(popup.view)
-        showFormatCommands(in: popup, typed: "")
+        filterFormatMenu("")
+        // The note's cursor, drawn still while the menu has the keyboard.
+        setNeedsDisplay(visibleRect)
     }
 
-    /// What's typed while the formatting menu shows: narrows it, unless nothing would be left
-    /// (then it beeps). Whether it was for the menu.
-    func typeIntoFormatMenu(_ text: String) -> Bool {
-        guard let popup, case .format(_, let typed) = popup.context else { return false }
-        let narrowed = typed + text
-        if FormatCommand.matching(FormatCommand.all, typed: narrowed).isEmpty { NSSound.beep(); return true }
-        showFormatCommands(in: popup, typed: narrowed)
-        return true
-    }
-
-    /// Delete while the formatting menu shows: takes back the last character typed, or with
-    /// nothing typed, closes it. Whether the menu was showing.
-    func deleteInFormatMenu() -> Bool {
-        guard let popup, case .format(_, let typed) = popup.context else { return false }
-        guard !typed.isEmpty else { hidePopup(); return true }
-        showFormatCommands(in: popup, typed: String(typed.dropLast()))
-        return true
-    }
-
-    private func showFormatCommands(in popup: EditorPopup, typed: String) {
-        guard case .format(let selection, _) = popup.context else { return }
+    /// Narrows the formatting menu to what's typed in its field.
+    func filterFormatMenu(_ typed: String) {
+        guard let popup, case .format(let selection, _) = popup.context else { return }
         popup.context = .format(selection: selection, typed: typed)
         popup.formatCommands = FormatCommand.matching(FormatCommand.all, typed: typed)
-        popup.model.filter = typed
         popup.model.rows = popup.formatCommands.map {
             EditorPopupRow(symbol: $0.symbol, title: $0.name, detail: formatShortcut?($0.action))
         }
@@ -104,11 +91,33 @@ extension MarkdownTextView {
         placePopup(popup)
     }
 
+    /// Closes the formatting menu, if it's showing and hasn't the keyboard any more (clicked
+    /// away from), or was asked to close.
+    func closeFormatMenu() {
+        guard let popup, case .format = popup.context else { return }
+        hidePopup()
+        setNeedsDisplay(visibleRect)
+    }
+
     /// Applies a command from the formatting menu, to the selection it opened for.
     func runFormatCommand(_ command: FormatCommand) {
         hidePopup()
+        setNeedsDisplay(visibleRect)
         breakUndoCoalescing()
         perform(command.action, with: self)
+    }
+
+    /// The note's cursor while the formatting menu has the keyboard: where it was, not blinking.
+    func drawFormatMenuCaret(in rect: NSRect) {
+        guard let popup, case .format(let selection, _) = popup.context, selection.length == 0, let window else { return }
+        let screen = firstRect(forCharacterRange: selection, actualRange: nil)
+        guard screen != .zero else { return }
+        let local = convert(window.convertFromScreen(screen), from: nil)
+        let spacing = local.height * (1 - 1 / max(styler.theme.lineHeightMultiple, 1)) / 2
+        let caret = NSRect(x: local.minX.rounded(.down), y: local.minY + spacing, width: 2, height: local.height - spacing * 2)
+        guard caret.intersects(rect) else { return }
+        insertionPointColor.withAlphaComponent(0.5).setFill()
+        caret.fill()
     }
 }
 #endif

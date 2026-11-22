@@ -61,9 +61,19 @@ final class EditorPopup {
 final class EditorPopupModel: ObservableObject {
     @Published var rows: [EditorPopupRow] = []
     @Published var highlighted = 0
-    /// What's typed to narrow the formatting menu, shown above its rows; nil for the others,
+    /// What's typed in the formatting menu's own field, above its rows; nil for the others,
     /// which narrow by what's typed in the note.
-    @Published var filter: String?
+    @Published var filter: String? {
+        didSet { if let filter, filter != oldValue, oldValue != nil { onFilter(filter) } }
+    }
+    var onFilter: (String) -> Void = { _ in }
+    /// Closes the popup: Escape in the field, or the field losing the keyboard.
+    var close: () -> Void = {}
+
+    func move(by step: Int) {
+        guard !rows.isEmpty else { return }
+        highlighted = (highlighted + step + rows.count) % rows.count
+    }
     var pick: (Int) -> Void = { _ in }
     /// Where the mouse first was over the popup, and whether it's moved since: only a mouse
     /// moving over the rows highlights one.
@@ -86,8 +96,8 @@ extension MarkdownTextView {
         let selection = selectedRange()
         // The formatting menu stays while its selection does.
         if let popup, case .format(let opened, _) = popup.context {
-            if selection == opened, window?.firstResponder === self { return }
-            hidePopup()
+            if selection == opened { return }
+            closeFormatMenu()
         }
         let context = selection.length == 0 && !hasMarkedText() && !hasMultipleCursors && window?.firstResponder === self
             ? popupContext(at: selection.location) : nil
@@ -129,8 +139,12 @@ extension MarkdownTextView {
     }
 
     func hidePopup() {
-        popup?.view.removeFromSuperview()
-        popup = nil
+        guard let popup else { return }
+        // The keyboard back to the note, if the popup's field had it.
+        let hadKeyboard = (window?.firstResponder as? NSView)?.isDescendant(of: popup.view) == true
+        self.popup = nil
+        popup.view.removeFromSuperview()
+        if hadKeyboard { window?.makeFirstResponder(self) }
     }
 
     /// What can be finished at the cursor, if anything: cheap, as it's asked each time the
@@ -186,8 +200,6 @@ extension MarkdownTextView {
             popup.model.highlighted = (popup.model.highlighted + 1) % popup.count
         case #selector(insertNewline(_:)), #selector(insertTab(_:)):
             choosePopupRow(min(popup.model.highlighted, popup.count - 1))
-        case #selector(deleteBackward(_:)):
-            return deleteInFormatMenu()
         case #selector(cancelOperation(_:)), #selector(complete(_:)):
             if case .format = popup.context {} else { dismissedPopup = popup.context.anchor }
             hidePopup()
@@ -249,6 +261,41 @@ extension MarkdownTextView {
     }
 }
 
+/// The formatting menu's search field: it takes the keyboard when the menu opens, and its
+/// arrows, Return, Tab and Escape drive the menu.
+struct EditorPopupField: View {
+    @ObservedObject var model: EditorPopupModel
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .frame(width: 18)
+                .foregroundStyle(.secondary)
+            TextField("Type to filter", text: Binding(get: { model.filter ?? "" }, set: { model.filter = $0 }))
+                .textFieldStyle(.plain)
+                .focused($focused)
+                .onKeyPress(.upArrow) { model.move(by: -1); return .handled }
+                .onKeyPress(.downArrow) { model.move(by: 1); return .handled }
+                .onKeyPress(.return) { choose() }
+                .onKeyPress(.tab) { choose() }
+                .onKeyPress(.escape) { model.close(); return .handled }
+                .onKeyPress(.delete) {
+                    guard model.filter?.isEmpty ?? true else { return .ignored }
+                    model.close()
+                    return .handled
+                }
+        }
+        .onAppear { DispatchQueue.main.async { focused = true } }
+        .onChange(of: focused) { _, isFocused in if !isFocused { model.close() } }
+    }
+
+    private func choose() -> KeyPress.Result {
+        if model.rows.indices.contains(model.highlighted) { model.pick(model.highlighted) }
+        return .handled
+    }
+}
+
 /// The popup's list: each row's symbol, name and shortcut, the highlighted one in the accent
 /// colour, on glass.
 struct EditorPopupList: View {
@@ -256,17 +303,8 @@ struct EditorPopupList: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if let filter = model.filter {
-                // What's typed, as a search field shows it: the menu's own, not the note's.
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .frame(width: 18)
-                        .foregroundStyle(.secondary)
-                    Text(filter.isEmpty ? "Type to filter" : filter)
-                        .foregroundStyle(filter.isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                }
+            if model.filter != nil {
+                EditorPopupField(model: model)
                 .font(.system(size: 13))
                 .padding(.horizontal, 8)
                 .frame(height: MarkdownTextView.popupRowHeight)
