@@ -67,7 +67,7 @@ struct ListPanel: View {
     }
 
     /// How much wider than the text column the list may be, shared between its two sides.
-    static let extraWidth: CGFloat = 320
+    static let extraWidth: CGFloat = 640
 
     private func write(_ changed: ListDefinition) {
         session.writeList(changed)
