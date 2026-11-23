@@ -98,7 +98,7 @@ private struct NoteHeader: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 // Where it is, above it: the folders, each a button (the first's text in line
                 // with the title's, its hover shading reaching out to the left).
                 if session.note.id.contains("/") {
