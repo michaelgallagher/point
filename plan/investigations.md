@@ -24,6 +24,14 @@ Found by Mike while writing a blog post. Blog writing usually happens in full sc
 
 Full screen has never been tested: the 25 October app review couldn't enter it from a debug hook, and the sidebar plan lists it under "not yet tried". Check it alongside focus mode, the split view and a second display.
 
+## Bug: thin lines below the text when a lot is selected (filed 23 November 2026)
+Seen by Mike in a long note in a split, probably selected by dragging down to the end: faint 1px lines of the selection colour, one line height apart, from the end of the text down the empty space, exactly as wide as the selection. Mike says it was there before the room past the end of the note. Not fixed, because it hasn't been reproduced.
+
+- **What the lines are:** partly covered pixel rows, like the antialiased edge of a selection fill. They're not drawn whole. The last line's highlight in Mike's picture also steps by a pixel partway along, so parts of the selection were drawn at different times with slightly different heights. That suggests pixels left over from an earlier drawing, not something drawn now.
+- **Clean everywhere tried:** offscreen drawing, whole and in fractional strips, with endings of blank lines, spaces, tabs, non-breaking spaces and `--`. In a test copy in the background: Select All, then jumping to the end, wheel steps, trackpad-style steps, or scrolling in fractional, line-sized steps into the room past the end. The same for a drag selection driven as AppKit's tracking does (growing with "still selecting", autoscrolling) down past the end, and fractional-strip redraws of the empty space. Each time the layer's own pixels were checked, stale ones included (`CALayer.render`, not a fresh drawing). Logging the layout manager's selection fills showed one correct rect, clipped to the area being drawn.
+- **Not tried properly:** an active window with the blue selection, with real mouse or trackpad input. Posted mouse events don't work, because AppKit's drag loop checks the real button, and the window couldn't be captured during the runs in front.
+- **Leads:** the editor draws into one `ContentLayer` the size of the visible area, which AppKit shifts as it scrolls; with line heights in fractions of a point, a shift might leave partial rows. Writing Tools' badge shows beside large selections and lays out views per line. Next: does the line pattern survive scrolling it away and back, or resizing the window? If it does, it's being drawn and the note's content matters; if not, it's stale pixels. Try it on the note itself.
+
 # Open questions
 
 1. **Templater:** do you use the Templater community plugin (`<% %>` syntax), or only Obsidian's core Templates? Templater scripts can't be run outside Obsidian. We'd preserve them, but they wouldn't expand.
