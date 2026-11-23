@@ -583,7 +583,25 @@ public final class MarkdownTextView: NSTextView, @preconcurrency NSTextStorageDe
     /// Makes room for the header (and any space below) when the view grows or shrinks to fit
     /// its text.
     public override func setConstrainedFrameSize(_ desiredSize: NSSize) {
-        super.setConstrainedFrameSize(NSSize(width: desiredSize.width, height: desiredSize.height + headerHeight + extraBottomSpace))
+        super.setConstrainedFrameSize(NSSize(width: desiredSize.width,
+                                             height: desiredSize.height + headerHeight + extraBottomSpace + scrollPastEndSpace))
+    }
+
+    /// Room past the end of the text, as in Zed: the note scrolls on until its last line is at
+    /// the top of the view, so what's being read at the end needn't stay at the bottom of the
+    /// window. A click in it goes to the end of the text, as a click below text does.
+    private(set) var scrollPastEndSpace: CGFloat = 0
+
+    /// Sizes the room past the end to the view's height (less the top bars, the margin and a
+    /// line): from the scroll view's `tile`, as the window or its bars change size.
+    func updateScrollPastEnd() {
+        guard let scrollView = enclosingScrollView, scrollView.documentView === self else { return }
+        let visible = scrollView.contentView.bounds.height - scrollView.contentInsets.top - scrollView.contentInsets.bottom
+        let line = layoutManager?.defaultLineHeight(for: font ?? .systemFont(ofSize: NSFont.systemFontSize)) ?? 20
+        let space = max(0, (visible - textContainerInset.height - extraBottomSpace - line).rounded())
+        guard space != scrollPastEndSpace else { return }
+        scrollPastEndSpace = space
+        sizeToFit()
     }
 
     /// Selects a range and scrolls it into the middle of the view, with the system's brief
@@ -1151,6 +1169,7 @@ public final class BarEdgeScrollView: NSScrollView {
 
     public override func tile() {
         super.tile()
+        (documentView as? MarkdownTextView)?.updateScrollPastEnd()
         keepAtTop()
         tileFoot()
         let height = contentInsets.top
