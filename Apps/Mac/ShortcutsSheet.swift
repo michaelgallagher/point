@@ -23,6 +23,7 @@ struct ShortcutsSheet: View {
         ]),
         ("Finding", [
             (.commands([.findInNote]), "Find in note"),
+            (.commands([.findNext, .findPrevious]), "Next, previous match in the note"),
             (.commands([.explorer]), "Search vault: notes, folders, tags and commands (> for only commands; a new name and Return makes that note)"),
             (.fixed("⌘1 … ⌘4"), "In search vault: everything, only notes, folders and tags, only commands"),
             (.commands([.runCommand]), "Run a command: commands only, no notes"),

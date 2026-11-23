@@ -122,6 +122,7 @@ A single flat list of notes won't scale, so the sidebar browses folders and tags
 |---|---|
 | ⌘E | Search Vault: the one palette, to find notes, folders and tags and use commands (`>` for only commands); a folder picked there is browsed in it, ← and → to go up and in (22 November 2026; was ⌘F, with Browse Folders on ⌘E and Run Command on ⇧⌘E) |
 | ⌘F | Find in Note (22 November 2026; was ⌥⌘F) |
+| ⌘G, ⇧⌘G | Find Next, Find Previous in the note, from its find bar or the text (22 November 2026; there were none, as Point has no standard Find menu) |
 | ⇧⌘F | The note list's search field, in the sidebar layouts (branch `minimalist`; was ⌘F) |
 | ⌘B / ⌘I / ⌘U | Bold / italic / highlight |
 | ⌘1 … ⌘6 | Heading level |

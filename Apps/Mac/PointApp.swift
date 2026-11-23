@@ -271,6 +271,10 @@ struct AppCommands: Commands {
                 .disabled(model == nil || store.root == nil)
             Button("Find in Note") { FindInNote.show() }
                 .shortcut(.findInNote, in: shortcuts)
+            Button("Find Next") { FindInNote.perform(.nextMatch) }
+                .shortcut(.findNext, in: shortcuts)
+            Button("Find Previous") { FindInNote.perform(.previousMatch) }
+                .shortcut(.findPrevious, in: shortcuts)
         }
         CommandGroup(after: .help) {
             Button("Keyboard Shortcuts") { model?.isShowingShortcuts = true }
@@ -362,11 +366,34 @@ struct AppCommands: Commands {
     }
 }
 
-/// Opens the find bar in the note being edited.
+/// The find bar in the note being edited: opening it, and the next and previous match.
 enum FindInNote {
-    @MainActor static func show() {
+    @MainActor static func show() { perform(.showFindInterface) }
+
+    /// Sent to the note whose find bar has the keyboard, as its search field isn't in the text's
+    /// responder chain (so ⌘G typed in the field would go nowhere); otherwise to the note being
+    /// typed in, which finds what was last searched for.
+    @MainActor static func perform(_ action: NSTextFinder.Action) {
         let item = NSMenuItem()
-        item.tag = NSTextFinder.Action.showFindInterface.rawValue
-        NSApp.sendAction(#selector(NSResponder.performTextFinderAction(_:)), to: nil, from: item)
+        item.tag = action.rawValue
+        if let text = textShowingFindBar() {
+            text.performTextFinderAction(item)
+        } else {
+            NSApp.sendAction(#selector(NSResponder.performTextFinderAction(_:)), to: nil, from: item)
+        }
+    }
+
+    /// The text whose find bar holds the keyboard: up from the field being typed in to the
+    /// scroll view showing the bar.
+    @MainActor private static func textShowingFindBar() -> NSTextView? {
+        var view = NSApp.keyWindow?.firstResponder as? NSView
+        while let current = view {
+            if let scroll = current as? NSScrollView, scroll.isFindBarVisible,
+               let text = scroll.documentView as? NSTextView {
+                return text
+            }
+            view = current.superview
+        }
+        return nil
     }
 }

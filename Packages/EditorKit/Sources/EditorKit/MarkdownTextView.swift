@@ -1048,6 +1048,29 @@ private final class FlippedView: NSView {
 /// instead: the same blur, fading out upwards, with no line, once there's more beneath.
 /// With `softTop`, the top's the soft style too: fading out downwards, with no wash or line.
 public final class BarEdgeScrollView: NSScrollView {
+    /// The find bar closed (Escape, Done) while it had the keyboard: the keyboard goes back to
+    /// this text, not wherever AppKit puts it next (in a split, the other side's note).
+    private var findBarHadKeyboard = false
+    public override var isFindBarVisible: Bool {
+        willSet {
+            guard isFindBarVisible, !newValue, let findBar = findBarView,
+                  let responder = window?.firstResponder else { findBarHadKeyboard = false; return }
+            // Typing in its field is the field editor, whose delegate is the field.
+            let view = (responder as? NSText)?.delegate as? NSView ?? responder as? NSView
+            findBarHadKeyboard = view?.isDescendant(of: findBar) == true
+        }
+        didSet {
+            guard findBarHadKeyboard, !isFindBarVisible, let text = documentView as? NSTextView else { return }
+            findBarHadKeyboard = false
+            window?.makeFirstResponder(text)
+            // And again once AppKit has finished closing the bar, which can move it after.
+            DispatchQueue.main.async { [weak self, weak text] in
+                guard let text, let window = self?.window, window.firstResponder !== text else { return }
+                window.makeFirstResponder(text)
+            }
+        }
+    }
+
     /// The soft style at the top as well (the two-column tree, on the sidebar's material, under
     /// the window buttons): the blur alone, fading below the inset, with no line.
     public var softTop = false {

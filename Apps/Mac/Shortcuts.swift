@@ -60,7 +60,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
     case newNote, newNoteFromTemplate, newList, newFolder, newTab, newTabOnOtherSide, newWindow, todaysNote, applyTemplate,
          openVault, closeTab, renameNote, moveToFolder, addTag, saveWebImages, toggleRead, toggleBookmark, showInFinder, moveToTrash
     // Edit
-    case explorer, runCommand, searchVault, searchInList, findInNote
+    case explorer, runCommand, searchVault, searchInList, findInNote, findNext, findPrevious
     // View
     case toggleNoteList, biggerText, smallerText, actualSize, split, moveTabToOtherSide, nextTab, previousTab,
          switchToTab, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, lastTab, showMarkdown, reloadNotes
@@ -83,7 +83,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         switch self {
         case .newNote, .newNoteFromTemplate, .newList, .newFolder, .newTab, .newTabOnOtherSide, .newWindow, .todaysNote, .applyTemplate,
              .openVault, .closeTab, .renameNote, .moveToFolder, .addTag, .saveWebImages, .toggleRead, .toggleBookmark, .showInFinder, .moveToTrash: "File"
-        case .explorer, .runCommand, .searchVault, .searchInList, .findInNote: "Edit"
+        case .explorer, .runCommand, .searchVault, .searchInList, .findInNote, .findNext, .findPrevious: "Edit"
         case .toggleNoteList, .biggerText, .smallerText, .actualSize, .split, .moveTabToOtherSide, .nextTab, .previousTab,
              .switchToTab, .tab1, .tab2, .tab3, .tab4, .tab5, .tab6, .tab7, .tab8, .lastTab,
              .showMarkdown, .reloadNotes: "View"
@@ -123,6 +123,8 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .searchVault: "Browse Folders"
         case .searchInList: "Filter List"
         case .findInNote: "Find in Note"
+        case .findNext: "Find Next"
+        case .findPrevious: "Find Previous"
         case .toggleNoteList: "Show or Hide Note List"
         case .biggerText: "Bigger Text"
         case .smallerText: "Smaller Text"
@@ -218,6 +220,8 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .explorer: Shortcut("e")
         case .searchInList: Shortcut("f", shift: true)
         case .findInNote: Shortcut("f")
+        case .findNext: Shortcut("g")
+        case .findPrevious: Shortcut("g", shift: true)
         case .toggleNoteList: Shortcut("s")
         case .biggerText: Shortcut("=") // The ⌘+ key, without Shift.
         case .smallerText: Shortcut("-")
