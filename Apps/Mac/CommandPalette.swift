@@ -40,6 +40,11 @@ struct CommandPalette: View {
     /// What it's narrowed to, once changed in it (⌘1 to ⌘4, the bar, a folder picked); until
     /// then, what it was opened for.
     @State private var chosenScope: PaletteScope?
+    /// With nothing typed, every bookmark rather than the first few (Show All Bookmarks).
+    @State private var showsAllBookmarks = false
+    /// Narrowed to commands with nothing typed, every command rather than the usual few
+    /// (Show All Commands).
+    @State private var showsAllCommands = false
     /// The floating palette's widest: narrower over a narrow window or side.
     var maxWidth: CGFloat = CommandPalette.widest
 
@@ -85,13 +90,14 @@ struct CommandPalette: View {
             if !steps.isEmpty {
                 PaletteStepTrail(titles: stepTitles, back: back)
                     .padding(.horizontal, isPage ? 16 : 18)
-                    .padding(.top, isPage ? 0 : -10)
-                    .padding(.bottom, isPage ? 8 : 10)
+                    .padding(.top, isPage ? 4 : -2)
+                    .padding(.bottom, isPage ? 10 : 10)
             } else if !isPicking {
+                // Clear of the field, so the two don't read as one cramped block.
                 PaletteScopeBar(scope: scope, choose: setScope)
                     .padding(.horizontal, isPage ? 10 : 12)
-                    .padding(.top, isPage ? 0 : -10)
-                    .padding(.bottom, isPage ? 8 : 8)
+                    .padding(.top, isPage ? 4 : -2)
+                    .padding(.bottom, isPage ? 10 : 10)
             }
 
             if isBrowsing {
@@ -101,7 +107,9 @@ struct CommandPalette: View {
             }
 
             if !items.isEmpty || !isPage || isBrowsing {
-                if !isPage { Divider() }
+                // A line between the field (and the bar under it) and the list, on a start page too.
+                Divider()
+                    .padding(.horizontal, isPage ? 4 : 0)
                 ScrollViewReader { scroller in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
@@ -210,7 +218,7 @@ struct CommandPalette: View {
             return model.templates.isEmpty ? "No templates (choose a folder in Settings, under Templates)" : "Apply a template to “\(model.note(id)?.title ?? "")”"
         case nil: break
         }
-        return "Search or use commands"
+        return "Search"
     }
 
     /// Escape closes the palette; on a start page, it clears what's typed, then searches
@@ -353,13 +361,15 @@ struct CommandPalette: View {
         case nil: break
         }
         if isRunningCommands { return refreshCommands() }
+        let commandHistory = model.store.commandHistory
         let commands = PaletteCommand.all(for: model)
         // Notes open in tabs come first, in number order, wherever the one being viewed is.
         let openNotes = model.openNoteIDs.compactMap { model.note($0) }
         let openSet = Set(openNotes.map(\.id))
         openIDs = openSet
-        let bookmarked = model.bookmarkedNotes
+        let bookmarked = Self.byViews(model.bookmarkedNotes, history: model.store.searchHistory)
         let notesOnly = isNotesOnly
+        let allBookmarks = showsAllBookmarks
         searchTask = Task {
             // Each kind of thing in its own labelled section, in this order.
             var open: [PaletteItem] = [], marked: [PaletteItem] = [], notes: [PaletteItem] = []
@@ -369,7 +379,7 @@ struct CommandPalette: View {
             let trimmed = query.trimmingCharacters(in: .whitespaces)
 
             if trimmed.hasPrefix(">"), !notesOnly {
-                commandItems = Self.rank(commands, by: String(trimmed.dropFirst()), name: \.name).map(PaletteItem.command)
+                commandItems = PaletteCommand.ranked(commands, by: String(trimmed.dropFirst()), history: commandHistory).map(PaletteItem.command)
             } else if trimmed.hasPrefix("#"), !trimmed.contains(where: \.isWhitespace) {
                 // Only a tag so far: the matching tags. With more after it (`#design budget`),
                 // the notes with that tag that match the rest, below.
@@ -378,8 +388,17 @@ struct CommandPalette: View {
                     .prefix(30).map { PaletteItem.tag($0.tag, $0.count) }
             } else if trimmed.isEmpty {
                 open = openNotes.map { PaletteItem.note($0.id, $0.title, nil) }
-                let markedNotes = bookmarked.filter { !openSet.contains($0.id) }
-                marked = markedNotes.map { PaletteItem.note($0.id, $0.title, nil) }
+                // Bookmarks are listed only narrowed to notes (⌘2); with everything, a
+                // bookmark comes up among the suggestions as any other note does.
+                let markedNotes = notesOnly ? bookmarked.filter { !openSet.contains($0.id) } : []
+                // A few, then a row to show the rest, so the suggestions stay in reach.
+                let start = Self.startCount
+                marked = markedNotes.prefix(allBookmarks ? markedNotes.count : start).map { PaletteItem.note($0.id, $0.title, nil) }
+                if !allBookmarks, markedNotes.count > start {
+                    marked.append(.action(PaletteAction(name: "Show All \(markedNotes.count) Bookmarks", symbol: "ellipsis",
+                                                        perform: .here { showsAllBookmarks = true })))
+                }
+                // Bookmarks not listed yet stay out of the suggestions, to come up under Show All.
                 let shown = openSet.union(markedNotes.map(\.id))
                 notesTitle = "Suggested"
                 // The notes opened and edited most lately (an edit counts as an open).
@@ -387,8 +406,9 @@ struct CommandPalette: View {
                 let scores = Dictionary(model.notes.map { ($0.id, history.score(of: $0.id, modified: $0.modified, now: now)) }, uniquingKeysWith: { a, _ in a })
                 notes = model.notes.filter { !shown.contains($0.id) }
                     .sorted { scores[$0.id]! != scores[$1.id]! ? scores[$0.id]! > scores[$1.id]! : $0.modified > $1.modified }
-                    .prefix(6).map { PaletteItem.note($0.id, $0.title, nil) }
-                commandItems = commands.filter(\.isSuggested).map(PaletteItem.command)
+                    .prefix(Self.startCount).map { PaletteItem.note($0.id, $0.title, nil) }
+                // The commands run most, or else the usual ones.
+                commandItems = PaletteCommand.ordered(commands, history: commandHistory).prefix(Self.startCount).map(PaletteItem.command)
             } else {
                 let hasTags = !SearchTags.tags(in: trimmed).isEmpty
                 // More than are shown, so a note picked for this before can come up from lower down.
@@ -406,7 +426,9 @@ struct CommandPalette: View {
                     }
                 }
                 open = matching(openNotes)
-                let markedNotes = bookmarked.filter { !openSet.contains($0.id) }
+                // Bookmarks have a section of their own only narrowed to notes; otherwise
+                // they're found as other notes are.
+                let markedNotes = notesOnly ? bookmarked.filter { !openSet.contains($0.id) } : []
                 marked = matching(markedNotes)
                 let shown = Set((open + marked).compactMap(\.noteID))
                 notes = found.filter { !shown.contains($0.noteID ?? "") }
@@ -429,7 +451,7 @@ struct CommandPalette: View {
                 // goes to Move Note… rather than a note that only mentions moving. Only when
                 // every word is a whole word or the start of one, so typing a new note's name
                 // and pressing Return still makes it.
-                let ranked = Self.rank(commands, by: trimmed, name: \.name)
+                let ranked = PaletteCommand.ranked(commands, by: trimmed, history: commandHistory)
                 let words = trimmed.split(whereSeparator: \.isWhitespace).map(String.init)
                 if !hasTags, trimmed.count >= 2, let best = ranked.first,
                    words.allSatisfy({ (Fuzzy.score(query: $0, name: best.name) ?? .max) <= 2 }),
@@ -437,6 +459,12 @@ struct CommandPalette: View {
                     let bestTitle = (open + marked + notes).filter { $0.noteID != nil }
                         .compactMap { Fuzzy.score(query: trimmed, name: $0.name) }.min()
                     commandsFirst = bestScore < bestTitle ?? .max
+                }
+                // A command picked for this before, and no note picked for it: first, as it
+                // was wanted last time ("mo", then Move Note…).
+                if !hasTags, !commandsFirst, let best = ranked.first, commandHistory.pick(for: trimmed) == best.key,
+                   model.store.searchHistory.pick(for: trimmed) == nil {
+                    commandsFirst = true
                 }
                 commandItems = ranked.prefix(commandsFirst ? 5 : 3).map(PaletteItem.command)
             }
@@ -454,6 +482,9 @@ struct CommandPalette: View {
                 ? [(notesTitle, notes), ("Folders", folderItems), ("Tags", tagItems), ("Commands", commandItems)]
                 : foldersFirst
                 ? [("Folders", folderItems), ("Open Tabs", open), ("Bookmarks", marked), (notesTitle, notes), ("Tags", tagItems), ("Commands", commandItems)]
+                : notesOnly && trimmed.isEmpty
+                // Narrowed to notes with nothing typed: the notes used lately before bookmarks.
+                ? [("Open Tabs", open), (notesTitle, notes), ("Bookmarks", marked)]
                 : [("Open Tabs", open), ("Bookmarks", marked), (notesTitle, notes), ("Folders", folderItems), ("Tags", tagItems), ("Commands", commandItems)]
             var all: [PaletteItem] = [], labels: [Int: String] = [:]
             for (title, group) in groups where !group.isEmpty {
@@ -509,13 +540,25 @@ struct CommandPalette: View {
         }
     }
 
-    /// Every command, filtered by what's typed (a leading ">", as in Search Vault, is ignored).
+    /// The commands, filtered by what's typed (a leading ">", as in Search Vault, is ignored).
+    /// With nothing typed, the ones run most (or else the usual ones), then a row to show the
+    /// rest, so every command can be found without them all crowding the list.
     private func refreshCommands() {
-        var commands = PaletteCommand.all(for: model)
+        let commands = PaletteCommand.all(for: model)
+        let history = model.store.commandHistory
         var trimmed = query.trimmingCharacters(in: .whitespaces)
         if trimmed.hasPrefix(">") { trimmed = String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces) }
-        if !trimmed.isEmpty { commands = Self.rank(commands, by: trimmed, name: \.name) }
-        items = commands.map(PaletteItem.command)
+        if !trimmed.isEmpty {
+            items = PaletteCommand.ranked(commands, by: trimmed, history: history).map(PaletteItem.command)
+        } else {
+            let ordered = PaletteCommand.ordered(commands, history: history)
+            let shown = showsAllCommands ? ordered.count : Self.commandCount
+            items = ordered.prefix(shown).map(PaletteItem.command)
+            if ordered.count > shown {
+                items.append(.action(PaletteAction(name: "Show All \(ordered.count) Commands", symbol: "ellipsis",
+                                                   perform: .here { showsAllCommands = true })))
+            }
+        }
         headers = [:]
         highlighted = 0
     }
@@ -575,6 +618,10 @@ struct CommandPalette: View {
         if case .place(let place, _, _, _, _) = item { return go(to: place) }
         // An action that asks for something (a folder, a template) asks here.
         if case .action(let action) = item, case .step(let step) = action.perform { return push(step) }
+        if case .action(let action) = item, case .here(let perform) = action.perform {
+            perform()
+            return refresh(keeping: highlighted)
+        }
         if case .action(let action) = item, case .browse(let place) = action.perform {
             steps = []
             return go(to: place)
@@ -589,7 +636,12 @@ struct CommandPalette: View {
             open(id, inNewTab: inNewTab)
         case .tag(let tag, _): model.search(tag: tag)
         case .create(let title): model.createNote(titled: title)
-        case .command(let command): command.action()
+        case .command(let command):
+            // Learned, so it comes up sooner next time.
+            var typed = query.trimmingCharacters(in: .whitespaces)
+            if typed.hasPrefix(">") { typed = String(typed.dropFirst()) }
+            model.store.commandRun(command.key, for: typed)
+            command.action()
         case .folder(let folder):
             if case .moveTo(let id) = step { model.move(noteID: id, toFolder: folder) }
         case .template(_, let url):
@@ -602,6 +654,19 @@ struct CommandPalette: View {
 
     private func close() {
         model.isPaletteShown = false
+    }
+
+    /// With nothing typed, how many bookmarks, suggested notes and commands are listed.
+    static let startCount = 4
+    /// Narrowed to commands with nothing typed, how many are listed before Show All.
+    static let commandCount = 8
+
+    /// Bookmarks, the ones opened most (and most lately) first; those never opened here
+    /// keep their bookmarked order, after.
+    static func byViews(_ notes: [Note], history: SearchHistory) -> [Note] {
+        let now = Date()
+        let scores = notes.map { history.score(of: $0.id, now: now) }
+        return notes.indices.sorted { scores[$0] != scores[$1] ? scores[$0] > scores[$1] : $0 < $1 }.map { notes[$0] }
     }
 }
 
@@ -796,24 +861,61 @@ struct PaletteRow: View {
 struct PaletteCommand {
     let name: String
     let shortcut: String?
-    /// Shown when the palette opens, before anything is typed.
-    var isSuggested = false
     /// Its icon, if not the command symbol.
     var symbol: String?
+    /// What it's learned under, if not its name: one key for a command named for what it'll
+    /// do now (Show Markdown, Hide Markdown), so using either counts for both.
+    var learnedAs: String?
     let action: () -> Void
+
+    var key: String { learnedAs ?? name }
+
+    /// Offered first until the palette has learned what's used: the usual things to do.
+    static let usual = ["New Note", "Move Note…", "Show in Finder", "Insert List", "New List", "Insert Table", "bookmark", "Enclosing Folder"]
+
+    /// A command run once counts for this little after about a month: forgotten, so it
+    /// doesn't stay ahead of the usual ones.
+    static let forgottenScore = 0.25
+
+    /// In the order they're offered with nothing typed: those run most, and most lately,
+    /// first; then the usual ones; then the rest by name.
+    static func ordered(_ commands: [PaletteCommand], history: SearchHistory) -> [PaletteCommand] {
+        let now = Date()
+        let scores = commands.map { history.score(of: $0.key, now: now) }.map { $0 < forgottenScore ? 0 : $0 }
+        let usual = commands.map { Self.usual.firstIndex(of: $0.key) ?? .max }
+        return commands.indices.sorted { a, b in
+            if scores[a] != scores[b] { return scores[a] > scores[b] }
+            if usual[a] != usual[b] { return usual[a] < usual[b] }
+            return commands[a].name.localizedStandardCompare(commands[b].name) == .orderedAscending
+        }.map { commands[$0] }
+    }
+
+    /// Those matching `query`, best match first; among matches about as good, the one picked
+    /// for this before, then those run most, then the usual ones.
+    static func ranked(_ commands: [PaletteCommand], by query: String, history: SearchHistory) -> [PaletteCommand] {
+        let query = query.trimmingCharacters(in: .whitespaces)
+        let ordered = Self.ordered(commands, history: history)
+        guard !query.isEmpty else { return ordered }
+        let scored: [(offset: Int, command: PaletteCommand, score: Int)] = ordered.enumerated().compactMap { offset, command in
+            guard let score = Fuzzy.score(query: query, name: command.name) else { return nil }
+            return (offset, command, score)
+        }
+        let matches = scored.sorted { $0.score != $1.score ? $0.score < $1.score : $0.offset < $1.offset }.map(\.command)
+        return history.rank(matches, for: query, id: { $0.key }, titleQuality: { Fuzzy.score(query: query, name: $0.name) })
+    }
 
     @MainActor static func all(for model: VaultModel) -> [PaletteCommand] {
         var commands = [
-            PaletteCommand(name: "New Note", shortcut: ShortcutStore.shared.label(for: .newNote), isSuggested: true) { model.createNote() },
+            PaletteCommand(name: "New Note", shortcut: ShortcutStore.shared.label(for: .newNote)) { model.createNote() },
             PaletteCommand(name: "Today's Note", shortcut: nil) { model.openTodaysNote() },
             PaletteCommand(name: "New Note from Template…", shortcut: nil) { model.isCreatingFromTemplate = true },
             PaletteCommand(name: "New List", shortcut: nil) { model.createList() },
             PaletteCommand(name: "New Folder…", shortcut: ShortcutStore.shared.label(for: .newFolder)) { model.newFolder() },
-            PaletteCommand(name: model.showsNoteList ? "Hide Note List" : "Show Note List", shortcut: ShortcutStore.shared.label(for: .toggleNoteList)) { model.showsNoteList.toggle() },
+            PaletteCommand(name: model.showsNoteList ? "Hide Note List" : "Show Note List", shortcut: ShortcutStore.shared.label(for: .toggleNoteList), learnedAs: "note list") { model.showsNoteList.toggle() },
             PaletteCommand(name: "Bigger Text", shortcut: ShortcutStore.shared.label(for: .biggerText)) { model.makeTextBigger() },
             PaletteCommand(name: "Smaller Text", shortcut: ShortcutStore.shared.label(for: .smallerText)) { model.makeTextSmaller() },
-            PaletteCommand(name: model.showsMarkdown ? "Hide Markdown" : "Show Markdown", shortcut: ShortcutStore.shared.label(for: .showMarkdown)) { model.showsMarkdown.toggle() },
-            PaletteCommand(name: model.showsTagsInList ? "Hide Tags in List" : "Show Tags in List", shortcut: nil) { model.showsTagsInList.toggle() },
+            PaletteCommand(name: model.showsMarkdown ? "Hide Markdown" : "Show Markdown", shortcut: ShortcutStore.shared.label(for: .showMarkdown), learnedAs: "markdown") { model.showsMarkdown.toggle() },
+            PaletteCommand(name: model.showsTagsInList ? "Hide Tags in List" : "Show Tags in List", shortcut: nil, learnedAs: "tags in list") { model.showsTagsInList.toggle() },
             PaletteCommand(name: "Sort by Date Edited", shortcut: nil) { model.sort = .modified },
             PaletteCommand(name: "Sort by Date Created", shortcut: nil) { model.sort = .created },
             PaletteCommand(name: "Sort by Title", shortcut: nil) { model.sort = .title },
@@ -861,7 +963,7 @@ struct PaletteCommand {
             },
         ]
         commands += [
-            PaletteCommand(name: model.isSplit ? "Merge Split into Tabs" : "Split", shortcut: ShortcutStore.shared.label(for: .split)) { model.toggleSplit() },
+            PaletteCommand(name: model.isSplit ? "Merge Split into Tabs" : "Split", shortcut: ShortcutStore.shared.label(for: .split), learnedAs: "split") { model.toggleSplit() },
             PaletteCommand(name: model.isSplit ? "Move Tab to Other Side" : "Move Tab to New Split", shortcut: nil) { model.moveTabToOtherSide() },
         ]
         commands.append(PaletteCommand(name: "Filter List", shortcut: ShortcutStore.shared.label(for: .searchInList)) { model.focusSearch() })
@@ -876,23 +978,23 @@ struct PaletteCommand {
         }
         if let note = model.selectedNote {
             commands += [
-                PaletteCommand(name: "Move Note…", shortcut: nil, isSuggested: true) {
+                PaletteCommand(name: "Move Note…", shortcut: nil) {
                     // After the palette running this has closed.
                     DispatchQueue.main.async { model.moveNoteInPalette() }
                 },
-                PaletteCommand(name: "Apply Template…", shortcut: ShortcutStore.shared.label(for: .applyTemplate), isSuggested: true) {
+                PaletteCommand(name: "Apply Template…", shortcut: ShortcutStore.shared.label(for: .applyTemplate)) {
                     // After the palette running this has closed.
                     DispatchQueue.main.async { model.applyTemplateInPalette() }
                 },
                 PaletteCommand(name: "Add Property…", shortcut: nil) { NotificationCenter.default.post(name: .pointAddProperty, object: model) },
                 PaletteCommand(name: "Rename Note…", shortcut: nil) { model.renaming = note },
                 PaletteCommand(name: "Add Tag…", shortcut: nil) { model.tagging = note },
-                PaletteCommand(name: model.isBookmarked(note.id) ? "Remove Bookmark" : "Add Bookmark", shortcut: nil) { model.toggleBookmark(note.id) },
+                PaletteCommand(name: model.isBookmarked(note.id) ? "Remove Bookmark" : "Add Bookmark", shortcut: nil, learnedAs: "bookmark") { model.toggleBookmark(note.id) },
                 PaletteCommand(name: "Show in Finder", shortcut: ShortcutStore.shared.label(for: .showInFinder)) { model.showInFinder(note) },
             ]
             if model.canMarkRead(note.id) {
                 commands.append(PaletteCommand(name: model.isUnread(note.id) ? "Mark as Read" : "Mark as Unread",
-                                               shortcut: ShortcutStore.shared.label(for: .toggleRead)) { model.toggleRead(note.id) })
+                                               shortcut: ShortcutStore.shared.label(for: .toggleRead), learnedAs: "read") { model.toggleRead(note.id) })
             }
             if WebImageNotes.shared.canSave(note.id) {
                 commands.append(PaletteCommand(name: "Save Web Images to Vault", shortcut: nil) { model.store.saveWebImages(in: note) })
@@ -902,9 +1004,7 @@ struct PaletteCommand {
                 PaletteCommand(name: "Find in Note", shortcut: ShortcutStore.shared.label(for: .findInNote)) { FindInNote.show() },
             ]
         }
-        // Last of the four offered before anything's typed (New Note, Move Note, Apply
-        // Template, then this).
-        commands.append(PaletteCommand(name: "Browse Folders", shortcut: ShortcutStore.shared.label(for: .searchVault), isSuggested: true, symbol: "folder") {
+        commands.append(PaletteCommand(name: "Browse Folders", shortcut: ShortcutStore.shared.label(for: .searchVault), symbol: "folder") {
             DispatchQueue.main.async { model.togglePalette(.browse) }
         })
         if let note = model.selectedNote {

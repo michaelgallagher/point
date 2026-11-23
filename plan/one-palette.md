@@ -42,3 +42,18 @@ All four: one field for everything, ranked by what's picked; narrowing done insi
    - **The field takes the keyboard as it joins its window,** not a moment after it's made: opened from ⇧⌘T, the field sometimes hadn't got focus, so Escape went nowhere.
    - **Tried:** the debug build, by posted key presses: ⌘K and Tab on a note and a folder, ← and Escape back out, Move to… moving a closed note, Apply Template… on a closed note (its file checked: properties merged, body after). VaultKit's `AppliedTemplateTests`. Mike, by hand: ⇧⌘T then Escape closes the palette, since the focus fix. **Not tried:** Insert Link, Copy Link and Show in Finder by hand.
 4. **Maybe later:** aliases (a typed "mv" straight to Move to…).
+
+## After a day of use (23 November)
+
+Mike's notes, and what was done:
+
+- **It learns which commands are used.** Each command run from the palette is remembered (`VaultStore.commandHistory`, a `SearchHistory` kept by command name, in `Point/History/commands.json`, for every vault on this Mac). The commands run most, and most lately, come first; a command run once drops back after about a month. One picked after typing something comes first for that text again, and before the notes if no note was picked for it. A command named for what it'll do now (Show or Hide Markdown, Add or Remove Bookmark) is learned under one name. Forget What Search Has Learned forgets these too.
+- **The usual commands first,** until it's learned otherwise: New Note, Move Note…, Show in Finder, Insert List, New List, Insert Table, Add or Remove Bookmark, Enclosing Folder; then the rest by name.
+- **Not every command at once:** narrowed to commands (⌘4) with nothing typed, the first 8, then Show All N Commands. Typing still finds any of them. With everything (⌘1), the first 4, as before.
+- **Bookmarks by how often they're opened,** most first; those never opened on this Mac keep their bookmarked order, after.
+- **Narrowed to notes (⌘2),** the suggested notes come before bookmarks.
+- **No bookmarks section with everything (⌘1):** a bookmark comes up among the suggestions and results as any note does.
+- **The field says "Search"** with everything, not "Search or use commands".
+- **More room between the field and the bar under it,** in both the palette and the start page.
+- **A start page has the line under its field and bar,** as the palette does.
+- **Tried:** the debug build's pictures (`-PointSnapshots`) of the palette and the start page. **Not tried:** the ⌘4 list and the learning by hand.

@@ -52,6 +52,8 @@ struct PaletteAction {
         case step(PaletteStep)
         /// Goes into a place, in the palette.
         case browse(SidebarPlace)
+        /// Done in the palette, which stays open and lists again (Show All Bookmarks).
+        case here(() -> Void)
     }
 
     @MainActor static func all(for subject: PaletteSubject, model: VaultModel) -> [PaletteAction] {

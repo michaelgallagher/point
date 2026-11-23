@@ -1665,6 +1665,24 @@ final class VaultStore: ObservableObject {
         pendingOpen = nil
         searchHistory.forget()
         saveSearchHistory()
+        commandHistory.forget()
+        Self.commandHistoryFile.save(commandHistory)
+    }
+
+    /// Which palette commands are run, how often and how lately, and which was picked for
+    /// what was typed, on this Mac, in any vault: the palette lists them first. Kept by a
+    /// command's key (`PaletteCommand.key`), as notes are kept by path.
+    private(set) lazy var commandHistory = Self.commandHistoryFile.load()
+    private static let commandHistoryFile = SearchHistory.File(url: FileManager.default
+        .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("Point/History/commands.json"))
+
+    /// A palette command run, after typing `query` (empty if it was picked from the list).
+    func commandRun(_ key: String, for query: String) {
+        let query = query.trimmingCharacters(in: .whitespaces)
+        if query.isEmpty { commandHistory.opened(key) } else { commandHistory.picked(key, for: query) }
+        // Small, and run seldom: saved at once.
+        Self.commandHistoryFile.save(commandHistory)
     }
 
     /// Notes that are gone take what was learned about them with them. Not while the vault

@@ -203,7 +203,7 @@ final class VaultModel: ObservableObject {
     func forgetSearchHistory() {
         let alert = NSAlert()
         alert.messageText = "Forget what search has learned?"
-        alert.informativeText = "Search will stop putting the notes you open and pick most first, until it learns them again. Your notes aren’t changed."
+        alert.informativeText = "Search will stop putting the notes and commands you use most first, until it learns them again. Your notes aren’t changed."
         alert.addButton(withTitle: "Forget")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
