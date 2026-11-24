@@ -866,7 +866,9 @@ private struct TextValue: View {
     }
 
     private var plainField: some View {
-        TextField("", text: $text)
+        // Wraps onto as many lines as it takes, rather than cutting a long value off. Return
+        // still saves it.
+        TextField("", text: $text, axis: .vertical)
             .textFieldStyle(.plain)
             .modifier(PropertyPlaceholder(text: "Empty", isShown: text.isEmpty))
             .focused($isFocused)
@@ -884,8 +886,13 @@ private struct TextValue: View {
     }
 
     private func commit() {
-        let value = text.trimmingCharacters(in: .whitespaces)
-        guard value != displayed else { return }
+        // A value is one line in the YAML: a line break typed (⌥↩) or pasted becomes a space.
+        let value = text.components(separatedBy: .newlines).joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+        guard value != displayed else {
+            if text != value { text = value }
+            return
+        }
         // A number must read as one; anything else goes back to what it was.
         if isNumber, !value.isEmpty, Double(value) == nil {
             NSSound.beep()
