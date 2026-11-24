@@ -427,11 +427,23 @@ private struct TextValue: View {
             .onChange(of: property) { _, _ in text = displayed }
         } else {
             VStack(alignment: .trailing, spacing: 6) {
-                TextField("Empty", text: $text)
+                // Wraps onto as many lines as it takes, rather than cutting a long value off.
+                TextField("Empty", text: $text, axis: .vertical)
                     .multilineTextAlignment(.trailing)
                     .keyboardType(isNumber ? .numbersAndPunctuation : .default)
+                    .submitLabel(.done)
                     .focused($isFocused)
                     .onSubmit(commit)
+                    // A field that wraps takes Return as a line break, but a value is one line
+                    // in the YAML: Return finishes it (leaving the field saves it), and a line
+                    // break pasted in becomes a space.
+                    .onChange(of: text) { _, new in
+                        guard new.contains(where: \.isNewline) else { return }
+                        let isReturn = new.last?.isNewline == true
+                        text = new.components(separatedBy: .newlines).joined(separator: " ")
+                            .trimmingCharacters(in: isReturn ? .whitespaces : [])
+                        if isReturn { isFocused = false }
+                    }
                     .onChange(of: isFocused) { _, focused in
                         if !focused {
                             isEditing = false
@@ -462,7 +474,8 @@ private struct TextValue: View {
     }
 
     private func commit() {
-        let value = text.trimmingCharacters(in: .whitespaces)
+        let value = text.components(separatedBy: .newlines).joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
         guard value != displayed else { return }
         // A number must read as one; anything else goes back to what it was.
         if isNumber, !value.isEmpty, Double(value) == nil {
