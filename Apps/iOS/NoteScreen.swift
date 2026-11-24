@@ -184,6 +184,7 @@ struct NoteScreen: View {
             // The index has taken in changed notes: what links here may have changed.
             .onChange(of: store.indexUpdates) { _, _ in session.refreshRelated() }
             .onDisappear {
+                session.stopObservingUndo()
                 if store.search.noteShowing == session.note.id { store.search.noteShowing = nil }
                 guard !isDeleting else { return session.moveToTrash() }
                 session.keepPlace()
@@ -1018,16 +1019,26 @@ final class NoteSession: NSObject, ObservableObject, UITextViewDelegate {
         try? store.versions.keep(onDisk, for: note.id)
     }
 
-    /// Follows the note's undo, for the Undo and Redo buttons.
+    /// Follows the note's undo, for the Undo and Redo buttons, while the note is showing.
+    ///
+    /// Not `.NSUndoManagerCheckpoint`: asking `canRedo` posts one, so `updateUndo` would set
+    /// itself off again without end, and with a second note open, every note's observer
+    /// answering every checkpoint, the work doubled each round until the app ran out of memory.
     func observeUndo() {
-        undoObservers.forEach(NotificationCenter.default.removeObserver)
+        stopObservingUndo()
         let names: [Notification.Name] = [.NSUndoManagerDidCloseUndoGroup, .NSUndoManagerDidUndoChange,
-                                          .NSUndoManagerDidRedoChange, .NSUndoManagerCheckpoint]
+                                          .NSUndoManagerDidRedoChange]
         undoObservers = names.map {
             NotificationCenter.default.addObserver(forName: $0, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor [weak self] in self?.updateUndo() }
+                MainActor.assumeIsolated { self?.updateUndo() }
             }
         }
+        updateUndo()
+    }
+
+    func stopObservingUndo() {
+        undoObservers.forEach(NotificationCenter.default.removeObserver)
+        undoObservers = []
     }
 
     private func updateUndo() {
